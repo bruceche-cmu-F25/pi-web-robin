@@ -899,6 +899,7 @@ export function SkillsConfig({
 
   return (
     <div
+      className="pi-modal-backdrop"
       style={{
         position: "fixed",
         inset: 0,
@@ -913,6 +914,7 @@ export function SkillsConfig({
       }}
     >
       <div
+        className="pi-modal"
         style={{
           width: isMobile ? "calc(100vw - 16px)" : 860,
           maxWidth: "calc(100vw - 16px)",

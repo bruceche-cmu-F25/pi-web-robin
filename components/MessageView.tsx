@@ -365,12 +365,14 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
 
   return (
     <div
+      className="pi-message pi-message--user"
       style={{ marginBottom: 16, display: "flex", flexDirection: "column", alignItems: "flex-end" }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      <div style={{ display: "flex", alignItems: "flex-end", gap: 6, maxWidth: "85%" }}>
+      <div className="pi-user-message-wrap" style={{ display: "flex", alignItems: "flex-end", gap: 6, maxWidth: "85%" }}>
         <div
+          className="pi-user-message-frame"
           style={{
             flex: 1,
             minWidth: 0,
@@ -457,7 +459,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
 
       {/* Bottom row: action buttons + timestamp */}
       {(time || canFork || canNavigate || true) && (
-        <div style={{
+        <div className="pi-message-actions" style={{
           display: "flex", alignItems: "center", justifyContent: "flex-end",
           gap: 6, marginTop: 3,
         }}>
@@ -714,12 +716,14 @@ function AssistantMessageView({
 
   return (
     <div
+      className="pi-message pi-message--assistant"
       style={{ marginBottom: 16 }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
       {/* Model label */}
       <div
+        className="pi-assistant-meta"
         style={{
           fontSize: 11,
           color: "var(--text-dim)",
@@ -760,7 +764,7 @@ function AssistantMessageView({
         })()}
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div className="pi-assistant-blocks" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {blockItems.map(({ block, originalIndex }) => (
           <BlockView key={`${entryId ?? "stream"}-${originalIndex}`} block={block} toolResults={toolResults} isStreaming={isStreaming} streamingDuration={streamingDurations.get(originalIndex) ?? (block.type === "thinking" ? thinkingDurationFromFile : undefined)} toolCallDurations={toolCallDurations} cwd={cwd} onOpenFile={onOpenFile} sessionId={sessionId} entryId={entryId} blockIndex={originalIndex} />
         ))}
@@ -896,6 +900,7 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
 
   return (
     <div
+      className="pi-process-card pi-thinking-card"
       style={{
         border: "1px solid var(--border)",
         borderRadius: 6,
@@ -904,6 +909,7 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
       }}
     >
       <button
+        className="pi-process-card-header"
         onClick={() => void toggle()}
         style={{
           display: "flex",
@@ -961,6 +967,8 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
 
   return (
     <div
+      className="pi-process-card pi-tool-card"
+      data-error={isError ? "true" : undefined}
       style={{
         borderRadius: 7,
         overflow: "hidden",
@@ -971,6 +979,7 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
     >
       {/* ── Tool call header ── */}
       <button
+        className="pi-process-card-header"
         onClick={() => setExpanded((v) => !v)}
         style={{
           display: "flex",
@@ -1317,8 +1326,9 @@ function CompactionMessageView({ message }: { message: CustomMessage }) {
   const time = formatTime(message.timestamp);
 
   return (
-    <div style={{ marginBottom: 16 }}>
+    <div className="pi-message pi-message--compaction" style={{ marginBottom: 16 }}>
       <div
+        className="pi-compaction-card"
         style={{
           border: "1px solid var(--border)",
           borderRadius: 8,

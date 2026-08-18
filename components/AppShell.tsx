@@ -12,6 +12,7 @@ import { ProjectTrustDialog } from "./ProjectTrustDialog";
 import { BranchNavigator } from "./BranchNavigator";
 import { useTheme } from "@/hooks/useTheme";
 import { useI18n } from "@/hooks/useI18n";
+import { UiStyleToggle } from "./ui/UiStyleToggle";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useViewportHeight } from "@/hooks/useViewportHeight";
 import { useResizablePanel } from "@/hooks/useResizablePanel";
@@ -43,6 +44,7 @@ import {
   SIDEBAR_MIN_WIDTH,
 } from "@/lib/panel-layout";
 import type { BlockingExtensionUiRequest, SessionInfo, SessionTreeNode } from "@/lib/types";
+import type { SessionSearchTarget } from "@/lib/session-search";
 import type { ProjectTrustStatus } from "@/lib/api-types";
 import type { ChatInputHandle } from "./ChatInput";
 import type { SessionStatsInfo } from "@/lib/pi-types";
@@ -88,6 +90,9 @@ export function AppShell() {
     if (soundEnabledRef.current) playDoneSound();
   }, [playDoneSound, soundEnabledRef]);
   const [selectedSession, setSelectedSession] = useState<SessionInfo | null>(null);
+  const [sessionSearchOpen, setSessionSearchOpen] = useState(false);
+  const [sessionSearchTarget, setSessionSearchTarget] = useState<SessionSearchTarget | null>(null);
+  const sessionSearchRequestIdRef = useRef(0);
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
   const handleRunningSessionIdsChange = useCallback((ids: Set<string>) => {
     setRunningSessionIds((previous) => {
@@ -297,6 +302,12 @@ export function AppShell() {
     }
     setSidebarOpen((open) => !open);
   }, [isMobile]);
+
+  const handleSessionSearchShortcut = useCallback(() => {
+    setSidebarOpen(true);
+    setActiveTopPanel(null);
+    setMobileToolbarMoreOpen(false);
+  }, []);
 
   const handleMobileToolbarMoreToggle = useCallback(() => {
     setSidebarOpen(false);
@@ -548,6 +559,8 @@ export function AppShell() {
     setNewSessionDraftId(draftId);
     activeNewSessionDraftKeyRef.current = `new:${draftId}:${cwd}`;
     setSelectedSession(null);
+    setSessionSearchOpen(false);
+    setSessionSearchTarget(null);
     setNewSessionCwd((prev) => {
       if (prev && prev !== cwd) return null;
       return prev;
@@ -571,7 +584,13 @@ export function AppShell() {
     router.replace("/", { scroll: false });
   }, [activeCwd, invalidateWorkspaceRestore, newSessionCwd, router, selectedSession, restoreWorkspaceContext]);
 
-  const handleSelectSession = useCallback((session: SessionInfo, isRestore = false) => {
+  const handleSelectSession = useCallback((
+    session: SessionInfo,
+    isRestore = false,
+    searchTarget: SessionSearchTarget | null = null,
+  ) => {
+    setSessionSearchTarget(searchTarget);
+    setSessionSearchOpen(searchTarget !== null);
     invalidateWorkspaceRestore();
     activeNewSessionDraftKeyRef.current = null;
     // Re-clicking the already-open session must not remount the chat and
@@ -606,12 +625,23 @@ export function AppShell() {
     }
   }, [invalidateWorkspaceRestore, router, isMobile, selectedSession]);
 
+  const handleSelectSessionMatch = useCallback((session: SessionInfo, entryId: string, query: string) => {
+    handleSelectSession(session, false, {
+      requestId: ++sessionSearchRequestIdRef.current,
+      sessionId: session.id,
+      entryId,
+      query,
+    });
+  }, [handleSelectSession]);
+
   const handleNewSession = useCallback((sessionId: string, cwd: string) => {
     invalidateWorkspaceRestore();
     const draftKey = `new:${sessionId}:${cwd}`;
     activeNewSessionDraftKeyRef.current = draftKey;
     setNewSessionDraftId(sessionId);
     setSelectedSession(null);
+    setSessionSearchOpen(false);
+    setSessionSearchTarget(null);
     setNewSessionCwd(cwd);
     setSessionKey((k) => k + 1);
     setBranchTree([]);
@@ -768,6 +798,8 @@ export function AppShell() {
     setRefreshKey((k) => k + 1);
     setSessionKey((k) => k + 1);
     setNewSessionCwd(null);
+    setSessionSearchOpen(false);
+    setSessionSearchTarget(null);
     setSelectedSession((prev) => ({
       ...(prev ?? { path: "", cwd: "", created: "", modified: "", messageCount: 0, firstMessage: "" }),
       id: newSessionId,
@@ -792,6 +824,8 @@ export function AppShell() {
       setNewSessionDraftId(draftId);
       activeNewSessionDraftKeyRef.current = cwd ? `new:${draftId}:${cwd}` : null;
       setSelectedSession(null);
+      setSessionSearchOpen(false);
+      setSessionSearchTarget(null);
       setNewSessionCwd(cwd ?? null);
       setSessionKey((k) => k + 1);
       setBranchTree([]);
@@ -1023,6 +1057,8 @@ export function AppShell() {
       <SessionSidebar
         selectedSessionId={selectedSession?.id ?? null}
         onSelectSession={handleSelectSession}
+        onSelectSessionMatch={handleSelectSessionMatch}
+        onSessionSearchShortcut={handleSessionSearchShortcut}
         onNewSession={handleNewSession}
         initialSessionId={initialSessionId}
         skipInitialProjectSelection={initialNavigation.requestedCwd !== null}
@@ -1245,6 +1281,39 @@ export function AppShell() {
         <button
           type="button"
           onClick={() => {
+            setSessionSearchTarget(null);
+            setSessionSearchOpen((open) => !open);
+            if (mobile) setMobileToolbarMoreOpen(true);
+          }}
+          disabled={!showChat}
+          title={translate("sessionSearch.current")}
+          aria-label={translate("sessionSearch.current")}
+          aria-pressed={sessionSearchOpen}
+          className="ui-action ui-action--surface"
+          data-active={sessionSearchOpen ? "true" : undefined}
+          data-state={showChat ? undefined : "dim"}
+          data-inert={showChat ? undefined : "true"}
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "center",
+            width: TOP_BAR_ICON_BUTTON_SIZE,
+            height: "100%", padding: 0,
+            border: "none",
+            borderTop: sessionSearchOpen ? "2px solid var(--accent)" : "2px solid transparent",
+            borderRight: "1px solid var(--border)",
+            cursor: showChat ? "pointer" : "not-allowed",
+            opacity: showChat ? 1 : 0.45,
+            flexShrink: 0, fontSize: 11, whiteSpace: "nowrap",
+          }}
+          data-mobile-toolbar-action={mobile ? "search" : undefined}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="7" />
+            <path d="m20 20-3.5-3.5" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          onClick={() => {
             handleViewFullHistory();
             if (mobile) setMobileToolbarMoreOpen(true);
           }}
@@ -1434,6 +1503,7 @@ export function AppShell() {
           </svg>
           {!mobile && <span>{translate("system.label")}</span>}
         </button>
+        {mobile && <UiStyleToggle />}
         {mobile && renderThemeButton(true)}
         {mobile && renderLanguageButton(true)}
       </div>
@@ -1761,7 +1831,7 @@ export function AppShell() {
         }
       }
     `}</style>
-    <div style={{
+    <div className="pi-app-shell" style={{
       display: "flex",
       width: "100%",
       height: "var(--app-viewport-height, 100dvh)",
@@ -1815,10 +1885,10 @@ export function AppShell() {
       )}
 
       {/* Center: chat */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
+      <div className="pi-main-column" style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
         {/* Top bar with sidebar toggle */}
-        <div ref={topBarRef} style={{ flexShrink: 0, background: "var(--bg-panel)" }}>
-        <div style={{ display: "flex", alignItems: "center", position: "relative", borderBottom: "1px solid var(--border)", height: "calc(36px + env(safe-area-inset-top))", paddingTop: "env(safe-area-inset-top)" }}>
+        <div ref={topBarRef} className="pi-topbar-shell" style={{ flexShrink: 0, background: "var(--bg-panel)" }}>
+        <div className="pi-topbar" style={{ display: "flex", alignItems: "center", position: "relative", borderBottom: "1px solid var(--border)", height: "calc(36px + env(safe-area-inset-top))", paddingTop: "env(safe-area-inset-top)" }}>
           <button
             onClick={handleSidebarToggle}
              title={sidebarOpen ? translate("sidebar.hide") : translate("sidebar.show")}
@@ -1913,6 +1983,7 @@ export function AppShell() {
           )}
           {!isMobile && (
             <>
+              <UiStyleToggle />
               {renderThemeButton(false)}
               {renderLanguageButton(false)}
               {renderProjectTrustWarning(false)}
@@ -2182,12 +2253,15 @@ export function AppShell() {
         </div>
 
         {/* Chat content */}
-        <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
+        <div className="pi-workspace-stage" style={{ flex: 1, overflow: "hidden", position: "relative" }}>
           {showChat ? (
             <ChatWindow
               key={sessionKey}
               session={selectedSession}
               sessionRunning={Boolean(selectedSession && runningSessionIds.has(selectedSession.id))}
+              sessionSearchOpen={sessionSearchOpen}
+              sessionSearchTarget={sessionSearchTarget}
+              onSessionSearchOpenChange={setSessionSearchOpen}
               newSessionCwd={effectiveNewSessionCwd}
               newSessionDraftKey={newSessionDraftKey}
               onAgentEnd={handleAgentEnd}
@@ -2281,7 +2355,7 @@ export function AppShell() {
         } as React.CSSProperties}
       >
         {/* Right panel tab bar */}
-        <div style={{
+        <div className="pi-right-panel-bar" style={{
           display: "flex",
           alignItems: "center",
           flexShrink: 0,

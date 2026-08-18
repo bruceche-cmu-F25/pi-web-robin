@@ -779,6 +779,7 @@ export function PluginsConfig({
 
   return (
     <div
+      className="pi-modal-backdrop"
       style={{
         position: "fixed",
         inset: 0,
@@ -793,6 +794,7 @@ export function PluginsConfig({
       }}
     >
       <div
+        className="pi-modal"
         style={{
           width: isMobile ? "calc(100vw - 16px)" : 860,
           maxWidth: "calc(100vw - 16px)",

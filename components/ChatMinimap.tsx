@@ -601,6 +601,7 @@ export function ChatMinimap({
   return (
     <div
       ref={containerRef}
+      className={styles.minimap}
       onMouseDown={handleMouseDown}
       onMouseEnter={showPreview}
       onMouseLeave={schedulePreviewHide}

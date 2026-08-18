@@ -10,6 +10,7 @@ import { AssistantBar } from "./AssistantBar";
 import { CalendarPanel } from "./CalendarPanel";
 import { LinksPanel } from "./LinksPanel";
 import { TodoPanel } from "./TodoPanel";
+import { PiPageHeader } from "@/components/ui/PiPageHeader";
 
 /**
  * Rendered on the client so the heading follows the viewer's clock. The panels
@@ -45,40 +46,27 @@ export function Dashboard() {
     // globals.css locks html/body to the viewport height with
     // overflow:hidden for the chat shell. This page is a document, so it
     // supplies its own scroll container rather than changing that shared rule.
-    <div className="flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
-      <main className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-4 desktop:p-6">
-      <header className="flex items-baseline justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-semibold" style={{ color: "var(--text)" }}>{t("sidebar.dashboard")}</h1>
-          {/* Empty until the effect runs, so server and client markup agree. */}
-          <p className="text-sm" style={{ color: "var(--text-muted)" }} suppressHydrationWarning>
-            {heading}
-          </p>
-        </div>
-        <nav className="flex items-baseline gap-4">
-          <Link
-            href="/dashboard/settings"
-            className="text-sm hover:underline"
-            style={{ color: "var(--text-muted)" }}
-          >
-            {t("robin.nav.settings")}
-          </Link>
-          <Link
-            href={{
-              pathname: "/",
-              query: sessionId
-                ? { session: sessionId }
-                : cwd
-                  ? { cwd }
-                  : {},
-            }}
-            className="text-sm hover:underline"
-            style={{ color: "var(--accent)" }}
-          >
-            {t("robin.nav.chat")}
-          </Link>
-        </nav>
-      </header>
+    <div className="pi-dashboard-page flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
+      <main className="pi-dashboard-main mx-auto flex w-full max-w-5xl flex-col gap-4 p-4 desktop:p-6">
+      <PiPageHeader
+        eyebrow="PI / DAILY"
+        title={t("sidebar.dashboard")}
+        subtitle={<span suppressHydrationWarning>{heading}</span>}
+      >
+        <Link href="/dashboard/settings">{t("robin.nav.settings")}</Link>
+        <Link
+          href={{
+            pathname: "/",
+            query: sessionId
+              ? { session: sessionId }
+              : cwd
+                ? { cwd }
+                : {},
+          }}
+        >
+          {t("robin.nav.chat")}
+        </Link>
+      </PiPageHeader>
 
       <AssistantBar />
 

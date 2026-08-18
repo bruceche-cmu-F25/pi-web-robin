@@ -230,3 +230,38 @@
   outline: 1px solid color-mix(in srgb, var(--text-muted) 65%, transparent);
   outline-offset: 1px;
 }
+
+:global(html[data-ui-style="balanced"]) .minimap {
+  background-color: var(--bg-panel) !important;
+  background-image:
+    linear-gradient(var(--pi-grid-major) 1px, transparent 1px),
+    linear-gradient(90deg, var(--pi-grid-major) 1px, transparent 1px) !important;
+  background-size: 18px 18px !important;
+}
+
+:global(html[data-ui-style="balanced"]) .minimap > div:not(.preview) > div {
+  border-radius: 0 !important;
+}
+
+:global(html[data-ui-style="balanced"]) .preview {
+  border-color: var(--border-strong);
+  background: var(--bg-panel);
+  box-shadow: var(--popover-shadow);
+}
+
+:global(html[data-ui-style="balanced"]) .turn[data-located="true"] {
+  background: var(--accent-surface-faint);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+:global(html[data-ui-style="balanced"]) .user,
+:global(html[data-ui-style="balanced"]) .heading,
+:global(html[data-ui-style="balanced"]) .paragraph {
+  font-family: var(--font-mono);
+}
+
+:global(html[data-ui-style="balanced"]) .heading[data-level="1"] {
+  font-family: var(--font-editorial);
+  font-size: 15px;
+  font-weight: 600;
+}

@@ -388,6 +388,13 @@ body {
   outline-offset: -2px;
 }
 
+[data-session-search-active="true"] {
+  border-radius: var(--card-radius);
+  outline: 2px solid color-mix(in srgb, var(--accent) 72%, transparent);
+  outline-offset: 3px;
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
 .ui-action:disabled,
 .ui-action[data-inert="true"] {
   cursor: default;

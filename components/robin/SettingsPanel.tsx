@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DailyAgendaSettings } from "@/extension/robin/settings";
 import { useI18n } from "@/hooks/useI18n";
+import { PiPageHeader } from "@/components/ui/PiPageHeader";
 
 interface SecretStatus {
   set: boolean;
@@ -207,21 +208,15 @@ export function SettingsPanel() {
     // globals.css locks html/body to the viewport height with
     // overflow:hidden for the chat shell. This page is a document, so it
     // supplies its own scroll container rather than changing that shared rule.
-    <div className="flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
-      <main className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4 desktop:p-6">
-      <header className="flex items-baseline justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-semibold" style={{ color: "var(--text)" }}>
-            {t("robin.settings.title")}
-          </h1>
-          <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-            {t("robin.settings.subtitle")}
-          </p>
-        </div>
-        <Link href="/dashboard" className="text-sm hover:underline" style={{ color: "var(--accent)" }}>
-          {t("robin.nav.back")}
-        </Link>
-      </header>
+    <div className="pi-dashboard-page pi-settings-page flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
+      <main className="pi-dashboard-main mx-auto flex w-full max-w-3xl flex-col gap-4 p-4 desktop:p-6">
+      <PiPageHeader
+        eyebrow="PI / SETTINGS"
+        title={t("robin.settings.title")}
+        subtitle={t("robin.settings.subtitle")}
+      >
+        <Link href="/dashboard">{t("robin.nav.back")}</Link>
+      </PiPageHeader>
 
       <section
         className="flex flex-col gap-2 rounded-lg p-4 text-xs"

@@ -20,6 +20,7 @@ export function ProjectTrustDialog({
   return (
     <div
       role="presentation"
+      className="pi-modal-backdrop"
       style={{
         position: "fixed",
         inset: 0,
@@ -37,6 +38,7 @@ export function ProjectTrustDialog({
       <div
         role="dialog"
         aria-modal="true"
+        className="pi-modal pi-confirmation-modal"
         aria-labelledby="project-trust-title"
         style={{
           width: 440,

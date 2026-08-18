@@ -1385,6 +1385,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   return (
     <div
+      className="pi-chat-input"
       style={{
         flexShrink: 0,
         background: "transparent",
@@ -1544,7 +1545,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         )}
 
         {/* Main input */}
-        <div style={{ position: "relative", minWidth: 0 }}>
+        <div className="pi-composer-anchor" style={{ position: "relative", minWidth: 0 }}>
           {historyMenuOpen && inputHistory.length > 0 && (
             <div
               ref={historyMenuRef}
@@ -1881,6 +1882,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             );
           })()}
           <div
+            className="pi-composer-frame"
+            data-streaming={isStreaming ? "true" : undefined}
+            data-bash={bashMode ? "true" : undefined}
             style={{
               minWidth: 0,
               display: "flex",
@@ -2035,7 +2039,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         )}
 
         {/* Bottom bar: left | center (context) | right */}
-        <div style={{
+        <div className="pi-composer-controls" style={{
           marginTop: 8,
           display: isMobile ? "grid" : "flex",
           gridTemplateColumns: isMobile ? "minmax(0, 1fr) auto" : undefined,
