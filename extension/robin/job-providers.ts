@@ -1698,6 +1698,16 @@ export async function hydrateDescriptions(
   await Promise.all([...bySource].map(async ([source, group]) => {
     const provider = providerById(source);
     if (provider?.hydrate) {
+      // A posting read back from the store has no `ref` — it is set when a
+      // board hands the posting over and is never persisted. Recovering it
+      // from the URL is what makes re-hydrating an existing row possible at
+      // all; without this every provider hydrate silently filtered the whole
+      // batch away and reported success.
+      for (const posting of group) {
+        if (posting.ref) continue;
+        const ref = provider.refFromUrl?.(posting.url);
+        if (ref) posting.ref = ref;
+      }
       await provider.hydrate(group, ctx).catch(() => {});
       return;
     }
