@@ -18,6 +18,7 @@
  */
 import { chmodSync } from "node:fs";
 import { addDays, localDate } from "./dates.ts";
+import { googleColorKey } from "./eventColors.ts";
 import type { DashboardEvent } from "./events.ts";
 import { dataPath, readJsonObject, writeJsonObject } from "./paths.ts";
 import { googleCredentials } from "./settings.ts";
@@ -26,8 +27,17 @@ const TOKENS_FILE = "google.json";
 const AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
 const CALENDAR_ENDPOINT = "https://www.googleapis.com/calendar/v3";
-/** Read-only on purpose: this integration cannot modify the user's calendar. */
-const SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
+/**
+ * Read-only on purpose: this integration cannot modify the user's data.
+ *
+ * Calendar and Gmail share the one OAuth grant, so a single refresh token
+ * covers both and reconnecting (after the scopes here change) adds mail
+ * without a second consent flow.
+ */
+const SCOPES = [
+  "https://www.googleapis.com/auth/calendar.readonly",
+  "https://www.googleapis.com/auth/gmail.readonly",
+];
 const REQUEST_TIMEOUT_MS = 10_000;
 
 interface StoredTokens {
@@ -85,7 +95,7 @@ export function authorizeUrl(redirectUri: string, state: string): string {
     client_id: credentials.clientId,
     redirect_uri: redirectUri,
     response_type: "code",
-    scope: SCOPE,
+    scope: SCOPES.join(" "),
     // A refresh token is only issued with consent + offline access, and Google
     // omits it on repeat grants unless prompted again.
     access_type: "offline",
@@ -148,7 +158,14 @@ export async function exchangeCode(code: string, redirectUri: string): Promise<v
   });
 }
 
-async function accessToken(): Promise<string> {
+/**
+ * The current access token, refreshed when needed.
+ *
+ * Exported for gmail.ts: the two Google surfaces read the same grant, so there
+ * is exactly one refresh path and one cache rather than two fighting over the
+ * same token file.
+ */
+export async function getAccessToken(): Promise<string> {
   const tokens = readTokens();
   if (!tokens?.refreshToken) throw new Error("Google Calendar is not connected");
 
@@ -207,9 +224,44 @@ export interface GoogleEvent {
   id?: string;
   summary?: string;
   location?: string;
+  description?: string;
+  htmlLink?: string;
+  hangoutLink?: string;
+  conferenceData?: {
+    entryPoints?: { entryPointType?: string; uri?: string }[];
+  };
+  organizer?: { displayName?: string; email?: string };
   status?: string;
+  colorId?: string;
   start?: GoogleEventTime;
   end?: GoogleEventTime;
+}
+
+function httpUrl(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === "http:" || url.protocol === "https:" ? url.href : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Google descriptions may contain small HTML fragments; the dashboard treats
+ * provider copy as plain text and linkifies safe URLs itself. */
+function descriptionText(value: string | undefined): string | undefined {
+  if (!value?.trim()) return undefined;
+  const text = value
+    .replace(/<br\s*\/?\s*>/gi, "\n")
+    .replace(/<\/(?:p|div|li)>/gi, "\n")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, "\"")
+    .trim();
+  return text || undefined;
 }
 
 /**
@@ -243,6 +295,13 @@ export function mapGoogleEvent(item: GoogleEvent, calendar: string): DashboardEv
     ? endParts.start
     : undefined;
 
+  const colorKey = googleColorKey(item.colorId);
+  const meetingUrl = httpUrl(item.hangoutLink)
+    ?? httpUrl(item.conferenceData?.entryPoints?.find((entry) => entry.entryPointType === "video")?.uri);
+  const url = httpUrl(item.htmlLink);
+  const organizer = item.organizer?.displayName?.trim() || item.organizer?.email?.trim();
+  const description = descriptionText(item.description);
+
   return {
     id: `google:${item.id ?? crypto.randomUUID()}`,
     title: item.summary?.trim() || "(no title)",
@@ -251,6 +310,11 @@ export function mapGoogleEvent(item: GoogleEvent, calendar: string): DashboardEv
     ...(startParts.start ? { start: startParts.start } : {}),
     ...(end ? { end } : {}),
     ...(item.location?.trim() ? { location: item.location.trim() } : {}),
+    ...(description ? { description } : {}),
+    ...(url ? { url } : {}),
+    ...(meetingUrl ? { meetingUrl } : {}),
+    ...(organizer ? { organizer } : {}),
+    ...(colorKey ? { colorKey } : {}),
     createdAt: "",
     source: "google",
     calendar,
@@ -265,7 +329,7 @@ export function mapGoogleEvent(item: GoogleEvent, calendar: string): DashboardEv
  * Google event into several would make it look like several commitments.
  */
 export async function fetchEvents(from: string, to: string): Promise<DashboardEvent[]> {
-  const token = await accessToken();
+  const token = await getAccessToken();
   const timeMin = new Date(`${from}T00:00:00`);
   const timeMax = new Date(`${to}T23:59:59`);
 
@@ -275,6 +339,7 @@ export async function fetchEvents(from: string, to: string): Promise<DashboardEv
     singleEvents: "true", // expand recurring events into occurrences
     orderBy: "startTime",
     maxResults: "250",
+    conferenceDataVersion: "1",
   });
 
   const controller = new AbortController();

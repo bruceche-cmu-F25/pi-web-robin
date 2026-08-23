@@ -18,15 +18,14 @@ const {
   parseChatIds,
   secretsPath,
   setDailyAgenda,
+  setGmailDigest,
   setGoogleCredentials,
   setTelegramChatIds,
   setTelegramToken,
   telegramSettings,
 } = await import("./settings.ts");
 const {
-  markDailyAgendaSent,
   readAssistantSessionId,
-  readDailyAgendaDelivery,
   readDailyAgendaSessionId,
   writeAssistantSessionId,
   writeDailyAgendaSessionId,
@@ -114,20 +113,24 @@ test("daily agenda settings round-trip and validate times", () => {
   );
 });
 
+test("gmail digest settings round-trip and keep an empty query from crashing", () => {
+  const digest = { enabled: true, time: "09:15", locale: "zh", chatIds: [42], query: "is:unread" };
+  setGmailDigest(digest);
+  assert.deepEqual(telegramSettings().gmailDigest, digest);
+  assert.throws(
+    () => setGmailDigest({ ...digest, time: "25:00" }),
+    /must be HH:MM/,
+  );
+  // An edited file with no query must fall back, not reach a `.trim()` on undefined.
+  setGmailDigest({ ...digest, query: "" });
+  assert.equal(telegramSettings().gmailDigest.query, "newer_than:1d");
+});
+
 test("interactive and read-only assistants keep separate sessions", () => {
   writeAssistantSessionId("interactive");
   writeDailyAgendaSessionId("daily-agenda");
   assert.equal(readAssistantSessionId(), "interactive");
   assert.equal(readDailyAgendaSessionId(), "daily-agenda");
-});
-
-test("daily agenda delivery state survives restarts and tracks chats independently", () => {
-  assert.equal(readDailyAgendaDelivery(), null);
-  markDailyAgendaSent("2026-08-17", 42);
-  markDailyAgendaSent("2026-08-17", 43);
-  assert.deepEqual(readDailyAgendaDelivery(), { date: "2026-08-17", chatIds: [42, 43] });
-  markDailyAgendaSent("2026-08-18", 42);
-  assert.deepEqual(readDailyAgendaDelivery(), { date: "2026-08-18", chatIds: [42] });
 });
 
 test("the telegram token is only ever summarised", () => {
