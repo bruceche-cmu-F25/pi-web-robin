@@ -7,6 +7,7 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { scoreJob, updateJob } from "./job-domain.ts";
 import { runJobScan } from "./job-scan.ts";
 import { JOB_STATUSES, describeFilters, type JobStatus } from "./jobs.ts";
 import { ARCHETYPES, scoringRubric } from "./job-rubric.ts";
@@ -16,7 +17,6 @@ import {
   readJobProfile,
   readJobs,
   sortJobs,
-  writeJobs,
   type Job,
 } from "./store.ts";
 import { text } from "./toolkit.ts";
@@ -108,26 +108,13 @@ export function registerJobTools(pi: ExtensionAPI): void {
       })),
     }),
     async execute(_toolCallId, params) {
-      const jobs = readJobs();
-      const job = jobs.find((entry: Job) => entry.id === params.id);
-      if (!job) return text(`No job with id "${params.id}".`);
-      if (!Number.isFinite(params.score)) return text("score must be a number between 1 and 5.");
-
-      job.score = Math.min(Math.max(params.score, 1), 5);
-      job.reason = params.reason.trim();
-      job.scoredAt = new Date().toISOString();
-      if (params.flags && params.flags.length > 0) job.flags = params.flags.map((flag) => flag.trim()).filter(Boolean);
-      // Stamped from the pinned model, never from the model's own account of
-      // itself. Asked directly, deepseek-v4-flash reported being
-      // "claude-sonnet-4-20250514" — models answer that question confidently
-      // and wrongly, and a wrong provenance is worse than none: it is the
-      // field you would use to find a bad batch.
-      const pinned = readJobProfile().scoreModel;
-      if (pinned) job.scoredBy = `${pinned.provider}/${pinned.modelId}`;
-      writeJobs(jobs);
-
-      const left = pendingJobs(jobs).length;
-      return text(`Scored ${formatJob(job)}\n${left} job(s) still unscored.`);
+      try {
+        const result = scoreJob(params);
+        if (!result) return text(`No job with id "${params.id}".`);
+        return text(`Scored ${formatJob(result.job)}\n${result.pending} job(s) still unscored.`);
+      } catch (error) {
+        return text(error instanceof Error ? error.message : String(error));
+      }
     },
   });
 
@@ -171,14 +158,8 @@ export function registerJobTools(pi: ExtensionAPI): void {
       if (!JOB_STATUSES.includes(params.status as JobStatus)) {
         return text(`status must be one of: ${JOB_STATUSES.join(", ")}.`);
       }
-      const jobs = readJobs();
-      const job = jobs.find((entry: Job) => entry.id === params.id);
+      const job = updateJob(params.id, { status: params.status as JobStatus });
       if (!job) return text(`No job with id "${params.id}".`);
-      if (params.status === "applied" && job.status !== "applied" && !job.appliedAt) {
-        job.appliedAt = new Date().toISOString();
-      }
-      job.status = params.status as JobStatus;
-      writeJobs(jobs);
       return text(`${job.company} — ${job.title} is now ${job.status}.`);
     },
   });

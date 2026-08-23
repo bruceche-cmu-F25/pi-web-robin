@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
 import { DEFAULT_JOB_PROFILE } from "./jobs.ts";
-import { absorb, admitPostings, compileAdmission, freshnessCutoff } from "./job-intake.ts";
+import { absorb, admitPostings, compileAdmission, expireClosedPostings, freshnessCutoff } from "./job-intake.ts";
 import { readJobs, writeJobs } from "./store.ts";
 
 // `absorb` persists through ./store.ts, which resolves its directory per call
@@ -209,4 +209,53 @@ test("an empty batch touches neither the network nor the store", async () => {
   assert.deepEqual(await absorb([], rules(), offline), { added: 0 });
   assert.equal(readJobs().length, 1);
   assert.equal(readJobs()[0].id, "keep", "not even a retention pass runs on nothing");
+});
+
+/* ── retiring what closed ── */
+
+test("a posting that closed after we found it stops being offered", async () => {
+  // The gap this closes: a role scored 4.5, went out in a digest, was taken
+  // down the next day, and sat at the top of the list until someone clicked it
+  // and got "Job not found". Liveness at push time cannot catch that — the
+  // push already happened.
+  writeJobs([
+    stored({ id: "gone", url: "https://jobs.ashbyhq.com/acme/pulled", score: 4.5, notifiedAt: "2026-08-19T00:00:00.000Z" }),
+    stored({ id: "open", url: "https://jobs.ashbyhq.com/acme/still-open", score: 4.5 }),
+  ]);
+  const ctx = {
+    async fetchJson() { return { jobs: [{ id: "still-open" }] }; },
+    async fetchText() { throw new Error("no"); },
+  };
+  const result = await expireClosedPostings(profile({ minScore: 4 }), ctx);
+  assert.deepEqual(result, { checked: 2, closed: 1 });
+  const byId = Object.fromEntries(readJobs().map((job) => [job.id, job.status]));
+  assert.deepEqual(byId, { gone: "dropped", open: "new" });
+});
+
+test("only rows worth clicking are checked", async () => {
+  // Four hundred requests a night to protect rows nobody will open is the
+  // wrong trade; a shortlist entry is checked whatever it scored, because
+  // saving it was a promise the user made to themselves.
+  writeJobs([
+    stored({ id: "low", url: "https://jobs.ashbyhq.com/acme/1", score: 2.0 }),
+    stored({ id: "unscored", url: "https://jobs.ashbyhq.com/acme/2" }),
+    stored({ id: "applied", url: "https://jobs.ashbyhq.com/acme/3", score: 4.5, status: "applied" }),
+    stored({ id: "shortlisted", url: "https://jobs.ashbyhq.com/acme/4", score: 1.0, status: "shortlist" }),
+    stored({ id: "high", url: "https://jobs.ashbyhq.com/acme/5", score: 4.2 }),
+  ]);
+  const ctx = {
+    async fetchJson() { return { jobs: [{ id: "4" }, { id: "5" }] }; },
+    async fetchText() { throw new Error("no"); },
+  };
+  assert.equal((await expireClosedPostings(profile({ minScore: 4 }), ctx)).checked, 2);
+});
+
+test("a board that will not answer never retires anything", async () => {
+  writeJobs([stored({ id: "keep", url: "https://jobs.ashbyhq.com/acme/1", score: 4.5 })]);
+  const ctx = {
+    async fetchJson() { throw new Error("HTTP 503"); },
+    async fetchText() { throw new Error("HTTP 503"); },
+  };
+  assert.deepEqual(await expireClosedPostings(profile({ minScore: 4 }), ctx), { checked: 1, closed: 0 });
+  assert.equal(readJobs()[0].status, "new");
 });

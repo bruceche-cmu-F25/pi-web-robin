@@ -6,15 +6,8 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { fetchPageMetadata, nameFromUrl } from "./fetch-title.ts";
-import { storeIcon } from "./icons.ts";
-import {
-  newId,
-  normalizeUrl,
-  readLinks,
-  writeLinks,
-  type Link,
-} from "./store.ts";
+import { addLink } from "./link-domain.ts";
+import { readLinks } from "./store.ts";
 import { text } from "./toolkit.ts";
 
 export function registerLinkTools(pi: ExtensionAPI): void {
@@ -41,47 +34,23 @@ export function registerLinkTools(pi: ExtensionAPI): void {
       ),
     }),
     async execute(_toolCallId, params) {
-      let url: string;
       try {
-        // Also rejects javascript:/data: — these end up in an href on the dashboard.
-        url = normalizeUrl(params.url);
+        const { link, titleSource } = await addLink(params);
+        // Naming the source keeps the model from reporting a title it guessed as
+        // though the page had confirmed it.
+        const provenance = titleSource === "page"
+          ? " (title read from the page)"
+          : titleSource === "given"
+            ? ""
+            : " (the page gave no usable title — a login wall or error page —"
+              + " so this name comes from the URL; the user can rename it by"
+              + " double-clicking it on the dashboard)";
+        return text(
+          `Saved "${link.title}" → ${link.url}${link.group ? ` under ${link.group}` : ""}${provenance}`,
+        );
       } catch (error) {
         return text(error instanceof Error ? error.message : String(error));
       }
-
-      // Looking the title up is what turns a pasted URL into something the
-      // user recognises in the panel; the hostname is only the fallback.
-      const given = params.title?.trim();
-      const { title: fetched, iconUrl } = await fetchPageMetadata(url);
-      const title = given || fetched || nameFromUrl(url);
-
-      const id = newId();
-      const icon = iconUrl ? await storeIcon(id, iconUrl) : null;
-
-      const links = readLinks();
-      const link: Link = {
-        id,
-        title,
-        url,
-        ...(params.group?.trim() ? { group: params.group.trim() } : {}),
-        ...(icon ? { icon } : {}),
-        iconCheckedAt: new Date().toISOString(),
-        createdAt: new Date().toISOString(),
-      };
-      links.push(link);
-      writeLinks(links);
-      // Naming the source keeps the model from reporting a title it guessed as
-      // though the page had confirmed it.
-      const provenance = fetched
-        ? " (title read from the page)"
-        : given
-          ? ""
-          : " (the page gave no usable title — a login wall or error page —"
-            + " so this name comes from the URL; the user can rename it by"
-            + " double-clicking it on the dashboard)";
-      return text(
-        `Saved "${link.title}" → ${link.url}${link.group ? ` under ${link.group}` : ""}${provenance}`,
-      );
     },
   });
 

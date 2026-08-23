@@ -29,7 +29,13 @@ import {
   type Job,
   type JobProfile,
 } from "./jobs.ts";
-import { hydrateDescriptions, type FetchContext, type RawPosting } from "./job-providers.ts";
+import {
+  findDeadPostings,
+  hydrateDescriptions,
+  makeFetchContext,
+  type FetchContext,
+  type RawPosting,
+} from "./job-providers.ts";
 import { newId } from "./paths.ts";
 import { readJobs, writeJobs } from "./store.ts";
 
@@ -213,4 +219,47 @@ export async function absorb(
   const merged = mergePostings(pruneJobs(readJobs()), postings);
   writeJobs(merged.jobs);
   return { added: merged.added };
+}
+
+/**
+ * Mark the postings that have closed since we found them.
+ *
+ * Retention drops rows that got old; this drops rows that died. Both are the
+ * same job — keeping the store honest about what is still worth looking at —
+ * and neither can be done by the discovery pass, which only ever sees what a
+ * board still lists.
+ *
+ * Bounded to what a person would actually click: anything at or above the push
+ * floor that is still in play, plus everything shortlisted regardless of
+ * score, because a shortlist entry is a promise the user made to themselves.
+ * Checking the whole store instead would be four hundred requests a night to
+ * protect rows nobody will ever open.
+ *
+ * Runs after a scan rather than only before a push, because the jobs page is
+ * browsed as well as pushed. The gap this closes was a role that scored 4.5,
+ * went out in a digest, was taken down the next day, and then sat at the top
+ * of the list for four days until someone clicked it and got "Job not found".
+ */
+export async function expireClosedPostings(
+  profile: JobProfile,
+  ctx: FetchContext = makeFetchContext(),
+): Promise<{ checked: number; closed: number }> {
+  const jobs = readJobs();
+  const worth = jobs.filter((job) =>
+    job.status === "shortlist"
+    || (job.status === "new" && typeof job.score === "number" && job.score >= profile.minScore));
+  if (worth.length === 0) return { checked: 0, closed: 0 };
+
+  const dead = await findDeadPostings(worth.map((job) => job.url), ctx).catch(() => new Set<string>());
+  if (dead.size === 0) return { checked: worth.length, closed: 0 };
+
+  let closed = 0;
+  for (const job of jobs) {
+    if (job.status !== "dropped" && dead.has(job.url)) {
+      job.status = "dropped";
+      closed += 1;
+    }
+  }
+  if (closed > 0) writeJobs(jobs);
+  return { checked: worth.length, closed };
 }

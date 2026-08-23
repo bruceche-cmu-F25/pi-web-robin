@@ -290,6 +290,8 @@ export interface JobScanState {
   scanned: number;
   matched: number;
   added: number;
+  /** Rows retired because the board no longer lists them. Absent on old state files. */
+  closed?: number;
   sources: { id: string; name: string; count: number; error?: string }[];
 }
 

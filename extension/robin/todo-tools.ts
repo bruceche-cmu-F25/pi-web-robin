@@ -6,16 +6,8 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import {
-  findTodo,
-  formatTodo,
-  localDate,
-  newId,
-  normalizeDue,
-  readTodos,
-  writeTodos,
-  type Todo,
-} from "./store.ts";
+import { addTodo, completeTodo, deleteTodo, updateTodo } from "./todo-domain.ts";
+import { formatTodo, localDate, readTodos } from "./store.ts";
 import { text } from "./toolkit.ts";
 
 export function registerTodoTools(pi: ExtensionAPI): void {
@@ -38,29 +30,12 @@ export function registerTodoTools(pi: ExtensionAPI): void {
       ),
     }),
     async execute(_toolCallId, params) {
-      let due: string | undefined;
-      if (params.due) {
-        try {
-          due = normalizeDue(params.due);
-        } catch (error) {
-          return text(error instanceof Error ? error.message : String(error));
-        }
+      try {
+        const { todo, open } = addTodo(params);
+        return text(`Added ${formatTodo(todo)}\n${open} open todo(s).`);
+      } catch (error) {
+        return text(error instanceof Error ? error.message : String(error));
       }
-
-      const todos = readTodos();
-      const today = localDate();
-      const todo: Todo = {
-        id: newId(),
-        title: params.title,
-        done: false,
-        ...(due ? { due } : {}),
-        createdAt: new Date().toISOString(),
-      };
-      todos.push(todo);
-      writeTodos(todos);
-
-      const open = todos.filter((t) => !t.done).length;
-      return text(`Added ${formatTodo(todo, today)}\n${open} open todo(s).`);
     },
   });
 
@@ -105,26 +80,16 @@ export function registerTodoTools(pi: ExtensionAPI): void {
         return text("Provide a newTitle or due date to update.");
       }
 
-      const todos = readTodos();
-      const found = findTodo(todos, params);
-      if ("error" in found) return text(found.error);
-
-      if (params.newTitle !== undefined) {
-        const title = params.newTitle.trim();
-        if (!title) return text("newTitle cannot be empty.");
-        found.todo.title = title;
+      try {
+        const result = updateTodo(params, {
+          ...(params.newTitle !== undefined ? { title: params.newTitle } : {}),
+          ...(params.due !== undefined ? { due: params.due } : {}),
+        });
+        if ("error" in result) return text(result.error);
+        return text(`Updated ${formatTodo(result)}`);
+      } catch (error) {
+        return text(error instanceof Error ? error.message : String(error));
       }
-      if (params.due !== undefined) {
-        try {
-          if (params.due.trim()) found.todo.due = normalizeDue(params.due);
-          else delete found.todo.due;
-        } catch (error) {
-          return text(error instanceof Error ? error.message : String(error));
-        }
-      }
-
-      writeTodos(todos);
-      return text(`Updated ${formatTodo(found.todo)}`);
     },
   });
 
@@ -142,12 +107,9 @@ export function registerTodoTools(pi: ExtensionAPI): void {
       title: Type.Optional(Type.String({ description: "Part of the todo title, if the id is unknown" })),
     }),
     async execute(_toolCallId, params) {
-      const todos = readTodos();
-      const found = findTodo(todos, params);
-      if ("error" in found) return text(found.error);
-
-      writeTodos(todos.filter((todo) => todo.id !== found.todo.id));
-      return text(`Deleted "${found.todo.title}".`);
+      const result = deleteTodo(params);
+      if ("error" in result) return text(result.error);
+      return text(`Deleted "${result.title}".`);
     },
   });
 
@@ -162,18 +124,11 @@ export function registerTodoTools(pi: ExtensionAPI): void {
       title: Type.Optional(Type.String({ description: "Part of the todo title, if the id is unknown" })),
     }),
     async execute(_toolCallId, params) {
-      const todos = readTodos();
-      const found = findTodo(todos, params);
-      if ("error" in found) return text(found.error);
-
+      const result = completeTodo(params);
+      if ("error" in result) return text(result.error);
       const today = localDate();
-      if (found.todo.done) return text(`Already done: ${formatTodo(found.todo, today)}`);
-      found.todo.done = true;
-      found.todo.completedAt = new Date().toISOString();
-      writeTodos(todos);
-
-      const open = todos.filter((t) => !t.done).length;
-      return text(`Completed ${formatTodo(found.todo, today)}\n${open} open todo(s) left.`);
+      if (result.alreadyDone) return text(`Already done: ${formatTodo(result.todo, today)}`);
+      return text(`Completed ${formatTodo(result.todo, today)}\n${result.open} open todo(s) left.`);
     },
   });
 }

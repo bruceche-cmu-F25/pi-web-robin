@@ -14,7 +14,7 @@
  * Server-only: reaches node:fs through ./job-intake.ts and ./store.ts.
  */
 import { type JobProfile, type TrackedCompany } from "./jobs.ts";
-import { absorb, admitPostings, type ScannedPosting } from "./job-intake.ts";
+import { absorb, admitPostings, expireClosedPostings, type ScannedPosting } from "./job-intake.ts";
 import {
   makeFetchContext,
   resolveProvider,
@@ -146,6 +146,9 @@ export async function runJobScan(options: { fetchImpl?: typeof fetch; profile?: 
   const rules = { profile, undated: "keep" as const };
   const matched = admitPostings(postings, rules);
   const { added } = await absorb(matched, rules, ctx);
+  // A scan is also the moment to notice what closed. Discovery only ever sees
+  // what a board still lists, so nothing else in this pipeline would.
+  const { closed } = await expireClosedPostings(profile, ctx);
 
   const state: ScanResult = {
     startedAt,
@@ -153,6 +156,7 @@ export async function runJobScan(options: { fetchImpl?: typeof fetch; profile?: 
     scanned: postings.length,
     matched: matched.length,
     added,
+    closed,
     sources: results.map((entry) => entry.result),
   };
   writeJobScanState(state);
