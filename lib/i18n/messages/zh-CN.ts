@@ -254,6 +254,7 @@ export const zhCNLocale: LocalePlugin = {
     "robin.jobs.summaryAnywhere": "只要没被屏蔽",
     "robin.jobs.summarySources": "{companies} 家公司 · {feeds} 个聚合源",
     "robin.jobs.summaryDelivery": "最近 {days} 天 · 推送门槛 {score} · 每次 {count} 个",
+    "robin.jobs.summaryDeliveryYears": "最近 {days} 天 · 推送门槛 {score} · 年限 ≤{years} 年 · 每次 {count} 个",
     "robin.jobs.summaryExcluding": "排除：{list}",
     "robin.jobs.presetsExclude": "常用排除",
     "robin.jobs.titlesPlaceholder": "输入职位名，回车加入",

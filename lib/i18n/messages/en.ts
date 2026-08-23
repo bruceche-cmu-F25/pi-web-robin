@@ -254,6 +254,7 @@ export const enLocale: LocalePlugin = {
     "robin.jobs.summaryAnywhere": "anywhere not blocked",
     "robin.jobs.summarySources": "{companies} companies · {feeds} feeds",
     "robin.jobs.summaryDelivery": "last {days}d · push ≥{score} · {count} per push",
+    "robin.jobs.summaryDeliveryYears": "last {days}d · push ≥{score} · ≤{years}y asked · {count} per push",
     "robin.jobs.summaryExcluding": "Excluding: {list}",
     "robin.jobs.presetsExclude": "Common exclusions",
     "robin.jobs.titlesPlaceholder": "Type a title and press Enter",

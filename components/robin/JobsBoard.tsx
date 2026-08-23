@@ -363,11 +363,17 @@ export function JobsBoard() {
                 },
                 {
                   key: "delivery",
-                  value: t("robin.jobs.summaryDelivery", {
-                    days: String(profile.sinceDays),
-                    score: profile.minScore.toFixed(1),
-                    count: String(profile.digestSize),
-                  }),
+                  // A gate that silently drops postings belongs next to the
+                  // other delivery rules, not only inside the dialog.
+                  value: t(
+                    profile.maxYears > 0 ? "robin.jobs.summaryDeliveryYears" : "robin.jobs.summaryDelivery",
+                    {
+                      days: String(profile.sinceDays),
+                      score: profile.minScore.toFixed(1),
+                      count: String(profile.digestSize),
+                      years: String(profile.maxYears),
+                    },
+                  ),
                 },
               ].map(({ key, value }) => (
                 <div key={key} className="flex min-w-0 gap-3">
