@@ -260,6 +260,8 @@ export const zhCNLocale: LocalePlugin = {
     "coding.mentor.placeholder": "问问你正在读的东西…",
     "coding.tool.studyCurrent": "读了当前资料",
     "coding.tool.studyOutline": "看了课程大纲",
+    "coding.pane.problem": "题目",
+    "coding.pane.syllabus": "课纲",
     "coding.pane.rail": "边轨宽度",
     "coding.pane.panel": "面板宽度",
     "coding.pane.resetHint": "拖动调宽 · 双击复位 · 方向键微调",

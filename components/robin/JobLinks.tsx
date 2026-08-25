@@ -75,7 +75,7 @@ export function JobLinks({ group }: { group: string }) {
     <section className="pi-card flex flex-col gap-3 p-4">
       <header className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="pi-label">{t("robin.jobs.linksTitle")}</h2>
-        <div className="flex items-baseline gap-3">
+        <div className="flex flex-wrap items-baseline gap-3">
           {links.length === 0 && (
             <button
               type="button"

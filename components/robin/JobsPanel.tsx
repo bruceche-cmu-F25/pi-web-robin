@@ -65,7 +65,7 @@ export function JobsPanel() {
             {t("robin.jobs.newCount", { count: String(fresh.length) })}
           </span>
         </div>
-        <div className="flex items-baseline gap-3">
+        <div className="flex flex-wrap items-baseline gap-3">
           <button
             type="button"
             onClick={() => void scan()}

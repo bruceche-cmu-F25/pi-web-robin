@@ -100,7 +100,7 @@ export function PracticeRecordBar({ record, onStatus, onNote }: Props) {
             className="pi-panel w-full resize-y p-2"
             style={{ fontSize: 12.5, background: "var(--bg-deep)", color: "var(--text)" }}
           />
-          <div className="flex items-baseline gap-3">
+          <div className="flex flex-wrap items-baseline gap-3">
             <button
               type="button"
               disabled={busy}

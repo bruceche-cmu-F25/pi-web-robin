@@ -42,9 +42,12 @@ test("every seam a track has is resizable", async () => {
   const practice = await read("PracticeWorkspace.tsx");
   assert.match(practice, /usePaneWidths\(railOpen\)/, "the practice rail is hideable");
   assert.match(practice, /<PaneDivider\s+edge="left"[\s\S]*?\{\.\.\.panes\.rail\}/, "practice rail seam");
+  // On a phone the rail is a pane of a stack and takes a null width, so the
+  // assertion is on the branch that still exists for a desktop: given a width,
+  // the rail is pinned to it and the divider is what changes it.
   assert.match(
     await read("RoadmapRail.tsx"),
-    /style=\{\{ width, minWidth: width, maxWidth: width \}\}/,
+    /: \{ width, minWidth: width, maxWidth: width \}\}/,
     "RoadmapRail.tsx",
   );
 

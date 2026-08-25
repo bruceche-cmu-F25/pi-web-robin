@@ -104,7 +104,7 @@ export function LearningHub() {
     // `robin-dashboard` is what scopes the card styling this page borrows;
     // globals.css locks the body to the viewport for the chat shell, so a
     // document page brings its own scroll container.
-    <div className="robin-dashboard flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
+    <div className="robin-page robin-dashboard flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
       <main className="mx-auto flex w-full max-w-7xl flex-col gap-4 p-4 desktop:p-6">
         <div className="flex flex-wrap items-baseline justify-between gap-4">
           <div className="flex flex-col gap-1">

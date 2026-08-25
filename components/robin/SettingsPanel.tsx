@@ -247,7 +247,7 @@ export function SettingsPanel() {
     // globals.css locks html/body to the viewport height with
     // overflow:hidden for the chat shell. This page is a document, so it
     // supplies its own scroll container rather than changing that shared rule.
-    <div className="flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
+    <div className="robin-page flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
       <main className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4 desktop:p-6">
       <header className="flex items-baseline justify-between gap-4">
         <div>
@@ -258,8 +258,12 @@ export function SettingsPanel() {
             {t("robin.settings.subtitle")}
           </p>
         </div>
-        <nav className="flex items-baseline gap-3">
-          <Link href="/dashboard" className="text-sm hover:underline" style={{ color: "var(--accent)" }}>
+        <nav className="flex flex-wrap items-baseline gap-3">
+          <Link
+            href="/dashboard"
+            className="inline-flex min-h-11 items-center text-sm hover:underline"
+            style={{ color: "var(--accent)" }}
+          >
             {t("robin.nav.back")}
           </Link>
           <ChatLink />
@@ -340,7 +344,7 @@ export function SettingsPanel() {
             type="button"
             disabled={busy || !data?.google.clientId.set}
             onClick={() => void send("DELETE", { section: "google" }, t("robin.settings.googleCleared"))}
-            className="rounded px-3 py-1 text-sm disabled:opacity-40"
+            className="inline-flex min-h-11 items-center rounded px-3 py-1 text-sm disabled:opacity-40"
             style={{ border: "1px solid var(--border)", color: "var(--text-muted)" }}
           >
             {t("robin.common.clear")}
@@ -512,7 +516,7 @@ export function SettingsPanel() {
               type="button"
               disabled={busy || !data?.telegram.botToken.set}
               onClick={() => void detect()}
-              className="rounded px-3 py-1 text-sm disabled:opacity-40"
+              className="inline-flex min-h-11 items-center rounded px-3 py-1 text-sm disabled:opacity-40"
               style={{ border: "1px solid var(--border)", color: "var(--text-muted)" }}
             >
               {t("robin.settings.detect")}
@@ -976,7 +980,7 @@ export function SettingsPanel() {
             type="button"
             disabled={busy || !data?.telegram.botToken.set}
             onClick={() => void send("DELETE", { section: "telegram" }, t("robin.settings.telegramCleared"))}
-            className="rounded px-3 py-1 text-sm disabled:opacity-40"
+            className="inline-flex min-h-11 items-center rounded px-3 py-1 text-sm disabled:opacity-40"
             style={{ border: "1px solid var(--border)", color: "var(--text-muted)" }}
           >
             {t("robin.settings.clearTelegram")}

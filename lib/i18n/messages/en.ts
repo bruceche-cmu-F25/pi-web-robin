@@ -260,6 +260,8 @@ export const enLocale: LocalePlugin = {
     "coding.mentor.placeholder": "Ask about what you are reading…",
     "coding.tool.studyCurrent": "read the open resource",
     "coding.tool.studyOutline": "read the track outline",
+    "coding.pane.problem": "Problem",
+    "coding.pane.syllabus": "Syllabus",
     "coding.pane.rail": "Rail width",
     "coding.pane.panel": "Panel width",
     "coding.pane.resetHint": "Drag to resize · double-click to reset · arrow keys to nudge",

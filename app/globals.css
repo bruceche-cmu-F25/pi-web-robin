@@ -668,6 +668,11 @@ body {
   font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  /* The brackets are inline pseudo-elements, so a label that runs out of room
+     breaks between "[" and its text and comes out as three stacked lines. The
+     label is the button; it wraps as a unit or not at all, and the rows that
+     hold these are the ones that wrap. */
+  white-space: nowrap;
 }
 .pi-bracket::before,
 .pi-bracket::after {
@@ -695,6 +700,21 @@ body {
   .pi-bracket:hover::before,
   .pi-bracket:hover::after {
     transform: none;
+  }
+}
+
+/* A finger needs more than an 11px line of type to aim at. The padding grows
+   the hit rectangle and the matching negative margin takes the growth back out
+   of the layout, so the target is ~40px tall on a phone while the row it sits
+   in keeps the exact spacing it has on a desktop. Only the bare label buttons:
+   the ones carrying a border or a fill have a surface, and padding there would
+   be visible. */
+@media (pointer: coarse) {
+  .pi-chrome-label.pi-bracket {
+    padding-block: 12px;
+    margin-block: -12px;
+    padding-inline: 4px;
+    margin-inline: -4px;
   }
 }
 
@@ -735,6 +755,56 @@ body {
 body {
   display: flex;
   flex-direction: column;
+}
+
+/* Robin's controls that do have a surface: the calendar's period arrows and
+   view switcher, and the status chips on the jobs board. They are two pixels
+   of padding around a 10px line — about 20px of target, aimed at with a
+   fingertip. The bracket buttons' invisible padding would show on a bordered
+   control, so these get a real height instead, which on a phone is what they
+   should have looked like anyway.
+
+   The chip selector names `.pi-eyebrow` as well so it reaches Robin's chips
+   and not the chat sidebar's, which are laid out to a different rhythm. */
+@media (pointer: coarse) {
+  /* Not the bracket button beside them — that one has its own hit area above,
+     and no surface for this to square off. */
+  .robin-calendar-toolbar .ui-action:not(.pi-bracket),
+  .ui-action.ui-action--chip.pi-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 36px;
+    min-height: 36px;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Safe area.
+
+   Robin's pages are direct children of <body> and draw to every screen edge,
+   and app/layout.tsx asks for `viewport-fit: cover` with a translucent iOS
+   status bar. Without an inset the first line of a page sits under the notch
+   and the last one under the home indicator, and in landscape both edges run
+   into the sensor housing. The chat shell already does this for itself inside
+   AppShell.tsx; this is the same thing for the pages that are not it.
+--------------------------------------------------------------------------- */
+.robin-page {
+  padding-top: env(safe-area-inset-top);
+  padding-right: env(safe-area-inset-right);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+}
+
+/* A sticky header scrolls up to the top of the scrollport, which is inside the
+   container's padding — so a top inset there would put the header under the
+   status bar the moment the page moved. The header takes the inset itself and
+   keeps painting over the strip it is covering. */
+.robin-page--sticky-top {
+  padding-top: 0;
+}
+.robin-dashboard-header {
+  padding-top: env(safe-area-inset-top);
 }
 
 /* ---------------------------------------------------------------------------

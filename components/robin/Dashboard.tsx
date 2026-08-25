@@ -77,7 +77,7 @@ export function Dashboard() {
     // globals.css locks html/body to the viewport height with
     // overflow:hidden for the chat shell. This page is a document, so it
     // supplies its own scroll container rather than changing that shared rule.
-    <div className="robin-dashboard flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
+    <div className="robin-page robin-page--sticky-top robin-dashboard flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
       <header className="robin-dashboard-header sticky top-0" style={{ zIndex: "var(--z-sticky)" }}>
         <div className="mx-auto w-full max-w-7xl px-4 py-2 desktop:px-6">
           <AssistantBar />
@@ -100,7 +100,7 @@ export function Dashboard() {
             </div>
           </div>
           <div className="ml-auto flex flex-wrap items-baseline justify-end gap-x-6 gap-y-2">
-            <nav className="flex items-baseline gap-3">
+            <nav className="flex flex-wrap items-baseline gap-3">
               <Link href="/dashboard/gmail" className="ui-action pi-chrome-label pi-bracket" style={{ fontSize: 11 }}>
                 {t("robin.nav.gmail")}
               </Link>

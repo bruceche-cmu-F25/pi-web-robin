@@ -19,6 +19,76 @@ export interface WorkspaceChrome {
 }
 
 /**
+ * One pane of a workspace, on a phone where the columns become a stack of one.
+ *
+ * `active === null` means "not a phone": the wrapper leaves the box tree
+ * entirely and the pane stays a direct flex item of the row, at whatever width
+ * the divider beside it gave it. So the desktop layout is not merely
+ * unchanged, it is the same layout.
+ *
+ * The panes that are not showing are hidden rather than unmounted. The
+ * problems track's middle pane is a cross-origin application with a code
+ * editor in it: unmounting it on a pane switch reloads NeetCode and takes
+ * whatever had been typed with it.
+ */
+export function WorkspacePane({
+  active,
+  children,
+}: {
+  active: boolean | null;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      style={
+        active === null
+          ? { display: "contents" }
+          : {
+            display: active ? "flex" : "none",
+            flexDirection: "column",
+            flex: 1,
+            minWidth: 0,
+            minHeight: 0,
+          }
+      }
+    >
+      {children}
+    </div>
+  );
+}
+
+/** The phone-only switcher that says which single pane is on screen. */
+export function WorkspacePaneSwitch<Pane extends string>({
+  panes,
+  active,
+  onChange,
+}: {
+  panes: readonly { readonly id: Pane; readonly labelKey: string }[];
+  active: Pane;
+  onChange: (pane: Pane) => void;
+}) {
+  const { t } = useI18n();
+
+  return (
+    <div className="flex flex-wrap items-baseline gap-2">
+      {panes.map(({ id, labelKey }) => (
+        <button
+          key={id}
+          type="button"
+          onClick={() => onChange(id)}
+          className="ui-action pi-chrome-label pi-bracket"
+          data-state={id === active ? "accent" : undefined}
+          style={{ fontSize: 10 }}
+          aria-current={id === active ? "true" : undefined}
+        >
+          {t(labelKey)}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
  * The one header both workspaces render.
  *
  * The alternative was for the shell to own the header and each workspace to
@@ -43,7 +113,7 @@ export function WorkspaceHeader({
     >
       <h1 className="pi-label">{t("coding.title")}</h1>
 
-      <div className="flex items-baseline gap-2">
+      <div className="flex flex-wrap items-baseline gap-2">
         {CODING_TRACKS.map((candidate) => (
           <button
             key={candidate}

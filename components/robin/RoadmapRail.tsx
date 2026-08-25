@@ -20,8 +20,11 @@ const STATUS_MARK: Record<string, string> = {
 };
 
 interface Props {
-  /** Set by the workspace, which owns the drag; see ./paneWidths.ts. */
-  width: number;
+  /**
+   * Set by the workspace, which owns the drag; see ./paneWidths.ts. `null` on a
+   * phone, where the rail is one pane of a stack and simply fills it.
+   */
+  width: number | null;
   list: PracticeList;
   onListChange: (list: PracticeList) => void;
   records: Map<string, PracticeRecord>;
@@ -61,13 +64,15 @@ export function RoadmapRail({ width, list, onListChange, records, today, selecte
       className="flex flex-col"
       // No border: the PaneDivider beside it is the line, and two would read
       // as a double rule.
-      style={{ width, minWidth: width, maxWidth: width }}
+      style={width === null
+        ? { flex: 1, minWidth: 0, minHeight: 0 }
+        : { width, minWidth: width, maxWidth: width }}
     >
       <header
         className="flex flex-col gap-2 border-b px-3 py-2"
         style={{ borderColor: "var(--border)" }}
       >
-        <div className="flex items-baseline gap-2">
+        <div className="flex flex-wrap items-baseline gap-2">
           {PRACTICE_LISTS.map((candidate) => (
             <button
               key={candidate}

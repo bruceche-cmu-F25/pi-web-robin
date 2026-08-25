@@ -2,11 +2,17 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { CURRICULUM, findTrack, type CurriculumItem } from "@/extension/robin/study";
 import { AgentPanel } from "./AgentPanel";
 import { PaneDivider } from "./PaneDivider";
 import { SyllabusBoard } from "./SyllabusBoard";
-import { WorkspaceHeader, type WorkspaceChrome } from "./WorkspaceHeader";
+import {
+  WorkspaceHeader,
+  WorkspacePane,
+  WorkspacePaneSwitch,
+  type WorkspaceChrome,
+} from "./WorkspaceHeader";
 import { usePaneWidths } from "./usePaneWidths";
 import { mutate, usePolledResource } from "./usePolledResource";
 
@@ -16,6 +22,14 @@ interface StudyResponse {
 }
 
 const TRACK_STORAGE_KEY = "pi-study-track";
+
+/** The two panes, in the order a phone steps through them. */
+const PANES = [
+  { id: "syllabus", labelKey: "coding.pane.syllabus" },
+  { id: "mentor", labelKey: "coding.mentor.title" },
+] as const;
+
+type Pane = (typeof PANES)[number]["id"];
 
 /** Tool name → i18n key, for the line under a mentor reply saying what it read. */
 const MENTOR_TOOL_KEYS: Record<string, string> = {
@@ -60,6 +74,13 @@ export function StudyWorkspace(chrome: WorkspaceChrome) {
   // No rail on this track, so the mentor panel may take the room the rail
   // would otherwise be holding against it.
   const panes = usePaneWidths(false);
+  /**
+   * A phone gets one pane at a time. The mentor column is 360px wide before it
+   * is readable, which on a 375px screen leaves the syllabus beside it about
+   * ten pixels — one word per line, and the panel itself off the right edge.
+   */
+  const isMobile = useIsMobile();
+  const [pane, setPane] = useState<Pane>("syllabus");
 
   useEffect(() => {
     // Read after mount, not during render: the server has no localStorage and
@@ -130,8 +151,11 @@ export function StudyWorkspace(chrome: WorkspaceChrome) {
   };
 
   return (
-    <div className="flex h-full flex-col" style={{ minHeight: 0 }}>
+    <div className="robin-page flex h-full flex-col" style={{ minHeight: 0 }}>
       <WorkspaceHeader {...chrome}>
+        {isMobile ? (
+          <WorkspacePaneSwitch panes={PANES} active={pane} onChange={setPane} />
+        ) : null}
         {/* A failed write has to be visible: without this, clicking a resource
             that the server rejected would look like nothing happened. */}
         {error ?? actionError ? (
@@ -140,32 +164,40 @@ export function StudyWorkspace(chrome: WorkspaceChrome) {
       </WorkspaceHeader>
 
       <div className="flex flex-1" style={{ minHeight: 0 }}>
-        <SyllabusBoard
-          track={track}
-          onTrackChange={chooseTrack}
-          selected={selectedId}
-          onOpen={(item) => void runAction(() => select(item))}
-        />
-
-        <PaneDivider
-          edge="right"
-          label={t("coding.pane.panel")}
-          title={t("coding.pane.resetHint")}
-          {...panes.panel}
-        />
-
-        <div
-          className="flex flex-col"
-          style={{ width: panes.panel.width, flex: "0 0 auto", minHeight: 0 }}
-        >
-          <AgentPanel
-            mode="mentor"
-            titleKey="coding.mentor.title"
-            placeholderKey="coding.mentor.placeholder"
-            restartHintKey="coding.mentor.restartHint"
-            toolKeys={MENTOR_TOOL_KEYS}
+        <WorkspacePane active={isMobile ? pane === "syllabus" : null}>
+          <SyllabusBoard
+            track={track}
+            onTrackChange={chooseTrack}
+            selected={selectedId}
+            onOpen={(item) => void runAction(() => select(item))}
           />
-        </div>
+        </WorkspacePane>
+
+        {isMobile ? null : (
+          <PaneDivider
+            edge="right"
+            label={t("coding.pane.panel")}
+            title={t("coding.pane.resetHint")}
+            {...panes.panel}
+          />
+        )}
+
+        <WorkspacePane active={isMobile ? pane === "mentor" : null}>
+          <div
+            className="flex flex-col"
+            style={isMobile
+              ? { flex: 1, minWidth: 0, minHeight: 0 }
+              : { width: panes.panel.width, flex: "0 0 auto", minHeight: 0 }}
+          >
+            <AgentPanel
+              mode="mentor"
+              titleKey="coding.mentor.title"
+              placeholderKey="coding.mentor.placeholder"
+              restartHintKey="coding.mentor.restartHint"
+              toolKeys={MENTOR_TOOL_KEYS}
+            />
+          </div>
+        </WorkspacePane>
       </div>
     </div>
   );

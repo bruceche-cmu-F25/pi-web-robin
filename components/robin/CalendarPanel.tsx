@@ -188,7 +188,7 @@ export function CalendarPanel() {
           <h2 className="pi-label">{t("robin.calendar.title")}</h2>
           <span className="pi-meta">{heading}</span>
         </div>
-        <div className="flex items-center gap-1 font-mono">
+        <div className="robin-calendar-toolbar flex flex-wrap items-center gap-1 font-mono">
           {navigable && (
             <>
               <button

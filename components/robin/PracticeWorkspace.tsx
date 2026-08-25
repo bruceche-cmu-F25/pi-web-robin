@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import {
   PRACTICE_LISTS,
   findProblem,
@@ -18,7 +19,12 @@ import { NeetCodeFrame } from "./NeetCodeFrame";
 import { PaneDivider } from "./PaneDivider";
 import { PracticeRecordBar } from "./PracticeRecordBar";
 import { RoadmapRail } from "./RoadmapRail";
-import { WorkspaceHeader, type WorkspaceChrome } from "./WorkspaceHeader";
+import {
+  WorkspaceHeader,
+  WorkspacePane,
+  WorkspacePaneSwitch,
+  type WorkspaceChrome,
+} from "./WorkspaceHeader";
 import { usePaneWidths } from "./usePaneWidths";
 import { mutate, usePolledResource } from "./usePolledResource";
 
@@ -31,6 +37,18 @@ interface PracticeResponse {
 
 const LIST_STORAGE_KEY = "pi-practice-list";
 const RAIL_STORAGE_KEY = "pi-practice-rail";
+
+/**
+ * The three panes, in the order a phone steps through them: pick a problem,
+ * work on it, ask about it.
+ */
+const PANES = [
+  { id: "rail", labelKey: "coding.rail.show" },
+  { id: "problem", labelKey: "coding.pane.problem" },
+  { id: "coach", labelKey: "coding.coach.title" },
+] as const;
+
+type Pane = (typeof PANES)[number]["id"];
 
 /** Tool name → i18n key, for the line under a coach reply saying what it touched. */
 const COACH_TOOL_KEYS: Record<string, string> = {
@@ -67,6 +85,17 @@ export function PracticeWorkspace(chrome: WorkspaceChrome) {
   // once avoids overriding a later click with a stale value.
   const [adopted, setAdopted] = useState(false);
   const panes = usePaneWidths(railOpen);
+  /**
+   * A phone gets one pane at a time.
+   *
+   * Three columns do not fit 375px: the widths that make the rail and the
+   * coach readable on a desktop leave the frame between them at zero, and the
+   * frame is the problem you came to solve. The rail's own show/hide toggle
+   * cannot answer this — hiding it still leaves two columns fighting over a
+   * screen with room for one.
+   */
+  const isMobile = useIsMobile();
+  const [pane, setPane] = useState<Pane>("problem");
 
   useEffect(() => {
     const stored = window.localStorage.getItem(LIST_STORAGE_KEY);
@@ -144,6 +173,9 @@ export function PracticeWorkspace(chrome: WorkspaceChrome) {
     if (requestedSlug.current === problem.link) {
       setSelectedSlug((body as PracticeResponse).currentSlug);
     }
+    // On a phone the rail is a pane rather than a column, so picking a problem
+    // has to move to it; on a desktop the frame beside the rail already did.
+    setPane("problem");
     await refresh();
   }, [list, refresh]);
 
@@ -173,19 +205,23 @@ export function PracticeWorkspace(chrome: WorkspaceChrome) {
   );
 
   return (
-    <div className="flex h-full flex-col" style={{ minHeight: 0 }}>
+    <div className="robin-page flex h-full flex-col" style={{ minHeight: 0 }}>
       <WorkspaceHeader {...chrome}>
-        <button
-          type="button"
-          onClick={toggleRail}
-          className="ui-action pi-chrome-label pi-bracket"
-          data-state={railOpen ? undefined : "accent"}
-          style={{ fontSize: 10 }}
-          aria-expanded={railOpen}
-          aria-controls="roadmap-rail"
-        >
-          {railOpen ? t("coding.rail.hide") : t("coding.rail.show")}
-        </button>
+        {isMobile ? (
+          <WorkspacePaneSwitch panes={PANES} active={pane} onChange={setPane} />
+        ) : (
+          <button
+            type="button"
+            onClick={toggleRail}
+            className="ui-action pi-chrome-label pi-bracket"
+            data-state={railOpen ? undefined : "accent"}
+            style={{ fontSize: 10 }}
+            aria-expanded={railOpen}
+            aria-controls="roadmap-rail"
+          >
+            {railOpen ? t("coding.rail.hide") : t("coding.rail.show")}
+          </button>
+        )}
         {suggestion ? (
           <button
             type="button"
@@ -205,55 +241,69 @@ export function PracticeWorkspace(chrome: WorkspaceChrome) {
       </WorkspaceHeader>
 
       <div className="flex flex-1" style={{ minHeight: 0 }}>
-        {railOpen ? (
+        {/* The rail is always rendered on a phone — there it is a pane, and the
+            switcher rather than the toggle decides whether it is on screen. */}
+        {isMobile || railOpen ? (
           <>
-            <RoadmapRail
-              width={panes.rail.width}
-              list={list}
-              onListChange={chooseList}
-              records={records}
-              today={today}
-              selected={selectedSlug}
-              onSelect={(problem) => void runAction(() => select(problem))}
-            />
-            <PaneDivider
-              edge="left"
-              label={t("coding.pane.rail")}
-              title={t("coding.pane.resetHint")}
-              {...panes.rail}
-            />
+            <WorkspacePane active={isMobile ? pane === "rail" : null}>
+              <RoadmapRail
+                width={isMobile ? null : panes.rail.width}
+                list={list}
+                onListChange={chooseList}
+                records={records}
+                today={today}
+                selected={selectedSlug}
+                onSelect={(problem) => void runAction(() => select(problem))}
+              />
+            </WorkspacePane>
+            {isMobile ? null : (
+              <PaneDivider
+                edge="left"
+                label={t("coding.pane.rail")}
+                title={t("coding.pane.resetHint")}
+                {...panes.rail}
+              />
+            )}
           </>
         ) : null}
 
-        <NeetCodeFrame problem={selected} />
+        <WorkspacePane active={isMobile ? pane === "problem" : null}>
+          <NeetCodeFrame problem={selected} />
+        </WorkspacePane>
 
-        <PaneDivider
-          edge="right"
-          label={t("coding.pane.panel")}
-          title={t("coding.pane.resetHint")}
-          {...panes.panel}
-        />
-
-        <div
-          className="flex flex-col"
-          style={{ width: panes.panel.width, flex: "0 0 auto", minHeight: 0 }}
-        >
-          {selected ? (
-            <PracticeRecordBar
-              key={selected.link}
-              record={selectedRecord}
-              onStatus={setStatus}
-              onNote={setNote}
-            />
-          ) : null}
-          <AgentPanel
-            mode="coach"
-            titleKey="coding.coach.title"
-            placeholderKey="coding.coach.placeholder"
-            restartHintKey="coding.coach.restartHint"
-            toolKeys={COACH_TOOL_KEYS}
+        {isMobile ? null : (
+          <PaneDivider
+            edge="right"
+            label={t("coding.pane.panel")}
+            title={t("coding.pane.resetHint")}
+            {...panes.panel}
           />
-        </div>
+        )}
+
+        <WorkspacePane active={isMobile ? pane === "coach" : null}>
+          <div
+            className="flex flex-col"
+            style={isMobile
+              ? { flex: 1, minWidth: 0, minHeight: 0 }
+              : { width: panes.panel.width, flex: "0 0 auto", minHeight: 0 }}
+          >
+            {selected ? (
+              <PracticeRecordBar
+                key={selected.link}
+                record={selectedRecord}
+                onStatus={setStatus}
+                onNote={setNote}
+              />
+            ) : null}
+            <AgentPanel
+              mode="coach"
+              titleKey="coding.coach.title"
+              placeholderKey="coding.coach.placeholder"
+              restartHintKey="coding.coach.restartHint"
+              toolKeys={COACH_TOOL_KEYS}
+            />
+          </div>
+        </WorkspacePane>
       </div>
     </div>
   );

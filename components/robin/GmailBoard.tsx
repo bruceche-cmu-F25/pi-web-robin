@@ -82,7 +82,7 @@ export function GmailBoard() {
   };
 
   return (
-    <div className="robin-dashboard flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
+    <div className="robin-page robin-dashboard flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
       <main className="mx-auto flex w-full max-w-4xl flex-col gap-4 p-4 desktop:p-6">
         <header className="flex flex-wrap items-baseline justify-between gap-4">
           <div className="flex flex-col gap-1">
@@ -91,7 +91,7 @@ export function GmailBoard() {
             </h1>
             <p className="pi-eyebrow">{t("robin.gmail.subtitle")}</p>
           </div>
-          <nav className="flex items-baseline gap-3">
+          <nav className="flex flex-wrap items-baseline gap-3">
             <button
               type="button"
               onClick={() => void check()}
