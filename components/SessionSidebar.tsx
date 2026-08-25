@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 import type { SessionInfo } from "@/lib/types";
 import type { GlobalSessionSearchHit } from "@/lib/session-search";
-import { buildSessionTree, type SessionTreeNode } from "@/lib/session-tree";
+import { listSessionFamilies } from "@/lib/session-family";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
 import { skillExpansionToCommand } from "@/lib/slash-display";
@@ -1021,7 +1021,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSes
         }
       : null);
 
-  const sessionTree = buildSessionTree(filteredSessions);
+  const sessionFamilies = listSessionFamilies(filteredSessions);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
@@ -1855,27 +1855,32 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSes
                 {error}
               </div>
             )}
-            {!loading && !error && filteredSessions.length === 0 && (
+            {!loading && !error && sessionFamilies.length === 0 && (
               <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
                 {t("sidebar.noSessions")}
               </div>
             )}
-            {sessionTree.map((node) => (
-              <SessionTreeItem
-                key={node.session.id}
-                node={node}
-                selectedSessionId={selectedSessionId}
-                runningSessionIds={runningSessionIds}
-                unreadSessionIds={unreadSessionIds}
-                onSelectSession={handleSelectSessionFromList}
-                onRenamed={loadSessions}
-                onSessionDeleted={(id) => {
-                  onSessionDeleted?.(id);
-                  loadSessions();
-                }}
-                depth={0}
-              />
-            ))}
+            {sessionFamilies.map((family) => {
+              const familySessions = [family.root, ...family.subagents];
+              const displaySession = family.latestModified === family.root.modified
+                ? family.root
+                : { ...family.root, modified: family.latestModified };
+              return (
+                <SessionItem
+                  key={family.root.id}
+                  session={displaySession}
+                  isSelected={familySessions.some((session) => session.id === selectedSessionId)}
+                  isRunning={familySessions.some((session) => runningSessionIds.has(session.id))}
+                  isUnread={familySessions.some((session) => unreadSessionIds.has(session.id))}
+                  onClick={() => handleSelectSessionFromList(family.root)}
+                  onRenamed={loadSessions}
+                  onDeleted={(id) => {
+                    onSessionDeleted?.(id);
+                    loadSessions();
+                  }}
+                />
+              );
+            })}
           </>
         )}
       </div>
@@ -2457,79 +2462,6 @@ function SessionItem({
             </div>
           )}
         </>
-      )}
-    </div>
-  );
-}
-
-// Renders the session hierarchy from lib/session-tree.ts. Subagents nest under
-// their parent; forks stay roots.
-function SessionTreeItem({
-  node,
-  selectedSessionId,
-  runningSessionIds,
-  unreadSessionIds,
-  onSelectSession,
-  onRenamed,
-  onSessionDeleted,
-  depth,
-}: {
-  node: SessionTreeNode;
-  selectedSessionId: string | null;
-  runningSessionIds: Set<string>;
-  unreadSessionIds: Set<string>;
-  onSelectSession: (s: SessionInfo) => void;
-  onRenamed?: () => void;
-  onSessionDeleted?: (id: string) => void;
-  depth: number;
-}) {
-  const [collapsed, setCollapsed] = useState(false);
-  const hasChildren = node.children.length > 0;
-
-  return (
-    <div>
-      <div style={{ position: "relative" }}>
-        {/* Indent line for child sessions */}
-        {depth > 0 && (
-          <div style={{
-            position: "absolute",
-            left: depth * 12 + 6,
-            top: 0, bottom: 0,
-            width: 1,
-            background: "var(--border)",
-            pointerEvents: "none",
-          }} />
-        )}
-        <SessionItem
-          session={node.session}
-          isSelected={node.session.id === selectedSessionId}
-          isRunning={runningSessionIds.has(node.session.id)}
-          isUnread={unreadSessionIds.has(node.session.id)}
-          onClick={() => onSelectSession(node.session)}
-          onRenamed={onRenamed}
-          onDeleted={(id) => onSessionDeleted?.(id)}
-          depth={depth}
-          hasChildren={hasChildren}
-          collapsed={collapsed}
-          onToggleCollapse={() => setCollapsed((v) => !v)}
-        />
-      </div>
-      {hasChildren && !collapsed && (
-        <div>
-          {node.children.map((child) => (
-            <SessionTreeItem
-              key={child.session.id}
-              node={child}
-              selectedSessionId={selectedSessionId}
-              runningSessionIds={runningSessionIds}
-              unreadSessionIds={unreadSessionIds}
-              onSelectSession={onSelectSession}
-              onRenamed={onRenamed}
-              onSessionDeleted={onSessionDeleted}
-              depth={depth + 1}
-            />
-          ))}
-        </div>
       )}
     </div>
   );
