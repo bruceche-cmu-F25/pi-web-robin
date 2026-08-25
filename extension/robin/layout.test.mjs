@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { fromMinutes, layoutDayEvents, layoutSpanBars, toMinutes } from "./layout.ts";
+import { fromMinutes, layoutDayEvents, layoutSpanBars, toMinutes, visibleHourRange } from "./layout.ts";
 
 const at = (id, start, end, extra = {}) => ({
   id, title: id, date: "2026-08-14", createdAt: "", start, ...(end ? { end } : {}), ...extra,
@@ -73,6 +73,18 @@ test("all-day and spanning events are excluded from the time grid", () => {
     at("normal", "09:00", "10:00"),
   ]);
   assert.deepEqual(placed.map((p) => p.event.id), ["normal"]);
+});
+
+test("visible hours expand for timed events, not all-day or spanning events", () => {
+  const bands = [
+    allDay("allday", "2026-08-14"),
+    at("trip", "00:00", "23:59", { endDate: "2026-08-16" }),
+  ];
+  assert.deepEqual(visibleHourRange(bands), { first: 7, last: 22 });
+  assert.deepEqual(
+    visibleHourRange([...bands, at("early", "02:30", "03:00"), at("late", "22:30", "23:15")]),
+    { first: 2, last: 24 },
+  );
 });
 
 test("span bars clip to the week and flag where they continue", () => {

@@ -27,6 +27,15 @@ export function proxy(request: NextRequest) {
     isWebPasswordEnabled(password)
     && !isValidBasicAuthorization(request.headers.get("authorization"), password)
   ) {
+    if (isApiRequest) {
+      // A Basic challenge on a background fetch opens a browser-level login
+      // prompt that blocks the whole page, making every control look dead.
+      // Only document requests should be allowed to trigger that prompt.
+      return NextResponse.json(
+        { error: "Authentication required" },
+        { status: 401, headers: { "Cache-Control": "no-store" } },
+      );
+    }
     return new NextResponse("Authentication required", {
       status: 401,
       headers: {
@@ -39,4 +48,8 @@ export function proxy(request: NextRequest) {
   return NextResponse.next();
 }
 
-export const config = { matcher: ["/", "/api/:path*"] };
+export const config = {
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|fonts/|icons/|offline.html|sw.js|manifest.webmanifest).*)",
+  ],
+};

@@ -10,15 +10,18 @@ import {
   dataDir,
   readJobProfile,
   readAssistantSessionId,
+  readCoachSessionId,
   readDailyAgendaSessionId,
   readJobScorerSessionId,
   readMailReviewSessionId,
   writeAssistantSessionId,
+  writeCoachSessionId,
   writeDailyAgendaSessionId,
   writeJobScorerSessionId,
   writeMailReviewSessionId,
 } from "@/extension/robin/store";
 import {
+  ROBIN_COACH_TOOL_NAMES,
   ROBIN_MAIL_TOOL_NAMES,
   ROBIN_READ_ONLY_TOOL_NAMES,
   ROBIN_SCORING_TOOL_NAMES,
@@ -46,6 +49,24 @@ const SCORING_TIMEOUT_MS = 300_000;
 const MAIL_TIMEOUT_MS = 180_000;
 
 const TOOL_NAMES = [...ROBIN_TOOL_NAMES];
+
+/**
+ * Who the coach is, sent once when its session is created.
+ *
+ * Once, not every turn: the session is long-lived, so re-sending this would
+ * pay for it on every message forever. The tools carry the operational rules
+ * (the hint ladder lives in `practice_current`'s guidelines, which pi injects
+ * whenever the tool is active); this preamble carries only what a tool
+ * description has no place to say — who is being talked to and what the point
+ * of the whole conversation is.
+ */
+const COACH_PREAMBLE = [
+  "You are this user's coding coach: a senior Python and full-stack engineer sitting next to them while they work through the NeetCode roadmap.",
+  "",
+  "Two jobs, in this order. First, the problem in front of them — coach it, never solve it for them; climb the hint ladder in your tool guidelines one rung at a time and stop as soon as they are moving again. Second, the engineer they are becoming: idiomatic Python, complexity they can derive rather than recite, naming and structure you would accept in review, and the occasional short aside on how the same idea shows up in real systems.",
+  "",
+  "Reply in the language they write in. Keep answers short — this is a side panel next to a problem, not an article. Ask before assuming; they would rather be questioned than lectured.",
+].join("\n");
 
 /**
  * Which tools a turn gets, and which session it runs in.
@@ -88,6 +109,13 @@ export const MODES = {
      */
     stateless: true,
   },
+  coach: {
+    toolNames: [...ROBIN_COACH_TOOL_NAMES],
+    read: readCoachSessionId,
+    write: writeCoachSessionId,
+    timeoutMs: TURN_TIMEOUT_MS,
+    preamble: COACH_PREAMBLE,
+  },
   mail: {
     toolNames: [...ROBIN_MAIL_TOOL_NAMES],
     read: readMailReviewSessionId,
@@ -122,7 +150,7 @@ async function acquireSession(
   remembered: string | null,
   remember: (sessionId: string) => void,
   model?: { provider: string; modelId: string } | null,
-): Promise<{ session: AgentSessionWrapper; sessionId: string }> {
+): Promise<{ session: AgentSessionWrapper; sessionId: string; fresh: boolean }> {
   /**
    * Re-sent on every acquisition, like the tool list and for the same reason:
    * a session restored from its file comes back on whatever pi defaults to, so
@@ -147,7 +175,7 @@ async function acquireSession(
     if (live?.isAlive()) {
       await live.send({ type: "set_tools", toolNames, exact: true });
       await applyModel(live);
-      return { session: live, sessionId: remembered };
+      return { session: live, sessionId: remembered, fresh: false };
     }
     const filePath = await resolveSessionPath(remembered);
     if (filePath) {
@@ -157,7 +185,7 @@ async function acquireSession(
       });
       await session.send({ type: "set_tools", toolNames, exact: true });
       await applyModel(session);
-      return { session, sessionId: realSessionId };
+      return { session, sessionId: realSessionId, fresh: false };
     }
     // Remembered id no longer resolves (session deleted, agent dir moved): fall
     // through and start a fresh one rather than failing the request.
@@ -172,7 +200,7 @@ async function acquireSession(
     { toolNames, exactTools: true, ...(model ? { initialModel: model } : {}) },
   );
   remember(realSessionId);
-  return { session, sessionId: realSessionId };
+  return { session, sessionId: realSessionId, fresh: true };
 }
 
 function textFromMessage(message: unknown): string {
@@ -257,12 +285,17 @@ export async function runAssistantTurn(
 ): Promise<{ reply: string; usedTools: string[]; sessionId: string }> {
   const mode = MODES[modeName];
   const stateless = "stateless" in mode && mode.stateless === true;
-  const { session, sessionId } = await acquireSession(
+  const { session, sessionId, fresh } = await acquireSession(
     [...mode.toolNames],
     stateless ? null : mode.read(),
     mode.write,
     modeName === "scoring" ? readJobProfile().scoreModel : null,
   );
-  const { reply, usedTools } = await runTurn(session, message, images, mode.timeoutMs);
+  // A mode's preamble belongs to the session, not to the turn: it rides along
+  // with the first message of a new one and is never repeated, because
+  // everything after that turn can already see it in the history.
+  const preamble = fresh && "preamble" in mode ? mode.preamble : null;
+  const prompt = preamble ? `${preamble}\n\n---\n\n${message}` : message;
+  const { reply, usedTools } = await runTurn(session, prompt, images, mode.timeoutMs);
   return { reply, usedTools, sessionId };
 }

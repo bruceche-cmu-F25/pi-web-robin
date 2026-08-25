@@ -10,6 +10,8 @@ a fixed allow-list — no shell, no filesystem.
 - **Agent tools** usable from the dashboard, the `pi` CLI, and Telegram.
 - **Google Calendar** read-only, merged into the calendar views.
 - **Gmail** read-only: `/dashboard/gmail` shows the inbox, and a daily email digest goes to Telegram.
+- **Coding workspace** at `/coding` — the NeetCode roadmap embedded next to a coach
+  that hints instead of answering, with your own record of every problem.
 - **Telegram bridge** so the same assistant works when you are away from the machine —
   commands, inline buttons, voice notes, and four kinds of push.
 
@@ -83,6 +85,12 @@ The tool allow-list is in `tools.ts`; registrations are split by domain in
 | `job_list` | "show my best job leads" |
 | `job_status` | shortlist, apply, or drop a job |
 | `job_scan` | scan configured job boards |
+| `practice_current` | "how should I start this one?" |
+| `practice_list` | "what's left in Two Pointers?" |
+| `practice_record` | "I solved it, took about 20 minutes" |
+| `practice_status` | "mark Valid Anagram as done" |
+| `practice_note` | "remember: sort, then compare" |
+| `practice_due` | "what should I review today?" |
 
 Details worth knowing:
 
@@ -126,13 +134,53 @@ actually executed, not from the model's prose.
 - **Month** — a rolling four-week window starting from the current week, not a
   calendar month. Multi-day events draw as one continuous bar across the row.
 
-**Todos** — grouped Overdue / Today / Tomorrow / Later / Someday, with completed
-items collapsed.
+**Todos** — grouped Overdue / Today / Tomorrow / Later / Someday. Items completed
+on the current local day remain visible at the bottom; older completions are hidden.
 
 **Links** — grouped, opened with `rel="noopener noreferrer"`.
 
 The UI follows the language selected in pi-web's top bar, including date
 formatting.
+
+---
+
+## The coding workspace
+
+`/coding` is three panes: the roadmap rail, NeetCode itself in a frame, and the
+coach.
+
+**The frame is a black box.** A cross-origin page reports nothing back — not its
+URL, not what you solved. So the rail on the left is not decoration: clicking a
+problem is what tells the server which problem is open, and that record is the
+only reason the coach can answer a question about "this one". The frame is
+NeetCode's own problem page, editor and judge included, so you can solve it
+without leaving the page.
+
+**The catalog is local.** `neetcode-catalog.ts` is generated from
+[neetcode-gh/leetcode](https://github.com/neetcode-gh/leetcode)'s
+`.problemSiteData.json` (MIT), plus NeetCode's own per-problem slugs read from
+the site bundle at generation time — all 150 of NeetCode 150 have one, so every
+problem on the default list can be framed. Problems without one link out to
+LeetCode, which refuses to be embedded. Regenerate with:
+
+```bash
+node scripts/refresh-neetcode-catalog.mjs
+```
+
+Nothing is fetched from NeetCode at runtime, so the rail, your records, and the
+review queue keep working whether or not the frame loads.
+
+**The coach hints, it does not answer.** It runs in its own session with its own
+six tools and has no way to fetch a solution — no shell, no filesystem, nothing
+that returns an implementation. It climbs a hint ladder (ask what you tried →
+name the pattern → give the invariant → sketch the algorithm → write code only
+if you ask) and records how far up it went, because a solve that needed four
+hints should come back sooner than one that needed none.
+
+**Records** live in `~/.pi/robin/practice.json`. Each problem has a status, its
+attempts, a note, and a review date derived from your confidence (1/3/7/21/60
+days). You can set status and notes by hand in the panel; the coach writes the
+same records through its tools.
 
 ---
 

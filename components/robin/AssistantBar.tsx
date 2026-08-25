@@ -230,13 +230,16 @@ function SearchResults({
             ? [result.item.done ? "✓" : "", result.item.due ?? ""].filter(Boolean).join(" · ")
             : [result.item.date, result.item.start ?? "", result.item.location ?? ""].filter(Boolean).join(" · ");
         const item = result.item;
+        const titleColor = result.kind === "todo" && !result.item.done && result.item.color
+          ? `var(--todo-${result.item.color})`
+          : "var(--text)";
         const content = (
           <>
             <span className="w-14 shrink-0 text-[10px] uppercase tracking-wide" style={{ color: "var(--text-dim)" }}>
               {category}
             </span>
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm" style={{ color: "var(--text)" }}>{item.title}</span>
+              <span className="block truncate text-sm" style={{ color: titleColor }}>{item.title}</span>
               {detail && (
                 <span className="block truncate text-xs" style={{ color: "var(--text-dim)" }}>{detail}</span>
               )}

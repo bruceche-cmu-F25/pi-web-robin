@@ -18,10 +18,9 @@
  */
 import { chmodSync } from "node:fs";
 import { addDays, localDate } from "./dates.ts";
-import { googleColorKey } from "./eventColors.ts";
 import type { DashboardEvent } from "./events.ts";
 import { dataPath, readJsonObject, writeJsonObject } from "./paths.ts";
-import { googleCredentials } from "./settings.ts";
+import { googleCalendarSources, googleCredentials } from "./settings.ts";
 
 const TOKENS_FILE = "google.json";
 const AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -232,7 +231,9 @@ export interface GoogleEvent {
   };
   organizer?: { displayName?: string; email?: string };
   status?: string;
-  colorId?: string;
+  /** Shared by every expanded occurrence of a recurring event. */
+  recurringEventId?: string;
+  iCalUID?: string;
   start?: GoogleEventTime;
   end?: GoogleEventTime;
 }
@@ -271,7 +272,7 @@ function descriptionText(value: string | undefined): string | undefined {
  * dashboard's floating local model, so it is the part most worth pinning down.
  * Returns null for events that carry no usable start.
  */
-export function mapGoogleEvent(item: GoogleEvent, calendar: string): DashboardEvent | null {
+export function mapGoogleEvent(item: GoogleEvent, calendar: string, colorNamespace = "primary"): DashboardEvent | null {
   if (item.status === "cancelled") return null;
   const startParts = toLocalParts(item.start);
   if (!startParts) return null;
@@ -295,7 +296,9 @@ export function mapGoogleEvent(item: GoogleEvent, calendar: string): DashboardEv
     ? endParts.start
     : undefined;
 
-  const colorKey = googleColorKey(item.colorId);
+  const googleId = item.id ?? crypto.randomUUID();
+  const baseColorSeed = item.recurringEventId ?? item.iCalUID ?? googleId;
+  const colorSeed = colorNamespace === "primary" ? baseColorSeed : `${colorNamespace}:${baseColorSeed}`;
   const meetingUrl = httpUrl(item.hangoutLink)
     ?? httpUrl(item.conferenceData?.entryPoints?.find((entry) => entry.entryPointType === "video")?.uri);
   const url = httpUrl(item.htmlLink);
@@ -303,7 +306,9 @@ export function mapGoogleEvent(item: GoogleEvent, calendar: string): DashboardEv
   const description = descriptionText(item.description);
 
   return {
-    id: `google:${item.id ?? crypto.randomUUID()}`,
+    id: colorNamespace === "primary"
+      ? `google:${googleId}`
+      : `google:${colorNamespace}:${googleId}`,
     title: item.summary?.trim() || "(no title)",
     date: startParts.date,
     ...(endDate ? { endDate } : {}),
@@ -314,7 +319,7 @@ export function mapGoogleEvent(item: GoogleEvent, calendar: string): DashboardEv
     ...(url ? { url } : {}),
     ...(meetingUrl ? { meetingUrl } : {}),
     ...(organizer ? { organizer } : {}),
-    ...(colorKey ? { colorKey } : {}),
+    colorSeed,
     createdAt: "",
     source: "google",
     calendar,
@@ -328,26 +333,18 @@ export function mapGoogleEvent(item: GoogleEvent, calendar: string): DashboardEv
  * the range: the dashboard's event model has a single `date`, and splitting one
  * Google event into several would make it look like several commitments.
  */
-export async function fetchEvents(from: string, to: string): Promise<DashboardEvent[]> {
-  const token = await getAccessToken();
-  const timeMin = new Date(`${from}T00:00:00`);
-  const timeMax = new Date(`${to}T23:59:59`);
-
-  const params = new URLSearchParams({
-    timeMin: timeMin.toISOString(),
-    timeMax: timeMax.toISOString(),
-    singleEvents: "true", // expand recurring events into occurrences
-    orderBy: "startTime",
-    maxResults: "250",
-    conferenceDataVersion: "1",
-  });
-
+async function fetchCalendarEvents(
+  token: string,
+  calendarId: string,
+  fallbackLabel: string,
+  params: URLSearchParams,
+): Promise<DashboardEvent[]> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   let payload: { items?: GoogleEvent[]; summary?: string };
   try {
     const response = await fetch(
-      `${CALENDAR_ENDPOINT}/calendars/primary/events?${params.toString()}`,
+      `${CALENDAR_ENDPOINT}/calendars/${encodeURIComponent(calendarId)}/events?${params.toString()}`,
       {
         signal: controller.signal,
         headers: { Authorization: `Bearer ${token}` },
@@ -362,8 +359,55 @@ export async function fetchEvents(from: string, to: string): Promise<DashboardEv
     clearTimeout(timer);
   }
 
-  const calendar = payload.summary ?? "Google";
+  const calendar = payload.summary ?? fallbackLabel;
   return (payload.items ?? [])
-    .map((item) => mapGoogleEvent(item, calendar))
+    .map((item) => mapGoogleEvent(item, calendar, calendarId))
     .filter((event): event is DashboardEvent => event !== null);
+}
+
+export interface GoogleEventsResult {
+  events: DashboardEvent[];
+  warnings: string[];
+}
+
+export async function fetchEventsWithWarnings(from: string, to: string): Promise<GoogleEventsResult> {
+  const token = await getAccessToken();
+  const timeMin = new Date(`${from}T00:00:00`);
+  const timeMax = new Date(`${to}T23:59:59`);
+  const params = new URLSearchParams({
+    timeMin: timeMin.toISOString(),
+    timeMax: timeMax.toISOString(),
+    singleEvents: "true", // expand recurring events into occurrences
+    orderBy: "startTime",
+    maxResults: "250",
+    conferenceDataVersion: "1",
+  });
+  const sources = [
+    { id: "primary", label: "Google" },
+    ...googleCalendarSources()
+      .filter((source) => source.enabled && source.id !== "primary")
+      .map((source) => ({ id: source.id, label: source.label ?? source.id })),
+  ];
+  const settled = await Promise.allSettled(
+    sources.map((source) => fetchCalendarEvents(token, source.id, source.label, params)),
+  );
+  const primary = settled[0];
+  if (!primary || primary.status === "rejected") {
+    throw primary?.reason ?? new Error("Primary Google Calendar could not be read");
+  }
+
+  const events = [...primary.value];
+  const warnings: string[] = [];
+  for (let index = 1; index < settled.length; index += 1) {
+    const result = settled[index];
+    const source = sources[index];
+    if (!result || !source) continue;
+    if (result.status === "fulfilled") events.push(...result.value);
+    else warnings.push(`${source.label}: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`);
+  }
+  return { events, warnings };
+}
+
+export async function fetchEvents(from: string, to: string): Promise<DashboardEvent[]> {
+  return (await fetchEventsWithWarnings(from, to)).events;
 }

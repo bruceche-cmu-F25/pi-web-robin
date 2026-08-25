@@ -26,6 +26,13 @@ export function localDate(at: Date = new Date()): string {
   return `${year}-${month}-${day}`;
 }
 
+/** Whether a stored UTC instant happened on a given local calendar date. */
+export function isInstantOnLocalDate(instant: string | undefined, date: string): boolean {
+  if (!instant) return false;
+  const parsed = new Date(instant);
+  return !Number.isNaN(parsed.getTime()) && localDate(parsed) === date;
+}
+
 /**
  * Parse a local calendar date into a Date at local midnight.
  * `new Date("2026-08-15")` would parse as *UTC* midnight — the component form

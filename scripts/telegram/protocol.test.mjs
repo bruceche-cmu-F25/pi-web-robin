@@ -1,19 +1,25 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  chunkMessage,
   errorMessage,
   formatReply,
   isAllowed,
   parseAllowlist,
   parsePhotos,
   parseUpdates,
+  parseVoice,
   resolveLocale,
 } from "./protocol.ts";
 
 const update = (id, fields = {}) => ({
   update_id: id,
-  message: { chat: { id: 42 }, from: { username: "bruce" }, text: "hello", ...fields },
+  message: {
+    message_id: id * 100,
+    chat: { id: 42 },
+    from: { username: "bruce" },
+    text: "hello",
+    ...fields,
+  },
 });
 
 test("parseUpdates extracts messages and the next offset", () => {
@@ -25,7 +31,7 @@ test("parseUpdates extracts messages and the next offset", () => {
 test("unsupported updates are still acknowledged", () => {
   // A sticker has no text. If its update_id did not advance the offset, the
   // loop would refetch it forever and never see anything after it.
-  const sticker = { update_id: 11, message: { chat: { id: 42 }, sticker: {} } };
+  const sticker = { update_id: 11, message: { message_id: 1100, chat: { id: 42 }, sticker: {} } };
   const { messages, nextOffset } = parseUpdates({ ok: true, result: [sticker] });
   assert.deepEqual(messages, []);
   assert.equal(nextOffset, 12, "the offset must move past updates we cannot handle");
@@ -37,6 +43,7 @@ test("a photo is parsed with its caption as text, largest size last", () => {
     result: [{
       update_id: 20,
       message: {
+        message_id: 2000,
         chat: { id: 42 },
         from: { username: "bruce" },
         caption: " 这是截图 ",
@@ -61,7 +68,7 @@ test("a bare photo with no caption is kept, with empty text", () => {
     ok: true,
     result: [{
       update_id: 21,
-      message: { chat: { id: 42 }, photo: [{ file_id: "p1", width: 10, height: 10 }] },
+      message: { message_id: 2100, chat: { id: 42 }, photo: [{ file_id: "p1", width: 10, height: 10 }] },
     }],
   });
   assert.equal(messages.length, 1);
@@ -118,9 +125,10 @@ test("replies follow the sender's language", () => {
 });
 
 test("a failed or malformed response yields nothing", () => {
-  assert.deepEqual(parseUpdates({ ok: false }), { messages: [], nextOffset: null });
-  assert.deepEqual(parseUpdates(null), { messages: [], nextOffset: null });
-  assert.deepEqual(parseUpdates({ ok: true, result: "nope" }), { messages: [], nextOffset: null });
+  const empty = { messages: [], callbacks: [], nextOffset: null };
+  assert.deepEqual(parseUpdates({ ok: false }), empty);
+  assert.deepEqual(parseUpdates(null), empty);
+  assert.deepEqual(parseUpdates({ ok: true, result: "nope" }), empty);
 });
 
 test("parseAllowlist reads a comma list and rejects junk", () => {
@@ -138,23 +146,6 @@ test("isAllowed is exact membership, never a prefix or truthiness check", () => 
   assert.ok(!isAllowed(0, [42]));
 });
 
-test("chunkMessage leaves short text alone", () => {
-  assert.deepEqual(chunkMessage("short"), ["short"]);
-});
-
-test("chunkMessage splits on line breaks when it can", () => {
-  const text = `${"a".repeat(60)}\n${"b".repeat(60)}`;
-  const chunks = chunkMessage(text, 100);
-  assert.equal(chunks.length, 2);
-  assert.equal(chunks[0], "a".repeat(60));
-  assert.equal(chunks[1], "b".repeat(60));
-});
-
-test("chunkMessage hard-splits when there is no usable break", () => {
-  const chunks = chunkMessage("x".repeat(250), 100);
-  assert.deepEqual(chunks.map((c) => c.length), [100, 100, 50]);
-});
-
 test("formatReply appends the tools that actually ran", () => {
   assert.equal(formatReply("Added.", ["todo_add"]), "Added.\n\n— added a todo");
   assert.equal(
@@ -169,3 +160,94 @@ test("formatReply survives an empty model reply", () => {
 });
 
 
+
+test("a button press is parsed as a callback, not a message", () => {
+  const { messages, callbacks, nextOffset } = parseUpdates({
+    ok: true,
+    result: [{
+      update_id: 30,
+      callback_query: {
+        id: "cb-1",
+        data: "job:shortlist:abc",
+        from: { username: "bruce", language_code: "zh-hans" },
+        message: { message_id: 900, chat: { id: 42 } },
+      },
+    }],
+  });
+  assert.deepEqual(messages, []);
+  assert.equal(callbacks.length, 1);
+  assert.deepEqual(callbacks[0], {
+    updateId: 30,
+    callbackId: "cb-1",
+    chatId: 42,
+    messageId: 900,
+    from: "bruce",
+    data: "job:shortlist:abc",
+    languageCode: "zh-hans",
+  });
+  assert.equal(nextOffset, 31);
+});
+
+test("a callback missing its message or data is dropped but acknowledged", () => {
+  const noMessage = parseUpdates({
+    ok: true,
+    result: [{ update_id: 31, callback_query: { id: "cb", data: "x" } }],
+  });
+  assert.deepEqual(noMessage.callbacks, []);
+  assert.equal(noMessage.nextOffset, 32, "an undeliverable callback must not wedge the loop");
+
+  const noData = parseUpdates({
+    ok: true,
+    result: [{
+      update_id: 32,
+      callback_query: { id: "cb", message: { message_id: 1, chat: { id: 42 } } },
+    }],
+  });
+  assert.deepEqual(noData.callbacks, []);
+  assert.equal(noData.nextOffset, 33);
+});
+
+test("a voice note is kept even though it carries no text", () => {
+  const { messages } = parseUpdates({
+    ok: true,
+    result: [{
+      update_id: 40,
+      message: {
+        message_id: 4000,
+        chat: { id: 42 },
+        from: { username: "bruce" },
+        voice: { file_id: "v1", duration: 6, mime_type: "audio/ogg" },
+      },
+    }],
+  });
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].text, "");
+  assert.deepEqual(messages[0].voice, { fileId: "v1", duration: 6, mimeType: "audio/ogg" });
+});
+
+test("a forwarded recording arrives as audio and transcribes the same way", () => {
+  const { messages } = parseUpdates({
+    ok: true,
+    result: [{
+      update_id: 41,
+      message: { message_id: 4100, chat: { id: 42 }, audio: { file_id: "a1", duration: 30 } },
+    }],
+  });
+  assert.deepEqual(messages[0].voice, { fileId: "a1", duration: 30 });
+});
+
+test("parseVoice rejects anything without a file id", () => {
+  assert.equal(parseVoice(undefined), null);
+  assert.equal(parseVoice({ duration: 5 }), null);
+  assert.equal(parseVoice("nope"), null);
+  assert.deepEqual(parseVoice({ file_id: "ok" }), { fileId: "ok" });
+});
+
+test("a message without a message id cannot be replied to, so it is dropped", () => {
+  const { messages, nextOffset } = parseUpdates({
+    ok: true,
+    result: [{ update_id: 50, message: { chat: { id: 42 }, text: "hi" } }],
+  });
+  assert.deepEqual(messages, []);
+  assert.equal(nextOffset, 51);
+});

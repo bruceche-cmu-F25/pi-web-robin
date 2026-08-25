@@ -16,6 +16,7 @@ import { EVENT_COLOR_KEYS, type EventColorKey } from "./eventColors.ts";
 import type { MailReview } from "./mail.ts";
 import { DEFAULT_JOB_PROFILE, type Job, type JobProfile } from "./jobs.ts";
 import type { Link } from "./links.ts";
+import type { PracticeList, PracticeRecord } from "./practice.ts";
 import { createDeliveryLedger } from "./delivery-ledger.ts";
 import { dataPath, readJsonArray, readJsonObject, writeJsonArray, writeJsonObject } from "./paths.ts";
 
@@ -31,6 +32,24 @@ export {
   type CalendarEvent,
 } from "./events.ts";
 export { groupLinks, iconFallback, normalizeUrl, reorderLinkGroups, type Link } from "./links.ts";
+export {
+  NEETCODE_CATALOG,
+  PATTERN_ORDER,
+  dueForReview,
+  emptyRecord,
+  findProblem,
+  problemsInList,
+  recordMap,
+  reviewDateFor,
+  statsFor,
+  suggestNext,
+  type Attempt,
+  type AttemptOutcome,
+  type CatalogProblem,
+  type PracticeList,
+  type PracticeRecord,
+  type PracticeStatus,
+} from "./practice.ts";
 export {
   DEFAULT_JOB_PROFILE,
   EXCLUDE_PRESETS,
@@ -63,6 +82,8 @@ const JOB_DIGEST_STATE_FILE = "job-digest-state.json";
 const GMAIL_DIGEST_STATE_FILE = "gmail-digest-state.json";
 const MAIL_REVIEW_FILE = "mail-review.json";
 const REMINDER_STATE_FILE = "reminder-state.json";
+const PRACTICE_FILE = "practice.json";
+const PRACTICE_STATE_FILE = "practice-state.json";
 const COMPLETED_TODO_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
 
 /**
@@ -173,6 +194,14 @@ interface AssistantState {
    * so the turn that reads it and writes todos/events runs in its own session.
    */
   mailReviewSessionId?: string;
+  /**
+   * The coding coach's own conversation, kept apart from the dashboard
+   * assistant for the plain reason that it is a different conversation: weeks
+   * of "why is this O(n log n)" should not dilute the context you ask about
+   * rent and calendars in, and either one must be restartable without taking
+   * the other with it.
+   */
+  coachSessionId?: string;
   updatedAt?: string;
 }
 
@@ -220,8 +249,16 @@ export function writeMailReviewSessionId(mailReviewSessionId: string): void {
   writeAssistantState({ mailReviewSessionId });
 }
 
+export function readCoachSessionId(): string | null {
+  return readAssistantState().coachSessionId ?? null;
+}
+
+export function writeCoachSessionId(coachSessionId: string): void {
+  writeAssistantState({ coachSessionId });
+}
+
 /** The assistant sessions a caller may ask to start over. */
-export const ASSISTANT_SESSION_KINDS = ["default", "readOnly", "scoring", "mail"] as const;
+export const ASSISTANT_SESSION_KINDS = ["default", "readOnly", "scoring", "mail", "coach"] as const;
 
 export type AssistantSessionKind = (typeof ASSISTANT_SESSION_KINDS)[number];
 
@@ -230,6 +267,7 @@ const SESSION_FIELDS: Record<AssistantSessionKind, keyof AssistantState> = {
   readOnly: "dailyAgendaSessionId",
   scoring: "jobScorerSessionId",
   mail: "mailReviewSessionId",
+  coach: "coachSessionId",
 };
 
 /**
@@ -445,4 +483,45 @@ export function formatTodo(todo: Todo, today: string = localDate()): string {
   const box = todo.done ? "[x]" : "[ ]";
   const bucket = todo.done ? "none" : dueBucket(todo.due, today);
   return `${box} ${todo.id}  ${todo.title}${DUE_LABEL[bucket](todo.due ?? "")}`;
+}
+
+/* ──────────────────────────── practice ──────────────────────────── */
+
+export function practicePath(): string {
+  return dataPath(PRACTICE_FILE);
+}
+
+export function readPracticeRecords(): PracticeRecord[] {
+  return readJsonArray<PracticeRecord>(PRACTICE_FILE);
+}
+
+export function writePracticeRecords(records: PracticeRecord[]): void {
+  writeJsonArray(PRACTICE_FILE, records);
+}
+
+/**
+ * What the workspace currently has open.
+ *
+ * A cross-origin iframe tells us nothing about itself, so the coach can only
+ * know which problem you are looking at because the click that opened it came
+ * from our side and was written down here. This file is that record.
+ */
+export interface PracticeState {
+  /** LeetCode slug of the problem the workspace currently has open. */
+  currentSlug?: string;
+  list?: PracticeList;
+  /** UTC instant, ISO 8601. */
+  updatedAt?: string;
+}
+
+export function readPracticeState(): PracticeState {
+  return readJsonObject<PracticeState>(PRACTICE_STATE_FILE) ?? {};
+}
+
+export function writePracticeState(patch: Partial<PracticeState>): void {
+  writeJsonObject(PRACTICE_STATE_FILE, {
+    ...readPracticeState(),
+    ...patch,
+    updatedAt: new Date().toISOString(),
+  });
 }

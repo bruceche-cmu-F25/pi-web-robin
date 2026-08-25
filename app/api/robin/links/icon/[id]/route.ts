@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { fetchPageMetadata } from "@/extension/robin/fetch-title";
-import { readIcon, storeIcon } from "@/extension/robin/icons";
-import { readLinks, writeLinks } from "@/extension/robin/store";
+import { readIcon } from "@/extension/robin/icons";
+import { refreshLinkIcon } from "@/extension/robin/link-domain";
+import { readLinks } from "@/extension/robin/store";
 import { isApiRequestAllowed } from "@/lib/request-security";
 
 export const dynamic = "force-dynamic";
@@ -51,19 +51,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const { id } = await params;
 
   try {
-    const links = readLinks();
-    const link = links.find((entry) => entry.id === id);
-    if (!link) return NextResponse.json({ error: "No such link" }, { status: 404 });
-
-    const { iconUrl } = await fetchPageMetadata(link.url);
-    const extension = iconUrl ? await storeIcon(link.id, iconUrl) : null;
-
-    if (extension) link.icon = extension;
-    else delete link.icon;
-    link.iconCheckedAt = new Date().toISOString();
-
-    writeLinks(links);
-    return NextResponse.json({ icon: extension });
+    const result = await refreshLinkIcon(id);
+    if (!result) return NextResponse.json({ error: "No such link" }, { status: 404 });
+    return NextResponse.json({ icon: result.icon });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : String(error) },

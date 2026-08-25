@@ -153,8 +153,18 @@ export const DEFAULT_TRANSCRIPTION: TranscriptionSettings = {
   model: "whisper-1",
 };
 
+export interface GoogleCalendarSource {
+  id: string;
+  label?: string;
+  enabled: boolean;
+}
+
 export interface RobinSecrets {
-  google?: { clientId?: string; clientSecret?: string };
+  google?: {
+    clientId?: string;
+    clientSecret?: string;
+    calendars?: GoogleCalendarSource[];
+  };
   telegram?: {
     botToken?: string;
     allowedChatIds?: number[];
@@ -228,19 +238,66 @@ export function googleCredentials(): { clientId?: string; clientSecret?: string 
   };
 }
 
-export function describeGoogle(): { clientId: SecretStatus; clientSecret: SecretStatus } {
+export function googleCalendarSources(): GoogleCalendarSource[] {
+  const stored = read().google?.calendars;
+  if (!Array.isArray(stored)) return [];
+  return stored.flatMap((source) => {
+    if (!source || typeof source.id !== "string" || !source.id.trim()) return [];
+    const label = typeof source.label === "string" && source.label.trim()
+      ? source.label.trim()
+      : undefined;
+    return [{ id: source.id.trim(), ...(label ? { label } : {}), enabled: source.enabled !== false }];
+  }).slice(0, 20);
+}
+
+export function parseGoogleCalendarId(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) throw new Error("Calendar URL or ID is required");
+
+  let id = trimmed;
+  try {
+    const url = new URL(trimmed);
+    id = url.searchParams.get("src")?.trim() ?? "";
+  } catch {
+    // A raw calendar id is valid input too.
+  }
+  if (!id || id.length > 512 || /[\u0000-\u001f\u007f]/.test(id)) {
+    throw new Error("Invalid Google Calendar URL or ID");
+  }
+  return id;
+}
+
+export function setGoogleCalendarSources(calendars: GoogleCalendarSource[]): void {
+  if (calendars.length > 20) throw new Error("At most 20 additional calendars are supported");
+  const normalized = calendars.map((source) => ({
+    id: parseGoogleCalendarId(source.id),
+    ...(source.label?.trim() ? { label: source.label.trim().slice(0, 100) } : {}),
+    enabled: source.enabled !== false,
+  }));
+  if (new Set(normalized.map((source) => source.id)).size !== normalized.length) {
+    throw new Error("That calendar is already configured");
+  }
+  const secrets = read();
+  write({ ...secrets, google: { ...secrets.google, calendars: normalized } });
+}
+
+export function describeGoogle(): { clientId: SecretStatus; clientSecret: SecretStatus; calendars: GoogleCalendarSource[] } {
   const secrets = read();
   const id = pick(secrets.google?.clientId, process.env.ROBIN_GOOGLE_CLIENT_ID);
   const secret = pick(secrets.google?.clientSecret, process.env.ROBIN_GOOGLE_CLIENT_SECRET);
   return {
     clientId: describeSecret(id.value, id.source),
     clientSecret: describeSecret(secret.value, secret.source),
+    calendars: googleCalendarSources(),
   };
 }
 
 export function setGoogleCredentials(clientId: string, clientSecret: string): void {
   const secrets = read();
-  write({ ...secrets, google: { clientId: clientId.trim(), clientSecret: clientSecret.trim() } });
+  write({
+    ...secrets,
+    google: { ...secrets.google, clientId: clientId.trim(), clientSecret: clientSecret.trim() },
+  });
 }
 
 export function clearGoogleCredentials(): void {

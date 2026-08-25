@@ -15,6 +15,7 @@ import { registerCalendarTools } from "./calendar-tools.ts";
 import { registerGmailTools } from "./gmail-tools.ts";
 import { registerJobTools } from "./job-tools.ts";
 import { registerLinkTools } from "./link-tools.ts";
+import { registerPracticeTools } from "./practice-tools.ts";
 import { registerProviderTools } from "./provider-tools.ts";
 import { registerTodoTools } from "./todo-tools.ts";
 import { readTodos, todosPath } from "./store.ts";
@@ -26,6 +27,7 @@ const robin = (pi: ExtensionAPI) => {
   registerGmailTools(pi);
   registerProviderTools(pi);
   registerJobTools(pi);
+  registerPracticeTools(pi);
 
   // Confirms the extension actually loaded, and where its data went.
   pi.registerCommand("robin-status", {

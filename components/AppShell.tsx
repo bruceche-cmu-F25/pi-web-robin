@@ -4,6 +4,7 @@ import { useState, useCallback, useRef, useEffect, useLayoutEffect } from "react
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
+import { useWorkspaceShortcuts } from "@/hooks/useWorkspaceShortcuts";
 import { SessionSidebar } from "./SessionSidebar";
 import { ChatWindow } from "./ChatWindow";
 import { TabBar, type Tab } from "./TabBar";
@@ -656,6 +657,10 @@ export function AppShell() {
   useGlobalKeyboardShortcuts({
     onNewSession: (cwd: string) => handleNewSession(`kb-${Date.now()}`, cwd),
     activeCwd,
+  });
+  useWorkspaceShortcuts({
+    sessionId: selectedSession?.id ?? null,
+    cwd: selectedSession?.cwd ?? newSessionCwd ?? activeCwd,
   });
 
   // Client-built transient SessionInfo (new session / fork) lacks the

@@ -14,7 +14,7 @@ import {
   parseLocalDate,
   pruneCompletedTodos,
 } from "./store.ts";
-import { addMonths, isSameMonth, monthGrid, startOfMonth, startOfWeek, weekDays, weeksFrom } from "./dates.ts";
+import { addMonths, isInstantOnLocalDate, isSameMonth, monthGrid, startOfMonth, startOfWeek, weekDays, weeksFrom } from "./dates.ts";
 
 const todo = (fields) => ({ id: "x", title: "t", done: false, createdAt: "", ...fields });
 
@@ -24,6 +24,12 @@ test("localDate follows the local day, not the UTC one", () => {
   const evening = new Date(2026, 7, 14, 21, 19);
   assert.equal(evening.toISOString().slice(0, 10), "2026-08-15");
   assert.equal(localDate(evening), "2026-08-14");
+});
+
+test("completion instants are matched against the local day", () => {
+  assert.equal(isInstantOnLocalDate("2026-08-15T04:19:00.000Z", "2026-08-14"), true);
+  assert.equal(isInstantOnLocalDate("2026-08-15T08:00:00.000Z", "2026-08-14"), false);
+  assert.equal(isInstantOnLocalDate(undefined, "2026-08-14"), false);
 });
 
 test("parseLocalDate builds local midnight, not UTC midnight", () => {

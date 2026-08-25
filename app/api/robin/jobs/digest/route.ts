@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { claimJobs, dropJobs } from "@/extension/robin/job-domain";
 import {
   digestCandidates,
   formatJobDigest,
@@ -6,7 +7,6 @@ import {
   readJobProfile,
   readJobScanState,
   readJobs,
-  writeJobs,
   type Job,
 } from "@/extension/robin/store";
 import { findDeadPostings, makeFetchContext } from "@/extension/robin/job-providers";
@@ -57,7 +57,7 @@ const REFILL_ROUNDS = 2;
  * spend a slot rediscovering it. Only confirmed verdicts count — a board that
  * timed out leaves its posting exactly where it was.
  */
-async function liveBatch(jobs: Job[], candidates: Job[], limit: number): Promise<Job[]> {
+async function liveBatch(candidates: Job[], limit: number): Promise<Job[]> {
   const ctx = makeFetchContext();
   const live: Job[] = [];
   const closed = new Set<string>();
@@ -73,10 +73,7 @@ async function liveBatch(jobs: Job[], candidates: Job[], limit: number): Promise
     }
   }
 
-  if (closed.size > 0) {
-    for (const job of jobs) if (closed.has(job.id)) job.status = "dropped";
-    writeJobs(jobs);
-  }
+  if (closed.size > 0) dropJobs(closed);
   return live;
 }
 
@@ -96,18 +93,8 @@ export async function POST(req: Request) {
     };
 
     if (Array.isArray(body.claim)) {
-      const claimed = new Set(body.claim.filter((id): id is string => typeof id === "string"));
-      const jobs = readJobs();
-      const now = new Date().toISOString();
-      let count = 0;
-      for (const job of jobs) {
-        if (claimed.has(job.id) && !job.notifiedAt) {
-          job.notifiedAt = now;
-          count += 1;
-        }
-      }
-      if (count > 0) writeJobs(jobs);
-      return NextResponse.json({ claimed: count });
+      const claimed = body.claim.filter((id): id is string => typeof id === "string");
+      return NextResponse.json({ claimed: claimJobs(claimed) });
     }
 
     const profile = readJobProfile();
@@ -117,15 +104,10 @@ export async function POST(req: Request) {
     const locale = body.locale === "zh" ? "zh" as const : "en" as const;
 
     const jobs = readJobs();
-    const batch = await liveBatch(jobs, digestCandidates(jobs, profile), limit);
+    const batch = await liveBatch(digestCandidates(jobs, profile), limit);
 
     if (body.preview !== true && batch.length > 0) {
-      const now = new Date().toISOString();
-      const claimed = new Set(batch.map((job: Job) => job.id));
-      for (const job of jobs) {
-        if (claimed.has(job.id)) job.notifiedAt = now;
-      }
-      writeJobs(jobs);
+      claimJobs(batch.map((job: Job) => job.id));
     }
 
     return NextResponse.json({
@@ -134,7 +116,7 @@ export async function POST(req: Request) {
       count: batch.length,
       // How much is still unscored, and how big a bite the scorer takes. The
       // bridge sizes its scoring loop from these rather than guessing.
-      pending: pendingJobs(jobs).length,
+      pending: pendingJobs(readJobs()).length,
       scoreBatch: profile.scoreBatch,
     });
   } catch (error) {

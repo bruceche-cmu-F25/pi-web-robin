@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
+import { deleteJob, updateJob } from "@/extension/robin/job-domain";
 import {
   JOB_STATUSES,
   readJobProfile,
   readJobScanState,
   readJobs,
   sortJobs,
-  writeJobs,
-  type Job,
   type JobStatus,
 } from "@/extension/robin/store";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
@@ -73,25 +72,11 @@ export async function PATCH(req: Request) {
       return fail(new Error("note must be text"));
     }
 
-    const jobs = readJobs();
-    const job = jobs.find((entry: Job) => entry.id === body.id);
+    const job = updateJob(body.id, {
+      ...(typeof body.status === "string" ? { status: body.status as JobStatus } : {}),
+      ...(typeof body.note === "string" ? { note: body.note } : {}),
+    });
     if (!job) return fail(new Error(`No job with id "${body.id}"`), 404);
-
-    if (typeof body.status === "string") {
-      // Stamped on the transition into `applied`, and only the first time:
-      // re-opening and re-applying should not rewrite the date you sent it.
-      if (body.status === "applied" && job.status !== "applied" && !job.appliedAt) {
-        job.appliedAt = new Date().toISOString();
-      }
-      job.status = body.status as JobStatus;
-    }
-    if (typeof body.note === "string") {
-      const note = body.note.trim().slice(0, 2000);
-      if (note) job.note = note;
-      else delete job.note;
-    }
-
-    writeJobs(jobs);
     return NextResponse.json({ job });
   } catch (error) {
     return fail(error, 500);
@@ -104,10 +89,7 @@ export async function DELETE(req: Request) {
   try {
     const body = await req.json() as { id?: unknown };
     if (typeof body.id !== "string" || !body.id) return fail(new Error("id is required"));
-    const jobs = readJobs();
-    const remaining = jobs.filter((entry: Job) => entry.id !== body.id);
-    if (remaining.length === jobs.length) return fail(new Error(`No job with id "${body.id}"`), 404);
-    writeJobs(remaining);
+    if (!deleteJob(body.id)) return fail(new Error(`No job with id "${body.id}"`), 404);
     return NextResponse.json({ ok: true });
   } catch (error) {
     return fail(error, 500);

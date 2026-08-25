@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>__LABEL__</string>
+
+  <!--
+    The bridge is only a client: with pi-web down, every message answers with an
+    error and every digest fails. Supervising one without the other buys a
+    process that stays up saying it cannot help.
+
+    This runs the published CLI rather than `npm run dev`, because a supervised
+    service should not be a dev server: `next dev` recompiles on every file
+    change, and AGENTS.md is explicit that a stray `next build` in this checkout
+    breaks it. If you develop against this repo, leave this service unloaded and
+    run `npm run dev` in a terminal as usual.
+  -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>__NPX__</string>
+    <string>--yes</string>
+    <string>@agegr/pi-web@latest</string>
+    <string>--no-open</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>__HOME__</string>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+
+  <key>StandardOutPath</key>
+  <string>__LOGS__/pi-web.log</string>
+  <key>StandardErrorPath</key>
+  <string>__LOGS__/pi-web.err.log</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>__PATH__</string>
+    <key>PI_WEB_NO_OPEN</key>
+    <string>1</string>
+  </dict>
+</dict>
+</plist>

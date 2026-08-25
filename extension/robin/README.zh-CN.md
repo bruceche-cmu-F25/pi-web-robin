@@ -9,6 +9,8 @@
 - **agent 工具** 在仪表盘、`pi` CLI 和 Telegram 里都能用。
 - **Google 日历** 只读接入，合并进日历视图。
 - **Gmail** 只读接入：`/dashboard/gmail` 看收件箱，每日邮件简报推到 Telegram。
+- **刷题工作台** 在 `/coding` —— 内嵌 NeetCode 路线图，旁边坐着一个只给提示、
+  不给答案的导师，外加你自己的每题记录。
 - **Telegram 桥接** 让同一个助手在你离开电脑时也能用 —— 命令、inline 按钮、
   语音消息，以及四种主动推送。
 
@@ -76,6 +78,12 @@ Google 和 Telegram 在 **/dashboard/settings** 里配置，不放 `.env.local`�
 | `job_list` | 「看看最好的职位线索」 |
 | `job_status` | 标记 shortlist / applied / dropped |
 | `job_scan` | 扫描配置过的职位源 |
+| `practice_current` | "这道题该怎么下手？" |
+| `practice_list` | "双指针还剩哪些没做？" |
+| `practice_record` | "做出来了，花了 20 分钟" |
+| `practice_status` | "把 Valid Anagram 标成已解" |
+| `practice_note` | "记一下：先排序再比较" |
+| `practice_due` | "今天该复习什么？" |
 
 几个值得知道的行为：
 
@@ -111,11 +119,44 @@ Google 和 Telegram 在 **/dashboard/settings** 里配置，不放 `.env.local`�
   渲染（默认 07:00–22:00，自动扩张以覆盖所有事件），所以不会吞掉页面滚动。
 - **月** —— 从本周开始的滚动四周窗口，不是自然月。跨天事件画成一条连续横条。
 
-**待办** —— 按 已逾期 / 今天 / 明天 / 之后 / 未定日期 分组，已完成的折叠起来。
+**待办** —— 按 已逾期 / 今天 / 明天 / 之后 / 未定日期 分组；当天完成的保留在底部，之前完成的不显示。
 
 **链接** —— 按分组显示，带 `rel="noopener noreferrer"` 打开。
 
 界面跟随 pi-web 顶栏选择的语言，日期格式也跟着切换。
+
+---
+
+## 刷题工作台
+
+`/coding` 是三栏：左边路线图轨，中间 NeetCode 本体，右边导师。
+
+**中间那个 frame 是个黑盒。** 跨域页面什么都不会告诉我们——读不到它的地址，也不知道
+你解出了什么。所以左边那条轨不是装饰：**点哪道题，才是告诉服务端你正在做哪道题**，
+而这条记录是导师能回答"这道题"的唯一依据。frame 里是 NeetCode 自己的题目页，带
+Python 编辑器和判题，所以不用离开这个页面就能把题做完。
+
+**题库在本地。** `neetcode-catalog.ts` 由
+[neetcode-gh/leetcode](https://github.com/neetcode-gh/leetcode) 的
+`.problemSiteData.json`（MIT）生成，并在生成时从站点 bundle 里读出 NeetCode 自己的
+每题 slug —— NeetCode 150 全部 150 道都有，所以默认清单上的每道题都能内嵌。没有的
+那些链去 LeetCode，因为 LeetCode 拒绝被内嵌。重新生成：
+
+```bash
+node scripts/refresh-neetcode-catalog.mjs
+```
+
+运行时不向 NeetCode 请求任何东西，所以不管 frame 加载得成不成，路线图轨、你的记录
+和复习队列都照常工作。
+
+**导师只给提示，不给答案。** 它跑在自己的会话里，只有六个工具，并且**没有任何取答案
+的途径**——没有 shell、没有文件系统、没有会返回实现的工具。它按提示阶梯往上爬（先问
+你试过什么 → 点出模式 → 给关键不变量 → 讲清算法 → 只有你明确要求才写代码），并把爬到
+第几级记进记录里：需要四级提示才解出来的题，理应比一次没要提示的更早回来。
+
+**记录**存在 `~/.pi/robin/practice.json`。每道题有状态、历次尝试、笔记，以及由掌握度
+推出的复习日期（1/3/7/21/60 天）。状态和笔记可以在面板里手改；导师通过工具写的是同
+一份记录。
 
 ---
 

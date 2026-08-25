@@ -128,8 +128,34 @@ test("unsafe links are dropped and a video conference entry is used as fallback"
   assert.equal(event.meetingUrl, "https://zoom.us/j/123");
 });
 
-test("a standard google colourId maps to a palette key; a custom one is dropped", () => {
-  assert.equal(map({ id: "m", summary: "Standup", start: { dateTime: "2026-08-17T15:00:00Z" }, colorId: "7" }).colorKey, "teal");
-  assert.equal(map({ id: "n", summary: "Custom", start: { date: "2026-08-17" }, end: { date: "2026-08-18" }, colorId: "zz" }).colorKey, undefined);
-  assert.equal(map({ id: "o", summary: "No colour", start: { date: "2026-08-17" } }).colorKey, undefined);
+test("recurring occurrences share a colour seed independent of Google's colours", () => {
+  const first = map({
+    id: "series_20260817T150000Z",
+    recurringEventId: "series",
+    summary: "Standup",
+    start: { dateTime: "2026-08-17T15:00:00Z" },
+  });
+  const second = map({
+    id: "series_20260818T150000Z",
+    recurringEventId: "series",
+    summary: "Standup — moved",
+    start: { dateTime: "2026-08-18T15:00:00Z" },
+  });
+  assert.equal(first.colorSeed, "series");
+  assert.equal(second.colorSeed, "series");
+});
+
+test("standalone Google events use a stable provider id as their colour seed", () => {
+  assert.equal(map({ id: "one-off", summary: "Interview", start: { date: "2026-08-17" } }).colorSeed, "one-off");
+  assert.equal(map({ id: "ical-instance", iCalUID: "ical-series", summary: "Class", start: { date: "2026-08-17" } }).colorSeed, "ical-series");
+});
+
+test("additional calendars namespace event ids and colours", () => {
+  const event = mapGoogleEvent(
+    { id: "shared-id", recurringEventId: "series", summary: "Class", start: { date: "2026-08-17" } },
+    "School",
+    "school@example.com",
+  );
+  assert.equal(event.id, "google:school@example.com:shared-id");
+  assert.equal(event.colorSeed, "school@example.com:series");
 });

@@ -144,7 +144,10 @@ export function AgendaView({
                 aria-label={t("robin.todos.complete", { title: todo.title })}
                 className="shrink-0 cursor-pointer"
               />
-              <span className="min-w-0 flex-1 truncate text-sm" style={{ color: "var(--text)" }}>
+              <span
+                className="min-w-0 flex-1 truncate text-sm"
+                style={{ color: todo.color ? `var(--todo-${todo.color})` : "var(--text)" }}
+              >
                 {todo.title}
               </span>
             </label>

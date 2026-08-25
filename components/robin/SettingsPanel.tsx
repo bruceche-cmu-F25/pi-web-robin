@@ -2,7 +2,14 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { DailyAgendaSettings, GmailDigestSettings, JobDigestSettings } from "@/extension/robin/settings";
+import type {
+  DailyAgendaSettings,
+  GmailDigestSettings,
+  GoogleCalendarSource,
+  JobDigestSettings,
+  ReminderSettings,
+  TranscriptionSettings,
+} from "@/extension/robin/settings";
 import { useI18n } from "@/hooks/useI18n";
 import { ChatLink } from "./ChatLink";
 
@@ -14,20 +21,28 @@ interface SecretStatus {
 }
 
 interface SettingsResponse {
-  google: { clientId: SecretStatus; clientSecret: SecretStatus };
+  google: {
+    clientId: SecretStatus;
+    clientSecret: SecretStatus;
+    calendars: GoogleCalendarSource[];
+  };
   telegram: {
     botToken: SecretStatus;
     allowedChatIds: number[];
     dailyAgenda: DailyAgendaSettings;
     jobDigest: JobDigestSettings;
     gmailDigest: GmailDigestSettings;
+    reminders: ReminderSettings;
+    transcription: TranscriptionSettings & { apiKey: SecretStatus };
   };
   storedAt: string;
   googleRedirectUri: string;
 }
 
 type Translate = (key: string, params?: Record<string, string>) => string;
-type SaveAction = "google" | "token" | "chatIds" | "dailyAgenda" | "jobDigest" | "gmailDigest";
+type SaveAction =
+  | "google" | "token" | "chatIds" | "dailyAgenda" | "jobDigest" | "gmailDigest"
+  | "reminders" | "transcription";
 type SavePhase = "saving" | "saved";
 
 const inputStyle = {
@@ -124,12 +139,20 @@ export function SettingsPanel() {
 
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
+  const [calendarInput, setCalendarInput] = useState("");
+  const [calendarLabel, setCalendarLabel] = useState("");
   const [botToken, setBotToken] = useState("");
   const [chatIds, setChatIds] = useState("");
   const [jobChatIds, setJobChatIds] = useState("");
   const [dailyAgenda, setDailyAgenda] = useState<DailyAgendaSettings | null>(null);
   const [jobDigest, setJobDigest] = useState<JobDigestSettings | null>(null);
   const [gmailDigest, setGmailDigest] = useState<GmailDigestSettings | null>(null);
+  const [reminders, setReminders] = useState<ReminderSettings | null>(null);
+  const [reminderChatIds, setReminderChatIds] = useState("");
+  const [transcription, setTranscription] = useState<TranscriptionSettings | null>(null);
+  // Write-only, like the bot token: the stored key never comes back from the
+  // server, so an empty field means "leave it alone".
+  const [transcriptionKey, setTranscriptionKey] = useState("");
   const [gmailChatIds, setGmailChatIds] = useState("");
   const [detected, setDetected] = useState<{ id: number; name: string }[] | null>(null);
 
@@ -145,6 +168,13 @@ export function SettingsPanel() {
       setJobChatIds((body.telegram.jobDigest.chatIds ?? []).join(", "));
       setGmailDigest(body.telegram.gmailDigest);
       setGmailChatIds((body.telegram.gmailDigest.chatIds ?? []).join(", "));
+      setReminders(body.telegram.reminders);
+      setReminderChatIds((body.telegram.reminders.chatIds ?? []).join(", "));
+      setTranscription({
+        enabled: body.telegram.transcription.enabled,
+        baseUrl: body.telegram.transcription.baseUrl,
+        model: body.telegram.transcription.model,
+      });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
@@ -318,6 +348,105 @@ export function SettingsPanel() {
         </div>
         <p className="text-xs" style={{ color: "var(--text-dim)" }}>{t("robin.settings.googleNext")}</p>
         <p className="text-xs" style={{ color: "var(--text-dim)" }}>{t("robin.settings.googleGmailHint")}</p>
+
+        <div className="mt-2 flex flex-col gap-3 border-t pt-3" style={{ borderColor: "var(--border)" }}>
+          <div>
+            <h3 className="text-sm font-medium" style={{ color: "var(--text)" }}>
+              {t("robin.settings.calendarSourcesTitle")}
+            </h3>
+            <p className="text-xs" style={{ color: "var(--text-dim)" }}>
+              {t("robin.settings.calendarSourcesHint")}
+            </p>
+          </div>
+          <div className="grid gap-2 desktop:grid-cols-[minmax(0,1fr)_minmax(10rem,0.4fr)_auto]">
+            <input
+              value={calendarInput}
+              onChange={(event) => setCalendarInput(event.target.value)}
+              placeholder={t("robin.settings.calendarUrlPlaceholder")}
+              spellCheck={false}
+              className="min-h-11 rounded px-2 text-sm outline-none"
+              style={inputStyle}
+            />
+            <input
+              value={calendarLabel}
+              onChange={(event) => setCalendarLabel(event.target.value)}
+              placeholder={t("robin.settings.calendarNamePlaceholder")}
+              className="min-h-11 rounded px-2 text-sm outline-none"
+              style={inputStyle}
+            />
+            <button
+              type="button"
+              disabled={busy || !calendarInput.trim()}
+              onClick={() => void send(
+                "POST",
+                {
+                  section: "googleCalendars",
+                  action: "add",
+                  value: calendarInput,
+                  ...(calendarLabel.trim() ? { label: calendarLabel.trim() } : {}),
+                },
+                t("robin.settings.calendarAdded"),
+              ).then((saved) => {
+                if (saved) { setCalendarInput(""); setCalendarLabel(""); }
+              })}
+              className="ui-action ui-action--outline pi-bracket min-h-11 px-3 disabled:opacity-40"
+              data-state="accent"
+            >
+              {t("robin.common.add")}
+            </button>
+          </div>
+
+          {(data?.google.calendars ?? []).length > 0 && (
+            <div className="flex flex-col divide-y" style={{ borderColor: "var(--border)" }}>
+              {data?.google.calendars.map((calendar) => (
+                <div key={calendar.id} className="flex min-h-11 items-center gap-3 py-2">
+                  <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
+                    <input
+                      type="checkbox"
+                      checked={calendar.enabled}
+                      disabled={busy}
+                      onChange={(event) => void send(
+                        "POST",
+                        {
+                          section: "googleCalendars",
+                          action: "toggle",
+                          id: calendar.id,
+                          enabled: event.target.checked,
+                        },
+                        event.target.checked
+                          ? t("robin.settings.calendarEnabled")
+                          : t("robin.settings.calendarDisabled"),
+                      )}
+                    />
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm" style={{ color: "var(--text)" }}>
+                        {calendar.label ?? calendar.id}
+                      </span>
+                      {calendar.label && (
+                        <span className="block truncate font-mono text-xs" style={{ color: "var(--text-dim)" }}>
+                          {calendar.id}
+                        </span>
+                      )}
+                    </span>
+                  </label>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void send(
+                      "POST",
+                      { section: "googleCalendars", action: "remove", id: calendar.id },
+                      t("robin.settings.calendarRemoved"),
+                    )}
+                    className="ui-action min-h-11 px-2 text-xs disabled:opacity-40"
+                    style={{ color: "var(--danger)" }}
+                  >
+                    {t("robin.common.remove")}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </section>
 
       {/* ---------- Telegram ---------- */}
@@ -669,6 +798,172 @@ export function SettingsPanel() {
                   t("robin.settings.gmailDigestSaved"),
                   "gmailDigest",
                 )}
+                className="self-start"
+                t={t}
+              />
+            </>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-3 border-t pt-3" style={{ borderColor: "var(--border)" }}>
+          <div>
+            <h3 className="text-sm font-medium" style={{ color: "var(--text)" }}>
+              {t("robin.settings.remindersTitle")}
+            </h3>
+            <p className="text-xs" style={{ color: "var(--text-dim)" }}>
+              {t("robin.settings.remindersHint")}
+            </p>
+          </div>
+          {reminders && (
+            <>
+              <label className="flex min-h-11 items-center gap-2 text-sm" style={{ color: "var(--text)" }}>
+                <input
+                  type="checkbox"
+                  checked={reminders.enabled}
+                  onChange={(event) => setReminders({ ...reminders, enabled: event.target.checked })}
+                />
+                {t("robin.settings.remindersEnabled")}
+              </label>
+              <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-muted)" }}>
+                {t("robin.settings.remindersChatIds")}
+                <input
+                  value={reminderChatIds}
+                  onChange={(event) => setReminderChatIds(event.target.value)}
+                  placeholder={t("robin.settings.gmailDigestChatIdsPlaceholder")}
+                  spellCheck={false}
+                  className="min-h-11 rounded px-2 text-sm"
+                  style={inputStyle}
+                />
+                <span style={{ color: "var(--text-dim)" }}>{t("robin.settings.gmailDigestChatIdsHint")}</span>
+              </label>
+              <div className="grid gap-3 desktop:grid-cols-2">
+                <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-muted)" }}>
+                  {t("robin.settings.remindersLead")}
+                  <input
+                    type="number"
+                    min={5}
+                    max={1440}
+                    value={reminders.lead}
+                    onChange={(event) => setReminders({ ...reminders, lead: Number(event.target.value) })}
+                    className="min-h-11 rounded px-2 text-sm"
+                    style={inputStyle}
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-muted)" }}>
+                  {t("robin.settings.dailyAgendaLanguage")}
+                  <select
+                    value={reminders.locale}
+                    onChange={(event) => setReminders({
+                      ...reminders,
+                      locale: event.target.value === "zh" ? "zh" : "en",
+                    })}
+                    className="min-h-11 rounded px-2 text-sm"
+                    style={inputStyle}
+                  >
+                    <option value="en">English</option>
+                    <option value="zh">中文</option>
+                  </select>
+                </label>
+              </div>
+              <SaveButton
+                label={t("robin.settings.saveReminders")}
+                phase={saveFeedback?.action === "reminders" ? saveFeedback.phase : undefined}
+                disabled={busy || !Number.isFinite(reminders.lead)}
+                onClick={() => void send(
+                  "POST",
+                  { section: "telegram", reminders: { ...reminders, chatIds: reminderChatIds } },
+                  t("robin.settings.remindersSaved"),
+                  "reminders",
+                )}
+                className="self-start"
+                t={t}
+              />
+            </>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-3 border-t pt-3" style={{ borderColor: "var(--border)" }}>
+          <div>
+            <h3 className="text-sm font-medium" style={{ color: "var(--text)" }}>
+              {t("robin.settings.transcriptionTitle")}
+            </h3>
+            <p className="text-xs" style={{ color: "var(--text-dim)" }}>
+              {t("robin.settings.transcriptionHint")}
+            </p>
+          </div>
+          {transcription && (
+            <>
+              <label className="flex min-h-11 items-center gap-2 text-sm" style={{ color: "var(--text)" }}>
+                <input
+                  type="checkbox"
+                  checked={transcription.enabled}
+                  onChange={(event) => setTranscription({ ...transcription, enabled: event.target.checked })}
+                />
+                {t("robin.settings.transcriptionEnabled")}
+              </label>
+              <StatusLine
+                label={t("robin.settings.transcriptionKey")}
+                status={data?.telegram.transcription.apiKey ?? { set: false }}
+                t={t}
+              />
+              <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-muted)" }}>
+                <input
+                  type="password"
+                  value={transcriptionKey}
+                  onChange={(event) => setTranscriptionKey(event.target.value)}
+                  placeholder={t("robin.settings.transcriptionKeyPlaceholder")}
+                  spellCheck={false}
+                  autoComplete="new-password"
+                  className="min-h-11 rounded px-2 text-sm"
+                  style={inputStyle}
+                />
+                <span style={{ color: "var(--text-dim)" }}>{t("robin.settings.transcriptionKeyHint")}</span>
+              </label>
+              <div className="grid gap-3 desktop:grid-cols-2">
+                <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-muted)" }}>
+                  {t("robin.settings.transcriptionBaseUrl")}
+                  <input
+                    value={transcription.baseUrl}
+                    onChange={(event) => setTranscription({ ...transcription, baseUrl: event.target.value })}
+                    placeholder="https://api.openai.com/v1"
+                    spellCheck={false}
+                    className="min-h-11 rounded px-2 text-sm"
+                    style={inputStyle}
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-muted)" }}>
+                  {t("robin.settings.transcriptionModel")}
+                  <input
+                    value={transcription.model}
+                    onChange={(event) => setTranscription({ ...transcription, model: event.target.value })}
+                    placeholder="whisper-1"
+                    spellCheck={false}
+                    className="min-h-11 rounded px-2 text-sm"
+                    style={inputStyle}
+                  />
+                </label>
+              </div>
+              <SaveButton
+                label={t("robin.settings.saveTranscription")}
+                phase={saveFeedback?.action === "transcription" ? saveFeedback.phase : undefined}
+                disabled={busy || !transcription.baseUrl.trim() || !transcription.model.trim()}
+                onClick={() => {
+                  void send(
+                    "POST",
+                    {
+                      section: "telegram",
+                      transcription: {
+                        ...transcription,
+                        // Omitted rather than sent empty, so saving the model
+                        // alone does not wipe a key that is already stored.
+                        ...(transcriptionKey.trim() ? { apiKey: transcriptionKey.trim() } : {}),
+                      },
+                    },
+                    t("robin.settings.transcriptionSaved"),
+                    "transcription",
+                  );
+                  setTranscriptionKey("");
+                }}
                 className="self-start"
                 t={t}
               />

@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>__LABEL__</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>__NODE__</string>
+    <string>--env-file-if-exists=__REPO__/.env.local</string>
+    <string>--experimental-strip-types</string>
+    <string>__REPO__/scripts/telegram/bridge.ts</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>__REPO__</string>
+
+  <!--
+    The whole point of this file. A bridge that dies takes every reminder, every
+    digest, and every reply with it, and says nothing about having done so.
+  -->
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+
+  <!--
+    A crash loop against a revoked token should not respawn ten times a second.
+    launchd already throttles to once per ten seconds; this makes it explicit.
+  -->
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+
+  <key>StandardOutPath</key>
+  <string>__LOGS__/bridge.log</string>
+  <key>StandardErrorPath</key>
+  <string>__LOGS__/bridge.err.log</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- launchd starts with a bare PATH; node and git both need a real one. -->
+    <key>PATH</key>
+    <string>__PATH__</string>
+  </dict>
+</dict>
+</plist>
