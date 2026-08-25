@@ -83,7 +83,7 @@ test("renders subagents as standard tool calls with only an extra session button
     onOpenSession() {},
   });
 
-  assert.match(html, /border:1px solid rgba\(34,197,94,0\.25\)/);
+  assert.match(html, /border:1px solid color-mix\(in srgb, ?var\(--success\) 25%, ?transparent\)/);
   assert.match(html, />Agent</);
   assert.match(html, />Explore</);
   assert.match(html, /aria-label="Open sub-agent session"/);

@@ -94,9 +94,11 @@ test("does not expose disk-backed actions for transient sessions", () => {
   assert.match(sessionItemSource, /\{hovered && !session\.transient && \(/);
 });
 
-test("hides subagent rows and aggregates their state into the main session row", () => {
-  assert.match(source, /const sessionFamilies = listSessionFamilies\(filteredSessions\)/);
-  assert.match(source, /familySessions\.some\(\(session\) => session\.id === selectedSessionId\)/);
-  assert.match(source, /familySessions\.some\(\(session\) => runningSessionIds\.has\(session\.id\)\)/);
-  assert.doesNotMatch(source, /function SessionTreeItem/);
+test("nests subagent rows under their parent session row", () => {
+  // We keep the nested tree rather than upstream's flat session families: the
+  // search results branch above it is ours and renders through the same rows.
+  assert.match(source, /const sessionTree = buildSessionTree\(filteredSessions\)/);
+  assert.match(source, /import \{ buildSessionTree, type SessionTreeNode \} from "@\/lib\/session-tree"/);
+  assert.match(source, /function SessionTreeItem/);
+  assert.doesNotMatch(source, /listSessionFamilies/);
 });

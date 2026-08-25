@@ -994,33 +994,6 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
       }}
     >
       {/* ── Tool call header ── */}
-<<<<<<< HEAD
-      <button
-        onClick={() => setExpanded((v) => !v)}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 7,
-          width: "100%",
-          padding: "6px 10px",
-          background: "none",
-          border: "none",
-          color: "var(--text-muted)",
-          cursor: "pointer",
-          fontSize: 12,
-          textAlign: "left",
-          minWidth: 0,
-        }}
-      >
-        <span style={{ color: isError ? "var(--danger)" : "var(--success)", fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11, flexShrink: 0 }}>
-          {block.toolName}
-        </span>
-        <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
-          {isStreamingInput ? t("chat.generatingToolInput") : getToolPreview(block)}
-        </span>
-        {duration !== undefined && (
-          <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{duration}s</span>
-=======
       <div style={{ display: "flex", alignItems: "stretch", minWidth: 0 }}>
         <button
           onClick={() => setExpanded((v) => !v)}
@@ -1039,7 +1012,7 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
             textAlign: "left",
           }}
         >
-          <span style={{ color: isError ? "#f87171" : "#16a34a", fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11, flexShrink: 0 }}>
+          <span style={{ color: isError ? "var(--danger)" : "var(--success)", fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11, flexShrink: 0 }}>
             {block.toolName}
           </span>
           <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
@@ -1062,7 +1035,6 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></svg>
           </button>
->>>>>>> upstream/main
         )}
       </div>
 
@@ -1356,26 +1328,6 @@ function PairedResult({ text, images, isEmpty, isError }: {
         background: isError ? "color-mix(in srgb, var(--danger) 4%, transparent)" : "var(--bg-subtle)",
       }}
     >
-<<<<<<< HEAD
-      <pre
-        style={{
-          margin: 0,
-          padding: "8px 10px",
-          color: isError ? "var(--danger)" : (isEmpty ? "var(--text-dim)" : "var(--text-muted)"),
-          fontSize: 12,
-          lineHeight: 1.5,
-          overflow: "auto",
-          maxHeight: 400,
-          background: "var(--bg)",
-          whiteSpace: "pre-wrap",
-          wordBreak: "break-all",
-          fontStyle: isEmpty ? "italic" : "normal",
-          opacity: isEmpty ? 0.6 : 1,
-        }}
-      >
-         {isEmpty ? t("i18n.noOutput") : text}
-      </pre>
-=======
       {images.length > 0 && (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", padding: "10px", background: "var(--bg)" }}>
           {images.map((image, index) => {
@@ -1411,7 +1363,7 @@ function PairedResult({ text, images, isEmpty, isError }: {
           style={{
             margin: 0,
             padding: "8px 10px",
-            color: isError ? "#f87171" : (isEmpty ? "var(--text-dim)" : "var(--text-muted)"),
+            color: isError ? "var(--danger)" : (isEmpty ? "var(--text-dim)" : "var(--text-muted)"),
             fontSize: 12,
             lineHeight: 1.5,
             overflow: "auto",
@@ -1426,7 +1378,6 @@ function PairedResult({ text, images, isEmpty, isError }: {
            {isEmpty ? t("i18n.noOutput") : text}
         </pre>
       )}
->>>>>>> upstream/main
     </div>
   );
 }

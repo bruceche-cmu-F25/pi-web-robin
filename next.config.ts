@@ -21,25 +21,13 @@ const nextConfig: NextConfig = {
   distDir: process.env.PI_WEB_DIST_DIR || ".next",
   serverExternalPackages: [
     "undici",
-<<<<<<< HEAD
     "node-pty",
-=======
     "web-push",
->>>>>>> upstream/main
     "@earendil-works/pi-coding-agent",
     "@earendil-works/pi-agent-core",
     "@earendil-works/pi-ai",
     "@earendil-works/pi-tui",
   ],
-<<<<<<< HEAD
-  allowedDevOrigins: ["127.0.0.1", "192.168.*.*"],
-  experimental: {
-    // ModelsConfig imports 31 provider icons by deep path already, but the
-    // package barrel still gets pulled in transitively; this keeps the import
-    // graph to the icons actually referenced.
-    optimizePackageImports: ["@lobehub/icons"],
-  },
-=======
   // Next 16 blocks cross-origin access to dev resources by default. Allow the
   // loopback and the RFC1918 LAN ranges so the dev server stays reachable
   // from other machines on the same LAN.
@@ -65,7 +53,12 @@ const nextConfig: NextConfig = {
     "172.31.*.*",
     "192.168.*.*",
   ],
->>>>>>> upstream/main
+  experimental: {
+    // ModelsConfig imports 31 provider icons by deep path already, but the
+    // package barrel still gets pulled in transitively; this keeps the import
+    // graph to the icons actually referenced.
+    optimizePackageImports: ["@lobehub/icons"],
+  },
   async headers() {
     return [
       {

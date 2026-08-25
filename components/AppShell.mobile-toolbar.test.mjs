@@ -5,9 +5,6 @@ import test from "node:test";
 const source = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
 const mobileHookSource = await readFile(new URL("../hooks/useIsMobile.ts", import.meta.url), "utf8");
 
-<<<<<<< HEAD
-test("uses a compact mobile toolbar with a floating seven-action layer", () => {
-=======
 test("keeps action icons inline in medium mobile sidebars", () => {
   assert.match(mobileHookSource, /NARROW_MOBILE_QUERY = "\(max-width: 480px\)"/);
   assert.match(source, /const isNarrowMobile = useIsNarrowMobile\(\);/);
@@ -16,18 +13,13 @@ test("keeps action icons inline in medium mobile sidebars", () => {
 });
 
 test("uses a compact narrow-mobile toolbar with a floating action layer", () => {
->>>>>>> upstream/main
   assert.match(source, /data-mobile-toolbar="true"[\s\S]*?flex: 1,[\s\S]*?minWidth: 0/);
   assert.match(
     source,
     /data-mobile-toolbar-actions="true"[\s\S]*?position: "absolute"[\s\S]*?right: 0,[\s\S]*?left: TOP_BAR_ICON_BUTTON_SIZE/,
   );
 
-<<<<<<< HEAD
-  for (const action of ["search", "history", "name", "branches", "system", "theme", "language"]) {
-=======
-  for (const action of ["history", "name", "agents", "branches", "system", "tools", "theme", "language"]) {
->>>>>>> upstream/main
+  for (const action of ["search", "history", "name", "agents", "branches", "system", "tools", "theme", "language"]) {
     assert.match(source, new RegExp(`data-mobile-toolbar-action=(?:\\{mobile \\? )?"${action}"`));
   }
 });

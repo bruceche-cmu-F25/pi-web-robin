@@ -3,11 +3,8 @@
 import Link from "next/link";
 import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 import type { SessionInfo } from "@/lib/types";
-<<<<<<< HEAD
 import type { GlobalSessionSearchHit } from "@/lib/session-search";
-=======
-import { listSessionFamilies } from "@/lib/session-family";
->>>>>>> upstream/main
+import { buildSessionTree, type SessionTreeNode } from "@/lib/session-tree";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
 import { skillExpansionToCommand } from "@/lib/slash-display";
@@ -361,12 +358,8 @@ function PiWebTitle() {
   );
 }
 
-<<<<<<< HEAD
-export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSessionMatch, onSessionSearchShortcut, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange }: Props) {
-=======
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
->>>>>>> upstream/main
-  const { t } = useI18n();
+export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSessionMatch, onSessionSearchShortcut, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
+  const { locale, t } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1028,7 +1021,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         }
       : null);
 
-  const sessionFamilies = listSessionFamilies(filteredSessions);
+  const sessionTree = buildSessionTree(filteredSessions);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
@@ -1839,7 +1832,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                     {hit.snippet}
                   </span>
                   <span style={{ display: "block", marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text-dim)", fontSize: 10, fontFamily: "var(--font-mono)" }}>
-                    {displayCwd(session.projectRoot ?? session.cwd, homeDir)} · {formatRelativeTime(session.modified)}
+                    {displayCwd(session.projectRoot ?? session.cwd, homeDir)} · {formatRelativeTime(session.modified, locale)}
                   </span>
                 </button>
               );
@@ -1885,40 +1878,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             ))}
           </>
         )}
-<<<<<<< HEAD
-=======
-        {error && (
-          <div style={{ padding: "12px 14px", color: "#f87171", fontSize: 12 }}>
-            {error}
-          </div>
-        )}
-        {!loading && !error && sessionFamilies.length === 0 && (
-          <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
-            {t("sidebar.noSessions")}
-          </div>
-        )}
-        {sessionFamilies.map((family) => {
-          const familySessions = [family.root, ...family.subagents];
-          const displaySession = family.latestModified === family.root.modified
-            ? family.root
-            : { ...family.root, modified: family.latestModified };
-          return (
-            <SessionItem
-              key={family.root.id}
-              session={displaySession}
-              isSelected={familySessions.some((session) => session.id === selectedSessionId)}
-              isRunning={familySessions.some((session) => runningSessionIds.has(session.id))}
-              isUnread={familySessions.some((session) => unreadSessionIds.has(session.id))}
-              onClick={() => handleSelectSessionFromList(family.root)}
-              onRenamed={loadSessions}
-              onDeleted={(id) => {
-                onSessionDeleted?.(id);
-                loadSessions();
-              }}
-            />
-          );
-        })}
->>>>>>> upstream/main
       </div>
 
       {/* File Explorer section */}
@@ -1988,8 +1947,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 }}
                 title={t("sidebar.searchFiles")}
                 ariaPressed={fileSearchOpen}
-                color={fileSearchOpen ? "var(--accent)" : "var(--text-dim)"}
-                background={fileSearchOpen ? "var(--bg-selected)" : "none"}
+                state={fileSearchOpen ? "accent" : "dim"}
+                active={fileSearchOpen}
               >
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" />
@@ -2502,6 +2461,79 @@ function SessionItem({
             </div>
           )}
         </>
+      )}
+    </div>
+  );
+}
+
+// Renders the session hierarchy from lib/session-tree.ts. Subagents nest under
+// their parent; forks stay roots.
+function SessionTreeItem({
+  node,
+  selectedSessionId,
+  runningSessionIds,
+  unreadSessionIds,
+  onSelectSession,
+  onRenamed,
+  onSessionDeleted,
+  depth,
+}: {
+  node: SessionTreeNode;
+  selectedSessionId: string | null;
+  runningSessionIds: Set<string>;
+  unreadSessionIds: Set<string>;
+  onSelectSession: (s: SessionInfo) => void;
+  onRenamed?: () => void;
+  onSessionDeleted?: (id: string) => void;
+  depth: number;
+}) {
+  const [collapsed, setCollapsed] = useState(false);
+  const hasChildren = node.children.length > 0;
+
+  return (
+    <div>
+      <div style={{ position: "relative" }}>
+        {/* Indent line for child sessions */}
+        {depth > 0 && (
+          <div style={{
+            position: "absolute",
+            left: depth * 12 + 6,
+            top: 0, bottom: 0,
+            width: 1,
+            background: "var(--border)",
+            pointerEvents: "none",
+          }} />
+        )}
+        <SessionItem
+          session={node.session}
+          isSelected={node.session.id === selectedSessionId}
+          isRunning={runningSessionIds.has(node.session.id)}
+          isUnread={unreadSessionIds.has(node.session.id)}
+          onClick={() => onSelectSession(node.session)}
+          onRenamed={onRenamed}
+          onDeleted={(id) => onSessionDeleted?.(id)}
+          depth={depth}
+          hasChildren={hasChildren}
+          collapsed={collapsed}
+          onToggleCollapse={() => setCollapsed((v) => !v)}
+        />
+      </div>
+      {hasChildren && !collapsed && (
+        <div>
+          {node.children.map((child) => (
+            <SessionTreeItem
+              key={child.session.id}
+              node={child}
+              selectedSessionId={selectedSessionId}
+              runningSessionIds={runningSessionIds}
+              unreadSessionIds={unreadSessionIds}
+              onSelectSession={onSelectSession}
+              onRenamed={onRenamed}
+              onSessionDeleted={onSessionDeleted}
+              depth={depth + 1}
+            />
+          ))}
+        </div>
       )}
     </div>
   );

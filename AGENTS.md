@@ -107,12 +107,8 @@ components/
   ChatMinimap.tsx     scroll minimap alongside the message list
   MarkdownBody.tsx    markdown renderer
   ModelsConfig.tsx    modal for editing models.json (opened from sidebar bottom)
-<<<<<<< HEAD
-  PluginsConfig.tsx   modal for installed package plugins and discovered direct extensions
-=======
   AgentsConfig.tsx    built-in subagent toggle + agent profile editor
-  PluginsConfig.tsx   modal for installed package plugins
->>>>>>> upstream/main
+  PluginsConfig.tsx   modal for installed package plugins and discovered direct extensions
   SkillsConfig.tsx    modal for loaded/search/installable skills
   FileExplorer.tsx    file tree inside sidebar
   FileIcons.tsx       file icon helpers

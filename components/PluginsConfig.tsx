@@ -197,73 +197,6 @@ function ScopeTag({ scope }: { scope: PluginScope }) {
   );
 }
 
-<<<<<<< HEAD
-function buttonStyle(disabled?: boolean, danger?: boolean): React.CSSProperties {
-  return {
-    padding: "6px 12px",
-    background: danger ? "color-mix(in srgb, var(--danger) 8%, transparent)" : "none",
-    border: "1px solid var(--border)",
-    borderRadius: 0,
-    color: danger ? "var(--danger)" : "var(--text-muted)",
-    cursor: disabled ? "not-allowed" : "pointer",
-    fontSize: 12,
-    opacity: disabled ? 0.5 : 1,
-  };
-}
-
-function Toggle({
-  enabled,
-  loading,
-  onToggle,
-  label,
-}: {
-  enabled: boolean;
-  loading: boolean;
-  onToggle: () => void;
-  label: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      disabled={loading}
-      title={label}
-      aria-label={label}
-      aria-pressed={enabled}
-      style={{
-        flexShrink: 0,
-        width: 40,
-        height: 22,
-        borderRadius: 0,
-        border: "none",
-        padding: 0,
-        cursor: loading ? "wait" : "pointer",
-        background: enabled ? "var(--accent)" : "var(--border)",
-        position: "relative",
-        transition: "background 0.18s",
-        outline: "none",
-        opacity: loading ? 0.65 : 1,
-      }}
-    >
-      <span
-        style={{
-          position: "absolute",
-          top: 3,
-          left: enabled ? 21 : 3,
-          width: 16,
-          height: 16,
-          borderRadius: "50%",
-          background: "var(--bg)",
-          boxShadow: "0 1px 4px rgba(0,0,0,0.22)",
-          transition: "left 0.18s cubic-bezier(.4,0,.2,1)",
-        }}
-      />
-    </button>
-  );
-}
-
-=======
->>>>>>> upstream/main
 function SegmentedScope({
   value,
   projectResourcesLoaded,
@@ -421,16 +354,7 @@ function AddPluginPanel({
           variant="primary"
           onClick={onInstall}
           disabled={busy || !source.trim()}
-<<<<<<< HEAD
-          style={{
-            ...buttonStyle(busy || !source.trim()),
-            background: "var(--accent-soft)",
-            color: "var(--accent)",
-            borderColor: "var(--accent-line-strong)",
-          }}
-=======
           className="is-pushed-right"
->>>>>>> upstream/main
         >
           {busy ? t("i18n.installing") : t("i18n.install")}
         </ConfigButton>
@@ -781,81 +705,7 @@ export function PluginsConfig({
   const addBusy = busyKey?.startsWith("install:") ?? false;
 
   return (
-<<<<<<< HEAD
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 1000,
-        background: "rgba(0,0,0,0.35)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div
-        style={{
-          width: isMobile ? "calc(100vw - 16px)" : 860,
-          maxWidth: "calc(100vw - 16px)",
-          height: isMobile ? "calc(100dvh - 16px)" : "76vh",
-          maxHeight: "calc(100dvh - 16px)",
-          background: "var(--bg)",
-          border: "1px solid var(--border)",
-          borderRadius: 0,
-          display: "flex",
-          flexDirection: "column",
-          boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
-          overflow: "hidden",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            padding: "12px 18px",
-            borderBottom: "1px solid var(--border)",
-            flexShrink: 0,
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "baseline", gap: 10, minWidth: 0 }}>
-            <span style={{ fontSize: 15, fontWeight: 700, color: "var(--text)" }}>
-              {t("common.plugins")}
-            </span>
-            <code
-              style={{
-                fontSize: 11,
-                color: "var(--text-muted)",
-                fontFamily: "var(--font-mono)",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {shortenPath(cwd)}
-            </code>
-          </div>
-          <button
-            onClick={onClose}
-            style={{
-              background: "none",
-              border: "none",
-              color: "var(--text-muted)",
-              cursor: "pointer",
-              fontSize: 20,
-              lineHeight: 1,
-              padding: "2px 6px",
-            }}
-          >
-            ×
-          </button>
-        </div>
-=======
     <ConfigPanelShell embedded={embedded} title={t("common.plugins")} subtitle={shortenPath(cwd)} closeLabel={t("i18n.close")} onClose={onClose}>
->>>>>>> upstream/main
 
         {!projectResourcesLoaded && (
           <div role="status" className="config-trust-notice">
@@ -871,40 +721,18 @@ export function PluginsConfig({
                   Loading...
                 </div>
               ) : error ? (
-<<<<<<< HEAD
-                <div style={{ padding: "10px 8px", fontSize: 11, color: "var(--danger)" }}>
+                <div className="config-sidebar-message is-error">
                   {error}
                 </div>
               ) : packages.length === 0 && directExtensions.length === 0 ? (
-                <div style={{ padding: "10px 8px", fontSize: 11, color: "var(--text-dim)" }}>
+                <div className="config-sidebar-message is-empty">
                   No plugins configured
                 </div>
               ) : (
                 <>
                 {groupedPackages.map((group) => (
-                  <div key={group.scope} style={{ marginBottom: 6 }}>
-                    <div
-                      style={{
-                        padding: "4px 8px 3px",
-                        fontSize: 10,
-                        fontWeight: 600,
-                        color: "var(--text-dim)",
-                        textTransform: "uppercase",
-                      }}
-                    >
-=======
-                <div className="config-sidebar-message is-error">
-                  {error}
-                </div>
-              ) : packages.length === 0 ? (
-                <div className="config-sidebar-message is-empty">
-                  No plugins configured
-                </div>
-              ) : (
-                groupedPackages.map((group) => (
                   <div key={group.scope} className="config-sidebar-group">
                     <ConfigSidebarGroupLabel>
->>>>>>> upstream/main
                       {group.scope}
                     </ConfigSidebarGroupLabel>
                     {group.packages.map((pkg) => {
@@ -920,20 +748,6 @@ export function PluginsConfig({
                             setActionError(null);
                             setActionMessage(null);
                           }}
-<<<<<<< HEAD
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 7,
-                            padding: "8px 8px",
-                            borderRadius: 0,
-                            cursor: "pointer",
-                          }}
-                          className="ui-action ui-action--surface"
-                          data-active={isSelected ? "true" : undefined}
-                          data-inert={isSelected ? "true" : undefined}
-=======
->>>>>>> upstream/main
                         >
                           <ConfigStatusDot active={!pkg.disabled} color={statusColor(pkg.status)} />
                           <ConfigSidebarText className={`is-grow${pkg.disabled ? " is-muted" : ""}`}>
@@ -1009,23 +823,6 @@ export function PluginsConfig({
                   setActionError(null);
                   setActionMessage(null);
                 }}
-<<<<<<< HEAD
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  padding: "7px 8px",
-                  borderRadius: 0,
-                  border: "none",
-                  width: "100%",
-                  fontSize: 12,
-                }}
-                className="ui-action ui-action--surface"
-                data-state={addMode ? "accent" : "dim"}
-                data-active={addMode ? "true" : undefined}
-                data-inert={addMode ? "true" : undefined}
-=======
->>>>>>> upstream/main
               >
                  {t("i18n.addPlugin")}
             </ConfigListAction>

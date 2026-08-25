@@ -875,15 +875,16 @@ export class AgentSessionWrapper {
 
       case "set_tools": {
         const toolNames = command.toolNames as string[];
-<<<<<<< HEAD
-        this.setForceEmptySystemPrompt(toolNames.length === 0);
-        this.inner.setActiveToolsByName(
-          command.exact === true ? toolNames : withExtensionTools(this.inner, toolNames),
-        );
-        this.applyForcedEmptySystemPrompt();
-=======
-        this.setActiveToolSelection(toolNames);
->>>>>>> upstream/main
+        // `exact: true` keeps the allow-list literal instead of unioning in every
+        // extension tool. The scoring turn is the one turn that reads
+        // employer-authored text, so it must not come out of here holding a tool
+        // that can write anything but a score.
+        if (command.exact === true) {
+          this.inner.setActiveToolsByName(toolNames);
+          this.applyExactSystemPrompt();
+        } else {
+          this.setActiveToolSelection(toolNames);
+        }
         return null;
       }
 
@@ -1926,14 +1927,10 @@ export async function startRpcSession(
   cwd: string | undefined,
   options: RpcSessionStartOptions = {},
 ): Promise<{ session: AgentSessionWrapper; realSessionId: string }> {
-<<<<<<< HEAD
-  const { toolNames, exactTools, initialModel, thinkingLevel } = options;
-=======
-  const { initialModel, allowInitialModelFallback, thinkingLevel } = options;
+  const { initialModel, allowInitialModelFallback, thinkingLevel, exactTools } = options;
   const requestedToolNames = options.toolNames === undefined
     ? undefined
     : validateSessionToolSelection(options.toolNames);
->>>>>>> upstream/main
   const registry = getRegistry();
   const locks = getLocks();
 
@@ -2087,13 +2084,8 @@ export async function startRpcSession(
     // If specific tool names were requested (non-empty), set the active tools to the
     // requested builtin coding tools PLUS all extension/package tools, so installed
     // extensions stay usable in Pi Web just like in the `pi` CLI.
-<<<<<<< HEAD
-    if (toolNames && toolNames.length > 0) {
-      inner.setActiveToolsByName(exactTools ? toolNames : withExtensionTools(inner, toolNames));
-=======
     if (!subagentResources && selectedToolNames && selectedToolNames.length > 0) {
-      inner.setActiveToolsByName(withExtensionTools(inner, selectedToolNames));
->>>>>>> upstream/main
+      inner.setActiveToolsByName(exactTools ? selectedToolNames : withExtensionTools(inner, selectedToolNames));
     }
 
     const exactSystemPrompt = chatOnly

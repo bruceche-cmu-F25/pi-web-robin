@@ -2164,22 +2164,7 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
 
   return (
     <>
-<<<<<<< HEAD
-    <div style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center" }}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={{ width: isMobile ? "calc(100vw - 16px)" : 860, maxWidth: "calc(100vw - 16px)", height: isMobile ? "calc(100dvh - 16px)" : "78vh", maxHeight: "calc(100dvh - 16px)", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 0, display: "flex", flexDirection: "column", boxShadow: "0 8px 32px rgba(0,0,0,0.18)", overflow: "hidden" }}>
-
-        {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-             <span style={{ fontSize: 15, fontWeight: 700, color: "var(--text)" }}>{t("common.models")}</span>
-            <code style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>~/.pi/agent/models.json</code>
-          </div>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 20, lineHeight: 1, padding: "2px 6px" }}>×</button>
-        </div>
-=======
     <ConfigPanelShell embedded={embedded} title={t("common.models")} subtitle="~/.pi/agent/models.json" closeLabel={t("i18n.close")} onClose={onClose}>
->>>>>>> upstream/main
 
         {/* Body */}
         <ConfigSplitView>
@@ -2195,13 +2180,6 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
                     key={p.id}
                     active={isSelected}
                     onClick={() => setSelection({ type: "oauth", providerId: p.id })}
-<<<<<<< HEAD
-                    style={{ display: "flex", alignItems: "center", gap: 7, padding: "5px 8px", borderRadius: 0, cursor: "pointer" }}
-                    className="ui-action ui-action--surface"
-                    data-active={isSelected ? "true" : undefined}
-                    data-inert={isSelected ? "true" : undefined}
-=======
->>>>>>> upstream/main
                   >
                     <ProviderIcon id={p.id} size={16} />
                     <ConfigSidebarText className="is-grow">{p.name}</ConfigSidebarText>
@@ -2217,13 +2195,6 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
                     key={p.id}
                     active={isSelected}
                     onClick={() => setSelection({ type: "apikey", providerId: p.id })}
-<<<<<<< HEAD
-                    style={{ display: "flex", alignItems: "center", gap: 7, padding: "5px 8px", borderRadius: 0, cursor: "pointer" }}
-                    className="ui-action ui-action--surface"
-                    data-active={isSelected ? "true" : undefined}
-                    data-inert={isSelected ? "true" : undefined}
-=======
->>>>>>> upstream/main
                   >
                     <ProviderIcon id={p.id} size={16} />
                     <ConfigSidebarText className="is-grow">{p.displayName}</ConfigSidebarText>
@@ -2247,14 +2218,7 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
                     {/* Provider row */}
                     <ConfigSidebarItem
                       onClick={() => setSelection({ type: "provider", name: pName })}
-<<<<<<< HEAD
-                      style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 8px", borderRadius: 0, cursor: "pointer" }}
-                      className="ui-action ui-action--surface"
-                      data-active={isProviderSelected ? "true" : undefined}
-                      data-inert={isProviderSelected ? "true" : undefined}
-=======
                       active={isProviderSelected}
->>>>>>> upstream/main
                     >
                       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--text-dim)", flexShrink: 0 }}>
                         <rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" />
@@ -2277,13 +2241,6 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
                           active={isModelSelected}
                           className="models-sidebar-indented-item"
                           onClick={() => setSelection({ type: "model", providerName: pName, index: i })}
-<<<<<<< HEAD
-                          style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 8px 5px 26px", borderRadius: 0, cursor: "pointer" }}
-                          className="ui-action ui-action--surface"
-                          data-active={isModelSelected ? "true" : undefined}
-                          data-inert={isModelSelected ? "true" : undefined}
-=======
->>>>>>> upstream/main
                         >
                           <ConfigSidebarText className="is-grow" style={{ color: m.id ? "var(--text-muted)" : "var(--text-dim)" }}>
                              {m.id || t("i18n.newModel")}
@@ -2299,13 +2256,6 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
                     <ConfigSidebarItem
                       className="models-sidebar-indented-item models-sidebar-add-item"
                       onClick={(e) => { e.stopPropagation(); addModel(pName); }}
-<<<<<<< HEAD
-                      style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 8px 4px 26px", borderRadius: 0, cursor: "pointer" }}
-                      className="ui-action ui-action--surface"
-                      data-state="dim"
-                      data-hover="accent"
-=======
->>>>>>> upstream/main
                     >
                        <ConfigSidebarText>+ {t("i18n.model")}</ConfigSidebarText>
                     </ConfigSidebarItem>
@@ -2315,23 +2265,8 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
             </ConfigSidebarList>
 
             {/* Add provider */}
-<<<<<<< HEAD
-            <div style={{ borderTop: "1px solid var(--border)", padding: "8px 6px" }}>
-              <button onClick={() => setPickerOpen(true)} style={{
-                display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
-                width: "100%", padding: "6px 0", borderStyle: "dashed", borderRadius: 0,
-                fontSize: 12,
-              }}
-                className="ui-action ui-action--outline"
-              >
-                 + {t("i18n.addProvider")}
-              </button>
-            </div>
-          </div>
-=======
             <ConfigListAction onClick={() => setPickerOpen(true)}>{t("i18n.addProvider")}</ConfigListAction>
           </ConfigSidebar>
->>>>>>> upstream/main
 
           {/* Right: detail */}
           <ConfigDetail>
@@ -2344,32 +2279,7 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
         </ConfigSplitView>
 
         {/* Footer */}
-<<<<<<< HEAD
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, padding: "10px 18px", borderTop: "1px solid var(--border)", flexShrink: 0 }}>
-          {saveError && <span style={{ fontSize: 12, color: "var(--danger)", flex: 1 }}>{saveError}</span>}
-          <button onClick={onClose} style={{ padding: "6px 14px", background: "none", border: "1px solid var(--border)", borderRadius: 0, color: "var(--text-muted)", cursor: "pointer", fontSize: 13 }}>
-             {t("i18n.cancel")}
-          </button>
-          <button onClick={handleSave} disabled={saving || savedOk} style={{
-            position: "relative",
-            padding: "6px 16px",
-            minWidth: 92,
-            background: savedOk
-              ? "color-mix(in srgb, var(--success) 14%, transparent)"
-              : saving ? "transparent" : "var(--accent-soft)",
-            border: `1px solid ${savedOk
-              ? "color-mix(in srgb, var(--success) 50%, transparent)"
-              : saving ? "var(--border)" : "var(--accent-line-strong)"}`,
-            borderRadius: 0,
-            color: savedOk ? "var(--success)" : saving ? "var(--text-muted)" : "var(--accent)",
-            cursor: (saving || savedOk) ? "default" : "pointer",
-            fontSize: 11, letterSpacing: "0.11em", textTransform: "uppercase",
-            display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
-            transition: "background-color 0.2s ease, color 0.2s ease",
-            animation: savedOk ? "saved-pop 0.45s ease" : undefined,
-          }}>
-=======
-        <ConfigFooter status={saveError && <span style={{ color: "#f87171" }}>{saveError}</span>}>
+        <ConfigFooter status={saveError && <span style={{ color: "var(--danger)" }}>{saveError}</span>}>
           {!embedded && <ConfigButton onClick={onClose}>{t("i18n.cancel")}</ConfigButton>}
           <ConfigButton
             variant="primary"
@@ -2377,7 +2287,6 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
             disabled={saving || savedOk}
             className={savedOk ? "is-success" : undefined}
           >
->>>>>>> upstream/main
             {savedOk && (
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
                 className="config-button-success-icon">

@@ -14,14 +14,11 @@ import { sessionPathKey } from "@/lib/session-path";
 import { getRpcSession } from "@/lib/rpc-manager";
 import { projectTreeForResponse } from "@/lib/project-tree";
 import { computeSessionTotalActiveMs } from "@/lib/session-timing";
-<<<<<<< HEAD
 import { closeTerminalsForSession } from "@/lib/terminal-manager";
-=======
 import { computeSessionStats } from "@/lib/session-stats";
 import type { SessionEntry } from "@/lib/types";
 import { readSubagentRun, readSubagentSessionResources, SUBAGENT_META_TYPE } from "@/lib/subagents";
 import { readSessionToolSelection } from "@/lib/session-tool-selection";
->>>>>>> upstream/main
 
 export async function GET(
   req: Request,

@@ -1,21 +1,14 @@
 "use client";
 
-<<<<<<< HEAD
-import { useState, useCallback, useRef, useEffect, useLayoutEffect } from "react";
-import dynamic from "next/dynamic";
-=======
 import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo } from "react";
->>>>>>> upstream/main
+import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { SessionSidebar } from "./SessionSidebar";
 import { ChatWindow } from "./ChatWindow";
 import { TabBar, type Tab } from "./TabBar";
 import { openFileTab, saveFileViewerState } from "./file-tab-state";
-<<<<<<< HEAD
-=======
 import { SettingsPanel, SettingsSectionIcon } from "./SettingsPanel";
->>>>>>> upstream/main
 import { ProjectTrustDialog } from "./ProjectTrustDialog";
 import { BranchNavigator, hasSessionBranches } from "./BranchNavigator";
 import { SystemPromptPanel } from "./SystemPromptPanel";
@@ -78,9 +71,6 @@ type AutoNameStatus =
 // of them is client-only anyway; there is no server pass to preserve.
 const FileViewer = dynamic(() => import("./FileViewer").then((m) => m.FileViewer), { ssr: false });
 const TerminalPanel = dynamic(() => import("./TerminalPanel").then((m) => m.TerminalPanel), { ssr: false });
-const ModelsConfig = dynamic(() => import("./ModelsConfig").then((m) => m.ModelsConfig), { ssr: false });
-const SkillsConfig = dynamic(() => import("./SkillsConfig").then((m) => m.SkillsConfig), { ssr: false });
-const PluginsConfig = dynamic(() => import("./PluginsConfig").then((m) => m.PluginsConfig), { ssr: false });
 
 const TOP_BAR_ICON_BUTTON_SIZE = 36;
 const LANGUAGE_MENU_WIDTH = 176;
@@ -115,11 +105,9 @@ export function AppShell() {
     if (soundEnabledRef.current) playDoneSound();
   }, [playDoneSound, soundEnabledRef]);
   const [selectedSession, setSelectedSession] = useState<SessionInfo | null>(null);
-<<<<<<< HEAD
   const [sessionSearchOpen, setSessionSearchOpen] = useState(false);
   const [sessionSearchTarget, setSessionSearchTarget] = useState<SessionSearchTarget | null>(null);
   const sessionSearchRequestIdRef = useRef(0);
-=======
   const [sessionCatalog, setSessionCatalog] = useState<SessionInfo[]>([]);
   const handleSessionsChange = useCallback((sessions: SessionInfo[]) => {
     setSessionCatalog(sessions);
@@ -136,7 +124,6 @@ export function AppShell() {
     [selectedSession?.id, sessionsWithSelection],
   );
   const hasSubagentSessions = Boolean(activeSessionFamily?.subagents.length);
->>>>>>> upstream/main
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
   const handleRunningSessionIdsChange = useCallback((ids: Set<string>) => {
     setRunningSessionIds((previous) => {
@@ -1176,65 +1163,6 @@ export function AppShell() {
       />
       <div style={{ padding: "8px", flexShrink: 0, display: "flex", justifyContent: "space-between", gap: 4 }}>
         {([
-<<<<<<< HEAD
-          {
-             label: translate("common.models"),
-            onClick: () => setModelsConfigOpen(true),
-            disabled: false,
-            icon: (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" />
-                <line x1="9" y1="1" x2="9" y2="4" /><line x1="15" y1="1" x2="15" y2="4" />
-                <line x1="9" y1="20" x2="9" y2="23" /><line x1="15" y1="20" x2="15" y2="23" />
-                <line x1="20" y1="9" x2="23" y2="9" /><line x1="20" y1="14" x2="23" y2="14" />
-                <line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="14" x2="4" y2="14" />
-              </svg>
-            ),
-          },
-          {
-             label: translate("common.skills"),
-            onClick: () => setSkillsConfigOpen(true),
-            disabled: !activeCwd && !selectedSession?.cwd && !newSessionCwd,
-            icon: (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 2L2 7l10 5 10-5-10-5z" />
-                <path d="M2 17l10 5 10-5" />
-                <path d="M2 12l10 5 10-5" />
-              </svg>
-            ),
-          },
-          {
-             label: translate("common.plugins"),
-            onClick: () => setPluginsConfigOpen(true),
-            disabled: !activeCwd && !selectedSession?.cwd && !newSessionCwd,
-            icon: (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M9 7V2" />
-                <path d="M15 7V2" />
-                <path d="M6 13V8a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v5a6 6 0 0 1-12 0Z" />
-                <path d="M12 19v3" />
-              </svg>
-            ),
-          },
-        ] as { label: string; onClick: () => void; disabled: boolean; icon: React.ReactNode }[]).map(({ label, onClick, disabled, icon }) => (
-          <button
-            key={label}
-            onClick={onClick}
-            disabled={disabled}
-            title={label}
-            className="ui-action ui-action--surface pi-chrome-label"
-            style={{
-              flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-              height: 32, padding: 0, border: "none",
-              borderRadius: "var(--panel-radius)",
-              fontSize: 11, opacity: disabled ? 0.35 : 1,
-            }}
-          >
-            {icon}
-            {label}
-          </button>
-        ))}
-=======
           ["models", translate("common.models")],
           ["skills", translate("common.skills")],
         ] as const).map(([section, label]) => {
@@ -1279,7 +1207,6 @@ export function AppShell() {
           <SettingsSectionIcon section="general" size={14} strokeWidth={2} />
           <span>{translate("common.settings")}</span>
         </button>
->>>>>>> upstream/main
       </div>
     </>
   );
@@ -2662,7 +2589,6 @@ export function AppShell() {
         </div>
       </div>
     </div>
-<<<<<<< HEAD
     {terminalNotice && (
       <div
         role="alert"
@@ -2681,8 +2607,6 @@ export function AppShell() {
         {terminalNotice}
       </div>
     )}
-    {modelsConfigOpen && <ModelsConfig onClose={() => { setModelsConfigOpen(false); setModelsRefreshKey((k) => k + 1); }} />}
-=======
     {settingsSection && (
       <SettingsPanel
         cwd={projectTrustCwd}
@@ -2695,7 +2619,6 @@ export function AppShell() {
         onPluginsReloaded={() => setSessionKey((key) => key + 1)}
       />
     )}
->>>>>>> upstream/main
     {projectTrustDialogOpen && projectTrustCwd && (
       <ProjectTrustDialog
         cwd={projectTrustCwd}

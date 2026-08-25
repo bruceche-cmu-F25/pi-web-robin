@@ -265,11 +265,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, defaultExpanded = fa
   );
 }
 
-<<<<<<< HEAD
-export function ChatWindow({ session, sessionRunning, sessionSearchOpen = false, sessionSearchTarget, onSessionSearchOpenChange, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemPromptLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
-=======
-export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, onOpenSession, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
->>>>>>> upstream/main
+export function ChatWindow({ session, sessionRunning, sessionSearchOpen = false, sessionSearchTarget, onSessionSearchOpenChange, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, onOpenSession, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const completionNotificationsEnabled = session?.relation?.kind !== "subagent";
@@ -1269,22 +1265,14 @@ function NoticeShelf({ notices, floating = false, onPauseChange }: { notices: No
               width: "fit-content",
               maxWidth: "min(100%, 620px)",
               boxShadow: floating
-<<<<<<< HEAD
                 ? "0 1px 2px var(--bg-subtle), 0 10px 28px -14px var(--bg-selected)"
                 : "0 1px 2px var(--bg-subtle), 0 8px 24px -12px var(--bg-selected)",
               fontSize: 18,
               lineHeight: 1.45,
               transformOrigin: "top center",
-=======
-                ? "0 1px 2px rgba(15,23,42,0.05), 0 10px 28px -14px rgba(15,23,42,0.24)"
-                : "0 1px 2px rgba(15,23,42,0.04), 0 8px 24px -12px rgba(15,23,42,0.10)",
-              fontSize: 14,
-              lineHeight: 1.5,
-              transformOrigin: "top right",
               // Use backwards fill for the entrance animation so height styles return to
               // inline styles once it finishes; otherwise the keyframe's fixed 60px would
               // stick around in fill mode and permanently clamp the expanded toast
->>>>>>> upstream/main
               animation: notice.exiting
                 ? "notice-shelf-out 0.18s ease-in forwards"
                 : "notice-shelf-in 0.18s ease-out backwards",
