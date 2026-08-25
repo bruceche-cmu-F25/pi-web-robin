@@ -2,9 +2,35 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { sendAgentCommand } from "@/lib/agent-client";
-import { useIsMobile } from "@/hooks/useIsMobile";
 import type { PluginPackageInfo, PluginsResponse } from "@/lib/api-types";
 import { useI18n } from "@/hooks/useI18n";
+import {
+  getLastSettingsSelection,
+  setLastSettingsSelection,
+} from "@/lib/settings-navigation";
+import {
+  ConfigButton,
+  ConfigDetail,
+  ConfigDetailActions,
+  ConfigDetailHeader,
+  ConfigDetailHeaderInfo,
+  ConfigDetailStack,
+  ConfigDetailTitle,
+  ConfigEmptyState,
+  ConfigField,
+  ConfigFooter,
+  ConfigListAction,
+  ConfigPanelShell,
+  ConfigSidebar,
+  ConfigSidebarGroupLabel,
+  ConfigSidebarItem,
+  ConfigSidebarList,
+  ConfigSidebarText,
+  ConfigSectionTitle,
+  ConfigSplitView,
+  ConfigStatusDot,
+  ConfigSwitch,
+} from "./SettingsUi";
 
 type PluginScope = PluginPackageInfo["scope"];
 type PluginAction = "install" | "remove" | "update" | "disable" | "enable";
@@ -171,6 +197,7 @@ function ScopeTag({ scope }: { scope: PluginScope }) {
   );
 }
 
+<<<<<<< HEAD
 function buttonStyle(disabled?: boolean, danger?: boolean): React.CSSProperties {
   return {
     padding: "6px 12px",
@@ -235,6 +262,8 @@ function Toggle({
   );
 }
 
+=======
+>>>>>>> upstream/main
 function SegmentedScope({
   value,
   projectResourcesLoaded,
@@ -315,12 +344,10 @@ function AddPluginPanel({
   }, []);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 18, maxWidth: 660, minHeight: "100%" }}>
+    <ConfigDetailStack className="is-fill">
       <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text)" }}>
-            {t("i18n.addPlugin")}
-          </div>
+          <ConfigDetailTitle>{t("i18n.addPlugin")}</ConfigDetailTitle>
           <a
             href="https://pi.dev/packages"
             target="_blank"
@@ -351,10 +378,7 @@ function AddPluginPanel({
         </div>
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-        <label htmlFor="plugin-source" style={{ fontSize: 12, fontWeight: 600, color: "var(--text-muted)" }}>
-          Source
-        </label>
+      <ConfigField label="Source">
         <input
           id="plugin-source"
           ref={inputRef}
@@ -378,14 +402,14 @@ function AddPluginPanel({
             background: "var(--bg-panel)",
             color: "var(--text)",
             fontFamily: "var(--font-mono)",
-            fontSize: 13,
+            fontSize: 12,
             outline: "none",
           }}
           onKeyDown={(e) => {
             if (e.key === "Enter" && source.trim() && !busy) onInstall();
           }}
         />
-      </div>
+      </ConfigField>
 
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
         <SegmentedScope
@@ -393,19 +417,23 @@ function AddPluginPanel({
           projectResourcesLoaded={projectResourcesLoaded}
           onChange={onScopeChange}
         />
-        <button
-          type="button"
+        <ConfigButton
+          variant="primary"
           onClick={onInstall}
           disabled={busy || !source.trim()}
+<<<<<<< HEAD
           style={{
             ...buttonStyle(busy || !source.trim()),
             background: "var(--accent-soft)",
             color: "var(--accent)",
             borderColor: "var(--accent-line-strong)",
           }}
+=======
+          className="is-pushed-right"
+>>>>>>> upstream/main
         >
           {busy ? t("i18n.installing") : t("i18n.install")}
-        </button>
+        </ConfigButton>
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
@@ -443,7 +471,7 @@ function AddPluginPanel({
           {actionError}
         </div>
       )}
-    </div>
+    </ConfigDetailStack>
   );
 }
 
@@ -473,15 +501,9 @@ function PackageDetail({
   const enabled = !pkg.disabled;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 20, maxWidth: 680 }}>
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, minWidth: 0, flexWrap: "wrap" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 180, flex: 1 }}>
-          <Toggle
-            enabled={enabled}
-            loading={busy || reloadBusy}
-            onToggle={() => onAction(pkg.disabled ? "enable" : "disable", pkg)}
-            label={pkg.disabled ? t("i18n.enablePackage") : t("i18n.disablePackage")}
-          />
+    <ConfigDetailStack>
+      <ConfigDetailHeader className="is-top-aligned">
+        <ConfigDetailHeaderInfo>
           <ScopeTag scope={pkg.scope} />
           {pkg.disabled ? (
             <span
@@ -520,33 +542,40 @@ function PackageDetail({
           >
             {pkg.source}
           </span>
-        </div>
+        </ConfigDetailHeaderInfo>
 
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button
+        <ConfigDetailActions>
+          <ConfigButton
+            size="small"
             onClick={() => onAction("update", pkg)}
             disabled={busy || reloadBusy}
-            style={buttonStyle(busy || reloadBusy)}
           >
              {busyKey === `update:${key}` ? t("i18n.updating") : t("i18n.update")}
-          </button>
-          <button
+          </ConfigButton>
+          <ConfigButton
+            size="small"
             onClick={onReloadSession}
             disabled={!sessionId || reloadBusy || busy}
-            style={buttonStyle(!sessionId || reloadBusy || busy)}
              title={sessionId ? t("i18n.reloadSession") : t("i18n.openSessionToReload")}
           >
              {reloadBusy ? t("i18n.reloading") : t("i18n.reloadSession")}
-          </button>
-          <button
+          </ConfigButton>
+          <ConfigButton
+            variant="danger"
+            size="small"
             onClick={() => onAction("remove", pkg)}
             disabled={busy || reloadBusy}
-            style={buttonStyle(busy || reloadBusy, true)}
           >
              {busyKey === `remove:${key}` ? t("i18n.removing") : t("i18n.remove")}
-          </button>
-        </div>
-      </div>
+          </ConfigButton>
+          <ConfigSwitch
+            checked={enabled}
+            loading={busy || reloadBusy}
+            onChange={() => onAction(pkg.disabled ? "enable" : "disable", pkg)}
+            label={pkg.disabled ? t("i18n.enablePackage") : t("i18n.disablePackage")}
+          />
+        </ConfigDetailActions>
+      </ConfigDetailHeader>
 
       <div
         style={{
@@ -584,9 +613,7 @@ function PackageDetail({
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text)" }}>
-          {t("i18n.resolvedResources")}
-        </div>
+        <ConfigSectionTitle>{t("i18n.resolvedResources")}</ConfigSectionTitle>
         <ResourceList pkg={pkg} />
       </div>
 
@@ -600,7 +627,7 @@ function PackageDetail({
           {actionError}
         </div>
       )}
-    </div>
+    </ConfigDetailStack>
   );
 }
 
@@ -609,18 +636,19 @@ export function PluginsConfig({
   sessionId,
   onClose,
   onReloaded,
+  embedded = false,
 }: {
   cwd: string;
   sessionId: string | null;
   onClose: () => void;
   onReloaded?: () => void;
+  embedded?: boolean;
 }) {
-  const isMobile = useIsMobile();
   const { t } = useI18n();
   const [data, setData] = useState<PluginsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(() => getLastSettingsSelection("plugins", cwd));
   const [addMode, setAddMode] = useState(false);
   const [installSource, setInstallSource] = useState("");
   const [installScope, setInstallScope] = useState<PluginScope>("global");
@@ -665,6 +693,10 @@ export function PluginsConfig({
   useEffect(() => {
     void loadPlugins();
   }, [loadPlugins]);
+
+  useEffect(() => {
+    if (selected) setLastSettingsSelection("plugins", selected, cwd);
+  }, [cwd, selected]);
 
   const runAction = useCallback(async (action: PluginAction, pkg: PluginPackageInfo) => {
     const key = packageKey(pkg);
@@ -749,6 +781,7 @@ export function PluginsConfig({
   const addBusy = busyKey?.startsWith("install:") ?? false;
 
   return (
+<<<<<<< HEAD
     <div
       style={{
         position: "fixed",
@@ -820,41 +853,25 @@ export function PluginsConfig({
             ×
           </button>
         </div>
+=======
+    <ConfigPanelShell embedded={embedded} title={t("common.plugins")} subtitle={shortenPath(cwd)} closeLabel={t("i18n.close")} onClose={onClose}>
+>>>>>>> upstream/main
 
         {!projectResourcesLoaded && (
-          <div
-            role="status"
-            style={{
-              padding: "8px 18px",
-              borderBottom: "1px solid var(--border)",
-              background: "var(--bg-panel)",
-              color: "var(--text-muted)",
-              fontSize: 12,
-            }}
-          >
+          <div role="status" className="config-trust-notice">
             {t("trust.pluginsNotLoaded")}
           </div>
         )}
 
-        <div style={{ flex: 1, display: "flex", flexDirection: isMobile ? "column" : "row", overflow: "hidden" }}>
-          <div
-            style={{
-              width: isMobile ? "100%" : 245,
-              maxHeight: isMobile ? "40vh" : undefined,
-              borderRight: isMobile ? "none" : "1px solid var(--border)",
-              borderBottom: isMobile ? "1px solid var(--border)" : "none",
-              display: "flex",
-              flexDirection: "column",
-              flexShrink: 0,
-              background: "var(--bg-panel)",
-            }}
-          >
-            <div style={{ flex: 1, overflowY: "auto", padding: "8px 6px" }}>
+        <ConfigSplitView>
+          <ConfigSidebar>
+            <ConfigSidebarList>
               {loading ? (
-                <div style={{ padding: "10px 8px", fontSize: 12, color: "var(--text-muted)" }}>
+                <div className="config-sidebar-message">
                   Loading...
                 </div>
               ) : error ? (
+<<<<<<< HEAD
                 <div style={{ padding: "10px 8px", fontSize: 11, color: "var(--danger)" }}>
                   {error}
                 </div>
@@ -875,20 +892,35 @@ export function PluginsConfig({
                         textTransform: "uppercase",
                       }}
                     >
+=======
+                <div className="config-sidebar-message is-error">
+                  {error}
+                </div>
+              ) : packages.length === 0 ? (
+                <div className="config-sidebar-message is-empty">
+                  No plugins configured
+                </div>
+              ) : (
+                groupedPackages.map((group) => (
+                  <div key={group.scope} className="config-sidebar-group">
+                    <ConfigSidebarGroupLabel>
+>>>>>>> upstream/main
                       {group.scope}
-                    </div>
+                    </ConfigSidebarGroupLabel>
                     {group.packages.map((pkg) => {
                       const key = packageKey(pkg);
                       const isSelected = !addMode && selected === key;
                       return (
-                        <div
+                        <ConfigSidebarItem
                           key={key}
+                          active={isSelected}
                           onClick={() => {
                             setSelected(key);
                             setAddMode(false);
                             setActionError(null);
                             setActionMessage(null);
                           }}
+<<<<<<< HEAD
                           style={{
                             display: "flex",
                             alignItems: "center",
@@ -900,58 +932,14 @@ export function PluginsConfig({
                           className="ui-action ui-action--surface"
                           data-active={isSelected ? "true" : undefined}
                           data-inert={isSelected ? "true" : undefined}
+=======
+>>>>>>> upstream/main
                         >
-                          <span
-                            style={{
-                              flexShrink: 0,
-                              width: 7,
-                              height: 7,
-                              borderRadius: "50%",
-                              background: statusColor(pkg.status),
-                            }}
-                          />
-                          <div style={{ minWidth: 0, flex: 1 }}>
-                            <div
-                              style={{
-                                fontSize: 12,
-                                fontWeight: isSelected ? 600 : 400,
-                                color: "var(--text)",
-                                fontFamily: "var(--font-mono)",
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                whiteSpace: "nowrap",
-                              }}
-                            >
-                              {pkg.source}
-                            </div>
-                            <div
-                              style={{
-                                fontSize: 10,
-                                color: "var(--text-dim)",
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                whiteSpace: "nowrap",
-                                marginTop: 2,
-                              }}
-                            >
-                              {resourceSummary(pkg, t)}
-                            </div>
-                            {(pkg.version || pkg.configuredVersion) && (
-                              <div
-                                style={{
-                                  fontSize: 10,
-                                  color: "var(--text-dim)",
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
-                                  whiteSpace: "nowrap",
-                                  marginTop: 2,
-                                }}
-                              >
-                                 {versionSummary(pkg, t)}
-                              </div>
-                            )}
-                          </div>
-                        </div>
+                          <ConfigStatusDot active={!pkg.disabled} color={statusColor(pkg.status)} />
+                          <ConfigSidebarText className={`is-grow${pkg.disabled ? " is-muted" : ""}`}>
+                            {pkg.source}
+                          </ConfigSidebarText>
+                        </ConfigSidebarItem>
                       );
                     })}
                   </div>
@@ -1013,15 +1001,15 @@ export function PluginsConfig({
                 )}
                 </>
               )}
-            </div>
-            <div style={{ padding: "8px 6px", borderTop: "1px solid var(--border)", flexShrink: 0 }}>
-              <button
-                type="button"
+            </ConfigSidebarList>
+            <ConfigListAction
+                active={addMode}
                 onClick={() => {
                   setAddMode(true);
                   setActionError(null);
                   setActionMessage(null);
                 }}
+<<<<<<< HEAD
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -1036,27 +1024,16 @@ export function PluginsConfig({
                 data-state={addMode ? "accent" : "dim"}
                 data-active={addMode ? "true" : undefined}
                 data-inert={addMode ? "true" : undefined}
+=======
+>>>>>>> upstream/main
               >
-                <svg
-                  width="13"
-                  height="13"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <line x1="12" y1="5" x2="12" y2="19" />
-                  <line x1="5" y1="12" x2="19" y2="12" />
-                </svg>
                  {t("i18n.addPlugin")}
-              </button>
-            </div>
-          </div>
+            </ConfigListAction>
+          </ConfigSidebar>
 
-          <div style={{ flex: 1, overflowY: "auto", padding: 20 }}>
-            {addMode ? (
+          <ConfigDetail>
+            <ConfigDetailStack className="is-fill">
+              {addMode ? (
               <AddPluginPanel
                 cwd={cwd}
                 source={installSource}
@@ -1080,36 +1057,15 @@ export function PluginsConfig({
                 onAction={runAction}
                 onReloadSession={reloadSession}
               />
-            ) : (
-              <div
-                style={{
-                  height: "100%",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: "var(--text-dim)",
-                  fontSize: 13,
-                }}
-              >
-                {t("i18n.selectPackage")}
-              </div>
-            )}
-          </div>
-        </div>
+              ) : (
+                <ConfigEmptyState>{t("i18n.selectPackage")}</ConfigEmptyState>
+              )}
+            </ConfigDetailStack>
+          </ConfigDetail>
+        </ConfigSplitView>
 
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 12,
-            padding: "10px 18px",
-            borderTop: "1px solid var(--border)",
-            flexShrink: 0,
-          }}
-        >
-          <div style={{ minWidth: 0, flex: 1, fontSize: 11, color: "var(--text-dim)", overflow: "hidden" }}>
-            {data?.diagnostics.length ? (
+        <ConfigFooter status={
+            data?.diagnostics.length ? (
               <span
                 title={data.diagnostics.map((d) => `${d.type}: ${d.source ? `${d.source}: ` : ""}${d.message}`).join("\n")}
                 style={{ color: data.diagnostics.some((d) => d.type === "error") ? "var(--danger)" : "var(--warning)" }}
@@ -1121,15 +1077,12 @@ export function PluginsConfig({
                 {data ? `${data.totals.extensions} ext · ${data.totals.skills} skills · ${data.totals.prompts} prompts · ${data.totals.themes} themes` : ""}
               </span>
             )}
-          </div>
-          <button onClick={() => void loadPlugins()} disabled={loading || busyKey !== null} style={buttonStyle(loading || busyKey !== null)}>
+        >
+          {!embedded && <ConfigButton onClick={onClose}>{t("i18n.close")}</ConfigButton>}
+          <ConfigButton variant="secondary" onClick={() => void loadPlugins()} disabled={loading || busyKey !== null}>
              {t("i18n.refresh")}
-          </button>
-          <button onClick={onClose} style={buttonStyle(false)}>
-             {t("i18n.close")}
-          </button>
-        </div>
-      </div>
-    </div>
+          </ConfigButton>
+        </ConfigFooter>
+    </ConfigPanelShell>
   );
 }

@@ -42,3 +42,4 @@ dev.log
 *.tsbuildinfo
 next-env.d.ts
 .factory
+e2e_*.mjs
