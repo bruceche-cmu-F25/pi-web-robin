@@ -20,6 +20,8 @@ const STATUS_MARK: Record<string, string> = {
 };
 
 interface Props {
+  /** Set by the workspace, which owns the drag; see ./paneWidths.ts. */
+  width: number;
   list: PracticeList;
   onListChange: (list: PracticeList) => void;
   records: Map<string, PracticeRecord>;
@@ -36,7 +38,7 @@ interface Props {
  * you actually are. So this side is ordered by the roadmap's own teaching
  * order and carries the state: solved, attempted, due for review.
  */
-export function RoadmapRail({ list, onListChange, records, today, selected, onSelect }: Props) {
+export function RoadmapRail({ width, list, onListChange, records, today, selected, onSelect }: Props) {
   const { t } = useI18n();
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
@@ -56,8 +58,10 @@ export function RoadmapRail({ list, onListChange, records, today, selected, onSe
   return (
     <aside
       id="roadmap-rail"
-      className="flex flex-col border-r"
-      style={{ borderColor: "var(--border)", width: 264, minWidth: 264 }}
+      className="flex flex-col"
+      // No border: the PaneDivider beside it is the line, and two would read
+      // as a double rule.
+      style={{ width, minWidth: width, maxWidth: width }}
     >
       <header
         className="flex flex-col gap-2 border-b px-3 py-2"

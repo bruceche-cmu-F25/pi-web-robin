@@ -27,7 +27,11 @@ const nextConfig: NextConfig = {
     "@earendil-works/pi-ai",
     "@earendil-works/pi-tui",
   ],
-  allowedDevOrigins: ["127.0.0.1", "192.168.*.*"],
+  allowedDevOrigins: [
+    "127.0.0.1",
+    "192.168.*.*",
+    ...(process.env.PI_WEB_ALLOWED_HOSTS?.split(",").map((host) => host.trim()).filter(Boolean) ?? []),
+  ],
   experimental: {
     // ModelsConfig imports 31 provider icons by deep path already, but the
     // package barrel still gets pulled in transitively; this keeps the import

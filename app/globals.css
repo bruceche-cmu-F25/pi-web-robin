@@ -292,6 +292,10 @@
   --dashboard-ground: rgb(218 203 194 / 0.18);
   --card-shadow: 0 1px 2px rgb(92 87 82 / 0.06), 0 8px 20px -14px rgb(92 87 82 / 0.45);
 
+  /* Parchment is already warm and light; the tile only has to lift a mark off
+     the ruling, not build a white card under it. */
+  --icon-tile: rgb(255 253 250 / 0.80);
+
   --control-bg: rgb(37 47 61 / 0.03);
   --control-bg-hover: rgb(37 47 61 / 0.07);
   --selection-bg: rgb(139 81 60 / 0.24);
@@ -413,6 +417,10 @@ html.dark {
   --today-wash: rgb(95 179 171 / 0.13);
   --dashboard-ground: rgb(13 17 22 / 0.40);
   --card-shadow: 0 1px 2px rgb(0 0 0 / 0.35), 0 10px 24px -16px rgb(0 0 0 / 0.8);
+  /* Bright enough that a black logo reads, held under white so a row of them
+     is not a line of headlights on a dark page. */
+  --icon-tile: rgb(232 228 224 / 0.88);
+
   --control-bg: rgb(255 255 255 / 0.016);
   --control-bg-hover: rgb(255 255 255 / 0.035);
   --selection-bg: rgb(106 159 204 / 0.24);
@@ -577,6 +585,27 @@ body {
   letter-spacing: 0.13em;
   line-height: 1;
   text-transform: uppercase;
+}
+
+/* A site's own icon, at the one size the app draws them.
+
+   The tile is the point. A favicon is drawn for whatever background its own
+   site has, so a black octocat is invisible on our dark canvas and a white
+   wordmark is invisible on parchment — and there is no way to know which we
+   have without decoding someone else's PNG. Standing every mark on the same
+   pale tile makes all of them legible in both themes, and reads as the app
+   icon it already is. Radius is the one place pi allows it: these are little
+   product marks, and a hard-cornered favicon looks clipped rather than
+   square. */
+.site-mark {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  align-self: center;
+  border-radius: 3px;
+  background: var(--icon-tile);
+  padding: 1px;
+  object-fit: contain;
 }
 
 /* Bare metadata markers carry changing dates and field names, so they use the
@@ -1939,6 +1968,31 @@ pre, code {
 .directory-picker-path:focus-visible {
   border-color: var(--accent) !important;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+/* ---------------------------------------------------------------------------
+   Pane divider — the draggable seam in the coding workspace.
+
+   The seam replaces the border between two panes, so it has to read as that
+   border when nobody is touching it and as a control the moment they are. The
+   hit area is 5px wide while the line stays 1px: a seam you have to aim at is
+   one you stop using.
+--------------------------------------------------------------------------- */
+.pane-divider:hover > span,
+.pane-divider:focus-visible > span,
+.pane-divider[data-dragging="true"] > span {
+  background: var(--accent);
+}
+
+.pane-divider:focus-visible {
+  outline: none;
+}
+
+/* Widened rather than recoloured on hover: the line itself stays hairline, so
+   the feedback is that the seam is grabbable, not that it grew. */
+.pane-divider:hover > span,
+.pane-divider[data-dragging="true"] > span {
+  width: 2px;
 }
 
 @media (max-width: 640px) {

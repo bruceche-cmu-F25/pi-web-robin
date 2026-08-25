@@ -52,6 +52,21 @@ export const ROBIN_COACH_TOOL_NAMES = [
   "practice_due",
 ] as const;
 
+/**
+ * The curriculum mentor's tool set — read-only, and the smallest here.
+ *
+ * It can see what the user is reading and the shape of the curriculum. That is
+ * all: nothing on this side is tracked, so there is no progress to write, and
+ * a tool that could write some would be the app inventing a claim about
+ * someone's reading. It cannot touch the filesystem and cannot run anything —
+ * a mentor that could would start reviewing code, which is what a real pi
+ * session pinned to the repository is for.
+ */
+export const ROBIN_MENTOR_TOOL_NAMES = [
+  "study_current",
+  "study_outline",
+] as const;
+
 export const ROBIN_READ_ONLY_TOOL_NAMES = [
   "todo_list",
   "calendar_list_events",

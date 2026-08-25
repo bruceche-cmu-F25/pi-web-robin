@@ -6,7 +6,7 @@ import { useI18n } from "@/hooks/useI18n";
 import { requestRefresh } from "./refreshBus";
 
 interface Turn {
-  role: "you" | "coach";
+  role: "you" | "agent";
   text: string;
   tools?: string[];
 }
@@ -14,26 +14,34 @@ interface Turn {
 /** Matches ChatInput: some IMEs end composition just before the Enter lands. */
 const COMPOSITION_END_ENTER_GRACE_MS = 100;
 
-/** Tool names the coach can use, in the language the page is in. */
-const TOOL_KEYS: Record<string, string> = {
-  practice_current: "coding.tool.current",
-  practice_list: "coding.tool.list",
-  practice_record: "coding.tool.record",
-  practice_status: "coding.tool.status",
-  practice_note: "coding.tool.note",
-  practice_due: "coding.tool.due",
-};
+interface Props {
+  /** Which assistant mode this panel talks to — its persona, tools, and session. */
+  mode: "coach" | "mentor";
+  /** i18n keys for the chrome, so the two personas read as different people. */
+  titleKey: string;
+  placeholderKey: string;
+  restartHintKey: string;
+  /** Tool name → i18n key, for the line under a reply saying what it touched. */
+  toolKeys: Record<string, string>;
+}
 
 /**
- * The coach, next to the problem.
+ * The agent panel, next to whatever the workspace has open.
+ *
+ * One component for both personas because everything here is the same problem
+ * twice: an IME that must not have its composition torn down, a transcript
+ * that scrolls, a restart that has to fail loudly. What differs is the mode it
+ * posts to and the words on the chrome, and those are props. Forking the file
+ * would mean maintaining the composition handling in two places, which is
+ * exactly the kind of subtlety that gets fixed in one copy only.
  *
  * The transcript is client-side only: the conversation itself lives in a pi
  * session on the server and survives a reload, but re-rendering weeks of it in
  * a side panel would bury the exchange the user is actually in. Reloading the
- * page therefore gives a clean panel and a coach that still remembers — which
+ * page therefore gives a clean panel and an agent that still remembers — which
  * is the behaviour you want from someone sitting beside you.
  */
-export function CoachPanel() {
+export function AgentPanel({ mode, titleKey, placeholderKey, restartHintKey, toolKeys }: Props) {
   const { t } = useI18n();
   const [turns, setTurns] = useState<Turn[]>([]);
   const [message, setMessage] = useState("");
@@ -59,18 +67,18 @@ export function CoachPanel() {
       const response = await fetch("/api/robin/assistant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "coach", message: trimmed }),
+        body: JSON.stringify({ mode, message: trimmed }),
       });
       const body = await response.json().catch(() => null) as
         { reply?: string; usedTools?: string[]; error?: string } | null;
       if (!response.ok || !body) throw new Error(body?.error ?? `Request failed (${response.status})`);
       setTurns((previous) => [...previous, {
-        role: "coach",
+        role: "agent",
         text: body.reply ?? "",
         tools: body.usedTools ?? [],
       }]);
-      // The coach writes practice records through its tools; the rail is
-      // polling, but the user is watching right now.
+      // Both personas write records through their tools; the rail is polling,
+      // but the user is watching right now.
       if ((body.usedTools ?? []).length > 0) requestRefresh();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
@@ -85,7 +93,7 @@ export function CoachPanel() {
       const response = await fetch("/api/robin/assistant", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "coach" }),
+        body: JSON.stringify({ mode }),
       });
       if (!response.ok) {
         const body = await response.json().catch(() => null) as { error?: string } | null;
@@ -108,16 +116,16 @@ export function CoachPanel() {
         className="flex items-baseline gap-3 border-b px-3 py-2"
         style={{ borderColor: "var(--border)" }}
       >
-        <h2 className="pi-label">{t("coding.coach.title")}</h2>
+        <h2 className="pi-label">{t(titleKey)}</h2>
         <button
           type="button"
           onClick={() => void restart()}
           disabled={busy}
           className="ui-action pi-chrome-label pi-bracket ml-auto"
           style={{ fontSize: 10 }}
-          title={t("coding.coach.restartHint")}
+          title={t(restartHintKey)}
         >
-          {t("coding.coach.restart")}
+          {t("coding.agent.restart")}
         </button>
       </header>
 
@@ -126,7 +134,7 @@ export function CoachPanel() {
           {turns.map((turn, index) => (
             <article key={index} className="flex flex-col gap-1">
               <span className="pi-eyebrow" style={{ fontSize: 9 }}>
-                {turn.role === "you" ? t("coding.coach.you") : t("coding.coach.title")}
+                {turn.role === "you" ? t("coding.agent.you") : t(titleKey)}
               </span>
               {turn.role === "you" ? (
                 <p style={{ fontSize: 13, whiteSpace: "pre-wrap", color: "var(--text-muted)" }}>
@@ -138,7 +146,7 @@ export function CoachPanel() {
               {turn.tools && turn.tools.length > 0 ? (
                 <span className="pi-eyebrow" style={{ fontSize: 9, color: "var(--text-dim)" }}>
                   {[...new Set(turn.tools)]
-                    .map((name) => (TOOL_KEYS[name] ? t(TOOL_KEYS[name]) : name))
+                    .map((name) => (toolKeys[name] ? t(toolKeys[name]) : name))
                     .join(" · ")}
                 </span>
               ) : null}
@@ -188,12 +196,12 @@ export function CoachPanel() {
             void send(message);
           }}
           rows={3}
-          // Never disabled, even while the coach is thinking — a turn can take
+          // Never disabled, even while the agent is thinking — a turn can take
           // half a minute, and yanking `disabled` onto a focused textarea
           // mid-word tears down an in-flight IME composition, which is how
           // half-typed pinyin ends up committed as raw letters. `send` already
           // refuses to fire while busy, so nothing is lost by staying typable.
-          placeholder={t("coding.coach.placeholder")}
+          placeholder={t(placeholderKey)}
           className="pi-panel w-full resize-none p-2"
           style={{ fontSize: 13, background: "var(--bg-deep)", color: "var(--text)" }}
         />

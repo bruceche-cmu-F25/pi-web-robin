@@ -14,15 +14,18 @@ import {
   readDailyAgendaSessionId,
   readJobScorerSessionId,
   readMailReviewSessionId,
+  readMentorSessionId,
   writeAssistantSessionId,
   writeCoachSessionId,
   writeDailyAgendaSessionId,
   writeJobScorerSessionId,
   writeMailReviewSessionId,
+  writeMentorSessionId,
 } from "@/extension/robin/store";
 import {
   ROBIN_COACH_TOOL_NAMES,
   ROBIN_MAIL_TOOL_NAMES,
+  ROBIN_MENTOR_TOOL_NAMES,
   ROBIN_READ_ONLY_TOOL_NAMES,
   ROBIN_SCORING_TOOL_NAMES,
   ROBIN_TOOL_NAMES,
@@ -66,6 +69,26 @@ const COACH_PREAMBLE = [
   "Two jobs, in this order. First, the problem in front of them — coach it, never solve it for them; climb the hint ladder in your tool guidelines one rung at a time and stop as soon as they are moving again. Second, the engineer they are becoming: idiomatic Python, complexity they can derive rather than recite, naming and structure you would accept in review, and the occasional short aside on how the same idea shows up in real systems.",
   "",
   "Reply in the language they write in. Keep answers short — this is a side panel next to a problem, not an article. Ask before assuming; they would rather be questioned than lectured.",
+].join("\n");
+
+/**
+ * Who the mentor is, sent once when its session is created.
+ *
+ * The counterpart to the coach, and written against it. The coach withholds
+ * because a problem someone else solves teaches nothing; the mentor is being
+ * asked "what is this and why does it matter", where withholding is just being
+ * unhelpful. What it holds onto instead is the transfer: no explanation of a
+ * tutorial page is finished until it has been connected to a decision someone
+ * makes in a real system.
+ */
+const MENTOR_PREAMBLE = [
+  "You are this user's engineering mentor: a staff engineer who has designed and operated real systems, sitting next to them while they work through a curriculum that runs from JavaScript fundamentals to architecture and system design.",
+  "",
+  "Three jobs, in this order. First, the thing in front of them — explain it properly, with a concrete example, and check it landed by asking them to apply it once. Second, the shape of the whole: every answer gets anchored to the outcome its module names, so they are building a capability rather than finishing pages. Third, the transfer — take the idea up a level to where it decides something in a real system: what breaks at scale, where a boundary belongs, what a trade-off costs. That last part is what reading alone never produces, and it is why this track exists.",
+  "",
+  "Use their own codebase as the example wherever a concept appears in it; Robin and Pi Web are better material than an invented shop-and-orders domain. Nothing on this side is tracked — no progress, no status, no counts — so never claim to have recorded anything and never tell them how far along they are. You cannot know, and a guess dressed as a number is worse than silence.",
+  "",
+  "Reply in the language they write in. Keep answers short — this is a side panel next to what they are reading, not an article.",
 ].join("\n");
 
 /**
@@ -115,6 +138,13 @@ export const MODES = {
     write: writeCoachSessionId,
     timeoutMs: TURN_TIMEOUT_MS,
     preamble: COACH_PREAMBLE,
+  },
+  mentor: {
+    toolNames: [...ROBIN_MENTOR_TOOL_NAMES],
+    read: readMentorSessionId,
+    write: writeMentorSessionId,
+    timeoutMs: TURN_TIMEOUT_MS,
+    preamble: MENTOR_PREAMBLE,
   },
   mail: {
     toolNames: [...ROBIN_MAIL_TOOL_NAMES],

@@ -143,11 +143,8 @@ export function WeekGrid({
                     top: bar.lane * 22,
                     height: 20,
                     ...spanSurface(bar.event),
-                    color: "var(--text)",
                     borderRadius: 0,
-                    fontFamily: "var(--font-serif)",
-                    fontSize: 13,
-                    fontWeight: 600,
+                    fontSize: 12,
                   }}
                 >
                   {bar.continuesBefore && "‹ "}
@@ -249,9 +246,6 @@ export function WeekGrid({
                           left: `calc(${(column / columns) * 100}% + 1px)`,
                           width: `calc(${(1 / columns) * 100}% - 2px)`,
                           ...timedSurface(event),
-                          color: "var(--text)",
-                          // The title is what someone reads; the clock is data.
-                          fontFamily: "var(--font-serif)",
                         }}
                       >
                         <span
@@ -262,8 +256,7 @@ export function WeekGrid({
                             overflow: "hidden",
                             overflowWrap: "anywhere",
                             fontSize: titleSize,
-                            fontWeight: 600,
-                            lineHeight: 1.18,
+                            lineHeight: 1.25,
                           }}
                         >
                           {event.title}

@@ -10,8 +10,13 @@ a fixed allow-list — no shell, no filesystem.
 - **Agent tools** usable from the dashboard, the `pi` CLI, and Telegram.
 - **Google Calendar** read-only, merged into the calendar views.
 - **Gmail** read-only: `/dashboard/gmail` shows the inbox, and a daily email digest goes to Telegram.
-- **Coding workspace** at `/coding` — the NeetCode roadmap embedded next to a coach
-  that hints instead of answering, with your own record of every problem.
+- **Learning Hub** at `/learn` — the front door: a way into each track, where you
+  already are in it, and the study links. Nothing else.
+- **Coding workspace** at `/coding` — two tracks. **Problems** embeds the NeetCode
+  roadmap next to a coach that hints instead of answering; **Curriculum** opens a
+  syllabus that runs from JavaScript to system design next to a mentor that
+  explains and ties every answer back to what the module is for. Both keep your
+  own record.
 - **Telegram bridge** so the same assistant works when you are away from the machine —
   commands, inline buttons, voice notes, and four kinds of push.
 
@@ -91,6 +96,8 @@ The tool allow-list is in `tools.ts`; registrations are split by domain in
 | `practice_status` | "mark Valid Anagram as done" |
 | `practice_note` | "remember: sort, then compare" |
 | `practice_due` | "what should I review today?" |
+| `study_current` | "what is this page for?" |
+| `study_outline` | "how does the architecture track fit together?" |
 
 Details worth knowing:
 
@@ -146,13 +153,33 @@ formatting.
 
 ## The coding workspace
 
-`/coding` is three panes: the roadmap rail, NeetCode itself in a frame, and the
-coach.
+`/learn` is the way in — two entries, the shelf of study links, and the place a
+third entry would go. Only the practice entry carries a number, because it is
+the only side that keeps one. Each entry lands on a track
+directly (`/coding?track=curriculum`), which also becomes the remembered
+default.
 
-**The frame is a black box.** A cross-origin page reports nothing back — not its
-URL, not what you solved. So the rail on the left is not decoration: clicking a
-problem is what tells the server which problem is open, and that record is the
-only reason the coach can answer a question about "this one". The frame is
+**The shelf is the same resources, arranged the other way.** The syllabus
+orders them for teaching: what has to be understood before what. The shelf
+keeps the groups the reading list was collected in, which is how you find
+something again when you already know what you are looking for. It holds item
+ids rather than URLs, so the two can never disagree about where a link points.
+The dashboard's saved links are a different shelf for a different part of the
+day and stay where they are.
+
+`/coding` is two tracks. **Problems** is three panes — the roadmap rail,
+NeetCode itself in a frame, and the coach. **Curriculum** is two — the syllabus
+and the mentor — because there is nothing worth framing: two thirds of the
+catalog is either a milestone or a site that refuses to be embedded, and a
+tutorial reads better in a real tab than in a letterbox. Its resources open in
+one. Which track you are on is a browser preference; what is open in each is
+server state, because the agents read it.
+
+**What the user is looking at is a black box.** A cross-origin frame reports
+nothing back — not its URL, not what you solved — and a tab we opened reports
+even less. So clicking is not decoration: it is what tells the server which
+problem or resource is open, and that record is the only reason the agent on
+the right can answer a question about "this one". The frame is
 NeetCode's own problem page, editor and judge included, so you can solve it
 without leaving the page.
 
@@ -181,6 +208,58 @@ hints should come back sooner than one that needed none.
 attempts, a note, and a review date derived from your confidence (1/3/7/21/60
 days). You can set status and notes by hand in the panel; the coach writes the
 same records through its tools.
+
+---
+
+### The curriculum track
+
+The second track swaps the roadmap for a syllabus and the coach for a mentor,
+and drops the middle pane: the syllabus is the page, and every resource on it
+opens in a tab. Same habits, one column fewer.
+
+**It is a curriculum, not a bookmark folder.** `curriculum.ts` is hand-written
+rather than generated, because the ordering is the content: six tracks —
+language foundations, the web end to end, Python engineering, architecture and
+system design, a project gym, and craft — each module stating the capability it
+is for and ending in a milestone you have to build.
+
+**Nothing on this side is tracked.** No status, no counts, no review queue, and
+no tool that could write one — the mentor cannot mark a chapter read because
+there is nowhere to write it. The practice side counts because a review
+schedule is only as good as its record of what you solved; reading does not
+work that way, and a progress bar over someone's reading measures the one
+thing that does not matter. The roadmap says what exists and what each module
+is for; what you took from it is yours.
+
+**Every entry is a way out.** Clicking one opens it in a tab, so the catalog no
+longer records which hosts permit framing — that stopped mattering when the
+frame went.
+
+**The mentor explains, where the coach withholds.** They are opposite jobs —
+a problem someone else solves teaches nothing, but a concept nobody explains
+stays a word — so they run in separate sessions with separate tools. The mentor
+anchors answers to the module's outcome, reaches for the system-level framing
+whenever it is honest to, and cannot mark anything done that you did not say
+you finished.
+
+**Storage** is one file, `~/.pi/robin/study-state.json`, holding two ids: the
+resource opened last and the track the syllabus is showing. The first exists
+for a mechanical reason — the tab it opened in is not ours to see into, so the
+mentor could not otherwise answer a question about "this page".
+
+### Panes
+
+Every seam resizes: drag it, double-click it to put it back, or focus it and
+use the arrow keys. Widths are per browser and shared by both tracks — one
+workspace, one layout — so the agent panel you widened while reading is that
+wide when you go back to solving. The pane between the seams keeps a floor of
+320px no matter what the sides ask for, because on the problems track it holds
+a whole third-party application and a 90px editor is not a smaller version of
+the feature.
+
+Dragging works across the frame because the seam captures the pointer. Without
+that, a plain move listener stops hearing events the instant the cursor enters
+a cross-origin iframe, and the divider sticks halfway.
 
 ---
 

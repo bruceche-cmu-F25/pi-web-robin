@@ -84,6 +84,7 @@ const MAIL_REVIEW_FILE = "mail-review.json";
 const REMINDER_STATE_FILE = "reminder-state.json";
 const PRACTICE_FILE = "practice.json";
 const PRACTICE_STATE_FILE = "practice-state.json";
+const STUDY_STATE_FILE = "study-state.json";
 const COMPLETED_TODO_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
 
 /**
@@ -202,6 +203,16 @@ interface AssistantState {
    * the other with it.
    */
   coachSessionId?: string;
+  /**
+   * The curriculum mentor's conversation.
+   *
+   * Apart from the coach for the same reason the coach is apart from the
+   * assistant, and one more: the two are asked opposite questions. The coach
+   * must withhold answers to keep a problem worth solving; the mentor is being
+   * asked to explain, and explaining fully is the whole job. Sharing a session
+   * would leave one persona reading the other's instructions.
+   */
+  mentorSessionId?: string;
   updatedAt?: string;
 }
 
@@ -257,8 +268,16 @@ export function writeCoachSessionId(coachSessionId: string): void {
   writeAssistantState({ coachSessionId });
 }
 
+export function readMentorSessionId(): string | null {
+  return readAssistantState().mentorSessionId ?? null;
+}
+
+export function writeMentorSessionId(mentorSessionId: string): void {
+  writeAssistantState({ mentorSessionId });
+}
+
 /** The assistant sessions a caller may ask to start over. */
-export const ASSISTANT_SESSION_KINDS = ["default", "readOnly", "scoring", "mail", "coach"] as const;
+export const ASSISTANT_SESSION_KINDS = ["default", "readOnly", "scoring", "mail", "coach", "mentor"] as const;
 
 export type AssistantSessionKind = (typeof ASSISTANT_SESSION_KINDS)[number];
 
@@ -268,6 +287,7 @@ const SESSION_FIELDS: Record<AssistantSessionKind, keyof AssistantState> = {
   scoring: "jobScorerSessionId",
   mail: "mailReviewSessionId",
   coach: "coachSessionId",
+  mentor: "mentorSessionId",
 };
 
 /**
@@ -521,6 +541,38 @@ export function readPracticeState(): PracticeState {
 export function writePracticeState(patch: Partial<PracticeState>): void {
   writeJsonObject(PRACTICE_STATE_FILE, {
     ...readPracticeState(),
+    ...patch,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+/* ──────────────────────────── study ──────────────────────────── */
+
+/**
+ * What the curriculum track currently has open — and the only thing it stores.
+ *
+ * Same reason the practice state exists: the frame is cross-origin and reports
+ * nothing about itself, so the mentor can only answer "what am I reading" if
+ * the click that opened it was written down on the way past. Note what is
+ * absent: no records file, because nothing on this side is scored, counted, or
+ * marked read.
+ */
+export interface StudyState {
+  /** Curriculum item id the workspace currently has open. */
+  currentItemId?: string;
+  /** Which track the syllabus is showing. */
+  track?: string;
+  /** UTC instant, ISO 8601. */
+  updatedAt?: string;
+}
+
+export function readStudyState(): StudyState {
+  return readJsonObject<StudyState>(STUDY_STATE_FILE) ?? {};
+}
+
+export function writeStudyState(patch: Partial<StudyState>): void {
+  writeJsonObject(STUDY_STATE_FILE, {
+    ...readStudyState(),
     ...patch,
     updatedAt: new Date().toISOString(),
   });

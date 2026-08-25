@@ -107,8 +107,10 @@ export function Dashboard() {
               <Link href="/dashboard/jobs" className="ui-action pi-chrome-label pi-bracket" style={{ fontSize: 11 }}>
                 {t("robin.nav.jobs")}
               </Link>
-              <Link href="/coding" className="ui-action pi-chrome-label pi-bracket" style={{ fontSize: 11 }}>
-                {t("robin.nav.coding")}
+              {/* The hub, not the workspace: it is the front door to both
+                  tracks, and the place a third one would appear. */}
+              <Link href="/learn" className="ui-action pi-chrome-label pi-bracket" style={{ fontSize: 11 }}>
+                {t("robin.nav.learn")}
               </Link>
               <Link href="/dashboard/settings" className="ui-action pi-chrome-label pi-bracket" style={{ fontSize: 11 }}>
                 {t("robin.nav.settings")}
