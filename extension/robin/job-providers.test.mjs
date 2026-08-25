@@ -521,3 +521,26 @@ test("a posting on a board with no probe is left alone rather than guessed at", 
   };
   assert.equal((await findDeadPostings(["https://lifeattiktok.com/search/123"], ctx)).size, 0);
 });
+
+test("a posting read back from the store still hydrates, ref or no ref", async () => {
+  // `ref` is set when a board hands a posting over and is never persisted, so
+  // anything re-hydrated from the store arrives without one. Before this was
+  // handled, the provider's own hydrate filtered the entire batch away and
+  // reported success — a live Greenhouse posting whose description was right
+  // there behind its own URL came back empty.
+  const asked = [];
+  const ctx = {
+    async fetchJson(url) { asked.push(url); return { content: "<p>3+ years in a client-facing role.</p>" }; },
+    async fetchText() { throw new Error("not this path"); },
+  };
+  const fromStore = {
+    title: "Forward Deployed Engineer",
+    url: "https://job-boards.greenhouse.io/redapt/jobs/5396488008",
+    company: "Redapt",
+    location: "US - Remote",
+    source: "greenhouse",
+  };
+  await hydrateDescriptions([fromStore], ctx);
+  assert.ok(asked[0]?.endsWith("/v1/boards/redapt/jobs/5396488008"), String(asked[0]));
+  assert.match(fromStore.description, /3\+ years in a client-facing role/);
+});

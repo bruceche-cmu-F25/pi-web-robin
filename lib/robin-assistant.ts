@@ -10,16 +10,22 @@ import {
   dataDir,
   readJobProfile,
   readAssistantSessionId,
+  readCoachSessionId,
   readDailyAgendaSessionId,
   readJobScorerSessionId,
   readMailReviewSessionId,
+  readMentorSessionId,
   writeAssistantSessionId,
+  writeCoachSessionId,
   writeDailyAgendaSessionId,
   writeJobScorerSessionId,
   writeMailReviewSessionId,
+  writeMentorSessionId,
 } from "@/extension/robin/store";
 import {
+  ROBIN_COACH_TOOL_NAMES,
   ROBIN_MAIL_TOOL_NAMES,
+  ROBIN_MENTOR_TOOL_NAMES,
   ROBIN_READ_ONLY_TOOL_NAMES,
   ROBIN_SCORING_TOOL_NAMES,
   ROBIN_TOOL_NAMES,
@@ -46,6 +52,44 @@ const SCORING_TIMEOUT_MS = 300_000;
 const MAIL_TIMEOUT_MS = 180_000;
 
 const TOOL_NAMES = [...ROBIN_TOOL_NAMES];
+
+/**
+ * Who the coach is, sent once when its session is created.
+ *
+ * Once, not every turn: the session is long-lived, so re-sending this would
+ * pay for it on every message forever. The tools carry the operational rules
+ * (the hint ladder lives in `practice_current`'s guidelines, which pi injects
+ * whenever the tool is active); this preamble carries only what a tool
+ * description has no place to say — who is being talked to and what the point
+ * of the whole conversation is.
+ */
+const COACH_PREAMBLE = [
+  "You are this user's coding coach: a senior Python and full-stack engineer sitting next to them while they work through the NeetCode roadmap.",
+  "",
+  "Two jobs, in this order. First, the problem in front of them — coach it, never solve it for them; climb the hint ladder in your tool guidelines one rung at a time and stop as soon as they are moving again. Second, the engineer they are becoming: idiomatic Python, complexity they can derive rather than recite, naming and structure you would accept in review, and the occasional short aside on how the same idea shows up in real systems.",
+  "",
+  "Reply in the language they write in. Keep answers short — this is a side panel next to a problem, not an article. Ask before assuming; they would rather be questioned than lectured.",
+].join("\n");
+
+/**
+ * Who the mentor is, sent once when its session is created.
+ *
+ * The counterpart to the coach, and written against it. The coach withholds
+ * because a problem someone else solves teaches nothing; the mentor is being
+ * asked "what is this and why does it matter", where withholding is just being
+ * unhelpful. What it holds onto instead is the transfer: no explanation of a
+ * tutorial page is finished until it has been connected to a decision someone
+ * makes in a real system.
+ */
+const MENTOR_PREAMBLE = [
+  "You are this user's engineering mentor: a staff engineer who has designed and operated real systems, sitting next to them while they work through a curriculum that runs from JavaScript fundamentals to architecture and system design.",
+  "",
+  "Three jobs, in this order. First, the thing in front of them — explain it properly, with a concrete example, and check it landed by asking them to apply it once. Second, the shape of the whole: every answer gets anchored to the outcome its module names, so they are building a capability rather than finishing pages. Third, the transfer — take the idea up a level to where it decides something in a real system: what breaks at scale, where a boundary belongs, what a trade-off costs. That last part is what reading alone never produces, and it is why this track exists.",
+  "",
+  "Use their own codebase as the example wherever a concept appears in it; Robin and Pi Web are better material than an invented shop-and-orders domain. Nothing on this side is tracked — no progress, no status, no counts — so never claim to have recorded anything and never tell them how far along they are. You cannot know, and a guess dressed as a number is worse than silence.",
+  "",
+  "Reply in the language they write in. Keep answers short — this is a side panel next to what they are reading, not an article.",
+].join("\n");
 
 /**
  * Which tools a turn gets, and which session it runs in.
@@ -88,6 +132,20 @@ export const MODES = {
      */
     stateless: true,
   },
+  coach: {
+    toolNames: [...ROBIN_COACH_TOOL_NAMES],
+    read: readCoachSessionId,
+    write: writeCoachSessionId,
+    timeoutMs: TURN_TIMEOUT_MS,
+    preamble: COACH_PREAMBLE,
+  },
+  mentor: {
+    toolNames: [...ROBIN_MENTOR_TOOL_NAMES],
+    read: readMentorSessionId,
+    write: writeMentorSessionId,
+    timeoutMs: TURN_TIMEOUT_MS,
+    preamble: MENTOR_PREAMBLE,
+  },
   mail: {
     toolNames: [...ROBIN_MAIL_TOOL_NAMES],
     read: readMailReviewSessionId,
@@ -122,7 +180,7 @@ async function acquireSession(
   remembered: string | null,
   remember: (sessionId: string) => void,
   model?: { provider: string; modelId: string } | null,
-): Promise<{ session: AgentSessionWrapper; sessionId: string }> {
+): Promise<{ session: AgentSessionWrapper; sessionId: string; fresh: boolean }> {
   /**
    * Re-sent on every acquisition, like the tool list and for the same reason:
    * a session restored from its file comes back on whatever pi defaults to, so
@@ -147,7 +205,7 @@ async function acquireSession(
     if (live?.isAlive()) {
       await live.send({ type: "set_tools", toolNames, exact: true });
       await applyModel(live);
-      return { session: live, sessionId: remembered };
+      return { session: live, sessionId: remembered, fresh: false };
     }
     const filePath = await resolveSessionPath(remembered);
     if (filePath) {
@@ -157,7 +215,7 @@ async function acquireSession(
       });
       await session.send({ type: "set_tools", toolNames, exact: true });
       await applyModel(session);
-      return { session, sessionId: realSessionId };
+      return { session, sessionId: realSessionId, fresh: false };
     }
     // Remembered id no longer resolves (session deleted, agent dir moved): fall
     // through and start a fresh one rather than failing the request.
@@ -172,7 +230,7 @@ async function acquireSession(
     { toolNames, exactTools: true, ...(model ? { initialModel: model } : {}) },
   );
   remember(realSessionId);
-  return { session, sessionId: realSessionId };
+  return { session, sessionId: realSessionId, fresh: true };
 }
 
 function textFromMessage(message: unknown): string {
@@ -257,12 +315,17 @@ export async function runAssistantTurn(
 ): Promise<{ reply: string; usedTools: string[]; sessionId: string }> {
   const mode = MODES[modeName];
   const stateless = "stateless" in mode && mode.stateless === true;
-  const { session, sessionId } = await acquireSession(
+  const { session, sessionId, fresh } = await acquireSession(
     [...mode.toolNames],
     stateless ? null : mode.read(),
     mode.write,
     modeName === "scoring" ? readJobProfile().scoreModel : null,
   );
-  const { reply, usedTools } = await runTurn(session, message, images, mode.timeoutMs);
+  // A mode's preamble belongs to the session, not to the turn: it rides along
+  // with the first message of a new one and is never repeated, because
+  // everything after that turn can already see it in the history.
+  const preamble = fresh && "preamble" in mode ? mode.preamble : null;
+  const prompt = preamble ? `${preamble}\n\n---\n\n${message}` : message;
+  const { reply, usedTools } = await runTurn(session, prompt, images, mode.timeoutMs);
   return { reply, usedTools, sessionId };
 }

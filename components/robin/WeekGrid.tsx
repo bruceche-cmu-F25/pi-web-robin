@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { parseLocalDate, weekDays } from "@/extension/robin/dates";
 import {
+  eventsInRange,
   formatEventTime,
   occursOn,
   type DashboardEvent,
@@ -11,41 +12,15 @@ import {
 import {
   layoutDayEvents,
   layoutSpanBars,
-  MINUTES_PER_DAY,
-  toMinutes,
+  visibleHourRange,
 } from "@/extension/robin/layout";
 import { spanSurface, timedSurface } from "./eventSurface";
 import { useTodayInView } from "./useTodayInView";
 
-/** Tall enough that a 30-minute block still fits its title. */
-const HOUR_HEIGHT = 44;
+/** Give dense cards enough vertical room for title, time, and useful details. */
+const HOUR_HEIGHT = 56;
 const PX_PER_MINUTE = HOUR_HEIGHT / 60;
-const TIME_GUTTER = "3.5rem";
-/** The window shown when the week is empty — a normal waking day. */
-const DEFAULT_FIRST_HOUR = 7;
-const DEFAULT_LAST_HOUR = 22;
-
-/**
- * The hours worth drawing.
- *
- * The grid renders only this range instead of all 24 hours inside its own
- * scroller. A tall inner scroller sitting in the middle of a scrolling page
- * swallows the wheel: the pointer lands on the grid, the grid consumes the
- * gesture, and the page underneath never moves. Sizing the grid to its content
- * removes the second scroller entirely — and the range always widens to cover
- * every event, so nothing is ever hidden by the trim.
- */
-function visibleHourRange(events: DashboardEvent[]): { first: number; last: number } {
-  let first = DEFAULT_FIRST_HOUR;
-  let last = DEFAULT_LAST_HOUR;
-  for (const event of events) {
-    if (!event.start) continue;
-    first = Math.min(first, Math.floor(toMinutes(event.start) / 60));
-    const endMinutes = event.end ? toMinutes(event.end) : toMinutes(event.start) + 60;
-    last = Math.max(last, Math.min(23, Math.ceil(endMinutes / 60)));
-  }
-  return { first: Math.max(0, first), last: Math.min(23, last) };
-}
+const TIME_GUTTER = "4rem";
 
 function weekdayLabel(date: string, locale: string): string {
   return parseLocalDate(date).toLocaleDateString(locale, { weekday: "short" });
@@ -83,10 +58,12 @@ export function WeekGrid({
   const { bars, lanes } = layoutSpanBars(events, days);
   const nowMinutes = useNowMinutes();
 
-  const { first: firstHour, last: lastHour } = visibleHourRange(events);
-  const hours = Array.from({ length: lastHour - firstHour + 1 }, (_, index) => firstHour + index);
+  const weekEvents = eventsInRange(events, days[0] as string, days[days.length - 1] as string);
+  const { first: firstHour, last: lastHour } = visibleHourRange(weekEvents);
+  const hours = Array.from({ length: lastHour - firstHour }, (_, index) => firstHour + index);
   /** Minutes are measured from the top of the grid, not from midnight. */
   const gridOffsetMinutes = firstHour * 60;
+  const gridEndMinutes = lastHour * 60;
   const gridHeight = hours.length * HOUR_HEIGHT;
 
   return (
@@ -120,9 +97,14 @@ export function WeekGrid({
                   {weekdayLabel(date, locale)}
                 </span>
                 {isToday ? (
-                  <span className="pi-today-badge">{parseLocalDate(date).getDate()}</span>
+                  <span className="pi-today-badge" style={{ minWidth: "2em", fontSize: 16 }}>
+                    {parseLocalDate(date).getDate()}
+                  </span>
                 ) : (
-                  <span className="font-mono text-sm tabular-nums" style={{ color: "var(--text)" }}>
+                  <span
+                    className="font-mono tabular-nums"
+                    style={{ color: "var(--text)", fontSize: 18, lineHeight: 1.1 }}
+                  >
                     {parseLocalDate(date).getDate()}
                   </span>
                 )}
@@ -161,10 +143,8 @@ export function WeekGrid({
                     top: bar.lane * 22,
                     height: 20,
                     ...spanSurface(bar.event),
-                    color: "var(--text)",
                     borderRadius: 0,
-                    fontFamily: "var(--font-serif)",
-                    fontSize: 13,
+                    fontSize: 12,
                   }}
                 >
                   {bar.continuesBefore && "‹ "}
@@ -188,7 +168,7 @@ export function WeekGrid({
                 <div
                   key={hour}
                   className="relative pr-1 text-right tabular-nums"
-                  style={{ height: HOUR_HEIGHT, color: "var(--text-muted)", fontSize: 11 }}
+                  style={{ height: HOUR_HEIGHT, color: "var(--text-muted)", fontSize: 12 }}
                 >
                   {/* Under the rule rather than straddling it: the label then
                       reads as naming the band below it, and the first hour is
@@ -228,7 +208,7 @@ export function WeekGrid({
                     />
                   ))}
 
-                  {isToday && nowMinutes >= gridOffsetMinutes && nowMinutes < MINUTES_PER_DAY && (
+                  {isToday && nowMinutes >= gridOffsetMinutes && nowMinutes < gridEndMinutes && (
                     <div
                       className="pointer-events-none absolute inset-x-0 z-10"
                       style={{
@@ -245,7 +225,10 @@ export function WeekGrid({
                     // the clipped second line is what made short events unreadable.
                     // Below two lines' worth the time is dropped — the block's own
                     // position and the tooltip both still carry it.
-                    const showTime = height >= 34;
+                    const showTime = height >= 36;
+                    const showLocation = height >= 68 && Boolean(event.location);
+                    const titleLines = height >= 52 ? 2 : 1;
+                    const titleSize = columns >= 4 ? 11 : columns === 3 ? 12 : 13;
                     return (
                       <button
                         key={event.id}
@@ -256,27 +239,52 @@ export function WeekGrid({
                         // A button centres its content vertically, so a long
                         // block floated its title in the middle of itself
                         // rather than putting it at the time it starts.
-                        className="absolute flex flex-col items-start overflow-hidden px-1.5 py-px text-left"
+                        className="calendar-event-block absolute flex flex-col items-start overflow-hidden px-1.5 py-1 text-left"
                         style={{
                           top: (startMinutes - gridOffsetMinutes) * PX_PER_MINUTE,
                           height,
                           left: `calc(${(column / columns) * 100}% + 1px)`,
                           width: `calc(${(1 / columns) * 100}% - 2px)`,
                           ...timedSurface(event),
-                          color: "var(--text)",
-                          // The title is what someone reads; the clock is data.
-                          fontFamily: "var(--font-serif)",
                         }}
                       >
-                        <span className="block truncate" style={{ fontSize: 13, lineHeight: 1.3 }}>
+                        <span
+                          style={{
+                            display: "-webkit-box",
+                            WebkitBoxOrient: "vertical",
+                            WebkitLineClamp: titleLines,
+                            overflow: "hidden",
+                            overflowWrap: "anywhere",
+                            fontSize: titleSize,
+                            lineHeight: 1.25,
+                          }}
+                        >
                           {event.title}
                         </span>
                         {showTime && (
                           <span
-                            className="block truncate tabular-nums"
-                            style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-muted)" }}
+                            className="block max-w-full truncate tabular-nums"
+                            style={{
+                              fontFamily: "var(--font-mono)",
+                              fontSize: 10,
+                              lineHeight: 1.3,
+                              color: "var(--text-muted)",
+                            }}
                           >
                             {formatEventTime(event)}
+                          </span>
+                        )}
+                        {showLocation && (
+                          <span
+                            className="block max-w-full truncate"
+                            style={{
+                              fontFamily: "var(--font-mono)",
+                              fontSize: 9,
+                              lineHeight: 1.3,
+                              color: "var(--text-muted)",
+                            }}
+                          >
+                            {event.location}
                           </span>
                         )}
                       </button>

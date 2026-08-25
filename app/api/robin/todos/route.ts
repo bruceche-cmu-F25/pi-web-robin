@@ -1,13 +1,6 @@
 import { NextResponse } from "next/server";
-import {
-  localDate,
-  newId,
-  normalizeDue,
-  normalizeTodoColor,
-  readTodos,
-  writeTodos,
-  type Todo,
-} from "@/extension/robin/store";
+import { addTodo, deleteTodo, updateTodo } from "@/extension/robin/todo-domain";
+import { localDate, readTodos } from "@/extension/robin/store";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 
 export const dynamic = "force-dynamic";
@@ -49,19 +42,10 @@ export async function POST(req: Request) {
     const title = typeof body.title === "string" ? body.title.trim() : "";
     if (!title) return fail(new Error("title is required"));
 
-    let due: string | undefined;
-    if (typeof body.due === "string" && body.due.trim()) due = normalizeDue(body.due);
-
-    const todos = readTodos();
-    const todo: Todo = {
-      id: newId(),
+    const { todo } = addTodo({
       title,
-      done: false,
-      ...(due ? { due } : {}),
-      createdAt: new Date().toISOString(),
-    };
-    todos.push(todo);
-    writeTodos(todos);
+      ...(typeof body.due === "string" ? { due: body.due } : {}),
+    });
     return NextResponse.json({ todo, today: localDate() });
   } catch (error) {
     return fail(error);
@@ -81,27 +65,14 @@ export async function PATCH(req: Request) {
     };
     if (typeof body.id !== "string") return fail(new Error("id is required"));
 
-    const todos = readTodos();
-    const todo = todos.find((t) => t.id === body.id);
-    if (!todo) return NextResponse.json({ error: `No todo with id "${body.id}"` }, { status: 404 });
-
-    if (typeof body.done === "boolean") {
-      todo.done = body.done;
-      if (body.done) todo.completedAt = new Date().toISOString();
-      else delete todo.completedAt;
-    }
-    if (typeof body.title === "string" && body.title.trim()) todo.title = body.title.trim();
-    if (typeof body.due === "string") {
-      if (body.due.trim()) todo.due = normalizeDue(body.due);
-      else delete todo.due;
-    }
-    if (typeof body.color === "string") {
-      if (body.color.trim()) todo.color = normalizeTodoColor(body.color);
-      else delete todo.color;
-    }
-
-    writeTodos(todos);
-    return NextResponse.json({ todo, today: localDate() });
+    const result = updateTodo({ id: body.id }, {
+      ...(typeof body.done === "boolean" ? { done: body.done } : {}),
+      ...(typeof body.title === "string" && body.title.trim() ? { title: body.title } : {}),
+      ...(typeof body.due === "string" ? { due: body.due } : {}),
+      ...(typeof body.color === "string" ? { color: body.color } : {}),
+    });
+    if ("error" in result) return NextResponse.json({ error: result.error }, { status: 404 });
+    return NextResponse.json({ todo: result, today: localDate() });
   } catch (error) {
     return fail(error);
   }
@@ -114,12 +85,8 @@ export async function DELETE(req: Request) {
     const body = await req.json() as { id?: unknown };
     if (typeof body.id !== "string") return fail(new Error("id is required"));
 
-    const todos = readTodos();
-    const remaining = todos.filter((t) => t.id !== body.id);
-    if (remaining.length === todos.length) {
-      return NextResponse.json({ error: `No todo with id "${body.id}"` }, { status: 404 });
-    }
-    writeTodos(remaining);
+    const result = deleteTodo({ id: body.id });
+    if ("error" in result) return NextResponse.json({ error: result.error }, { status: 404 });
     return NextResponse.json({ success: true });
   } catch (error) {
     return fail(error);

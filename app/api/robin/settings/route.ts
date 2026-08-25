@@ -4,10 +4,13 @@ import {
   clearTelegram,
   describeGoogle,
   describeTelegram,
+  googleCalendarSources,
   parseChatIds,
+  parseGoogleCalendarId,
   secretsPath,
   setDailyAgenda,
   setGmailDigest,
+  setGoogleCalendarSources,
   setGoogleCredentials,
   setJobDigest,
   setReminders,
@@ -71,6 +74,11 @@ export async function POST(req: Request) {
       gmailDigest?: unknown;
       reminders?: unknown;
       transcription?: unknown;
+      action?: unknown;
+      value?: unknown;
+      id?: unknown;
+      label?: unknown;
+      enabled?: unknown;
     };
 
     if (body.section === "google") {
@@ -80,6 +88,36 @@ export async function POST(req: Request) {
         return fail(new Error("Both the client ID and the client secret are required"));
       }
       setGoogleCredentials(clientId, clientSecret);
+      return NextResponse.json({ google: describeGoogle() });
+    }
+
+    if (body.section === "googleCalendars") {
+      const calendars = googleCalendarSources();
+      if (body.action === "add") {
+        if (typeof body.value !== "string") return fail(new Error("Calendar URL or ID is required"));
+        const id = parseGoogleCalendarId(body.value);
+        if (calendars.some((source) => source.id === id)) return fail(new Error("That calendar is already configured"));
+        setGoogleCalendarSources([
+          ...calendars,
+          {
+            id,
+            ...(typeof body.label === "string" && body.label.trim() ? { label: body.label.trim() } : {}),
+            enabled: true,
+          },
+        ]);
+      } else if (body.action === "toggle") {
+        if (typeof body.id !== "string") return fail(new Error("Calendar id is required"));
+        if (!calendars.some((source) => source.id === body.id)) return fail(new Error("Calendar not found"), 404);
+        setGoogleCalendarSources(calendars.map((source) => (
+          source.id === body.id ? { ...source, enabled: body.enabled === true } : source
+        )));
+      } else if (body.action === "remove") {
+        if (typeof body.id !== "string") return fail(new Error("Calendar id is required"));
+        if (!calendars.some((source) => source.id === body.id)) return fail(new Error("Calendar not found"), 404);
+        setGoogleCalendarSources(calendars.filter((source) => source.id !== body.id));
+      } else {
+        return fail(new Error('action must be "add", "toggle", or "remove"'));
+      }
       return NextResponse.json({ google: describeGoogle() });
     }
 
@@ -160,7 +198,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ telegram: describeTelegram() });
     }
 
-    return fail(new Error('section must be "google" or "telegram"'));
+    return fail(new Error('section must be "google", "googleCalendars", or "telegram"'));
   } catch (error) {
     return fail(error);
   }

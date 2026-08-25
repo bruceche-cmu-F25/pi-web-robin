@@ -456,6 +456,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>(() => (
     draftKey ? draftImagesToAttachedImages(getDraft(draftKey)?.images) : []
   ));
+  const [pdfRendering, setPdfRendering] = useState(false);
+  const [attachmentNotice, setAttachmentNotice] = useState<{ tone: "warning" | "error"; text: string } | null>(null);
   const trimmedValue = value.trimStart();
   const bashMode = attachedImages.length === 0 && trimmedValue.startsWith("!");
   const bashExcluded = bashMode && trimmedValue.startsWith("!!");
@@ -484,6 +486,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const controlsMenuRef = useRef<HTMLDivElement>(null);
   const historyMenuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pdfInputRef = useRef<HTMLInputElement>(null);
   const isComposingRef = useRef(false);
   const lastCompositionEndAtRef = useRef(0);
   const slashCommandsRequestedRef = useRef(false);
@@ -681,6 +684,53 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     },
   }));
 
+  const processPdfFile = useCallback(async (file: File) => {
+    const remaining = Math.max(
+      0,
+      MAX_ATTACHED_IMAGES - attachedImagesRef.current.length - pendingImageCountRef.current,
+    );
+    if (remaining === 0) {
+      setAttachmentNotice({ tone: "error", text: t("chat.attachmentLimit", { count: MAX_ATTACHED_IMAGES }) });
+      return;
+    }
+
+    setPdfRendering(true);
+    setAttachmentNotice(null);
+    pendingImageCountRef.current += remaining;
+    try {
+      const formData = new FormData();
+      formData.set("file", file);
+      formData.set("maxPages", String(remaining));
+      const response = await fetch("/api/pdf/render", { method: "POST", body: formData });
+      const body = await response.json().catch(() => ({})) as {
+        images?: Array<{ data: string; mimeType: string }>;
+        truncated?: boolean;
+        error?: string;
+      };
+      if (!response.ok || body.error) throw new Error(body.error ?? `HTTP ${response.status}`);
+
+      const rendered = (body.images ?? [])
+        .filter(isBase64ImageWithinLimits)
+        .map((image) => ({ ...image, previewUrl: `data:${image.mimeType};base64,${image.data}` }));
+      if (rendered.length === 0) throw new Error(t("chat.pdfNoPages"));
+
+      setAttachedImages((current) => {
+        const accepted = rendered.slice(0, Math.max(0, MAX_ATTACHED_IMAGES - current.length));
+        const next = [...current, ...accepted];
+        attachedImagesRef.current = next;
+        return next;
+      });
+      if (body.truncated) {
+        setAttachmentNotice({ tone: "warning", text: t("chat.pdfPageLimit", { count: rendered.length }) });
+      }
+    } catch (error) {
+      setAttachmentNotice({ tone: "error", text: error instanceof Error ? error.message : String(error) });
+    } finally {
+      pendingImageCountRef.current -= remaining;
+      setPdfRendering(false);
+    }
+  }, [t]);
+
   const processImageFiles = useCallback(async (files: File[]) => {
     const remaining = Math.max(
       0,
@@ -736,6 +786,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     if (draftKey) clearDraft(draftKey);
     if (draftKeyRef.current && draftKeyRef.current !== draftKey) clearDraft(draftKeyRef.current);
     clearImages();
+    setAttachmentNotice(null);
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
@@ -1445,6 +1496,17 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           e.target.value = "";
         }}
       />
+      <input
+        ref={pdfInputRef}
+        type="file"
+        accept="application/pdf,.pdf"
+        style={{ display: "none" }}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) void processPdfFile(file);
+          e.target.value = "";
+        }}
+      />
       <div style={{ maxWidth: 820, margin: "0 auto" }}>
         <ModelErrorBanner error={modelError} />
         <ModelScopeWarningBanner warnings={modelScopeWarnings} />
@@ -1551,6 +1613,20 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             }}
           >
             {compactError}
+          </div>
+        )}
+        {attachmentNotice && (
+          <div
+            role={attachmentNotice.tone === "error" ? "alert" : "status"}
+            style={{
+              marginBottom: 6,
+              padding: "6px 8px",
+              border: `1px solid color-mix(in srgb, var(--${attachmentNotice.tone === "error" ? "danger" : "warning"}) 35%, transparent)`,
+              color: `var(--${attachmentNotice.tone === "error" ? "danger" : "warning"})`,
+              fontSize: 11,
+            }}
+          >
+            {attachmentNotice.text}
           </div>
         )}
         {/* Image previews */}
@@ -2084,8 +2160,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           {/* LEFT: attach + model selector (idle) or steer/followup toggle (streaming) */}
           <div style={{ flex: isMobile ? "1 1 auto" : "0 0 auto", minWidth: 0, display: "flex", alignItems: "center", gap: 2 }}>
             <button
+              type="button"
               onClick={() => fileInputRef.current?.click()}
-             title={t("chat.attachImage")}
+              aria-label={t("chat.attachImage")}
+              title={t("chat.attachImage")}
               style={{
                 flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
                 width: 32, height: 32, padding: 0,
@@ -2100,6 +2178,35 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 <circle cx="8.5" cy="8.5" r="1.5" />
                 <polyline points="21 15 16 10 5 21" />
               </svg>
+            </button>
+            <button
+              type="button"
+              onClick={() => pdfInputRef.current?.click()}
+              disabled={pdfRendering || attachedImages.length + pendingImageCountRef.current >= MAX_ATTACHED_IMAGES}
+              aria-busy={pdfRendering || undefined}
+              aria-label={pdfRendering ? t("chat.renderingPdf") : t("chat.attachPdf")}
+              title={pdfRendering ? t("chat.renderingPdf") : t("chat.attachPdf")}
+              style={{
+                flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                width: 32, height: 32, padding: 0,
+                border: "none",
+                borderRadius: "var(--panel-radius)",
+                cursor: pdfRendering ? "wait" : "pointer",
+              }}
+              className="ui-action ui-action--surface"
+              data-state={pdfRendering ? "accent" : undefined}
+            >
+              {pdfRendering ? (
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" style={{ animation: "spin 0.8s linear infinite" }} aria-hidden="true">
+                  <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+                </svg>
+              ) : (
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M6 2h8l4 4v16H6z" />
+                  <path d="M14 2v5h5" />
+                  <path d="M9 12h6M9 16h6" />
+                </svg>
+              )}
             </button>
             {/* Model selector - visible always, disabled while the session or switch is busy */}
             {(modelOptions.length > 0 || model || modelError) && onModelChange && (

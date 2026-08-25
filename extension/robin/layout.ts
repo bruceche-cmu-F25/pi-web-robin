@@ -87,6 +87,21 @@ export function layoutDayEvents<T extends CalendarEvent>(events: T[]): Positione
   return placed;
 }
 
+/** Default to waking hours, expanding only for timed events in the supplied range. */
+export function visibleHourRange<T extends CalendarEvent>(
+  events: T[],
+  defaultFirst = 7,
+  defaultLast = 22,
+): { first: number; last: number } {
+  let first = defaultFirst;
+  let last = defaultLast;
+  for (const event of layoutDayEvents(events)) {
+    first = Math.min(first, Math.floor(event.startMinutes / 60));
+    last = Math.max(last, Math.ceil(event.endMinutes / 60));
+  }
+  return { first, last };
+}
+
 export interface SpanBar<T> {
   event: T;
   /** Index into the supplied days array, clipped to the week. */

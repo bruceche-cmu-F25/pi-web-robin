@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { addDays } from "@/extension/robin/dates";
 import type { DashboardEvent } from "@/extension/robin/events";
-import { fetchEvents, isConnected } from "@/extension/robin/google-calendar";
+import { fetchEventsWithWarnings, isConnected } from "@/extension/robin/google-calendar";
 import {
   localDate,
   newId,
@@ -49,11 +49,14 @@ export async function GET(req: Request) {
 
     try {
       // Wide enough to cover the month grid on either side of today.
-      const pulled = await fetchEvents(addDays(today, -45), addDays(today, 75));
+      const pulled = await fetchEventsWithWarnings(addDays(today, -45), addDays(today, 75));
       return NextResponse.json({
-        events: [...events, ...pulled],
+        events: [...events, ...pulled.events],
         today,
-        google: { connected: true },
+        google: {
+          connected: true,
+          ...(pulled.warnings.length > 0 ? { error: pulled.warnings.join("; ") } : {}),
+        },
       });
     } catch (googleError) {
       return NextResponse.json({

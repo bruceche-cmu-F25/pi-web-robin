@@ -14,11 +14,14 @@ const {
   describeGoogle,
   describeSecret,
   describeTelegram,
+  googleCalendarSources,
   googleCredentials,
   parseChatIds,
+  parseGoogleCalendarId,
   secretsPath,
   setDailyAgenda,
   setGmailDigest,
+  setGoogleCalendarSources,
   setGoogleCredentials,
   setTelegramChatIds,
   setTelegramToken,
@@ -84,6 +87,23 @@ test("clearing google credentials falls back to the environment again", () => {
   setGoogleCredentials("file-id", "file-secret");
   clearGoogleCredentials();
   assert.equal(googleCredentials().clientId, "env-id");
+});
+
+test("calendar embed URLs resolve to ids and configured sources round-trip", () => {
+  const url = "https://calendar.google.com/calendar/embed?src=ok5aqgu4o1cekqdghcegpouuio5dvg2o%40import.calendar.google.com&ctz=America%2FLos_Angeles";
+  const id = "ok5aqgu4o1cekqdghcegpouuio5dvg2o@import.calendar.google.com";
+  assert.equal(parseGoogleCalendarId(url), id);
+  assert.equal(parseGoogleCalendarId(id), id);
+
+  setGoogleCalendarSources([{ id, label: "School", enabled: false }]);
+  assert.deepEqual(googleCalendarSources(), [{ id, label: "School", enabled: false }]);
+  assert.deepEqual(describeGoogle().calendars, [{ id, label: "School", enabled: false }]);
+});
+
+test("saving Google credentials preserves configured calendars", () => {
+  setGoogleCalendarSources([{ id: "shared@example.com", enabled: true }]);
+  setGoogleCredentials("file-id", "file-secret");
+  assert.deepEqual(googleCalendarSources(), [{ id: "shared@example.com", enabled: true }]);
 });
 
 test("telegram token and chat ids are stored independently", () => {

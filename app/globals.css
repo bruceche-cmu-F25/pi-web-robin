@@ -233,8 +233,8 @@
   --focus-ring: rgb(139 81 60 / 0.72);
 
   /* Calendar event palette. Each event is drawn in one of six muted colours —
-     picked from its Google colourId when it has one, otherwise a stable hash
-     of its title — so commitments are distinguishable at a glance. Low
+     picked from a stable hash of its identity, with recurring occurrences
+     sharing one seed — so commitments are distinguishable at a glance. Low
      saturation on purpose: the calendar is a field of quiet washes, and the
      one loud thing on it must stay the current day. Each key carries four
      alphas: solid for the editable rule, `-line` for the held-back Google
@@ -264,6 +264,16 @@
   --event-honey-fill: rgb(165 138 77 / 0.32);
   --event-honey-line: rgb(165 138 77 / 0.55);
 
+  /* Todo text uses the calendar's hue families with more saturation and
+     contrast, so a manually marked item stands out from the quieter event
+     washes without introducing a second unrelated palette. */
+  --todo-clay: #b64a2f;
+  --todo-sage: #56751c;
+  --todo-teal: #00756f;
+  --todo-slate: #416fa8;
+  --todo-plum: #985080;
+  --todo-honey: #8c6600;
+
   /* Today. Reserved for the current day and used for nothing else: the one
      square of a different hue on a grid where every event is drawn in the
      accent. Dark separates today by hue — teal against its blue. Light does
@@ -281,6 +291,10 @@
      enough to stay paper, and translucent, so the ruling still shows through. */
   --dashboard-ground: rgb(218 203 194 / 0.18);
   --card-shadow: 0 1px 2px rgb(92 87 82 / 0.06), 0 8px 20px -14px rgb(92 87 82 / 0.45);
+
+  /* Parchment is already warm and light; the tile only has to lift a mark off
+     the ruling, not build a white card under it. */
+  --icon-tile: rgb(255 253 250 / 0.80);
 
   --control-bg: rgb(37 47 61 / 0.03);
   --control-bg-hover: rgb(37 47 61 / 0.07);
@@ -300,8 +314,8 @@
   --page-grid-major: rgb(37 47 61 / 0.05);
   --page-grid-cross: rgb(37 47 61 / 0.08);
 
-  /* The two-tone rule pi puts down the left edge of an active row. */
-  --active-stripe-vertical: linear-gradient(180deg, var(--accent) 0 62%, var(--accent-hover) 62% 100%);
+  /* Active edge rules use one solid accent hue. */
+  --active-stripe-vertical: var(--accent);
 
   /* pi's surfaces are square. Only genuinely round things (avatars, count
      badges) keep a radius, so --pill-radius survives and the rest go to 0. */
@@ -393,10 +407,20 @@ html.dark {
   --event-honey-soft: rgb(195 165 101 / 0.24);
   --event-honey-fill: rgb(195 165 101 / 0.32);
   --event-honey-line: rgb(195 165 101 / 0.55);
+  --todo-clay: #ff966f;
+  --todo-sage: #b9d96f;
+  --todo-teal: #57d4ca;
+  --todo-slate: #8dbbff;
+  --todo-plum: #eda0d5;
+  --todo-honey: #f3c85d;
   --today-mark: var(--accent-teal);
   --today-wash: rgb(95 179 171 / 0.13);
   --dashboard-ground: rgb(13 17 22 / 0.40);
   --card-shadow: 0 1px 2px rgb(0 0 0 / 0.35), 0 10px 24px -16px rgb(0 0 0 / 0.8);
+  /* Bright enough that a black logo reads, held under white so a row of them
+     is not a line of headlights on a dark page. */
+  --icon-tile: rgb(232 228 224 / 0.88);
+
   --control-bg: rgb(255 255 255 / 0.016);
   --control-bg-hover: rgb(255 255 255 / 0.035);
   --selection-bg: rgb(106 159 204 / 0.24);
@@ -408,9 +432,7 @@ html.dark {
   --page-grid-major: rgb(170 203 232 / 0.0263);
   --page-grid-cross: rgb(170 203 232 / 0.075);
 
-  /* pi splits the active rule 62/38 between the accent and the deeper thread
-     blue in dark mode; light mode keeps it solid. */
-  --active-stripe-vertical: linear-gradient(180deg, var(--accent) 0 62%, var(--pi-tidal-blue) 62% 100%);
+  --active-stripe-vertical: var(--accent);
 
   /* Shadows need more weight to read against the dark surfaces. */
   --popover-shadow: 0 10px 28px rgb(0 0 0 / 0.45);
@@ -574,6 +596,27 @@ body {
   letter-spacing: 0.13em;
   line-height: 1;
   text-transform: uppercase;
+}
+
+/* A site's own icon, at the one size the app draws them.
+
+   The tile is the point. A favicon is drawn for whatever background its own
+   site has, so a black octocat is invisible on our dark canvas and a white
+   wordmark is invisible on parchment — and there is no way to know which we
+   have without decoding someone else's PNG. Standing every mark on the same
+   pale tile makes all of them legible in both themes, and reads as the app
+   icon it already is. Radius is the one place pi allows it: these are little
+   product marks, and a hard-cornered favicon looks clipped rather than
+   square. */
+.site-mark {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  align-self: center;
+  border-radius: 3px;
+  background: var(--icon-tile);
+  padding: 1px;
+  object-fit: contain;
 }
 
 /* Bare metadata markers carry changing dates and field names, so they use the
@@ -773,6 +816,7 @@ body {
   font-size: 22px;
   line-height: 1.75rem;
 }
+
 .robin-dashboard [class~="text-[10px]"] {
   font-size: 12px;
   line-height: 1rem;
@@ -834,6 +878,14 @@ body {
 
 .ui-action[data-active="true"] {
   background: var(--bg-selected);
+  color: var(--text);
+}
+
+/* Stripe-selected navigation has no neutral fill: the blue stripe is the
+   complete selected treatment. */
+.ui-action.pi-active-stripe[data-active="true"],
+.ui-action.pi-active-stripe[data-active="true"]:hover {
+  background: transparent;
   color: var(--text);
 }
 
@@ -1933,6 +1985,31 @@ pre, code {
 .directory-picker-path:focus-visible {
   border-color: var(--accent) !important;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+/* ---------------------------------------------------------------------------
+   Pane divider — the draggable seam in the coding workspace.
+
+   The seam replaces the border between two panes, so it has to read as that
+   border when nobody is touching it and as a control the moment they are. The
+   hit area is 5px wide while the line stays 1px: a seam you have to aim at is
+   one you stop using.
+--------------------------------------------------------------------------- */
+.pane-divider:hover > span,
+.pane-divider:focus-visible > span,
+.pane-divider[data-dragging="true"] > span {
+  background: var(--accent);
+}
+
+.pane-divider:focus-visible {
+  outline: none;
+}
+
+/* Widened rather than recoloured on hover: the line itself stays hairline, so
+   the feedback is that the seam is grabbable, not that it grew. */
+.pane-divider:hover > span,
+.pane-divider[data-dragging="true"] > span {
+  width: 2px;
 }
 
 @media (max-width: 640px) {

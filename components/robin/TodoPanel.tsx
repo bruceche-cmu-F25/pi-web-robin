@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
-import { dueBucket, type DueBucket } from "@/extension/robin/dates";
+import { dueBucket, isInstantOnLocalDate, type DueBucket } from "@/extension/robin/dates";
+import { EVENT_COLOR_KEYS } from "@/extension/robin/eventColors";
 import type { Todo } from "@/extension/robin/store";
 import { mutate, usePolledResource } from "./usePolledResource";
 
@@ -38,13 +39,15 @@ const BUCKET_COLOR: Partial<Record<DueBucket, string>> = {
 export function TodoPanel() {
   const { t } = useI18n();
   const { data, error, loading, refresh } = usePolledResource<TodosResponse>("/api/robin/todos");
-  const [showDone, setShowDone] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const today = data?.today ?? "";
   const todos = useMemo(() => data?.todos ?? [], [data]);
   const open = useMemo(() => todos.filter((todo) => !todo.done), [todos]);
-  const done = useMemo(() => todos.filter((todo) => todo.done), [todos]);
+  const doneToday = useMemo(
+    () => todos.filter((todo) => todo.done && isInstantOnLocalDate(todo.completedAt, today)),
+    [todos, today],
+  );
 
   const sections = useMemo(
     () =>
@@ -102,6 +105,7 @@ export function TodoPanel() {
               todo={todo}
               today={today}
               onToggle={() => void run(() => mutate("/api/robin/todos", "PATCH", { id: todo.id, done: !todo.done }))}
+              onColor={(color) => void run(() => mutate("/api/robin/todos", "PATCH", { id: todo.id, color }))}
               onDelete={() => void run(() => mutate("/api/robin/todos", "DELETE", { id: todo.id }))}
               t={t}
             />
@@ -109,21 +113,18 @@ export function TodoPanel() {
         </div>
       ))}
 
-      {done.length > 0 && (
+      {doneToday.length > 0 && (
         <div className="flex flex-col gap-1">
-          <button
-            type="button"
-            onClick={() => setShowDone((value) => !value)}
-            className="ui-action pi-eyebrow self-start"
-          >
-            {showDone ? "▾" : "▸"} {t("robin.todos.completed", { count: String(done.length) })}
-          </button>
-          {showDone && done.map((todo) => (
+          <h3 className="pi-eyebrow">
+            {t("robin.todos.completed", { count: String(doneToday.length) })}
+          </h3>
+          {doneToday.map((todo) => (
             <TodoRow
               key={todo.id}
               todo={todo}
               today={today}
               onToggle={() => void run(() => mutate("/api/robin/todos", "PATCH", { id: todo.id, done: false }))}
+              onColor={(color) => void run(() => mutate("/api/robin/todos", "PATCH", { id: todo.id, color }))}
               onDelete={() => void run(() => mutate("/api/robin/todos", "DELETE", { id: todo.id }))}
               t={t}
             />
@@ -138,12 +139,14 @@ function TodoRow({
   todo,
   today,
   onToggle,
+  onColor,
   onDelete,
   t,
 }: {
   todo: Todo;
   today: string;
   onToggle: () => void;
+  onColor: (color: string) => void;
   onDelete: () => void;
   t: (key: string, params?: Record<string, string>) => string;
 }) {
@@ -167,7 +170,9 @@ function TodoRow({
       <span
         className="min-w-0 flex-1 truncate text-sm"
         style={{
-          color: todo.done ? "var(--text-dim)" : "var(--text)",
+          color: todo.done
+            ? "var(--text-dim)"
+            : todo.color ? `var(--todo-${todo.color})` : "var(--text)",
           textDecoration: todo.done ? "line-through" : "none",
         }}
       >
@@ -178,6 +183,66 @@ function TodoRow({
           {dueLabel(todo.due, today, t)}
         </span>
       )}
+      <details className="relative shrink-0">
+        <summary
+          aria-label={t("robin.todos.chooseColor", { title: todo.title })}
+          title={t("robin.todos.chooseColor", { title: todo.title })}
+          className="ui-action flex h-7 w-7 cursor-pointer list-none items-center justify-center"
+          style={{ color: todo.color ? `var(--todo-${todo.color})` : "var(--text-dim)" }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M12 3a9 9 0 1 0 0 18h1.5a1.5 1.5 0 0 0 0-3H12a2 2 0 0 1 0-4h5a4 4 0 0 0 4-4c0-3.87-4.03-7-9-7Z" />
+            <circle cx="7.5" cy="10.5" r=".8" fill="currentColor" stroke="none" />
+            <circle cx="10" cy="7" r=".8" fill="currentColor" stroke="none" />
+            <circle cx="14.5" cy="7.5" r=".8" fill="currentColor" stroke="none" />
+          </svg>
+        </summary>
+        <div
+          className="absolute right-0 top-full flex gap-1 p-1.5"
+          style={{
+            zIndex: "var(--z-popover)",
+            background: "var(--bg-panel)",
+            border: "1px solid var(--border-strong)",
+            boxShadow: "var(--popover-shadow)",
+          }}
+          aria-label={t("robin.todos.chooseColor", { title: todo.title })}
+        >
+          <button
+            type="button"
+            onClick={(event) => {
+              onColor("");
+              event.currentTarget.closest("details")?.removeAttribute("open");
+            }}
+            aria-pressed={!todo.color}
+            aria-label={t("robin.todos.resetColor", { title: todo.title })}
+            title={t("robin.todos.resetColor", { title: todo.title })}
+            className="ui-action flex h-7 w-7 items-center justify-center"
+            style={!todo.color ? { outline: "2px solid var(--focus-ring)", outlineOffset: 1 } : undefined}
+          >
+            ×
+          </button>
+          {EVENT_COLOR_KEYS.map((color, index) => (
+            <button
+              key={color}
+              type="button"
+              onClick={(event) => {
+                onColor(color);
+                event.currentTarget.closest("details")?.removeAttribute("open");
+              }}
+              aria-pressed={todo.color === color}
+              aria-label={t("robin.todos.colorOption", { title: todo.title, number: String(index + 1) })}
+              title={t("robin.todos.colorOption", { title: todo.title, number: String(index + 1) })}
+              className="h-7 w-7"
+              style={{
+                background: `var(--todo-${color})`,
+                border: "1px solid var(--border-strong)",
+                outline: todo.color === color ? "2px solid var(--focus-ring)" : undefined,
+                outlineOffset: 1,
+              }}
+            />
+          ))}
+        </div>
+      </details>
       <button
         type="button"
         onClick={onDelete}

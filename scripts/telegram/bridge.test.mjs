@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { createKeyboardMemory } from "./callbacks.ts";
 import {
   askAssistant,
   gmailAudience,
+  handleCallback,
   handleMessage,
   jobAudience,
   pollOnce,
@@ -10,6 +12,8 @@ import {
   sendDailyAgenda,
   sendGmailDigest,
   sendJobDigest,
+  sendMessage,
+  runSchedules,
   startNightlySweep,
 } from "./bridge.ts";
 
@@ -17,15 +21,35 @@ const config = (over = {}) => ({
   token: "TOKEN",
   allowlist: [42],
   piWebUrl: "http://127.0.0.1:30141",
+  dailyAgenda: { enabled: false, time: "08:00", locale: "en" },
+  jobDigest: {
+    enabled: false, morning: "08:00", evening: "20:00", count: 10,
+    locale: "en", chatIds: [], sweepAt: "03:00",
+  },
   gmailDigest: { enabled: false, time: "08:00", locale: "en", chatIds: [], query: "newer_than:1d" },
+  reminders: { enabled: false, lead: 30, locale: "en", chatIds: [] },
+  transcription: { enabled: false, baseUrl: "https://api.openai.com/v1", model: "whisper-1" },
   ...over,
 });
 
-/** Records every call and replies from a scripted queue keyed by URL fragment. */
+/**
+ * Records every call and replies from a scripted queue keyed by URL fragment.
+ *
+ * Typing indicators are recorded apart from `calls`: they are decoration sent
+ * around every turn, and folding them in would shift the index of every
+ * assertion about what was actually said. One test below covers them directly.
+ */
 function fakeFetch(routes) {
   const calls = [];
+  const chatActions = [];
   const fetch = async (url, init) => {
-    calls.push({ url: String(url), body: init?.body ? JSON.parse(init.body) : undefined, init });
+    // Only JSON bodies parse; the transcription call posts multipart FormData.
+    const body = typeof init?.body === "string" ? JSON.parse(init.body) : init?.body;
+    if (String(url).includes("sendChatAction")) {
+      chatActions.push(body);
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
+    }
+    calls.push({ url: String(url), body, init });
     for (const [fragment, responder] of Object.entries(routes)) {
       if (String(url).includes(fragment)) {
         const value = typeof responder === "function" ? responder(calls.length) : responder;
@@ -33,13 +57,15 @@ function fakeFetch(routes) {
           ok: value.ok ?? true,
           status: value.status ?? 200,
           json: async () => value.body,
+          // Transcription answers text/plain, not JSON.
+          text: async () => (typeof value.body === "string" ? value.body : JSON.stringify(value.body)),
           arrayBuffer: async () => value.buffer ?? new ArrayBuffer(0),
         };
       }
     }
     throw new Error(`unexpected fetch: ${url}`);
   };
-  return { fetch, calls };
+  return { fetch, calls, chatActions };
 }
 
 /** An in-memory DeliveryLedger with its runs exposed for assertions. */
@@ -63,6 +89,7 @@ const deps = (
   logs = [],
   ledgers = {},
   googleConnected = () => true,
+  extra = {},
 ) => ({
   fetch,
   log: (message) => logs.push(message),
@@ -70,14 +97,16 @@ const deps = (
   dailyAgendaLedger: ledgers.agenda ?? ledger(),
   jobLedger: ledgers.job ?? ledger(),
   gmailLedger: ledgers.gmail ?? ledger(),
+  reminderLedger: ledgers.reminder ?? ledger(),
   googleConnected,
+  ...extra,
 });
 
 test("an unlisted chat reaches neither the agent nor Telegram", async () => {
   const { fetch, calls } = fakeFetch({});
   const logs = [];
   await handleMessage(config(), deps(fetch, logs), {
-    updateId: 1, chatId: 999, from: "stranger", text: "delete all my todos",
+    updateId: 1, messageId: 10, chatId: 999, from: "stranger", text: "delete all my todos",
   });
 
   assert.deepEqual(calls, [], "no agent call, and no reply that would confirm the bot exists");
@@ -101,10 +130,10 @@ test("discovery mode reports the chat id and still refuses to act", async () => 
 test("an allowed chat is forwarded and answered", async () => {
   const { fetch, calls } = fakeFetch({
     "/api/robin/assistant": { body: { reply: "Added todo: buy milk.", usedTools: ["todo_add"] } },
-    "sendMessage": { body: { ok: true } },
+    "sendMessage": { body: { ok: true, result: { message_id: 500 } } },
   });
   await handleMessage(config(), deps(fetch), {
-    updateId: 1, chatId: 42, from: "bruce", text: "remember to buy milk",
+    updateId: 1, messageId: 10, chatId: 42, from: "bruce", text: "remember to buy milk",
   });
 
   assert.equal(calls.length, 2);
@@ -120,7 +149,7 @@ test("a photo is downloaded and forwarded to the assistant as an image", async (
     "getFile": { body: { ok: true, result: { file_path: "photos/file_1.jpg" } } },
     "file/botTOKEN/photos/file_1.jpg": { buffer: new TextEncoder().encode("JPEGDATA").buffer },
     "/api/robin/assistant": { body: { reply: "That is a screenshot.", usedTools: [] } },
-    "sendMessage": { body: { ok: true } },
+    "sendMessage": { body: { ok: true, result: { message_id: 500 } } },
   });
   await handleMessage(config(), deps(fetch), {
     updateId: 1,
@@ -144,7 +173,7 @@ test("a photo is downloaded and forwarded to the assistant as an image", async (
 test("an agent failure is reported back to the authorized sender", async () => {
   const { fetch, calls } = fakeFetch({
     "/api/robin/assistant": { ok: false, status: 500, body: { error: "The assistant took too long to respond." } },
-    "sendMessage": { body: { ok: true } },
+    "sendMessage": { body: { ok: true, result: { message_id: 500 } } },
   });
   const logs = [];
   await handleMessage(config(), deps(fetch, logs), {
@@ -159,7 +188,7 @@ test("an agent failure is reported back to the authorized sender", async () => {
 test("a long reply is sent as several messages", async () => {
   const { fetch, calls } = fakeFetch({
     "/api/robin/assistant": { body: { reply: "x".repeat(9000), usedTools: [] } },
-    "sendMessage": { body: { ok: true } },
+    "sendMessage": { body: { ok: true, result: { message_id: 500 } } },
   });
   await handleMessage(config(), deps(fetch), { updateId: 1, chatId: 42, from: "b", text: "x" });
 
@@ -174,19 +203,19 @@ test("pollOnce advances the offset past everything it saw", async () => {
       body: {
         ok: true,
         result: [
-          { update_id: 100, message: { chat: { id: 42 }, from: {}, text: "hi" } },
-          { update_id: 101, message: { chat: { id: 42 }, sticker: {} } },
+          { update_id: 100, message: { message_id: 1, chat: { id: 42 }, from: {}, text: "hi" } },
+          { update_id: 101, message: { message_id: 2, chat: { id: 42 }, sticker: {} } },
         ],
       },
     },
     "/api/robin/assistant": { body: { reply: "hello", usedTools: [] } },
-    "sendMessage": { body: { ok: true } },
+    "sendMessage": { body: { ok: true, result: { message_id: 500 } } },
   });
 
   const next = await pollOnce(config(), deps(fetch), null);
   assert.equal(next, 102);
   assert.equal(calls[0].body.offset, undefined, "the first poll has no offset");
-  assert.deepEqual(calls[0].body.allowed_updates, ["message"]);
+  assert.deepEqual(calls[0].body.allowed_updates, ["message", "callback_query"]);
 });
 
 test("pollOnce keeps the previous offset when nothing arrives", async () => {
@@ -197,7 +226,7 @@ test("pollOnce keeps the previous offset when nothing arrives", async () => {
 test("daily agenda asks for both sources and broadcasts to allowed chats", async () => {
   const { fetch, calls } = fakeFetch({
     "/api/robin/assistant": { body: { reply: "今日简报", usedTools: ["todo_list", "calendar_list_events"] } },
-    "sendMessage": { body: { ok: true } },
+    "sendMessage": { body: { ok: true, result: { message_id: 500 } } },
   });
   const dailyConfig = config({
     allowlist: [42, 43],
@@ -236,7 +265,7 @@ test("the digest scans, scores in the narrow mode, then claims only what it sent
     "/api/robin/jobs/digest": {
       body: { text: "1. 4.6 Acme — AI Engineer\n   https://a/1", jobIds: ["j1"], count: 1, pending: 40, scoreBatch: 40 },
     },
-    "sendMessage": { body: { ok: true } },
+    "sendMessage": { body: { ok: true, result: { message_id: 500 } } },
   });
   const job = ledger();
   await sendJobDigest(config({ jobDigest: schedule }), deps(fetch, [], { job }), "2026-08-17:morning");
@@ -277,7 +306,7 @@ test("a board being down still lets already-scored jobs go out", async () => {
     "/api/robin/jobs/scan": { ok: false, status: 500, body: { error: "boom" } },
     "/api/robin/assistant": { body: { reply: "ok", usedTools: [] } },
     "/api/robin/jobs/digest": { body: { text: "1. 4.0 Beta", jobIds: ["j2"], count: 1, pending: 0, scoreBatch: 40 } },
-    "sendMessage": { body: { ok: true } },
+    "sendMessage": { body: { ok: true, result: { message_id: 500 } } },
   });
   const logs = [];
   await sendJobDigest(config({ jobDigest: schedule }), deps(fetch, logs), "2026-08-17:evening");
@@ -301,7 +330,7 @@ test("the email digest goes to its own chat list when set", () => {
 test("the email digest runs in the mail-review mode and marks delivery", async () => {
   const { fetch, calls } = fakeFetch({
     "/api/robin/assistant": { body: { reply: "面试邀请", usedTools: ["gmail_list"] } },
-    "sendMessage": { body: { ok: true } },
+    "sendMessage": { body: { ok: true, result: { message_id: 500 } } },
   });
   const gmail = ledger();
   const mailConfig = config({
@@ -405,4 +434,255 @@ test("the sweep and the digest do not erase each other's delivery record", () =>
   assert.deepEqual(job.pending("2026-08-18:morning", [42]), []);
   assert.deepEqual(job.pending("2026-08-18:evening", [42]), [42],
     "a slot that has not run is still pending");
+});
+
+/* ─────────────────────── typing, commands, voice ─────────────────────── */
+
+test("a turn shows a typing indicator while the user waits", async () => {
+  const { fetch, chatActions } = fakeFetch({
+    "/api/robin/assistant": { body: { reply: "ok", usedTools: [] } },
+    "sendMessage": { body: { ok: true, result: { message_id: 1 } } },
+  });
+  await handleMessage(config(), deps(fetch), {
+    updateId: 1, messageId: 10, chatId: 42, from: "bruce", text: "hi",
+  });
+  assert.ok(chatActions.length >= 1, "a two-minute turn cannot look like nothing happening");
+  assert.equal(chatActions[0].action, "typing");
+  assert.equal(chatActions[0].chat_id, 42);
+});
+
+test("a slash command answers without reaching the model", async () => {
+  const { fetch, calls } = fakeFetch({
+    "sendMessage": { body: { ok: true, result: { message_id: 1 } } },
+  });
+  await handleMessage(config(), deps(fetch), {
+    updateId: 1, messageId: 10, chatId: 42, from: "bruce", text: "/help",
+  });
+  assert.equal(calls.length, 1, "/help is text we already have");
+  assert.match(calls[0].url, /sendMessage$/);
+  assert.match(calls[0].body.text, /\/today/);
+});
+
+test("an unrecognised slash command still reaches the model", async () => {
+  const { fetch, calls } = fakeFetch({
+    "/api/robin/assistant": { body: { reply: "I am not sure.", usedTools: [] } },
+    "sendMessage": { body: { ok: true, result: { message_id: 1 } } },
+  });
+  await handleMessage(config(), deps(fetch), {
+    updateId: 1, messageId: 10, chatId: 42, from: "bruce", text: "/banana",
+  });
+  assert.match(calls[0].url, /\/api\/robin\/assistant$/);
+});
+
+test("a voice note is transcribed, echoed, and then acted on", async () => {
+  const { fetch, calls } = fakeFetch({
+    "getFile": { body: { ok: true, result: { file_path: "voice/file_1.oga", file_size: 900 } } },
+    "/file/bot": { body: {}, buffer: new ArrayBuffer(900) },
+    "audio/transcriptions": { body: "remind me to pay rent" },
+    "/api/robin/assistant": { body: { reply: "Added.", usedTools: ["todo_add"] } },
+    "sendMessage": { body: { ok: true, result: { message_id: 1 } } },
+  });
+  await handleMessage(
+    config({ transcription: { enabled: true, baseUrl: "https://api.openai.com/v1", model: "whisper-1", apiKey: "sk-test" } }),
+    deps(fetch),
+    { updateId: 1, messageId: 10, chatId: 42, from: "bruce", text: "", voice: { fileId: "v1" } },
+  );
+
+  const sent = calls.filter((call) => call.url.endsWith("sendMessage"));
+  assert.match(sent[0].body.text, /remind me to pay rent/, "the transcript is echoed before it is acted on");
+  const turn = calls.find((call) => call.url.endsWith("/api/robin/assistant"));
+  assert.equal(turn.body.message, "remind me to pay rent");
+});
+
+test("a voice note with transcription off says so instead of failing", async () => {
+  const { fetch, calls } = fakeFetch({
+    "getFile": { body: { ok: true, result: { file_path: "voice/file_1.oga", file_size: 10 } } },
+    "/file/bot": { body: {}, buffer: new ArrayBuffer(10) },
+    "sendMessage": { body: { ok: true, result: { message_id: 1 } } },
+  });
+  await handleMessage(config(), deps(fetch), {
+    updateId: 1, messageId: 10, chatId: 42, from: "bruce", text: "", voice: { fileId: "v1" },
+  });
+  const sent = calls.filter((call) => call.url.endsWith("sendMessage"));
+  assert.match(sent.at(-1).body.text, /turn on transcription/);
+  assert.equal(calls.some((call) => call.url.includes("/api/robin/assistant")), false);
+});
+
+/* ─────────────────────────── rate limiting ─────────────────────────── */
+
+test("a burst past the ceiling is refused before it costs a turn", async () => {
+  const { fetch, calls } = fakeFetch({
+    "/api/robin/assistant": { body: { reply: "ok", usedTools: [] } },
+    "sendMessage": { body: { ok: true, result: { message_id: 1 } } },
+  });
+  const limit = { take: (_chatId, _now) => 7 };
+  const message = {
+    updateId: 1, messageId: 10, chatId: 42, from: "bruce", text: "again and again",
+  };
+  await handleMessage(config(), deps(fetch, [], {}, () => true, { rateLimit: limit }), message);
+
+  assert.equal(calls.some((call) => call.url.includes("/api/robin/assistant")), false);
+  assert.match(calls[0].body.text, /Try again in 7s/);
+});
+
+/* ─────────────────────────── button presses ─────────────────────────── */
+
+test("a button press acts without the model and acknowledges the spinner", async () => {
+  const { fetch, calls } = fakeFetch({
+    "/api/robin/jobs": { body: { job: {} } },
+    "answerCallbackQuery": { body: { ok: true } },
+  });
+  await handleCallback(config(), deps(fetch), {
+    updateId: 1, callbackId: "cb1", chatId: 42, messageId: 900, from: "bruce",
+    data: "job:applied:ab12",
+  });
+
+  assert.equal(calls.some((call) => call.url.includes("/api/robin/assistant")), false);
+  assert.match(calls[0].url, /\/api\/robin\/jobs$/);
+  assert.equal(calls[0].init.method, "PATCH");
+  assert.match(calls[1].url, /answerCallbackQuery$/);
+  assert.equal(calls[1].body.text, "Marked applied");
+});
+
+test("a press from an unlisted chat is refused in silence", async () => {
+  const { fetch, calls } = fakeFetch({});
+  await handleCallback(config(), deps(fetch), {
+    updateId: 1, callbackId: "cb1", chatId: 999, messageId: 900, from: "stranger",
+    data: "job:dropped:ab12",
+  });
+  assert.deepEqual(calls, [], "authorization is the same gate as for a message");
+});
+
+test("pressing a button retires it from the message that carried it", async () => {
+  const { fetch, calls } = fakeFetch({
+    "/api/robin/todos": { body: { todo: {} } },
+    "sendMessage": { body: { ok: true, result: { message_id: 900 } } },
+    "answerCallbackQuery": { body: { ok: true } },
+    "editMessageReplyMarkup": { body: { ok: true } },
+  });
+  const keyboards = createKeyboardMemory();
+  const shared = deps(fetch, [], {}, () => true, { keyboards });
+
+  await sendMessage(config(), shared, 42, "your day", [
+    [{ text: "done a", data: "todo:done:a" }],
+    [{ text: "done b", data: "todo:done:b" }],
+  ]);
+  await handleCallback(config(), shared, {
+    updateId: 1, callbackId: "cb1", chatId: 42, messageId: 900, from: "bruce",
+    data: "todo:done:a",
+  });
+
+  const edit = calls.find((call) => call.url.endsWith("editMessageReplyMarkup"));
+  assert.ok(edit, "the pressed button has to disappear");
+  assert.deepEqual(edit.body.reply_markup.inline_keyboard, [
+    [{ text: "done b", callback_data: "todo:done:b" }],
+  ]);
+});
+
+/* ────────────────────── the loop no longer blocks ────────────────────── */
+
+test("a slow digest does not hold the poller shut", async () => {
+  // The regression this exists for: schedules used to run inside the poll loop,
+  // so a job digest that scanned, scored, and waited for the scorer — twenty
+  // minutes on a bad day — meant twenty minutes of unanswered messages. They
+  // now run alongside polling, so a hung schedule costs nothing but itself.
+  let stuckStarted = false;
+  let releaseStuck = () => {};
+  const fetch = async (url, init) => {
+    const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
+    const target = String(url);
+    if (target.includes("/api/robin/assistant") && body?.readOnly) {
+      stuckStarted = true;
+      // The daily agenda's turn, held open until the test lets it go. Released
+      // at the end rather than abandoned: an abandoned request leaves pi-web's
+      // abort timer on the event loop and the runner waits out its two minutes.
+      return new Promise((resolve) => {
+        releaseStuck = () => resolve({
+          ok: true, status: 200, json: async () => ({ reply: "late", usedTools: [] }),
+        });
+      });
+    }
+    if (target.includes("getUpdates")) {
+      return {
+        ok: true, status: 200, json: async () => ({
+          ok: true,
+          result: [{
+            update_id: 1,
+            message: { message_id: 1, chat: { id: 42 }, from: {}, text: "are you there?" },
+          }],
+        }),
+      };
+    }
+    if (target.includes("/api/robin/assistant")) {
+      return { ok: true, status: 200, json: async () => ({ reply: "yes", usedTools: [] }) };
+    }
+    if (target.includes("sendMessage")) {
+      answered.push(body.text);
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: { message_id: 1 } }) };
+    }
+    return { ok: true, status: 200, json: async () => ({ ok: true }) };
+  };
+  const answered = [];
+
+  const running = config({ dailyAgenda: { enabled: true, time: "00:00", locale: "en" } });
+  const scheduleDeps = deps(fetch);
+
+  // Fired and deliberately not awaited, exactly as the poll loop does it.
+  const schedules = runSchedules(running, scheduleDeps);
+  await Promise.resolve();
+  assert.ok(stuckStarted, "the schedule really is in flight and stuck");
+
+  const next = await pollOnce(running, scheduleDeps, null);
+  assert.equal(next, 2, "the poll completed while the schedule was still hanging");
+  assert.deepEqual(answered, ["yes"], "the question was answered, not queued behind the digest");
+
+  releaseStuck();
+  await schedules;
+});
+
+/* ───────────────────── per-chat failure isolation ───────────────────── */
+
+test("one unreachable chat does not cost the others their briefing", async () => {
+  const { fetch } = fakeFetch({
+    "/api/robin/assistant": { body: { reply: "今日简报", usedTools: ["todo_list"] } },
+    "/api/robin/todos": { body: { todos: [] } },
+    "sendMessage": (nth) => (nth === 3
+      ? { ok: false, status: 403, body: { description: "bot was blocked by the user" } }
+      : { ok: true, body: { ok: true, result: { message_id: nth } } }),
+  });
+  const agenda = ledger();
+  await sendDailyAgenda(
+    config({ allowlist: [1, 2, 3] }),
+    deps(fetch, [], { agenda }),
+    "2026-08-23",
+    [1, 2, 3],
+  );
+  // The blocked chat is chat 1 here (call order), and the rest still got it.
+  assert.equal(agenda.runs.get("2026-08-23").length, 2, "a blocked chat must not abort the broadcast");
+});
+
+test("a chat that failed is retried, and one that succeeded is not", async () => {
+  const { fetch } = fakeFetch({
+    "/api/robin/assistant": { body: { reply: "mail report", usedTools: ["gmail_list"] } },
+    "sendMessage": { body: { ok: true, result: { message_id: 1 } } },
+  });
+  const gmail = ledger();
+  gmail.mark("2026-08-23", 1);
+  await sendGmailDigest(
+    config({ allowlist: [1, 2] }),
+    deps(fetch, [], { gmail }),
+    "2026-08-23",
+    [2],
+  );
+  assert.deepEqual(gmail.runs.get("2026-08-23"), [1, 2]);
+});
+
+/* ─────────────────────── settings without a restart ─────────────────────── */
+
+test("readConfig defaults the reminder and transcription blocks", () => {
+  const parsed = readConfig({ TELEGRAM_BOT_TOKEN: "t" }, { allowedChatIds: [1] });
+  assert.equal(parsed.reminders.enabled, false);
+  assert.equal(parsed.reminders.lead, 30);
+  assert.equal(parsed.transcription.enabled, false);
+  assert.equal(parsed.transcription.apiKey, undefined);
 });

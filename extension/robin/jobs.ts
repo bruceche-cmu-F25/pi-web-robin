@@ -828,6 +828,15 @@ export function describeFilters(profile: JobProfile): string[] {
     : "Locations: (any not blocked)");
   if (profile.locationBlock.length > 0) lines.push(`Blocked: ${profile.locationBlock.join(" / ")}`);
   lines.push(`Freshness: ${profile.sinceDays > 0 ? `last ${profile.sinceDays} days` : "no limit"}`);
+  // The scorer is told about the years gate because otherwise it spends
+  // judgement on postings that can never be sent, and the candidate sees a 4.5
+  // in the list that never arrives on their phone.
+  if (profile.maxYears > 0) {
+    lines.push(
+      `Experience ceiling: a posting stating more than ${profile.maxYears} years of required `
+      + "experience is never sent, whatever it scores. One that states no figure is unaffected.",
+    );
+  }
   return lines;
 }
 

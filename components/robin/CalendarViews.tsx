@@ -62,18 +62,15 @@ function EventChip({ event, onSelect, t }: {
       onClick={() => onSelect(event)}
       aria-haspopup="dialog"
       className="pointer-events-auto flex w-full items-baseline gap-1.5 py-0.5 pl-1 pr-1.5 text-left"
-      style={timedSurface(event)}
+      style={{ ...timedSurface(event), fontSize: 12 }}
       title={`${formatEventTime(event)} ${event.title}${event.calendar ? ` — ${event.calendar}` : ""}`}
     >
-      <span
-        className="shrink-0 font-mono tabular-nums"
-        style={{ color: "var(--text-muted)", fontSize: 10 }}
-      >
+      {/* The clock stays quieter than the title: same hue would make the row
+          two equal halves, and the thing you scan for is the name. */}
+      <span className="shrink-0 tabular-nums" style={{ color: "var(--text-muted)", fontSize: 10 }}>
         {event.start ?? t("robin.calendar.allDay")}
       </span>
-      <span className="min-w-0 flex-1 truncate" style={{ color: "var(--text)", fontSize: 13 }}>
-        {event.title}
-      </span>
+      <span className="min-w-0 flex-1 truncate">{event.title}</span>
     </button>
   );
 }
@@ -144,7 +141,10 @@ export function AgendaView({
                 aria-label={t("robin.todos.complete", { title: todo.title })}
                 className="shrink-0 cursor-pointer"
               />
-              <span className="min-w-0 flex-1 truncate text-sm" style={{ color: "var(--text)" }}>
+              <span
+                className="min-w-0 flex-1 truncate text-sm"
+                style={{ color: todo.color ? `var(--todo-${todo.color})` : "var(--text)" }}
+              >
                 {todo.title}
               </span>
             </label>
@@ -162,12 +162,12 @@ export function AgendaView({
               style={isAllDayBand(event) ? spanSurface(event) : timedSurface(event)}
             >
               <span
-                className="shrink-0 font-mono text-xs tabular-nums"
+                className="shrink-0 text-xs tabular-nums"
                 style={{ color: "var(--text-muted)", minWidth: "5.5rem" }}
               >
                 {formatEventTime(event)}
               </span>
-              <span className="min-w-0 flex-1 truncate text-sm" style={{ color: "var(--text)" }}>
+              <span className="min-w-0 flex-1 truncate" style={{ fontSize: 12.5 }}>
                 {event.title}
                 {event.location && <span style={{ color: "var(--text-dim)" }}> @ {event.location}</span>}
                 {isReadOnlyEvent(event) && (
@@ -338,10 +338,8 @@ function MonthWeekRow({
             top: DAY_NUMBER_HEIGHT + bar.lane * BAR_HEIGHT + 2,
             height: BAR_HEIGHT - 2,
             ...spanSurface(bar.event),
-            color: "var(--text)",
             borderRadius: 0,
-            fontFamily: "var(--font-serif)",
-            fontSize: 12,
+            fontSize: 11.5,
           }}
         >
           {bar.continuesBefore && "‹ "}

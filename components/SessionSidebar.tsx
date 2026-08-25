@@ -2266,15 +2266,11 @@ function SessionItem({
         cursor: confirmDelete || renaming ? "default" : "pointer",
         background: confirmDelete
           ? "color-mix(in srgb, var(--danger) 6%, transparent)"
-          : isSelected ? "var(--bg-selected)" : hovered ? "var(--bg-hover)" : "transparent",
-        // pi marks the active row in a list with a 3px rule down its left edge,
-        // split 62/38 between the accent and the deeper thread blue. A gradient
-        // cannot be a border-color, so it arrives as a border-image over a
-        // transparent border of the right width.
+          : isSelected ? "transparent" : hovered ? "var(--bg-hover)" : "transparent",
+        // Selection is indicated only by the solid accent rule.
         borderLeft: confirmDelete
           ? "3px solid var(--danger)"
-          : "3px solid transparent",
-        borderImage: isSelected && !confirmDelete ? "var(--active-stripe-vertical) 1" : undefined,
+          : isSelected ? "3px solid var(--accent)" : "3px solid transparent",
         transition: "background 0.1s",
         opacity: deleting ? 0.5 : 1,
         gap: 6,

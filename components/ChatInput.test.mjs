@@ -62,6 +62,24 @@ test("keeps the model selector visible when a model error leaves no options", ()
   assert.match(html, /title="No available models"/);
 });
 
+test("renders separate image and PDF attachment controls", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(
+      I18nProvider,
+      null,
+      React.createElement(ChatInput, {
+        onSend() {},
+        onAbort() {},
+        isStreaming: false,
+      }),
+    ),
+  );
+
+  assert.match(html, /accept="image\/\*"/);
+  assert.match(html, /accept="application\/pdf,\.pdf"/);
+  assert.match(html, /aria-label="Attach PDF"/);
+});
+
 test("renders the read-only tool preset as the active selection", () => {
   const html = renderToStaticMarkup(
     React.createElement(

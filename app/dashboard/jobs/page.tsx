@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { JobsBoard } from "@/components/robin/JobsBoard";
+import { WorkspaceShortcutListener } from "@/components/WorkspaceShortcutListener";
 import { I18nProvider } from "@/hooks/useI18n";
 
 // Static because metadata is rendered on the server, before the viewer's
@@ -12,6 +13,7 @@ export const metadata: Metadata = {
 export default function DashboardJobsPage() {
   return (
     <Suspense>
+      <WorkspaceShortcutListener />
       <I18nProvider>
         <JobsBoard />
       </I18nProvider>

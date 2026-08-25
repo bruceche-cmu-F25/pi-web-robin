@@ -28,30 +28,14 @@ const nextConfig: NextConfig = {
     "@earendil-works/pi-ai",
     "@earendil-works/pi-tui",
   ],
-  // Next 16 blocks cross-origin access to dev resources by default. Allow the
-  // loopback and the RFC1918 LAN ranges so the dev server stays reachable
-  // from other machines on the same LAN.
+  // Next 16 blocks cross-origin access to dev resources by default. Keep this
+  // list scoped: loopback, our own LAN, and whatever PI_WEB_ALLOWED_HOSTS names
+  // (the Tailscale host we reach the server by). Upstream hardcodes every
+  // RFC1918 range here; lib/next-config.test.mjs pins the narrower set instead.
   allowedDevOrigins: [
     "127.0.0.1",
-    "10.*.*.*",
-    // 172.16.0.0/12
-    "172.16.*.*",
-    "172.17.*.*",
-    "172.18.*.*",
-    "172.19.*.*",
-    "172.20.*.*",
-    "172.21.*.*",
-    "172.22.*.*",
-    "172.23.*.*",
-    "172.24.*.*",
-    "172.25.*.*",
-    "172.26.*.*",
-    "172.27.*.*",
-    "172.28.*.*",
-    "172.29.*.*",
-    "172.30.*.*",
-    "172.31.*.*",
     "192.168.*.*",
+    ...(process.env.PI_WEB_ALLOWED_HOSTS?.split(",").map((host) => host.trim()).filter(Boolean) ?? []),
   ],
   experimental: {
     // ModelsConfig imports 31 provider icons by deep path already, but the

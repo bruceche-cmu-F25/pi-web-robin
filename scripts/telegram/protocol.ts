@@ -10,14 +10,25 @@ export interface TelegramPhoto {
   height?: number;
 }
 
+/** A voice note or an audio file. Both arrive as one `file_id`. */
+export interface TelegramVoice {
+  fileId: string;
+  /** Seconds, as Telegram reports it. */
+  duration?: number;
+  mimeType?: string;
+}
+
 export interface IncomingMessage {
   updateId: number;
+  /** Telegram's id for the message itself, needed to edit or reply to it. */
+  messageId: number;
   chatId: number;
   /** Display name for logs only; never used for authorization. */
   from: string;
   /**
-   * The message text, or the photo caption. Empty for a bare photo, which is
-   * why the photo attachment must be checked before treating a message as blank.
+   * The message text, or the photo caption. Empty for a bare photo or voice
+   * note, which is why attachments must be checked before treating a message
+   * as blank.
    */
   text: string;
   /**
@@ -33,10 +44,33 @@ export interface IncomingMessage {
    * the largest is last. Present only for photo messages.
    */
   photos?: TelegramPhoto[];
+  /** A voice note, present only for voice messages. */
+  voice?: TelegramVoice;
+}
+
+/**
+ * A button press.
+ *
+ * Carries the message it came from because answering one means editing that
+ * message's buttons — the press is only half the interaction; removing the
+ * button that was pressed is the other half.
+ */
+export interface CallbackQuery {
+  updateId: number;
+  /** Answered with answerCallbackQuery, which stops the button spinning. */
+  callbackId: string;
+  chatId: number;
+  messageId: number;
+  from: string;
+  /** The `callback_data` the button was built with. At most 64 bytes. */
+  data: string;
+  languageCode?: string;
 }
 
 export interface ParsedUpdates {
   messages: IncomingMessage[];
+  /** Button presses, which are authorized and handled exactly like messages. */
+  callbacks: CallbackQuery[];
   /**
    * Offset to request next. Acknowledges every update seen, including ones
    * skipped as unsupported — otherwise a single unhandled update type (a
@@ -65,54 +99,115 @@ export function parsePhotos(photo: unknown): TelegramPhoto[] {
   return photos;
 }
 
+/** Normalize Telegram's `voice` (or `audio`) object into a file reference. */
+export function parseVoice(voice: unknown): TelegramVoice | null {
+  if (typeof voice !== "object" || voice === null) return null;
+  const item = voice as { file_id?: unknown; duration?: unknown; mime_type?: unknown };
+  if (typeof item.file_id !== "string" || !item.file_id) return null;
+  return {
+    fileId: item.file_id,
+    ...(typeof item.duration === "number" ? { duration: item.duration } : {}),
+    ...(typeof item.mime_type === "string" ? { mimeType: item.mime_type } : {}),
+  };
+}
+
+interface RawSender {
+  first_name?: unknown;
+  username?: unknown;
+  language_code?: unknown;
+}
+
+function senderName(from: RawSender | undefined): string {
+  return String(from?.username ?? from?.first_name ?? "unknown");
+}
+
 export function parseUpdates(payload: unknown): ParsedUpdates {
   const result = payload as { ok?: boolean; result?: unknown[] } | null;
-  if (!result?.ok || !Array.isArray(result.result)) return { messages: [], nextOffset: null };
+  if (!result?.ok || !Array.isArray(result.result)) {
+    return { messages: [], callbacks: [], nextOffset: null };
+  }
 
   const messages: IncomingMessage[] = [];
+  const callbacks: CallbackQuery[] = [];
   let highest: number | null = null;
 
   for (const raw of result.result) {
     const update = raw as {
       update_id?: unknown;
       message?: {
+        message_id?: unknown;
         chat?: { id?: unknown };
-        from?: { first_name?: unknown; username?: unknown; language_code?: unknown };
+        from?: RawSender;
         text?: unknown;
         caption?: unknown;
         photo?: unknown;
+        voice?: unknown;
+        audio?: unknown;
+      };
+      callback_query?: {
+        id?: unknown;
+        data?: unknown;
+        from?: RawSender;
+        message?: { message_id?: unknown; chat?: { id?: unknown } };
       };
     };
     if (typeof update.update_id !== "number") continue;
-    // Advanced for EVERY update, including callback queries this function does
-    // not return — an un-acknowledged update is redelivered on the next poll,
+    // Advanced for EVERY update, including types this function does not
+    // return — an un-acknowledged update is redelivered on the next poll,
     // forever.
     highest = highest === null ? update.update_id : Math.max(highest, update.update_id);
 
+    const query = update.callback_query;
+    if (query) {
+      const queryChatId = query.message?.chat?.id;
+      const queryMessageId = query.message?.message_id;
+      // A callback whose message Telegram no longer has cannot be answered by
+      // editing it, and its chat is what authorization keys off; drop it.
+      if (typeof query.id !== "string" || typeof query.data !== "string") continue;
+      if (typeof queryChatId !== "number" || typeof queryMessageId !== "number") continue;
+      const queryLanguage = query.from?.language_code;
+      callbacks.push({
+        updateId: update.update_id,
+        callbackId: query.id,
+        chatId: queryChatId,
+        messageId: queryMessageId,
+        from: senderName(query.from),
+        data: query.data,
+        ...(typeof queryLanguage === "string" ? { languageCode: queryLanguage } : {}),
+      });
+      continue;
+    }
+
     const chatId = update.message?.chat?.id;
-    if (typeof chatId !== "number") continue;
+    const messageId = update.message?.message_id;
+    if (typeof chatId !== "number" || typeof messageId !== "number") continue;
 
     const rawText = update.message?.text;
     const rawCaption = update.message?.caption;
     const text = typeof rawText === "string" ? rawText.trim()
       : typeof rawCaption === "string" ? rawCaption.trim() : "";
     const photos = parsePhotos(update.message?.photo);
-    // A photo message has no `text` field, so without this a bare photo would
-    // be treated as blank and dropped.
-    if (!text && photos.length === 0) continue;
+    // Telegram sends a voice note as `voice`; a forwarded recording or a file
+    // picked from the music library arrives as `audio`. Both transcribe.
+    const voice = parseVoice(update.message?.voice) ?? parseVoice(update.message?.audio);
+    // A photo or voice message has no `text` field, so without this an
+    // attachment-only message would be treated as blank and dropped.
+    if (!text && photos.length === 0 && !voice) continue;
 
     const languageCode = update.message?.from?.language_code;
     messages.push({
       updateId: update.update_id,
+      messageId,
       chatId,
-      from: String(update.message?.from?.username ?? update.message?.from?.first_name ?? "unknown"),
+      from: senderName(update.message?.from),
       text,
       ...(typeof languageCode === "string" ? { languageCode } : {}),
       ...(photos.length > 0 ? { photos } : {}),
+      ...(voice ? { voice } : {}),
     });
   }
 
-  return { messages, nextOffset: highest === null ? null : highest + 1 };
+  return { messages, callbacks, nextOffset: highest === null ? null : highest + 1 };
 }
 
 /**
@@ -139,28 +234,6 @@ export function isAllowed(chatId: number, allowlist: number[]): boolean {
   return allowlist.includes(chatId);
 }
 
-/** Telegram rejects messages longer than this. */
-export const MAX_MESSAGE_LENGTH = 4096;
-
-/**
- * Split a reply for Telegram, preferring line boundaries so a long answer does
- * not get cut mid-word.
- */
-export function chunkMessage(text: string, limit = MAX_MESSAGE_LENGTH): string[] {
-  if (text.length <= limit) return [text];
-  const chunks: string[] = [];
-  let rest = text;
-  while (rest.length > limit) {
-    const window = rest.slice(0, limit);
-    const breakAt = window.lastIndexOf("\n");
-    const cut = breakAt > limit * 0.5 ? breakAt : limit;
-    chunks.push(rest.slice(0, cut).trimEnd());
-    rest = rest.slice(cut).trimStart();
-  }
-  if (rest) chunks.push(rest);
-  return chunks;
-}
-
 export type BridgeLocale = "en" | "zh";
 
 /** Telegram reports tags like "zh-hans" or "zh-CN"; both mean Chinese here. */
@@ -179,6 +252,16 @@ const TOOL_LABELS: Record<BridgeLocale, Record<string, string>> = {
     calendar_list_events: "read your calendar",
     link_add: "saved a link",
     link_list: "read your links",
+    gmail_list: "read your mail",
+    gmail_get: "opened an email",
+    gmail_review: "filed today's mail",
+    provider_usage: "checked your quota",
+    job_list: "read your job leads",
+    job_profile: "read your job profile",
+    job_pending: "read the unscored jobs",
+    job_score: "scored a job",
+    job_status: "moved a job",
+    job_scan: "scanned the job boards",
   },
   zh: {
     todo_add: "记了待办",
@@ -190,6 +273,16 @@ const TOOL_LABELS: Record<BridgeLocale, Record<string, string>> = {
     calendar_list_events: "查了日历",
     link_add: "存了链接",
     link_list: "查了链接",
+    gmail_list: "查了邮件",
+    gmail_get: "读了一封邮件",
+    gmail_review: "归档了今天的邮件",
+    provider_usage: "查了额度",
+    job_list: "查了职位",
+    job_profile: "读了求职档案",
+    job_pending: "查了待打分职位",
+    job_score: "给职位打了分",
+    job_status: "更新了职位状态",
+    job_scan: "扫了招聘板",
   },
 };
 
