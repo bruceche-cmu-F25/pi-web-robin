@@ -352,6 +352,12 @@ export const enLocale: LocalePlugin = {
     "robin.links.moveUp": "Move {group} up",
     "robin.links.moveDown": "Move {group} down",
     "robin.links.otherGroup": "Other",
+    "robin.links.family.jobs": "Job hunt",
+    "robin.links.family.learning": "Learning",
+    "robin.links.family.ideas": "Ideas & research",
+    "robin.links.family.daily": "Daily",
+    "robin.links.family.projects": "Projects",
+    "robin.links.family.money": "Spending",
 
     "robin.jobs.title": "Job hunt",
     "robin.jobs.subtitle": "What to look for, what to say about yourself, and what came back",

@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
-import { groupLinks, iconFallback, type Link } from "@/extension/robin/links";
+import { iconFallback, type Link } from "@/extension/robin/links";
+import { linkSections } from "@/extension/robin/link-families";
 import { mutate, usePolledResource } from "./usePolledResource";
 
 interface LinksResponse {
@@ -17,7 +18,10 @@ export function LinksPanel() {
   const [group, setGroup] = useState("");
   // Empty string means the panel-level form; a group name means its inline form.
   const [addingGroup, setAddingGroup] = useState<string | null>(null);
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set(["日常入口"]));
+  // Collapsed rather than expanded: everything opens by default, and a shelf
+  // saved a minute from now opens with the rest instead of hiding.
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
+  const [collapsedFamilies, setCollapsedFamilies] = useState<Set<string>>(() => new Set());
   const [actionError, setActionError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftTitle, setDraftTitle] = useState("");
@@ -29,7 +33,7 @@ export function LinksPanel() {
     if (editingId) editRef.current?.select();
   }, [editingId]);
 
-  const groups = useMemo(() => groupLinks(data?.links ?? []), [data]);
+  const sections = useMemo(() => linkSections(data?.links ?? []), [data]);
 
   // Links saved before icons existed have never been looked up. Backfill them
   // one at a time in the background rather than blocking the list on a batch of
@@ -94,11 +98,12 @@ export function LinksPanel() {
     void run(() => mutate("/api/robin/links", "PATCH", { id, title, url }));
   };
 
-  const moveGroup = (index: number, offset: -1 | 1) => {
-    const destination = index + offset;
-    if (destination < 0 || destination >= groups.length || reordering) return;
-    const order = groups.map(({ group: name }) => name);
-    [order[index], order[destination]] = [order[destination], order[index]];
+  /**
+   * Only the flat group order is stored, so both moves end by flattening the
+   * sections back down. Re-clustering that order is a no-op — a family's groups
+   * are already adjacent — which is what keeps a move from being undone.
+   */
+  const persistOrder = (order: string[]) => {
     setReordering(true);
     void run(() => mutate("/api/robin/links", "PATCH", {
       action: "reorderGroups",
@@ -106,14 +111,36 @@ export function LinksPanel() {
     })).finally(() => setReordering(false));
   };
 
-  const toggleGroup = (name: string) => {
-    setExpandedGroups((current) => {
+  const moveSection = (index: number, offset: -1 | 1) => {
+    const destination = index + offset;
+    if (destination < 0 || destination >= sections.length || reordering) return;
+    const reordered = [...sections];
+    [reordered[index], reordered[destination]] = [reordered[destination], reordered[index]];
+    persistOrder(reordered.flatMap((section) => section.groups.map(({ group }) => group)));
+  };
+
+  const moveWithinFamily = (sectionIndex: number, groupIndex: number, offset: -1 | 1) => {
+    const section = sections[sectionIndex];
+    const destination = groupIndex + offset;
+    if (!section || destination < 0 || destination >= section.groups.length || reordering) return;
+    const names = section.groups.map(({ group }) => group);
+    [names[groupIndex], names[destination]] = [names[destination], names[groupIndex]];
+    persistOrder(sections.flatMap((current, index) =>
+      index === sectionIndex ? names : current.groups.map(({ group }) => group)));
+  };
+
+  const toggle = (setCollapsed: typeof setCollapsedGroups, name: string) => {
+    setCollapsed((current) => {
       const next = new Set(current);
       if (next.has(name)) next.delete(name);
       else next.add(name);
       return next;
     });
-    if (expandedGroups.has(name) && addingGroup === name) setAddingGroup(null);
+  };
+
+  const toggleGroup = (name: string) => {
+    toggle(setCollapsedGroups, name);
+    if (!collapsedGroups.has(name) && addingGroup === name) setAddingGroup(null);
   };
 
   const toggleAdd = (name: string) => {
@@ -126,7 +153,13 @@ export function LinksPanel() {
     // "Other" represents links without an explicit group in groupLinks().
     setGroup(name === "Other" ? "" : name);
     setAddingGroup(name);
-    if (name) setExpandedGroups((current) => new Set(current).add(name));
+    if (name) {
+      setCollapsedGroups((current) => {
+        const next = new Set(current);
+        next.delete(name);
+        return next;
+      });
+    }
   };
 
   const renderAddForm = (showGroup: boolean) => (
@@ -188,16 +221,58 @@ export function LinksPanel() {
         <p className="text-xs" style={{ color: "var(--accent)" }}>{actionError ?? error}</p>
       )}
 
-      {!loading && groups.length === 0 && (
+      {!loading && sections.length === 0 && (
         <p className="py-2 text-sm" style={{ color: "var(--text-dim)" }}>{t("robin.links.empty")}</p>
       )}
 
       <div className="columns-1 gap-4 split:columns-2">
-      {groups.map(({ group: name, links }, index) => {
-        const expanded = expandedGroups.has(name);
+      {sections.map((section, sectionIndex) => {
+        const accent = section.color ? `var(--todo-${section.color})` : undefined;
+        const familyOpen = !section.family || !collapsedFamilies.has(section.family);
+        return (
+        <div
+          key={section.family ?? section.groups[0]?.group}
+          className="mb-1 flex break-inside-avoid flex-col gap-1"
+        >
+          {section.family && (
+            <div className="flex min-h-8 items-center gap-1">
+              <button
+                type="button"
+                onClick={() => toggle(setCollapsedFamilies, section.family as string)}
+                aria-expanded={familyOpen}
+                className="ui-action ui-action--surface flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded px-1 text-left"
+                style={{ borderLeft: `2px solid ${accent}` }}
+              >
+                <Chevron open={familyOpen} />
+                <h3 className="min-w-0 flex-1 truncate text-xs font-semibold uppercase tracking-wide" style={{ color: accent }}>
+                  {t(`robin.links.family.${section.family}`)}
+                </h3>
+                <span className="text-xs" style={{ color: "var(--text-dim)" }}>{section.links}</span>
+              </button>
+              {sections.length > 1 && (
+                <MoveButtons
+                  label={t(`robin.links.family.${section.family}`)}
+                  disabled={reordering}
+                  atStart={sectionIndex === 0}
+                  atEnd={sectionIndex === sections.length - 1}
+                  onMove={(offset) => moveSection(sectionIndex, offset)}
+                  t={t}
+                />
+              )}
+            </div>
+          )}
+
+          {familyOpen && section.groups.map(({ group: name, links }, groupIndex) => {
+        const expanded = !collapsedGroups.has(name);
         const displayName = name === "Other" ? t("robin.links.otherGroup") : name;
         return (
-        <div key={name} className="mb-1 flex break-inside-avoid flex-col gap-1">
+        <div
+          key={name}
+          className="flex flex-col gap-1"
+          // Nested groups sit inside their family's colour rather than
+          // repeating its name on every row.
+          style={section.family ? { marginLeft: 8, paddingLeft: 6, borderLeft: `1px solid ${accent}` } : undefined}
+        >
           <div className="flex min-h-8 items-center gap-1">
             <button
               type="button"
@@ -205,20 +280,7 @@ export function LinksPanel() {
               aria-expanded={expanded}
               className="ui-action ui-action--surface flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded px-1 text-left"
             >
-              <svg
-                aria-hidden="true"
-                width="12"
-                height="12"
-                viewBox="0 0 12 12"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className={`shrink-0 transition-transform motion-reduce:transition-none ${expanded ? "rotate-90" : ""}`}
-              >
-                <polyline points="4 2.5 7.5 6 4 9.5" />
-              </svg>
+              <Chevron open={expanded} />
               <h3 className="min-w-0 flex-1 truncate text-xs font-medium uppercase tracking-wide" style={{ color: "var(--text-dim)" }}>
                 {displayName}
               </h3>
@@ -245,33 +307,21 @@ export function LinksPanel() {
                 </svg>
               )}
             </button>
-            {expanded && groups.length > 1 && (
-              <div className="flex gap-1">
-                <button
-                  type="button"
-                  disabled={reordering || index === 0}
-                  onClick={() => moveGroup(index, -1)}
-                  aria-label={t("robin.links.moveUp", { group: displayName })}
-                  title={t("robin.links.moveUp", { group: displayName })}
-                  className="ui-action ui-action--outline-soft flex size-8 items-center justify-center rounded disabled:opacity-30"
-                >
-                  <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="2.5 7.5 6 4 9.5 7.5" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  disabled={reordering || index === groups.length - 1}
-                  onClick={() => moveGroup(index, 1)}
-                  aria-label={t("robin.links.moveDown", { group: displayName })}
-                  title={t("robin.links.moveDown", { group: displayName })}
-                  className="ui-action ui-action--outline-soft flex size-8 items-center justify-center rounded disabled:opacity-30"
-                >
-                  <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="2.5 4.5 6 8 9.5 4.5" />
-                  </svg>
-                </button>
-              </div>
+            {/* A group inside a family moves among its siblings; a group that is
+                its own section moves against the other sections. */}
+            {(section.family ? section.groups.length > 1 : sections.length > 1) && (
+              <MoveButtons
+                label={displayName}
+                disabled={reordering}
+                atStart={section.family ? groupIndex === 0 : sectionIndex === 0}
+                atEnd={section.family
+                  ? groupIndex === section.groups.length - 1
+                  : sectionIndex === sections.length - 1}
+                onMove={(offset) => section.family
+                  ? moveWithinFamily(sectionIndex, groupIndex, offset)
+                  : moveSection(sectionIndex, offset)}
+                t={t}
+              />
             )}
           </div>
           {expanded && (
@@ -362,9 +412,78 @@ export function LinksPanel() {
           )}
         </div>
         );
+          })}
+        </div>
+        );
       })}
       </div>
     </section>
+  );
+}
+
+/** The disclosure arrow shared by family and group headers. */
+function Chevron({ open }: { open: boolean }) {
+  return (
+    <svg
+      aria-hidden="true"
+      width="12"
+      height="12"
+      viewBox="0 0 12 12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={`shrink-0 transition-transform motion-reduce:transition-none ${open ? "rotate-90" : ""}`}
+    >
+      <polyline points="4 2.5 7.5 6 4 9.5" />
+    </svg>
+  );
+}
+
+/** Move a family among the sections, or a group among its siblings. */
+function MoveButtons({
+  label,
+  disabled,
+  atStart,
+  atEnd,
+  onMove,
+  t,
+}: {
+  label: string;
+  disabled: boolean;
+  atStart: boolean;
+  atEnd: boolean;
+  onMove: (offset: -1 | 1) => void;
+  t: (key: string, params?: Record<string, string>) => string;
+}) {
+  return (
+    <div className="flex gap-1">
+      <button
+        type="button"
+        disabled={disabled || atStart}
+        onClick={() => onMove(-1)}
+        aria-label={t("robin.links.moveUp", { group: label })}
+        title={t("robin.links.moveUp", { group: label })}
+        className="ui-action ui-action--outline-soft flex size-8 items-center justify-center rounded disabled:opacity-30"
+      >
+        <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="2.5 7.5 6 4 9.5 7.5" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        disabled={disabled || atEnd}
+        onClick={() => onMove(1)}
+        aria-label={t("robin.links.moveDown", { group: label })}
+        title={t("robin.links.moveDown", { group: label })}
+        className="ui-action ui-action--outline-soft flex size-8 items-center justify-center rounded disabled:opacity-30"
+      >
+        <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="2.5 4.5 6 8 9.5 4.5" />
+        </svg>
+      </button>
+    </div>
   );
 }
 

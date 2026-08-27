@@ -352,6 +352,12 @@ export const zhCNLocale: LocalePlugin = {
     "robin.links.moveUp": "向上移动 {group}",
     "robin.links.moveDown": "向下移动 {group}",
     "robin.links.otherGroup": "其他",
+    "robin.links.family.jobs": "求职",
+    "robin.links.family.learning": "学习",
+    "robin.links.family.ideas": "灵感与研究",
+    "robin.links.family.daily": "日常",
+    "robin.links.family.projects": "项目",
+    "robin.links.family.money": "费用",
 
     "robin.jobs.title": "求职",
     "robin.jobs.subtitle": "找什么、怎么介绍自己、以及扫回来了什么",
