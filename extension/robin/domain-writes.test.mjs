@@ -20,8 +20,16 @@ after(() => {
 
 test("todo writes keep completion and update invariants behind one interface", () => {
   writeTodos([{ id: "rent", title: "Pay rent", done: false, createdAt: "2026-08-01T00:00:00.000Z" }]);
-  const updated = updateTodo({ id: "rent" }, { title: "Pay apartment rent", due: "2026-08-21" });
+  const updated = updateTodo({ id: "rent" }, {
+    title: "Pay apartment rent",
+    due: "2026-08-21",
+    url: "portal.example.com/rent",
+  });
   assert.equal("error" in updated, false);
+  // A scheme-less host is normalized, since the dashboard renders it as an href.
+  assert.equal(readTodos()[0].url, "https://portal.example.com/rent");
+  assert.throws(() => updateTodo({ id: "rent" }, { url: "javascript:alert(1)" }), /Unsupported URL scheme/);
+  updateTodo({ id: "rent" }, { url: "" });
   const completed = completeTodo({ id: "rent" });
   assert.equal("error" in completed, false);
   assert.equal(completed.alreadyDone, false);

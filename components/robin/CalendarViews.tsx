@@ -13,6 +13,7 @@ import {
 } from "@/extension/robin/events";
 import { layoutSpanBars } from "@/extension/robin/layout";
 import { spanSurface, timedSurface } from "./eventSurface";
+import { TodoTitle } from "./TodoTitle";
 import type { Todo } from "@/extension/robin/store";
 import { useTodayInView } from "./useTodayInView";
 
@@ -120,9 +121,9 @@ export function AgendaView({
             <p className="px-2 py-1 text-sm" style={{ color: "var(--text-dim)" }}>{t("robin.calendar.nothingScheduled")}</p>
           )}
           {dayTodos.map((todo) => (
-            <label
+            <div
               key={`todo:${todo.id}`}
-              className="flex min-h-8 cursor-pointer items-center gap-3 px-2 py-1"
+              className="flex min-h-8 items-center gap-3 px-2 py-1"
               style={{
                 background: "var(--accent-amber-soft)",
                 borderLeft: "2px solid var(--accent-amber-line)",
@@ -132,7 +133,7 @@ export function AgendaView({
                 className="pi-eyebrow shrink-0"
                 style={{ color: "var(--accent-amber)", minWidth: "5.5rem" }}
               >
-                {t("robin.todos.title")}
+                {t("robin.todos.deadline")}
               </span>
               <input
                 type="checkbox"
@@ -141,13 +142,13 @@ export function AgendaView({
                 aria-label={t("robin.todos.complete", { title: todo.title })}
                 className="shrink-0 cursor-pointer"
               />
-              <span
+              <TodoTitle
+                todo={todo}
+                t={t}
                 className="min-w-0 flex-1 truncate text-sm"
                 style={{ color: todo.color ? `var(--todo-${todo.color})` : "var(--text)" }}
-              >
-                {todo.title}
-              </span>
-            </label>
+              />
+            </div>
           ))}
           {dayEvents.map((event) => (
             <button
@@ -202,8 +203,9 @@ export function AgendaView({
                   </button>
                 ))}
                 {dayTodos.map((todo) => (
-                  <span key={todo.id} className="min-w-0 truncate">
-                    {t("robin.todos.title")}: {todo.title}
+                  <span key={todo.id} className="flex min-w-0 items-baseline gap-1 truncate">
+                    {t("robin.todos.title")}:
+                    <TodoTitle todo={todo} t={t} className="min-w-0 truncate" />
                   </span>
                 ))}
               </span>
@@ -233,16 +235,20 @@ const DAY_NUMBER_HEIGHT = 18;
 function MonthWeekRow({
   days,
   events,
+  todos,
   today,
   onSelectDay,
   onSelectEvent,
+  onCompleteTodo,
   t,
 }: {
   days: string[];
   events: DashboardEvent[];
+  todos: Todo[];
   today: string;
   onSelectDay: (date: string) => void;
   onSelectEvent: (event: DashboardEvent) => void;
+  onCompleteTodo: (todo: Todo) => void;
   t: (key: string, params?: Record<string, string>) => string;
 }) {
   const { bars, lanes } = layoutSpanBars(events, days);
@@ -267,6 +273,10 @@ function MonthWeekRow({
             .sort(compareEvents);
           const spanning = events.filter((event) => isAllDayBand(event)
             && date >= event.date && date <= eventEndDate(event)).length;
+          const dayTodos = todos.filter((todo) => todo.due === date);
+          const shownTodos = dayTodos.slice(0, MONTH_CHIP_LIMIT);
+          const shownEvents = chips.slice(0, Math.max(0, MONTH_CHIP_LIMIT - shownTodos.length));
+          const hidden = dayTodos.length + chips.length - shownTodos.length - shownEvents.length;
           const isToday = date === today;
           // A rolling window has no "outside the month"; what is worth dimming
           // is the part of the week already behind you.
@@ -276,7 +286,7 @@ function MonthWeekRow({
               <button
                 type="button"
                 onClick={() => onSelectDay(date)}
-                aria-label={t("robin.calendar.dayTooltip", { date, count: String(chips.length + spanning) })}
+                aria-label={t("robin.calendar.dayTooltip", { date, count: String(chips.length + spanning + dayTodos.length) })}
                 className="absolute inset-0 w-full text-left"
                 style={{
                   // The one cell in another hue, ringed twice over: the inset
@@ -292,12 +302,34 @@ function MonthWeekRow({
                 className="pointer-events-none relative flex min-h-32 flex-col gap-0.5 p-1"
                 style={{ paddingTop: DAY_NUMBER_HEIGHT + barsHeight + 2, opacity: past ? 0.5 : 1 }}
               >
-                {chips.slice(0, MONTH_CHIP_LIMIT).map((event) => (
+                {shownTodos.map((todo) => (
+                  <div
+                    key={todo.id}
+                    className="pointer-events-auto flex min-h-6 items-center gap-1 overflow-hidden px-1"
+                    style={{
+                      background: "var(--accent-amber-soft)",
+                      border: "1px dashed var(--accent-amber-line)",
+                      color: todo.color ? `var(--todo-${todo.color})` : "var(--text)",
+                      fontSize: 11.5,
+                    }}
+                    title={`${t("robin.todos.deadline")}: ${todo.title}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={todo.done}
+                      onChange={() => onCompleteTodo(todo)}
+                      aria-label={t("robin.todos.complete", { title: todo.title })}
+                      className="shrink-0 cursor-pointer"
+                    />
+                    <TodoTitle todo={todo} t={t} className="min-w-0 truncate" />
+                  </div>
+                ))}
+                {shownEvents.map((event) => (
                   <EventChip key={event.id} event={event} onSelect={onSelectEvent} t={t} />
                 ))}
-                {chips.length > MONTH_CHIP_LIMIT && (
+                {hidden > 0 && (
                   <span className="px-1 text-xs" style={{ color: "var(--text-dim)" }}>
-                    {t("robin.calendar.more", { count: String(chips.length - MONTH_CHIP_LIMIT) })}
+                    {t("robin.calendar.more", { count: String(hidden) })}
                   </span>
                 )}
               </div>
@@ -353,11 +385,18 @@ function MonthWeekRow({
 
 export function MonthView({
   events,
+  todos,
   today,
   days: grid,
   onSelectDay,
   onSelectEvent,
-}: ViewProps & { days: string[]; onSelectDay: (date: string) => void }) {
+  onCompleteTodo,
+}: ViewProps & {
+  todos: Todo[];
+  days: string[];
+  onSelectDay: (date: string) => void;
+  onCompleteTodo: (todo: Todo) => void;
+}) {
   const { t, locale } = useI18n();
   const scrollerRef = useTodayInView(grid[0] ?? "", today);
   const weeks = Array.from(
@@ -393,9 +432,11 @@ export function MonthView({
             key={days[0]}
             days={days}
             events={events}
+            todos={todos}
             today={today}
             onSelectDay={onSelectDay}
             onSelectEvent={onSelectEvent}
+            onCompleteTodo={onCompleteTodo}
             t={t}
           />
         ))}

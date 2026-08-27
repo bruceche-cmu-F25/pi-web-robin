@@ -19,6 +19,8 @@ export function registerTodoTools(pi: ExtensionAPI): void {
     promptSnippet: "todo_add — record a task on the user's todo list",
     promptGuidelines: [
       "When the user mentions something they intend to do later, record it with todo_add instead of only acknowledging it.",
+      "Give a todo a url whenever the task lives somewhere the user will need to open — an assignment page, a job posting, a form, a doc. The dashboard turns the title into that link.",
+      "A todo whose link shows as (auto) in todo_list is only guessing from its title (a course number opens Canvas, email talk opens the inbox). Replace it with todo_update when you know the exact page.",
     ],
     parameters: Type.Object({
       title: Type.String({ description: "Short description of the task" }),
@@ -26,6 +28,12 @@ export function registerTodoTools(pi: ExtensionAPI): void {
         Type.String({
           description:
             "Due date as YYYY-MM-DD in the user's local timezone, if they gave one. Resolve relative dates against the local date reported by todo_list, not UTC.",
+        }),
+      ),
+      url: Type.Optional(
+        Type.String({
+          description:
+            "Link to where the task is actually done, if there is one. http, https or mailto.",
         }),
       ),
     }),
@@ -65,7 +73,7 @@ export function registerTodoTools(pi: ExtensionAPI): void {
     name: "todo_update",
     label: "Update todo",
     description:
-      "Edit a todo's title or due date. Identify it by id (from todo_list) or by a distinctive part of its current title.",
+      "Edit a todo's title, due date or link. Identify it by id (from todo_list) or by a distinctive part of its current title.",
     promptSnippet: "todo_update — edit a todo on the user's todo list",
     parameters: Type.Object({
       id: Type.Optional(Type.String({ description: "Todo id from todo_list" })),
@@ -74,16 +82,23 @@ export function registerTodoTools(pi: ExtensionAPI): void {
       due: Type.Optional(
         Type.String({ description: "Replacement due date as YYYY-MM-DD, or an empty string to remove it" }),
       ),
+      url: Type.Optional(
+        Type.String({
+          description:
+            "Link to where the task is done (http, https or mailto), or an empty string to remove it",
+        }),
+      ),
     }),
     async execute(_toolCallId, params) {
-      if (params.newTitle === undefined && params.due === undefined) {
-        return text("Provide a newTitle or due date to update.");
+      if (params.newTitle === undefined && params.due === undefined && params.url === undefined) {
+        return text("Provide a newTitle, due date or url to update.");
       }
 
       try {
         const result = updateTodo(params, {
           ...(params.newTitle !== undefined ? { title: params.newTitle } : {}),
           ...(params.due !== undefined ? { due: params.due } : {}),
+          ...(params.url !== undefined ? { url: params.url } : {}),
         });
         if ("error" in result) return text(result.error);
         return text(`Updated ${formatTodo(result)}`);

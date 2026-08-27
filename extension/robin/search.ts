@@ -1,17 +1,19 @@
-import type { DashboardEvent } from "./events.ts";
 import type { Link } from "./links.ts";
 import type { Todo } from "./store.ts";
 
+/**
+ * Calendar events are deliberately absent: the calendar sits directly above the
+ * search field showing the same days, so events here only pushed the links and
+ * todos being looked for out of the result list.
+ */
 export interface DashboardSearchData {
   links: Link[];
   todos: Todo[];
-  events: DashboardEvent[];
 }
 
 export type DashboardSearchResult =
   | { kind: "link"; item: Link }
-  | { kind: "todo"; item: Todo }
-  | { kind: "event"; item: DashboardEvent };
+  | { kind: "todo"; item: Todo };
 
 interface RankedResult {
   result: DashboardSearchResult;
@@ -19,7 +21,7 @@ interface RankedResult {
   text: string;
 }
 
-/** Search every dashboard collection, preferring title matches over metadata. */
+/** Search the saved links and todos, preferring title matches over metadata. */
 export function searchDashboard(
   data: DashboardSearchData,
   query: string,
@@ -38,11 +40,6 @@ export function searchDashboard(
       result: { kind: "todo" as const, item },
       title: item.title,
       text: `${item.title} ${item.due ?? ""}`,
-    })),
-    ...data.events.map((item) => ({
-      result: { kind: "event" as const, item },
-      title: item.title,
-      text: `${item.title} ${item.date} ${item.endDate ?? ""} ${item.start ?? ""} ${item.location ?? ""}`,
     })),
   ];
 

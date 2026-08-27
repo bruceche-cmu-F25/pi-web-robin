@@ -38,13 +38,14 @@ export async function POST(req: Request) {
   const blocked = guard(req, true);
   if (blocked) return blocked;
   try {
-    const body = await req.json() as { title?: unknown; due?: unknown };
+    const body = await req.json() as { title?: unknown; due?: unknown; url?: unknown };
     const title = typeof body.title === "string" ? body.title.trim() : "";
     if (!title) return fail(new Error("title is required"));
 
     const { todo } = addTodo({
       title,
       ...(typeof body.due === "string" ? { due: body.due } : {}),
+      ...(typeof body.url === "string" ? { url: body.url } : {}),
     });
     return NextResponse.json({ todo, today: localDate() });
   } catch (error) {
@@ -62,6 +63,7 @@ export async function PATCH(req: Request) {
       title?: unknown;
       due?: unknown;
       color?: unknown;
+      url?: unknown;
     };
     if (typeof body.id !== "string") return fail(new Error("id is required"));
 
@@ -70,6 +72,7 @@ export async function PATCH(req: Request) {
       ...(typeof body.title === "string" && body.title.trim() ? { title: body.title } : {}),
       ...(typeof body.due === "string" ? { due: body.due } : {}),
       ...(typeof body.color === "string" ? { color: body.color } : {}),
+      ...(typeof body.url === "string" ? { url: body.url } : {}),
     });
     if ("error" in result) return NextResponse.json({ error: result.error }, { status: 404 });
     return NextResponse.json({ todo: result, today: localDate() });

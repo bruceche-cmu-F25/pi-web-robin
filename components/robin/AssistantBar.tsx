@@ -7,6 +7,7 @@ import {
   type DashboardSearchData,
   type DashboardSearchResult,
 } from "@/extension/robin/search";
+import { todoUrl } from "@/extension/robin/todo-links";
 import { formatLinkPaste } from "@/lib/clipboard";
 import { requestRefresh } from "./refreshBus";
 import { splitReplyLinks } from "./reply-links";
@@ -55,8 +56,9 @@ export function AssistantBar() {
   const [searchError, setSearchError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // The assistant field doubles as global search. Load all three small dashboard
-  // collections once per query, then filter locally while the user keeps typing.
+  // The assistant field doubles as global search over links and todos — not the
+  // calendar, which is already on screen. Load both small collections once per
+  // query, then filter locally while the user keeps typing.
   useEffect(() => {
     if (!message.trim()) {
       setSearchData(null);
@@ -71,9 +73,8 @@ export function AssistantBar() {
       void Promise.all([
         fetchSearchResource<Pick<DashboardSearchData, "links">>("/api/robin/links", controller.signal),
         fetchSearchResource<Pick<DashboardSearchData, "todos">>("/api/robin/todos", controller.signal),
-        fetchSearchResource<Pick<DashboardSearchData, "events">>("/api/robin/events", controller.signal),
-      ]).then(([links, todos, events]) => {
-        setSearchData({ links: links.links, todos: todos.todos, events: events.events });
+      ]).then(([links, todos]) => {
+        setSearchData({ links: links.links, todos: todos.todos });
       }).catch((caught: unknown) => {
         if ((caught as { name?: string }).name !== "AbortError") {
           setSearchError(caught instanceof Error ? caught.message : String(caught));
@@ -219,16 +220,10 @@ function SearchResults({
       style={{ border: "1px solid var(--border)", background: "var(--bg)" }}
     >
       {results.map((result) => {
-        const category = result.kind === "link"
-          ? t("robin.links.title")
-          : result.kind === "todo"
-            ? t("robin.todos.title")
-            : t("robin.calendar.title");
+        const category = result.kind === "link" ? t("robin.links.title") : t("robin.todos.title");
         const detail = result.kind === "link"
           ? linkDetail(result.item.url, result.item.group)
-          : result.kind === "todo"
-            ? [result.item.done ? "✓" : "", result.item.due ?? ""].filter(Boolean).join(" · ")
-            : [result.item.date, result.item.start ?? "", result.item.location ?? ""].filter(Boolean).join(" · ");
+          : [result.item.done ? "✓" : "", result.item.due ?? ""].filter(Boolean).join(" · ");
         const item = result.item;
         const titleColor = result.kind === "todo" && !result.item.done && result.item.color
           ? `var(--todo-${result.item.color})`
@@ -247,10 +242,14 @@ function SearchResults({
           </>
         );
 
-        return result.kind === "link" ? (
+        // A todo with a link opens where the task lives, exactly like a saved
+        // link does; completion stays in the todo panel's checkbox.
+        const href = result.kind === "link" ? result.item.url : todoUrl(result.item);
+
+        return href ? (
           <a
-            key={`link:${item.id}`}
-            href={result.item.url}
+            key={`${result.kind}:${item.id}`}
+            href={href}
             target="_blank"
             rel="noopener noreferrer"
             className="ui-action ui-action--surface flex min-h-11 items-center gap-2 border-b px-3 py-1 last:border-b-0"

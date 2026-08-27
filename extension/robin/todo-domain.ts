@@ -4,6 +4,7 @@ import {
   newId,
   normalizeDue,
   normalizeTodoColor,
+  normalizeUrl,
   readTodos,
   writeTodos,
   type Todo,
@@ -19,6 +20,8 @@ export interface TodoPatch {
   title?: string;
   due?: string;
   color?: string;
+  /** An empty string removes the link. */
+  url?: string;
 }
 
 export type TodoResult<T> = T | { error: string };
@@ -29,16 +32,18 @@ function foundTodo(ref: TodoRef): TodoResult<{ todo: Todo; todos: Todo[] }> {
   return "error" in found ? found : { todo: found.todo, todos };
 }
 
-export function addTodo(input: { title: string; due?: string }): { todo: Todo; open: number } {
+export function addTodo(input: { title: string; due?: string; url?: string }): { todo: Todo; open: number } {
   const title = input.title.trim();
   if (!title) throw new Error("title is required");
   const due = input.due?.trim() ? normalizeDue(input.due) : undefined;
+  const url = input.url?.trim() ? normalizeUrl(input.url) : undefined;
   const todos = readTodos();
   const todo: Todo = {
     id: newId(),
     title,
     done: false,
     ...(due ? { due } : {}),
+    ...(url ? { url } : {}),
     createdAt: new Date().toISOString(),
   };
   todos.push(todo);
@@ -64,6 +69,10 @@ export function updateTodo(ref: TodoRef, patch: TodoPatch): TodoResult<Todo> {
   if (patch.due !== undefined) {
     if (patch.due.trim()) todo.due = normalizeDue(patch.due);
     else delete todo.due;
+  }
+  if (patch.url !== undefined) {
+    if (patch.url.trim()) todo.url = normalizeUrl(patch.url);
+    else delete todo.url;
   }
   if (patch.color !== undefined) {
     if (patch.color.trim()) todo.color = normalizeTodoColor(patch.color);

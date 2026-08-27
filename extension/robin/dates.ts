@@ -71,6 +71,7 @@ export function normalizeDue(value: string): string {
 }
 
 export type DueBucket = "overdue" | "today" | "tomorrow" | "upcoming" | "none";
+export type DeadlineBucket = Exclude<DueBucket, "upcoming"> | "thisWeek" | "later";
 
 /** YYYY-MM-DD compares lexicographically in chronological order. */
 export function dueBucket(due: string | undefined, today: string): DueBucket {
@@ -79,6 +80,13 @@ export function dueBucket(due: string | undefined, today: string): DueBucket {
   if (due === today) return "today";
   if (due === addDays(today, 1)) return "tomorrow";
   return "upcoming";
+}
+
+/** Split future deadlines at the end of the current Monday-first week. */
+export function deadlineBucket(due: string | undefined, today: string): DeadlineBucket {
+  const bucket = dueBucket(due, today);
+  if (bucket !== "upcoming") return bucket;
+  return due! <= addDays(startOfWeek(today), 6) ? "thisWeek" : "later";
 }
 
 /**

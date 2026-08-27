@@ -14,7 +14,9 @@ import {
   layoutSpanBars,
   visibleHourRange,
 } from "@/extension/robin/layout";
+import type { Todo } from "@/extension/robin/store";
 import { spanSurface, timedSurface } from "./eventSurface";
+import { TodoTitle } from "./TodoTitle";
 import { useTodayInView } from "./useTodayInView";
 
 /** Give dense cards enough vertical room for title, time, and useful details. */
@@ -43,14 +45,18 @@ function useNowMinutes(): number {
 
 export function WeekGrid({
   events,
+  todos,
   today,
   anchor,
   onSelectEvent,
+  onCompleteTodo,
 }: {
   events: DashboardEvent[];
+  todos: Todo[];
   today: string;
   anchor: string;
   onSelectEvent: (event: DashboardEvent) => void;
+  onCompleteTodo: (todo: Todo) => void;
 }) {
   const { t, locale } = useI18n();
   const days = weekDays(anchor);
@@ -153,6 +159,51 @@ export function WeekGrid({
                 </button>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* Deadlines use their own labelled band, checkbox, dashed edge, and
+            amber wash so they never rely on colour alone to differ from events. */}
+        {todos.length > 0 && (
+          <div
+            className="grid gap-px border-b py-1 font-mono"
+            style={{
+              gridTemplateColumns: `${TIME_GUTTER} repeat(7, minmax(0, 1fr))`,
+              borderColor: "var(--border)",
+            }}
+          >
+            <div className="pi-meta pr-1 text-right" style={{ color: "var(--accent-amber)" }}>
+              {t("robin.todos.deadlines")}
+            </div>
+            {days.map((date) => (
+              <div
+                key={date}
+                className="flex min-w-0 flex-col gap-1 px-0.5"
+                style={{ background: date === today ? "var(--today-wash)" : "transparent" }}
+              >
+                {todos.filter((todo) => todo.due === date).map((todo) => (
+                  <div
+                    key={todo.id}
+                    className="flex min-h-7 items-center gap-1.5 overflow-hidden px-1.5"
+                    style={{
+                      background: "var(--accent-amber-soft)",
+                      border: "1px dashed var(--accent-amber-line)",
+                      color: todo.color ? `var(--todo-${todo.color})` : "var(--text)",
+                    }}
+                    title={`${t("robin.todos.deadline")}: ${todo.title}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={todo.done}
+                      onChange={() => onCompleteTodo(todo)}
+                      aria-label={t("robin.todos.complete", { title: todo.title })}
+                      className="shrink-0 cursor-pointer"
+                    />
+                    <TodoTitle todo={todo} t={t} className="min-w-0 truncate" style={{ fontSize: 11.5 }} />
+                  </div>
+                ))}
+              </div>
+            ))}
           </div>
         )}
 

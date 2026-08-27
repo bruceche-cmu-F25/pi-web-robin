@@ -10,16 +10,18 @@ const data = {
   todos: [
     { id: "t1", title: "Apply to Acme", done: false, due: "2026-08-20", createdAt: "" },
   ],
-  events: [
-    { id: "e1", title: "Office hours", date: "2026-08-20", location: "Wean Hall", createdAt: "" },
-  ],
 };
 
 test("searchDashboard searches titles and collection metadata", () => {
   assert.equal(searchDashboard(data, "gmail")[0]?.kind, "link");
   assert.equal(searchDashboard(data, "日常入口")[0]?.kind, "link");
-  assert.equal(searchDashboard(data, "2026-08-20").length, 2);
-  assert.equal(searchDashboard(data, "Wean")[0]?.kind, "event");
+  assert.deepEqual(searchDashboard(data, "2026-08-20").map(({ kind }) => kind), ["todo"]);
+});
+
+test("the calendar is left out — it is already on screen above the field", () => {
+  const withEvents = { ...data, events: [{ id: "e1", title: "Office hours", date: "2026-08-20", location: "Wean Hall" }] };
+  assert.deepEqual(searchDashboard(withEvents, "Office hours"), []);
+  assert.deepEqual(searchDashboard(withEvents, "Wean"), []);
 });
 
 test("searchDashboard ranks title matches first and respects its limit", () => {

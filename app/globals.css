@@ -805,6 +805,17 @@ body {
 }
 .robin-dashboard-header {
   padding-top: env(safe-area-inset-top);
+  /* The header is otherwise transparent on purpose — only the search card is
+     painted. But the strip the inset opens up sits under a translucent iOS
+     status bar, and the page scrolling visibly behind the clock is not the
+     same design decision. Painting only that strip keeps both: the layers are
+     zero pixels tall wherever the inset is zero, which is everywhere but a
+     notched phone. */
+  background:
+    linear-gradient(var(--dashboard-ground), var(--dashboard-ground))
+      top / 100% env(safe-area-inset-top) no-repeat,
+    linear-gradient(var(--bg), var(--bg))
+      top / 100% env(safe-area-inset-top) no-repeat;
 }
 
 /* ---------------------------------------------------------------------------

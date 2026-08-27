@@ -14,7 +14,7 @@ import {
   parseLocalDate,
   pruneCompletedTodos,
 } from "./store.ts";
-import { addMonths, isInstantOnLocalDate, isSameMonth, monthGrid, startOfMonth, startOfWeek, weekDays, weeksFrom } from "./dates.ts";
+import { addMonths, deadlineBucket, isInstantOnLocalDate, isSameMonth, monthGrid, startOfMonth, startOfWeek, weekDays, weeksFrom } from "./dates.ts";
 
 const todo = (fields) => ({ id: "x", title: "t", done: false, createdAt: "", ...fields });
 
@@ -77,6 +77,15 @@ test("dueBucket classifies against the supplied local today", () => {
   assert.equal(dueBucket("2026-08-15", today), "tomorrow");
   assert.equal(dueBucket("2026-09-01", today), "upcoming");
   assert.equal(dueBucket(undefined, today), "none");
+});
+
+test("deadlineBucket separates the rest of this week from later work", () => {
+  const friday = "2026-08-14";
+  assert.equal(deadlineBucket("2026-08-13", friday), "overdue");
+  assert.equal(deadlineBucket("2026-08-15", friday), "tomorrow");
+  assert.equal(deadlineBucket("2026-08-16", friday), "thisWeek");
+  assert.equal(deadlineBucket("2026-08-17", friday), "later");
+  assert.equal(deadlineBucket(undefined, friday), "none");
 });
 
 test("startOfWeek snaps back to Monday", () => {

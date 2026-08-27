@@ -17,6 +17,7 @@ import type { MailReview } from "./mail.ts";
 import { DEFAULT_JOB_PROFILE, type Job, type JobProfile } from "./jobs.ts";
 import type { Link } from "./links.ts";
 import type { PracticeList, PracticeRecord } from "./practice.ts";
+import { todoUrl } from "./todo-links.ts";
 import { createDeliveryLedger } from "./delivery-ledger.ts";
 import { dataPath, readJsonArray, readJsonObject, writeJsonArray, writeJsonObject } from "./paths.ts";
 
@@ -32,6 +33,7 @@ export {
   type CalendarEvent,
 } from "./events.ts";
 export { groupLinks, iconFallback, normalizeUrl, reorderLinkGroups, type Link } from "./links.ts";
+export { inferTodoUrl, todoUrl } from "./todo-links.ts";
 export {
   NEETCODE_CATALOG,
   PATTERN_ORDER,
@@ -115,6 +117,12 @@ export interface Todo {
   due?: string;
   /** User-selected title hue keyed to the calendar palette. */
   color?: EventColorKey;
+  /**
+   * Where the task actually lives — the assignment page, the job posting, the
+   * doc. Normalized through `normalizeUrl`, since the dashboard renders it as
+   * an href.
+   */
+  url?: string;
   /** UTC instant, ISO 8601. */
   createdAt: string;
   /** UTC instant, ISO 8601. */
@@ -502,7 +510,12 @@ const DUE_LABEL: Record<DueBucket, (due: string) => string> = {
 export function formatTodo(todo: Todo, today: string = localDate()): string {
   const box = todo.done ? "[x]" : "[ ]";
   const bucket = todo.done ? "none" : dueBucket(todo.due, today);
-  return `${box} ${todo.id}  ${todo.title}${DUE_LABEL[bucket](todo.due ?? "")}`;
+  // The link is part of the todo, so a model reading the list can see which
+  // tasks already point somewhere and which still need one. Inferred links are
+  // marked, because those are the ones worth replacing with a real address.
+  const url = todoUrl(todo);
+  const link = url ? ` -> ${url}${todo.url ? "" : " (auto)"}` : "";
+  return `${box} ${todo.id}  ${todo.title}${DUE_LABEL[bucket](todo.due ?? "")}${link}`;
 }
 
 /* ──────────────────────────── practice ──────────────────────────── */

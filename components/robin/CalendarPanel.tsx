@@ -319,14 +319,17 @@ export function CalendarPanel() {
       {today && view === "week" && (
         <WeekGrid
           events={visible}
+          todos={visibleTodos}
           today={today}
           anchor={activeAnchor}
           onSelectEvent={setSelectedEvent}
+          onCompleteTodo={completeTodo}
         />
       )}
       {today && view === "month" && (
         <MonthView
           events={visible}
+          todos={visibleTodos}
           today={today}
           days={weeksFrom(activeAnchor, MONTH_WEEKS)}
           onSelectDay={(day) => {
@@ -334,6 +337,7 @@ export function CalendarPanel() {
             chooseView("week");
           }}
           onSelectEvent={setSelectedEvent}
+          onCompleteTodo={completeTodo}
         />
       )}
 
