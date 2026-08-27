@@ -271,6 +271,8 @@ export const enLocale: LocalePlugin = {
     "learn.entry.problems.blurb": "The NeetCode roadmap with a coach that hints instead of answering, and a review queue that brings a problem back before you have lost it.",
     "learn.entry.curriculum.title": "Full-stack learning",
     "learn.entry.curriculum.blurb": "A syllabus from JavaScript to system design: every module says what it makes you able to do, and ends in something you build.",
+    "learn.entry.capabilityMap.title": "Software & AI engineering world",
+    "learn.entry.capabilityMap.blurb": "A progressive industry world model: six engineering foundations, an AI extension, clear boundaries, acquisition methods, and role depth references.",
     "learn.progress.solved": "{solved}/{total} solved",
     "learn.shelf.title": "Study links",
     "learn.shelf.entry": "Course entry points",

@@ -98,6 +98,13 @@ export function LearningHub() {
       blurb: t("learn.entry.curriculum.blurb"),
       progress: null,
     },
+    {
+      id: "capability-map",
+      href: "/learn/map",
+      title: t("learn.entry.capabilityMap.title"),
+      blurb: t("learn.entry.capabilityMap.blurb"),
+      progress: null,
+    },
   ];
 
   return (

@@ -1003,6 +1003,8 @@ export const zhTWLocale: LocalePlugin = {
     "learn.entry.problems.blurb": "NeetCode 路线图，旁边是只给提示不给答案的教练，外加一条会在你忘掉之前把题送回来的复习队列。",
     "learn.entry.curriculum.title": "全栈学习",
     "learn.entry.curriculum.blurb": "从 JavaScript 到系统设计的一套大纲：每个模块都写明它让你能做到什么，并以一个要动手做出来的东西收尾。",
+    "learn.entry.capabilityMap.title": "軟體與 AI 工程世界",
+    "learn.entry.capabilityMap.blurb": "循序展開的產業世界模型：六塊工程底座、AI 擴展層、清楚邊界、習得方法，以及職位要求的理解深度參考。",
     "learn.progress.solved": "已解 {solved}/{total}",
     "learn.shelf.title": "学习链接",
     "learn.shelf.entry": "课程入口",
