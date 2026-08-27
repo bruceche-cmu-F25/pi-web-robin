@@ -203,6 +203,40 @@ test("a posting that states no years requirement carries none", async () => {
   assert.equal(jobs[1].yearsRequired, undefined);
 });
 
+test("a posting asking more years than the profile allows is filed, not offered", async () => {
+  // The gate used to sit only in front of the push, which left the board full
+  // of roles the profile had already ruled out. Filed as "dropped" rather than
+  // discarded: the row stays auditable, stays out of the scorer's queue, and
+  // its URL stays in the dedup set so the next scan cannot bring it back.
+  const { added, jobs } = await intake([], [
+    posting({
+      url: "https://x/1",
+      title: "AI Engineer",
+      description: "You are an engineer with 6+ years of professional experience.",
+    }),
+    posting({
+      url: "https://x/2",
+      title: "AI Engineer",
+      location: "San Francisco",
+      description: "You are an engineer with 2+ years of professional experience.",
+    }),
+  ], offline, rules({ maxYears: 3 }));
+
+  assert.equal(added, 2, "both rows are stored — only their status differs");
+  assert.equal(jobs[0].status, "dropped");
+  assert.deepEqual(jobs[0].flags, ["asks 6+ yrs"]);
+  assert.equal(jobs[1].status, "new");
+  assert.equal(jobs[1].flags, undefined);
+});
+
+test("with no ceiling set, a long-experience posting is left alone", async () => {
+  const { jobs } = await intake([], [
+    posting({ url: "https://x/1", description: "Engineer with 9+ years of professional experience." }),
+  ], offline, rules({ maxYears: 0 }));
+  assert.equal(jobs[0].status, "new");
+  assert.equal(jobs[0].yearsRequired, 9);
+});
+
 test("an empty batch touches neither the network nor the store", async () => {
   const seeded = [stored({ id: "keep" })];
   writeJobs(seeded);

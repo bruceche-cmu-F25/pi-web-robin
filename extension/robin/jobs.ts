@@ -389,10 +389,40 @@ export const LOCATION_PRESETS: readonly JobPreset[] = [
   { id: "nyc", locationAllow: ["New York", "NYC", "Brooklyn"] },
   { id: "seattle", locationAllow: ["Seattle", "Bellevue", "Redmond"] },
   {
+    // Written the way boards write it, not the way an atlas does.
+    //
+    // The first draft of this list named twelve countries in full, and every
+    // posting that got past it said something shorter: "Remote, UK", "Remote -
+    // EMEA", "LATAM Remote", "Republic of Ireland (Remote)". A block term is
+    // only worth having if it matches the string an employer actually printed,
+    // so the abbreviations come first and the long forms back them up.
+    //
+    // Cities are here only where the name belongs to one place. Toronto and
+    // Bengaluru are safe; Cambridge, Manchester, Birmingham, Vancouver, Dublin,
+    // Melbourne, Paris, Berlin, Amsterdam, Warsaw, Madrid, Lisbon, Ottawa and
+    // Bogotá are not — every one of those is also a US city, and two of them
+    // were caught blocking real Bay Area and Florida postings. Where the city
+    // had to go, the country it sits in carries the block instead.
     id: "usonly",
     locationBlock: [
-      "India", "Bengaluru", "Hyderabad", "Pune", "Philippines", "Manila",
-      "United Kingdom", "London", "Germany", "Poland", "Singapore", "Japan",
+      "UK", "EU", "EMEA", "APAC", "LATAM", "Europe",
+      "United Kingdom", "London", "Ireland", "Belfast",
+      "Germany", "Munich", "France", "Spain", "Barcelona", "Portugal",
+      "Netherlands", "Belgium", "Switzerland", "Zurich",
+      "Sweden", "Norway", "Denmark", "Finland",
+      "Poland", "Romania", "Bucharest", "Bulgaria", "Sofia",
+      "Czech", "Hungary", "Budapest", "Ukraine", "Turkey", "Istanbul",
+      "Israel", "Tel Aviv", "Dubai", "UAE", "Egypt", "Nigeria", "Lagos",
+      "Kenya", "Nairobi", "South Africa",
+      "India", "Bengaluru", "Bangalore", "Hyderabad", "Pune", "Chennai",
+      "Mumbai", "Gurgaon", "Noida", "Pakistan", "Philippines", "Manila",
+      "Singapore", "Malaysia", "Indonesia", "Thailand", "Vietnam",
+      "China", "Shanghai", "Beijing", "Shenzhen", "Hong Kong", "Taiwan",
+      "Japan", "Tokyo", "Korea", "Seoul",
+      "Australia", "Sydney", "New Zealand", "Auckland",
+      "Canada", "Toronto", "Montreal",
+      "Mexico", "Guadalajara", "Brazil", "Argentina", "Chile", "Colombia",
+      "Costa Rica", "Uruguay",
     ],
   },
 ];
@@ -523,6 +553,32 @@ export interface LocationRules {
 }
 
 /**
+ * Compile one lowercased location term into a matcher.
+ *
+ * Word-anchored whenever the term is plain letters and spaces, which covers
+ * every country, region and city anyone writes here. A bare `includes` made
+ * "US" match Houston, Columbus and Belarus, and "EU" match Seattle — so the
+ * short forms a board actually prints ("Remote, UK", "Remote - EMEA", "LATAM
+ * Remote") were unusable as block terms, and a block list that can only name
+ * places in full is a block list that misses most of them.
+ *
+ * Lookarounds rather than `\b` so a term still matches against punctuation and
+ * digits either side: "US-Remote", "999 REMOTE" and "Remote-Friendly" all have
+ * to hit. Anything with punctuation of its own ("u.s.") stays a substring
+ * match, because anchoring it would depend on how the board spelled it.
+ *
+ * "New X" is never X. Blocking Mexico must not cost you Albuquerque, and the
+ * same trap is waiting under England, Hampshire, Jersey, Zealand and Delhi —
+ * in a US-facing job list the "New" one is almost always the American place,
+ * and it is a different place either way.
+ */
+function compileLocationTerm(term: string): (lowerLocation: string) => boolean {
+  if (!/^[a-z]+(?: [a-z]+)*$/.test(term)) return (lower) => lower.includes(term);
+  const pattern = new RegExp(`(?<!\\bnew[ -])(?<![a-z])${term}(?![a-z])`);
+  return (lower) => pattern.test(lower);
+}
+
+/**
  * Order matters and is the whole point:
  *
  *   empty location → pass (a missing field is not a reason to drop a job)
@@ -536,7 +592,7 @@ export interface LocationRules {
  */
 export function buildLocationFilter(rules: LocationRules): (location: string) => boolean {
   const clean = (list: string[]) =>
-    list.map((value) => value.trim().toLowerCase()).filter(Boolean);
+    list.map((value) => value.trim().toLowerCase()).filter(Boolean).map(compileLocationTerm);
   const always = clean(rules.always);
   const block = clean(rules.block);
   const allow = clean(rules.allow);
@@ -544,10 +600,10 @@ export function buildLocationFilter(rules: LocationRules): (location: string) =>
   return (location: string) => {
     const lower = location.trim().toLowerCase();
     if (!lower) return true;
-    if (always.some((term) => lower.includes(term))) return true;
-    if (block.some((term) => lower.includes(term))) return false;
+    if (always.some((matches) => matches(lower))) return true;
+    if (block.some((matches) => matches(lower))) return false;
     if (allow.length === 0) return true;
-    return allow.some((term) => lower.includes(term));
+    return allow.some((matches) => matches(lower));
   };
 }
 
@@ -669,8 +725,17 @@ const NOT_A_REQUIREMENT = /\b(?:last|past|next|ago|within|since|over the|founded
  *
  * "8+ years of engineering experience, including 2+ years managing" states one
  * requirement, not two, and the 2 is the part that is already inside the 8.
+ *
+ * A bare "with" used to count as nesting too, and it cost far more than the
+ * rule earns: "a strong engineer with 5+ years of experience" is the commonest
+ * way a posting states its bar at all, and reading it as nested threw the
+ * requirement away — 18 of 530 stored postings said five, six or eight years
+ * and came out with no figure. The nesting sense of "with" only appears after
+ * a comma ("8+ years of backend experience, with 3+ years in Go"), and there
+ * the inner figure is smaller than the one containing it by construction,
+ * which the maximum below already discards.
  */
-const NESTED = /\b(?:includ\w+|of which|with)\s*$/i;
+const NESTED = /\b(?:includ\w+|of which)\s*$/i;
 
 /** Wishlist framing. A number here is not something the candidate must clear. */
 const OPTIONAL = /\b(?:preferred|a plus|bonus|nice[- ]to[- ]have|ideally|desirable|advantageous|would be great)\b/i;

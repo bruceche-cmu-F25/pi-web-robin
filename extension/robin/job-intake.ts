@@ -146,8 +146,10 @@ function roleKey(posting: { company: string; title: string; location: string }):
 function mergePostings(
   existing: Job[],
   postings: ScannedPosting[],
+  profile: JobProfile,
   now: string = new Date().toISOString(),
 ): { jobs: Job[]; added: number } {
+  const maxYears = profile.maxYears > 0 ? profile.maxYears : null;
   const seen = new Set(existing.map((job) => jobKey(job.url)));
   const sameRole = new Set(existing.map(roleKey));
   const added: Job[] = [];
@@ -170,6 +172,15 @@ function mergePostings(
     seen.add(key);
     sameRole.add(role);
     const years = posting.description ? extractYearsRequired(posting.description) : null;
+    // The experience ceiling, applied the moment the description is in hand.
+    //
+    // It used to be checked only in `digestCandidates`, one step before a phone
+    // buzzes — which kept the push clean and left the board itself full of
+    // roles asking for five, six and eight years. Sixty-six of them, against a
+    // profile that says three. Filed as "dropped" rather than discarded so the
+    // row stays auditable under that tab, stays out of the scorer's queue, and
+    // cannot be rediscovered and re-scored on the next scan.
+    const overExperienced = maxYears !== null && years !== null && years > maxYears;
     added.push({
       id: newId(),
       url,
@@ -183,8 +194,9 @@ function mergePostings(
       // description is capped, so this is the only place the full text and the
       // number are guaranteed to agree.
       ...(years === null ? {} : { yearsRequired: years }),
+      ...(overExperienced ? { flags: [`asks ${years}+ yrs`] } : {}),
       discoveredAt: now,
-      status: "new",
+      status: overExperienced ? "dropped" : "new",
     });
   }
 
@@ -216,7 +228,7 @@ export async function absorb(
   await hydrateDescriptions(postings, ctx, {
     readUnknownBoards: rules.profile.readUnknownBoards,
   });
-  const merged = mergePostings(pruneJobs(readJobs()), postings);
+  const merged = mergePostings(pruneJobs(readJobs()), postings, rules.profile);
   writeJobs(merged.jobs);
   return { added: merged.added };
 }

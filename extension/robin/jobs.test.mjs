@@ -86,6 +86,64 @@ test("location rules resolve in the documented order", () => {
   assert.equal(passes("Berlin, Germany"), false, "not blocked, but not on the allow list either");
 });
 
+test("a short block term matches a word, not a fragment of another one", () => {
+  // "Remote, UK" and "Remote - EMEA" are how boards actually write it, and a
+  // substring match made both unusable: "UK" is a fragment of nothing here,
+  // but "US" on the allow side matched Houston and Columbus.
+  const passes = buildLocationFilter({
+    always: [],
+    allow: ["Remote", "US"],
+    block: ["UK", "EMEA", "EU"],
+  });
+  assert.equal(passes("Remote, UK"), false);
+  assert.equal(passes("Remote - EMEA"), false);
+  assert.equal(passes("Remote EU"), false);
+  assert.equal(passes("US-Remote"), true);
+  assert.equal(passes("Remote | Seattle, WA"), true, "Seattle is not the blocked term \"EU\"");
+  // The other half of the same bug: "US" as a plain substring admitted every
+  // city with those two letters in it, wherever in the world it was.
+  const usOnly = buildLocationFilter({ always: [], allow: ["US"], block: [] });
+  assert.equal(usOnly("Remote, US"), true);
+  assert.equal(usOnly("Houston, TX"), false, "a US city is not the term \"US\"");
+  assert.equal(usOnly("Belarus"), false);
+});
+
+test("a remote posting is still governed by where it says it is", () => {
+  // The bug this pins: "Remote" on the allow list passed "Remote in UK" and
+  // "LATAM Remote" alike, because the term was matched as a substring of the
+  // whole string and nothing looked at the rest of it. The block list is what
+  // answers that, so it has to be able to name a region the way a board does.
+  const passes = buildLocationFilter({
+    always: ["San Francisco"],
+    allow: ["Remote", "United States", "USA"],
+    block: ["UK", "EMEA", "LATAM", "Ireland", "Toronto"],
+  });
+  assert.equal(passes("Remote in UK \u00b7 Remote in Ireland"), false);
+  assert.equal(passes("LATAM Remote"), false);
+  assert.equal(passes("Movable Ink - Toronto (Remote)"), false);
+  assert.equal(passes("Remote - United States"), true);
+  assert.equal(
+    passes("San Francisco \u00b7 New York City \u00b7 London, UK"),
+    true,
+    "a multi-city posting keeps its home region",
+  );
+});
+
+test("blocking a country does not block the US place named after it", () => {
+  // Caught on real rows: "US-CA-Dublin \u00b7 US-CA-Menlo Park" and "United
+  // States-Florida-Melbourne" were both being thrown away by a block list that
+  // named the Irish and Australian cities.
+  const passes = buildLocationFilter({
+    always: [],
+    allow: ["United States", "US"],
+    block: ["Mexico", "Ireland", "England"],
+  });
+  assert.equal(passes("US - Albuquerque, New Mexico"), true);
+  assert.equal(passes("United States, New England"), true);
+  assert.equal(passes("Remote - Mexico"), false);
+  assert.equal(passes("US - Remote"), true);
+});
+
 test("an empty allow list means anywhere that is not blocked", () => {
   const passes = buildLocationFilter({ always: [], allow: [], block: ["India"] });
   assert.equal(passes("Berlin, Germany"), true);
@@ -289,6 +347,21 @@ test("a nested sub-requirement is part of the bar, not a second one", () => {
   assert.equal(
     extractYearsRequired("Have 5+ years of experience in engineering, of which 3+ years in infrastructure"),
     5,
+  );
+});
+
+test("a bar stated after \"with\" is the bar, not a nested slice of one", () => {
+  // The commonest phrasing there is, and it used to read as nesting and throw
+  // the requirement away entirely.
+  assert.equal(
+    extractYearsRequired("You're a strong full-stack engineer with 5+ years of experience shipping software"),
+    5,
+  );
+  assert.equal(extractYearsRequired("Bachelor's degree with 8 years of industry experience"), 8);
+  // Still the maximum when a genuinely nested clause follows a comma.
+  assert.equal(
+    extractYearsRequired("6+ years of backend experience, with 2+ years of experience in Go"),
+    6,
   );
 });
 
