@@ -1930,7 +1930,9 @@ export async function startRpcSession(
   const { initialModel, allowInitialModelFallback, thinkingLevel, exactTools } = options;
   const requestedToolNames = options.toolNames === undefined
     ? undefined
-    : validateSessionToolSelection(options.toolNames);
+    : exactTools
+      ? [...new Set(options.toolNames)]
+      : validateSessionToolSelection(options.toolNames);
   const registry = getRegistry();
   const locks = getLocks();
 
@@ -1953,11 +1955,11 @@ export async function startRpcSession(
         sessionManager.getEntries() as unknown as SessionEntry[],
       )
     : null;
-  const persistedToolNames = subagentResources
+  const persistedToolNames = subagentResources || exactTools
     ? undefined
     : readSessionToolSelection(sessionManager.getEntries() as unknown as SessionEntry[]);
   const selectedToolNames = subagentResources?.tools ?? persistedToolNames ?? requestedToolNames;
-  if (!subagentResources && persistedToolNames === undefined && requestedToolNames !== undefined) {
+  if (!subagentResources && !exactTools && persistedToolNames === undefined && requestedToolNames !== undefined) {
     appendSessionToolSelection(sessionManager, requestedToolNames);
   }
   const subagentLoadsResources = Boolean(
