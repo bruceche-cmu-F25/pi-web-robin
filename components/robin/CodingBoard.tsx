@@ -2,7 +2,6 @@
 
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { getInitialNavigation } from "@/lib/initial-navigation";
 import { PracticeWorkspace } from "./PracticeWorkspace";
 import { StudyWorkspace } from "./StudyWorkspace";
 import { isCodingTrack, type CodingTrack } from "./WorkspaceHeader";
@@ -10,7 +9,7 @@ import { isCodingTrack, type CodingTrack } from "./WorkspaceHeader";
 const TRACK_STORAGE_KEY = "pi-coding-track";
 
 /**
- * The coding workspace shell: which track, and how to get out.
+ * The coding workspace shell: which track is mounted.
  *
  * Two tracks rather than two pages because they are one habit. Problems build
  * the reflexes an interview asks for; the curriculum builds the engineer who
@@ -23,12 +22,6 @@ const TRACK_STORAGE_KEY = "pi-coding-track";
  */
 export function CodingBoard() {
   const searchParams = useSearchParams();
-  const { sessionId, requestedCwd: cwd } = getInitialNavigation(searchParams);
-  const chatHref = sessionId
-    ? `/?session=${encodeURIComponent(sessionId)}`
-    : cwd
-      ? `/?cwd=${encodeURIComponent(cwd)}`
-      : "/";
 
   /**
    * A `?track=` in the URL wins, and is safe to read during render: it is in
@@ -67,7 +60,7 @@ export function CodingBoard() {
     window.localStorage.setItem(TRACK_STORAGE_KEY, next);
   };
 
-  const chrome = { track, onTrackChange: chooseTrack, chatHref };
+  const chrome = { track, onTrackChange: chooseTrack };
 
   return track === "problems"
     ? <PracticeWorkspace {...chrome} />

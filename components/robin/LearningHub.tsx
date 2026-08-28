@@ -1,8 +1,6 @@
 "use client";
 
 import { useMemo } from "react";
-import { useSearchParams } from "next/navigation";
-import { getInitialNavigation } from "@/lib/initial-navigation";
 import { useI18n } from "@/hooks/useI18n";
 import {
   problemsInList,
@@ -50,14 +48,6 @@ interface HubEntry {
  */
 export function LearningHub() {
   const { t } = useI18n();
-  const searchParams = useSearchParams();
-  const { sessionId, requestedCwd: cwd } = getInitialNavigation(searchParams);
-  const chatHref = sessionId
-    ? `/?session=${encodeURIComponent(sessionId)}`
-    : cwd
-      ? `/?cwd=${encodeURIComponent(cwd)}`
-      : "/";
-
   /**
    * Only the practice side is polled.
    *
@@ -120,22 +110,6 @@ export function LearningHub() {
             </h1>
             <p className="pi-eyebrow">{t("learn.subtitle")}</p>
           </div>
-          <nav className="flex flex-wrap items-baseline gap-3">
-            {/* Native navigations rather than next/link, like the workspace's:
-                a client-side RSC fetch can fail silently on a Basic Auth 401,
-                while a document navigation lets the browser prompt. */}
-            <a href="/dashboard" className="ui-action pi-chrome-label pi-bracket" style={{ fontSize: 11 }}>
-              {t("robin.nav.back")}
-            </a>
-            <a
-              href={chatHref}
-              className="ui-action pi-chrome-label pi-bracket"
-              data-state="accent"
-              style={{ fontSize: 11 }}
-            >
-              {t("robin.nav.chat")}
-            </a>
-          </nav>
         </div>
 
         <section className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))" }}>

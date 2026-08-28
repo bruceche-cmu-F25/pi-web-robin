@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   DailyAgendaSettings,
@@ -11,7 +10,6 @@ import type {
   TranscriptionSettings,
 } from "@/extension/robin/settings";
 import { useI18n } from "@/hooks/useI18n";
-import { ChatLink } from "./ChatLink";
 
 interface SecretStatus {
   set: boolean;
@@ -258,16 +256,6 @@ export function SettingsPanel() {
             {t("robin.settings.subtitle")}
           </p>
         </div>
-        <nav className="flex flex-wrap items-baseline gap-3">
-          <Link
-            href="/dashboard"
-            className="inline-flex min-h-11 items-center text-sm hover:underline"
-            style={{ color: "var(--accent)" }}
-          >
-            {t("robin.nav.back")}
-          </Link>
-          <ChatLink />
-        </nav>
       </header>
 
       <section

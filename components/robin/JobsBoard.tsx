@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import {
@@ -11,7 +10,6 @@ import {
   type JobProfile,
   type JobStatus,
 } from "@/extension/robin/jobs";
-import { ChatLink } from "./ChatLink";
 import { JobFilterDialog, type FilterCatalogue } from "./JobFilterDialog";
 import { JobLinks } from "./JobLinks";
 import { JobRow } from "./JobRow";
@@ -316,10 +314,6 @@ export function JobsBoard() {
             >
               {sweepState?.running ? t("robin.jobs.sweeping") : t("robin.jobs.sweep")}
             </button>
-            <Link href="/dashboard" className="ui-action pi-chrome-label pi-bracket text-xs">
-              {t("robin.nav.back")}
-            </Link>
-            <ChatLink />
           </nav>
         </header>
 

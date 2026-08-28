@@ -4,6 +4,8 @@ import { readFile } from "node:fs/promises";
 
 const read = (name) => readFile(new URL(`./${name}`, import.meta.url), "utf8");
 const source = await read("LearningHub.tsx");
+const navigationSource = await read("RobinMargin.tsx");
+const learnLayoutSource = await read("../../app/learn/layout.tsx");
 
 /**
  * The track list, read out of the source rather than imported.
@@ -25,10 +27,11 @@ test("the hub links to every track of the workspace", async () => {
   }
 });
 
-test("hub navigation uses document navigation so Basic Auth can challenge", () => {
-  assert.doesNotMatch(source, /from ["']next\/link["']/);
-  assert.match(source, /<a href="\/dashboard"/);
-  assert.match(source, /href=\{chatHref\}/);
+test("hub navigation lives in the shared shell and can challenge Basic Auth", () => {
+  assert.match(learnLayoutSource, /<RobinShell>\{children\}<\/RobinShell>/);
+  assert.doesNotMatch(navigationSource, /from ["']next\/link["']/);
+  assert.match(navigationSource, /path: "\/dashboard"/);
+  assert.match(navigationSource, /href: chatHref/);
 });
 
 test("the hub stays a front door rather than a second dashboard", async () => {

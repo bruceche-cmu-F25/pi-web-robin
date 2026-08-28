@@ -14,8 +14,6 @@ export function isCodingTrack(value: unknown): value is CodingTrack {
 export interface WorkspaceChrome {
   track: CodingTrack;
   onTrackChange: (track: CodingTrack) => void;
-  /** Where the chat link goes back to — the session or cwd this was opened with. */
-  chatHref: string;
 }
 
 /**
@@ -101,7 +99,6 @@ export function WorkspacePaneSwitch<Pane extends string>({
 export function WorkspaceHeader({
   track,
   onTrackChange,
-  chatHref,
   children,
 }: WorkspaceChrome & { children?: ReactNode }) {
   const { t } = useI18n();
@@ -130,29 +127,6 @@ export function WorkspaceHeader({
       </div>
 
       {children}
-
-      <nav className="ml-auto flex flex-wrap items-baseline gap-3">
-        {/* These are deliberately native navigations rather than next/link.
-            A client-side RSC fetch can fail silently on a Basic Auth 401;
-            a document navigation lets the browser show the login prompt. */}
-        <a href="/learn" className="ui-action pi-chrome-label pi-bracket" style={{ fontSize: 10 }}>
-          {t("robin.nav.learn")}
-        </a>
-        <a href="/dashboard" className="ui-action pi-chrome-label pi-bracket" style={{ fontSize: 10 }}>
-          {t("robin.nav.back")}
-        </a>
-        {/* Carries the session or cwd it was opened with, so leaving the
-            workspace lands on the chat you came from rather than whatever
-            the app last had open. Same contract as the dashboard's link. */}
-        <a
-          href={chatHref}
-          className="ui-action pi-chrome-label pi-bracket"
-          data-state="accent"
-          style={{ fontSize: 10 }}
-        >
-          {t("robin.nav.chat")}
-        </a>
-      </nav>
     </header>
   );
 }

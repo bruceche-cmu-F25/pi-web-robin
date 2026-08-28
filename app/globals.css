@@ -698,7 +698,9 @@ body {
 }
 @media (hover: none) {
   .pi-bracket:hover::before,
-  .pi-bracket:hover::after {
+  .pi-bracket:hover::after,
+  .robin-margin-entry:hover::before,
+  .robin-margin-entry:hover::after {
     transform: none;
   }
 }
@@ -816,6 +818,279 @@ body {
       top / 100% env(safe-area-inset-top) no-repeat,
     linear-gradient(var(--bg), var(--bg))
       top / 100% env(safe-area-inset-top) no-repeat;
+}
+
+/* ---------------------------------------------------------------------------
+   Robin navigation.
+
+   Six destinations do not need a desktop sidebar. Wide screens use a compact
+   document masthead; narrow screens reflow the same text navigation into an
+   off-canvas drawer. The chrome stays typographic so it does not compete with
+   the ruled page beneath it.
+--------------------------------------------------------------------------- */
+.robin-shell {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  width: 100%;
+  min-height: 0;
+  overflow: hidden;
+  padding-left: env(safe-area-inset-left);
+}
+.robin-shell-content {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.robin-navigation-container {
+  z-index: 200;
+  flex-shrink: 0;
+  overflow: hidden;
+  outline: none;
+  border-bottom: 1px solid var(--border);
+  background: var(--nav-panel-background);
+}
+.robin-navigation-container.robin-navigation-pending,
+.robin-navigation-scrim.robin-navigation-pending {
+  transition: none !important;
+}
+.robin-nav {
+  display: flex;
+  min-width: 0;
+  color: var(--text-muted);
+}
+.robin-nav.is-horizontal {
+  align-items: stretch;
+  width: 100%;
+  min-height: calc(44px + env(safe-area-inset-top));
+  padding: env(safe-area-inset-top) 12px 0;
+}
+.robin-nav-main,
+.robin-nav-utility {
+  display: flex;
+  min-width: 0;
+}
+.robin-nav-utility { margin-left: auto; }
+.robin-nav-entry {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-muted);
+  text-decoration: none;
+  font-family: var(--font-pixel);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.robin-nav-entry:hover,
+.robin-nav-close:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.robin-nav-entry:active,
+.robin-nav-close:active,
+.robin-mobile-nav-trigger:active {
+  background: var(--bg-selected);
+}
+.robin-nav-entry:focus-visible,
+.robin-nav-close:focus-visible,
+.robin-mobile-nav-trigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.robin-nav-icon {
+  display: flex;
+  width: 16px;
+  height: 16px;
+  margin-right: 7px;
+  flex: 0 0 16px;
+  align-items: center;
+  justify-content: center;
+}
+.robin-nav-icon svg {
+  display: block;
+  width: 15px;
+  height: 15px;
+}
+.robin-nav-entry.is-current {
+  color: var(--text);
+}
+.robin-nav.is-horizontal .robin-nav-entry.is-current::after {
+  content: "";
+  position: absolute;
+  right: 10px;
+  bottom: 0;
+  left: 10px;
+  height: 2px;
+  background: var(--accent);
+}
+.robin-nav-badge {
+  align-self: flex-start;
+  margin: 7px 0 0 3px;
+  color: var(--danger);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.robin-nav-dot {
+  align-self: flex-start;
+  width: 6px;
+  height: 6px;
+  margin: 7px 0 0 4px;
+  border-radius: 50%;
+  background: var(--accent-teal);
+}
+.robin-nav-header { display: none; }
+.robin-mobile-nav-trigger,
+.robin-navigation-scrim { display: none; }
+
+@media (max-width: 959px) {
+  .robin-shell {
+    position: relative;
+    padding-left: env(safe-area-inset-left);
+  }
+  /* The dashboard search occupies the same masthead row as the menu button.
+     Other pages still reserve the button's row below. */
+  .robin-shell-content { padding-top: 52px; }
+  .robin-shell-content.is-dashboard { padding-top: 0; }
+  .robin-shell-content.is-dashboard .robin-dashboard-header > div {
+    padding: 4px 14px 4px 58px;
+  }
+  .robin-mobile-nav-trigger {
+    position: fixed;
+    top: calc(4px + env(safe-area-inset-top));
+    left: calc(6px + env(safe-area-inset-left));
+    z-index: 198;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 0;
+    background: var(--bg-panel);
+    color: var(--text);
+  }
+  .robin-mobile-nav-trigger span {
+    width: 16px;
+    border-top: 1.5px solid currentColor;
+  }
+  .robin-navigation-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 199;
+    display: block;
+    border: 0;
+    background: rgb(0 0 0 / 0.42);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+  }
+  .robin-navigation-scrim.is-open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .robin-navigation-container {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: env(safe-area-inset-left);
+    width: min(232px, calc(100vw - 44px));
+    height: var(--app-viewport-height, 100dvh);
+    border-right: 1px solid var(--border);
+    border-bottom: 0;
+    transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.22s ease;
+  }
+  .robin-navigation-container.robin-navigation-open {
+    transform: translateX(0);
+    box-shadow: 8px 0 28px rgb(0 0 0 / 0.22);
+  }
+  .robin-navigation-container.robin-navigation-closed {
+    transform: translateX(calc(-100% - env(safe-area-inset-left)));
+    box-shadow: none;
+  }
+  .robin-nav.is-drawer {
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    padding: env(safe-area-inset-top) 6px env(safe-area-inset-bottom);
+  }
+  .robin-nav-header {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    height: 57px;
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .robin-nav-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--text-muted);
+    font: 18px/1 var(--font-mono);
+    cursor: pointer;
+  }
+  .robin-nav.is-drawer .robin-nav-main,
+  .robin-nav.is-drawer .robin-nav-utility {
+    flex-direction: column;
+  }
+  .robin-nav.is-drawer .robin-nav-main { padding-top: 12px; }
+  .robin-nav.is-drawer .robin-nav-utility {
+    margin-top: auto;
+    margin-left: 0;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+  }
+  .robin-nav.is-drawer .robin-nav-entry {
+    width: 100%;
+    padding: 0 14px;
+  }
+  .robin-nav.is-drawer .robin-nav-entry.is-current::before {
+    content: "";
+    position: absolute;
+    top: 7px;
+    bottom: 7px;
+    left: 0;
+    width: 2px;
+    background: var(--accent);
+  }
+  .robin-nav.is-drawer .robin-nav-badge,
+  .robin-nav.is-drawer .robin-nav-dot {
+    margin-top: 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .robin-navigation-container,
+  .robin-navigation-scrim,
+  .robin-nav-entry {
+    transition: none;
+  }
 }
 
 /* ---------------------------------------------------------------------------

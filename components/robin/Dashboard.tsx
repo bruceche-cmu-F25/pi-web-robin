@@ -1,9 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import { useSearchParams } from "next/navigation";
 import { useI18n } from "@/hooks/useI18n";
-import { getInitialNavigation } from "@/lib/initial-navigation";
 import { useEffect, useState } from "react";
 import { localDate, parseLocalDate } from "@/extension/robin/dates";
 import { AssistantBar } from "./AssistantBar";
@@ -62,8 +59,6 @@ function DashboardClock({ locale }: { locale: string }) {
 
 export function Dashboard() {
   const { t, locale } = useI18n();
-  const searchParams = useSearchParams();
-  const { sessionId, requestedCwd: cwd } = getInitialNavigation(searchParams);
   const today = useLocalToday();
   const heading = today
     ? parseLocalDate(today).toLocaleDateString(locale, {
@@ -86,7 +81,7 @@ export function Dashboard() {
 
       <main className="mx-auto flex w-full max-w-7xl flex-col gap-4 p-4 desktop:p-6">
         {/* pi's page head: an italic serif title over a tracked mono dateline. */}
-        <div className="flex flex-wrap items-baseline justify-between gap-4">
+        <div className="flex flex-wrap items-baseline gap-4">
           <div className="flex flex-col gap-1">
             <h1 className="text-3xl" style={{ fontStyle: "italic", fontWeight: 400, color: "var(--text)" }}>
               {t("sidebar.dashboard")}
@@ -98,39 +93,6 @@ export function Dashboard() {
               </p>
               <DashboardClock locale={locale} />
             </div>
-          </div>
-          <div className="ml-auto flex flex-wrap items-baseline justify-end gap-x-6 gap-y-2">
-            <nav className="flex flex-wrap items-baseline gap-3">
-              <Link href="/dashboard/gmail" className="ui-action pi-chrome-label pi-bracket" style={{ fontSize: 11 }}>
-                {t("robin.nav.gmail")}
-              </Link>
-              <Link href="/dashboard/jobs" className="ui-action pi-chrome-label pi-bracket" style={{ fontSize: 11 }}>
-                {t("robin.nav.jobs")}
-              </Link>
-              {/* The hub, not the workspace: it is the front door to both
-                  tracks, and the place a third one would appear. */}
-              <Link href="/learn" className="ui-action pi-chrome-label pi-bracket" style={{ fontSize: 11 }}>
-                {t("robin.nav.learn")}
-              </Link>
-              <Link href="/dashboard/settings" className="ui-action pi-chrome-label pi-bracket" style={{ fontSize: 11 }}>
-                {t("robin.nav.settings")}
-              </Link>
-              <Link
-                href={{
-                  pathname: "/",
-                  query: sessionId
-                    ? { session: sessionId }
-                    : cwd
-                      ? { cwd }
-                      : {},
-                }}
-                className="ui-action pi-chrome-label pi-bracket"
-                data-state="accent"
-                style={{ fontSize: 11 }}
-              >
-                {t("robin.nav.chat")}
-              </Link>
-            </nav>
           </div>
         </div>
 

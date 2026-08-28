@@ -205,7 +205,7 @@ export function PracticeWorkspace(chrome: WorkspaceChrome) {
   );
 
   return (
-    <div className="robin-page flex h-full flex-col" style={{ minHeight: 0 }}>
+    <div className="robin-page flex flex-1 flex-col" style={{ minWidth: 0, minHeight: 0 }}>
       <WorkspaceHeader {...chrome}>
         {isMobile ? (
           <WorkspacePaneSwitch panes={PANES} active={pane} onChange={setPane} />

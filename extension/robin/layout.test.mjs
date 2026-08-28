@@ -80,7 +80,7 @@ test("visible hours expand for timed events, not all-day or spanning events", ()
     allDay("allday", "2026-08-14"),
     at("trip", "00:00", "23:59", { endDate: "2026-08-16" }),
   ];
-  assert.deepEqual(visibleHourRange(bands), { first: 7, last: 22 });
+  assert.deepEqual(visibleHourRange(bands), { first: 6, last: 22 });
   assert.deepEqual(
     visibleHourRange([...bands, at("early", "02:30", "03:00"), at("late", "22:30", "23:15")]),
     { first: 2, last: 24 },

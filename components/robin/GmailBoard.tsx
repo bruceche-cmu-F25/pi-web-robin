@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useMemo, useState } from "react";
 import { MarkdownBody } from "@/components/MarkdownBody";
 import { useI18n } from "@/hooks/useI18n";
@@ -10,7 +9,6 @@ import {
   type MailCategory,
   type MailReview,
 } from "@/extension/robin/mail";
-import { ChatLink } from "./ChatLink";
 import { GoogleConnect } from "./GoogleConnect";
 import { usePolledResource } from "./usePolledResource";
 
@@ -101,10 +99,6 @@ export function GmailBoard() {
             >
               {checking ? t("robin.gmail.checking") : t("robin.gmail.check")}
             </button>
-            <Link href="/dashboard" className="ui-action pi-chrome-label pi-bracket text-xs">
-              {t("robin.nav.back")}
-            </Link>
-            <ChatLink />
           </nav>
         </header>
 

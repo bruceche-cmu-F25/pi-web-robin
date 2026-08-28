@@ -87,10 +87,16 @@ export function layoutDayEvents<T extends CalendarEvent>(events: T[]): Positione
   return placed;
 }
 
-/** Default to waking hours, expanding only for timed events in the supplied range. */
+/**
+ * Default to waking hours, expanding only for timed events in the supplied range.
+ *
+ * The day opens at 06:00 rather than at the first event: a grid that started
+ * wherever the calendar happened to be busiest would move under you from week
+ * to week, and an empty early band is what tells you an 08:00 is early.
+ */
 export function visibleHourRange<T extends CalendarEvent>(
   events: T[],
-  defaultFirst = 7,
+  defaultFirst = 6,
   defaultLast = 22,
 ): { first: number; last: number } {
   let first = defaultFirst;
