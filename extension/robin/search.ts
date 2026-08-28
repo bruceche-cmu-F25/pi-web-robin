@@ -1,5 +1,5 @@
 import type { Link } from "./links.ts";
-import type { Todo } from "./store.ts";
+import type { Todo } from "./todo-domain.ts";
 
 /**
  * Calendar events are deliberately absent: the calendar sits directly above the

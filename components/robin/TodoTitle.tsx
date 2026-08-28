@@ -1,7 +1,7 @@
 "use client";
 
 import type { CSSProperties } from "react";
-import type { Todo } from "@/extension/robin/store";
+import type { Todo } from "@/extension/robin/todo-domain";
 import { todoUrl } from "@/extension/robin/todo-links";
 
 /**

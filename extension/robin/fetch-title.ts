@@ -10,6 +10,8 @@
  * that is not HTML. A failure is never fatal: callers fall back to the hostname.
  */
 
+import { fetchPublicWeb } from "./fetch-public-web.ts";
+
 const TIMEOUT_MS = 5_000;
 /** A <title> lives in <head>; anything past this is not worth buffering. */
 const MAX_BYTES = 64 * 1024;
@@ -185,22 +187,23 @@ export interface PageMetadata {
  * One request rather than two: the icon link lives in the same head the title
  * does, so fetching it separately would double the cost for no gain.
  */
-export async function fetchPageMetadata(url: string): Promise<PageMetadata> {
+export async function fetchPageMetadata(
+  url: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<PageMetadata> {
   const empty: PageMetadata = { title: null, iconUrl: null };
-  if (!/^https?:$/i.test(new URL(url).protocol)) return empty;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
-    const response = await fetch(url, {
+    const response = await fetchPublicWeb(url, {
       signal: controller.signal,
-      redirect: "follow",
       headers: {
         // Some sites serve a stub or an error to unknown clients.
         "User-Agent": "Mozilla/5.0 (compatible; RobinDashboard/1.0)",
         Accept: "text/html,application/xhtml+xml",
       },
-    });
+    }, fetchImpl);
     if (!response.ok || !response.body) return empty;
     if (!(response.headers.get("content-type") ?? "").toLowerCase().includes("html")) return empty;
 
@@ -238,6 +241,9 @@ export async function fetchPageMetadata(url: string): Promise<PageMetadata> {
 }
 
 /** Convenience wrapper for callers that only need the title. */
-export async function fetchPageTitle(url: string): Promise<string | null> {
-  return (await fetchPageMetadata(url)).title;
+export async function fetchPageTitle(
+  url: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<string | null> {
+  return (await fetchPageMetadata(url, fetchImpl)).title;
 }

@@ -14,7 +14,7 @@ import {
   layoutSpanBars,
   visibleHourRange,
 } from "@/extension/robin/layout";
-import type { Todo } from "@/extension/robin/store";
+import type { Todo } from "@/extension/robin/todo-domain";
 import { spanSurface, timedSurface } from "./eventSurface";
 import { TodoTitle } from "./TodoTitle";
 import { useTodayInView } from "./useTodayInView";

@@ -293,3 +293,23 @@ test("a board that will not answer never retires anything", async () => {
   assert.deepEqual(await expireClosedPostings(profile({ minScore: 4 }), ctx), { checked: 1, closed: 0 });
   assert.equal(readJobs()[0].status, "new");
 });
+
+test("closing a posting preserves job writes made while the board is checked", async () => {
+  writeJobs([stored({ id: "gone", url: "https://jobs.ashbyhq.com/acme/gone", score: 4.5 })]);
+  const ctx = {
+    async fetchJson() {
+      const current = readJobs();
+      current[0].note = "applied through a referral";
+      current.push(stored({ id: "concurrent", url: "https://example.com/new", title: "New role" }));
+      writeJobs(current);
+      return { jobs: [{ id: "still-open" }] };
+    },
+    async fetchText() { throw new Error("no"); },
+  };
+
+  assert.deepEqual(await expireClosedPostings(profile({ minScore: 4 }), ctx), { checked: 1, closed: 1 });
+  const jobs = readJobs();
+  assert.equal(jobs.find(({ id }) => id === "gone")?.status, "dropped");
+  assert.equal(jobs.find(({ id }) => id === "gone")?.note, "applied through a referral");
+  assert.ok(jobs.some(({ id }) => id === "concurrent"));
+});

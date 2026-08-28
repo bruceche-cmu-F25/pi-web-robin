@@ -49,7 +49,7 @@ import {
   reminderLedger,
   type DeliveryLedger,
 } from "../../extension/robin/store.ts";
-import type { Todo } from "../../extension/robin/store.ts";
+import type { Todo } from "../../extension/robin/todo-domain.ts";
 import {
   applyCallback,
   createKeyboardMemory,

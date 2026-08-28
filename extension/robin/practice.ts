@@ -112,14 +112,22 @@ export function problemsInList(list: PracticeList): CatalogProblem[] {
   return NEETCODE_CATALOG.filter((problem) => inList(problem, list));
 }
 
-export function findProblem(slugOrName: string): CatalogProblem | null {
+export function findProblemMatches(slugOrName: string): CatalogProblem[] {
   const needle = slugOrName.trim().toLowerCase();
-  if (!needle) return null;
-  return NEETCODE_CATALOG.find((problem) => problem.link === needle)
-    ?? NEETCODE_CATALOG.find((problem) => problem.problem.toLowerCase() === needle)
-    ?? NEETCODE_CATALOG.find((problem) => problem.ncSlug === needle)
-    ?? NEETCODE_CATALOG.find((problem) => problem.problem.toLowerCase().includes(needle))
-    ?? null;
+  if (!needle) return [];
+
+  const exact = NEETCODE_CATALOG.find((problem) =>
+    problem.link === needle
+    || problem.problem.toLowerCase() === needle
+    || problem.ncSlug === needle);
+  if (exact) return [exact];
+  return NEETCODE_CATALOG.filter((problem) => problem.problem.toLowerCase().includes(needle));
+}
+
+/** Resolve only when the reference identifies one problem. */
+export function findProblem(slugOrName: string): CatalogProblem | null {
+  const matches = findProblemMatches(slugOrName);
+  return matches.length === 1 ? matches[0] as CatalogProblem : null;
 }
 
 /* ─────────────────────────── the links ─────────────────────────── */

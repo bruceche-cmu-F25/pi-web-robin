@@ -1,11 +1,8 @@
 import { NextResponse } from "next/server";
 import {
   logAttempt,
-  reschedule,
-  setCurrentProblem,
-  setNote,
+  patchPractice,
   setPracticeList,
-  setStatus,
 } from "@/extension/robin/practice-domain";
 import { ATTEMPT_OUTCOMES, PRACTICE_LISTS, PRACTICE_STATUSES } from "@/extension/robin/practice";
 import { localDate, readPracticeRecords, readPracticeState } from "@/extension/robin/store";
@@ -129,28 +126,22 @@ export async function PATCH(req: Request) {
       return fail(new Error("problem is required"));
     }
 
-    if (body.current === true) {
-      const selected = setCurrentProblem(body.problem, list);
-      if ("error" in selected) return NextResponse.json({ error: selected.error }, { status: 404 });
+    if (typeof body.status === "string"
+      && !(PRACTICE_STATUSES as readonly string[]).includes(body.status)) {
+      return fail(new Error(`status must be one of: ${PRACTICE_STATUSES.join(", ")}`));
     }
 
-    if (typeof body.status === "string") {
-      if (!(PRACTICE_STATUSES as readonly string[]).includes(body.status)) {
-        return fail(new Error(`status must be one of: ${PRACTICE_STATUSES.join(", ")}`));
-      }
-      const result = setStatus(body.problem, body.status as (typeof PRACTICE_STATUSES)[number]);
-      if ("error" in result) return NextResponse.json({ error: result.error }, { status: 404 });
-    }
-
-    if (typeof body.note === "string") {
-      const result = setNote(body.problem, body.note);
-      if ("error" in result) return NextResponse.json({ error: result.error }, { status: 404 });
-    }
-
-    if (typeof body.confidence === "number") {
-      const result = reschedule(body.problem, body.confidence);
-      if ("error" in result) return NextResponse.json({ error: result.error }, { status: 404 });
-    }
+    const result = patchPractice({
+      problem: body.problem,
+      ...(body.current === true ? { current: true } : {}),
+      ...(body.current === true && list ? { list } : {}),
+      ...(typeof body.status === "string"
+        ? { status: body.status as (typeof PRACTICE_STATUSES)[number] }
+        : {}),
+      ...(typeof body.note === "string" ? { note: body.note } : {}),
+      ...(typeof body.confidence === "number" ? { confidence: body.confidence } : {}),
+    });
+    if ("error" in result) return NextResponse.json({ error: result.error }, { status: 404 });
 
     return NextResponse.json(snapshotResponse());
   } catch (error) {

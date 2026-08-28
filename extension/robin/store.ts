@@ -10,16 +10,23 @@
  * alias map (pi SDK packages + typebox only), so anything else would have to be
  * installed separately.
  */
-import { dueBucket, localDate, type DueBucket } from "./dates.ts";
+import { localDate } from "./dates.ts";
 import type { CalendarEvent } from "./events.ts";
-import { EVENT_COLOR_KEYS, type EventColorKey } from "./eventColors.ts";
 import type { MailReview } from "./mail.ts";
 import { DEFAULT_JOB_PROFILE, type Job, type JobProfile } from "./jobs.ts";
 import type { Link } from "./links.ts";
 import type { PracticeList, PracticeRecord } from "./practice.ts";
-import { todoUrl } from "./todo-links.ts";
+import type { TechEvent, TechEventScanState } from "./tech-events.ts";
 import { createDeliveryLedger } from "./delivery-ledger.ts";
-import { dataPath, readJsonArray, readJsonObject, writeJsonArray, writeJsonObject } from "./paths.ts";
+import {
+  dataPath,
+  readJsonArray,
+  readJsonObject,
+  updateJsonArray,
+  updateJsonObject,
+  writeJsonArray,
+  writeJsonObject,
+} from "./paths.ts";
 
 export type { DeliveryLedger } from "./delivery-ledger.ts";
 
@@ -33,6 +40,16 @@ export {
   type CalendarEvent,
 } from "./events.ts";
 export { groupLinks, iconFallback, normalizeUrl, reorderLinkGroups, type Link } from "./links.ts";
+export {
+  TECH_EVENT_TOPICS,
+  hasPassed,
+  isScanDue,
+  mergeTechEvents,
+  sortTechEvents,
+  type TechEvent,
+  type TechEventScanState,
+  type TechEventTopic,
+} from "./tech-events.ts";
 export { inferTodoUrl, todoUrl } from "./todo-links.ts";
 export {
   NEETCODE_CATALOG,
@@ -72,9 +89,10 @@ export {
 } from "./jobs.ts";
 export { dataDir, newId } from "./paths.ts";
 
-const TODOS_FILE = "todos.json";
 const LINKS_FILE = "links.json";
 const EVENTS_FILE = "events.json";
+const TECH_EVENTS_FILE = "tech-events.json";
+const TECH_EVENT_SCAN_FILE = "tech-event-scan.json";
 const ASSISTANT_FILE = "assistant.json";
 const TELEGRAM_STATE_FILE = "telegram-state.json";
 const JOBS_FILE = "jobs.json";
@@ -87,7 +105,6 @@ const REMINDER_STATE_FILE = "reminder-state.json";
 const PRACTICE_FILE = "practice.json";
 const PRACTICE_STATE_FILE = "practice-state.json";
 const STUDY_STATE_FILE = "study-state.json";
-const COMPLETED_TODO_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
 
 /**
  * Which chats have already received which run, per feed.
@@ -108,59 +125,6 @@ export const reminderLedger = createDeliveryLedger(REMINDER_STATE_FILE);
 const JOB_SWEEP_FILE = "job-sweep.json";
 const JOB_SCORING_FILE = "job-scoring.json";
 
-/** See ./dates.ts for why `due` and `createdAt` are different kinds of value. */
-export interface Todo {
-  id: string;
-  title: string;
-  done: boolean;
-  /** Local calendar date, YYYY-MM-DD. Never a timestamp. */
-  due?: string;
-  /** User-selected title hue keyed to the calendar palette. */
-  color?: EventColorKey;
-  /**
-   * Where the task actually lives — the assignment page, the job posting, the
-   * doc. Normalized through `normalizeUrl`, since the dashboard renders it as
-   * an href.
-   */
-  url?: string;
-  /** UTC instant, ISO 8601. */
-  createdAt: string;
-  /** UTC instant, ISO 8601. */
-  completedAt?: string;
-}
-
-export function todosPath(): string {
-  return dataPath(TODOS_FILE);
-}
-
-export function normalizeTodoColor(value: string): EventColorKey {
-  const color = value.trim().toLowerCase();
-  if (!(EVENT_COLOR_KEYS as readonly string[]).includes(color)) {
-    throw new Error(`Unknown todo colour: ${value}`);
-  }
-  return color as EventColorKey;
-}
-
-export function pruneCompletedTodos(todos: Todo[], now = Date.now()): Todo[] {
-  const cutoff = now - COMPLETED_TODO_RETENTION_MS;
-  return todos.filter((todo) => {
-    if (!todo.done) return true;
-    const completed = Date.parse(todo.completedAt ?? todo.createdAt);
-    return !Number.isFinite(completed) || completed > cutoff;
-  });
-}
-
-export function readTodos(): Todo[] {
-  const todos = readJsonArray<Todo>(TODOS_FILE);
-  const retained = pruneCompletedTodos(todos);
-  if (retained.length !== todos.length) writeJsonArray(TODOS_FILE, retained);
-  return retained;
-}
-
-export function writeTodos(todos: Todo[]): void {
-  writeJsonArray(TODOS_FILE, todos);
-}
-
 export function linksPath(): string {
   return dataPath(LINKS_FILE);
 }
@@ -173,6 +137,10 @@ export function writeLinks(links: Link[]): void {
   writeJsonArray(LINKS_FILE, links);
 }
 
+export function updateLinks<R>(updater: (links: Link[]) => { value: R; changed: boolean }): R {
+  return updateJsonArray(LINKS_FILE, updater);
+}
+
 export function eventsPath(): string {
   return dataPath(EVENTS_FILE);
 }
@@ -183,6 +151,34 @@ export function readEvents(): CalendarEvent[] {
 
 export function writeEvents(events: CalendarEvent[]): void {
   writeJsonArray(EVENTS_FILE, events);
+}
+
+/**
+ * Bay Area AI and software-engineering events, scraped weekly.
+ *
+ * A separate file from the calendar above, and deliberately so: these are
+ * public events nobody has committed to, written by a scanner and pruned by
+ * it. The calendar is the user's own agenda. Mixing them would mean a weekly
+ * scrape could delete something they put there themselves.
+ */
+export function techEventsPath(): string {
+  return dataPath(TECH_EVENTS_FILE);
+}
+
+export function readTechEvents(): TechEvent[] {
+  return readJsonArray<TechEvent>(TECH_EVENTS_FILE);
+}
+
+export function writeTechEvents(events: TechEvent[]): void {
+  writeJsonArray(TECH_EVENTS_FILE, events);
+}
+
+export function readTechEventScanState(): TechEventScanState | null {
+  return readJsonObject<TechEventScanState>(TECH_EVENT_SCAN_FILE);
+}
+
+export function writeTechEventScanState(state: TechEventScanState): void {
+  writeJsonObject(TECH_EVENT_SCAN_FILE, state);
 }
 
 /**
@@ -330,6 +326,10 @@ export function writeJobs(jobs: Job[]): void {
   writeJsonArray(JOBS_FILE, jobs);
 }
 
+export function updateJobs<R>(updater: (jobs: Job[]) => { value: R; changed: boolean }): R {
+  return updateJsonArray(JOBS_FILE, updater);
+}
+
 export function jobProfilePath(): string {
   return dataPath(JOB_PROFILE_FILE);
 }
@@ -474,50 +474,6 @@ export function attachMailReport(reply: string): void {
     : { day: localDate(), reviewedAt: new Date().toISOString(), items: [], report });
 }
 
-/**
- * Resolve a todo from an id or a title substring.
- * Returns a reason instead of throwing so tools can hand the model something
- * it can act on (ambiguous matches list the candidates).
- */
-export function findTodo(
-  todos: Todo[],
-  ref: { id?: string; title?: string },
-): { todo: Todo } | { error: string } {
-  if (ref.id) {
-    const byId = todos.find((t) => t.id === ref.id);
-    return byId ? { todo: byId } : { error: `No todo with id "${ref.id}".` };
-  }
-  if (!ref.title) return { error: "Provide either id or title." };
-
-  const needle = ref.title.toLowerCase();
-  const matches = todos.filter((t) => t.title.toLowerCase().includes(needle));
-  if (matches.length === 0) return { error: `No todo matching "${ref.title}".` };
-  if (matches.length > 1) {
-    const list = matches.map((t) => `${t.id}: ${t.title}`).join("; ");
-    return { error: `"${ref.title}" matches ${matches.length} todos — pass an id. Candidates: ${list}` };
-  }
-  return { todo: matches[0] as Todo };
-}
-
-const DUE_LABEL: Record<DueBucket, (due: string) => string> = {
-  overdue: (due) => ` (overdue, was due ${due})`,
-  today: () => " (due today)",
-  tomorrow: () => " (due tomorrow)",
-  upcoming: (due) => ` (due ${due})`,
-  none: () => "",
-};
-
-export function formatTodo(todo: Todo, today: string = localDate()): string {
-  const box = todo.done ? "[x]" : "[ ]";
-  const bucket = todo.done ? "none" : dueBucket(todo.due, today);
-  // The link is part of the todo, so a model reading the list can see which
-  // tasks already point somewhere and which still need one. Inferred links are
-  // marked, because those are the ones worth replacing with a real address.
-  const url = todoUrl(todo);
-  const link = url ? ` -> ${url}${todo.url ? "" : " (auto)"}` : "";
-  return `${box} ${todo.id}  ${todo.title}${DUE_LABEL[bucket](todo.due ?? "")}${link}`;
-}
-
 /* ──────────────────────────── practice ──────────────────────────── */
 
 export function practicePath(): string {
@@ -530,6 +486,12 @@ export function readPracticeRecords(): PracticeRecord[] {
 
 export function writePracticeRecords(records: PracticeRecord[]): void {
   writeJsonArray(PRACTICE_FILE, records);
+}
+
+export function updatePracticeRecords<R>(
+  updater: (records: PracticeRecord[]) => { value: R; changed: boolean },
+): R {
+  return updateJsonArray(PRACTICE_FILE, updater);
 }
 
 /**
@@ -552,11 +514,15 @@ export function readPracticeState(): PracticeState {
 }
 
 export function writePracticeState(patch: Partial<PracticeState>): void {
-  writeJsonObject(PRACTICE_STATE_FILE, {
-    ...readPracticeState(),
-    ...patch,
-    updatedAt: new Date().toISOString(),
-  });
+  updatePracticeState(patch);
+}
+
+export function updatePracticeState(patch: Partial<PracticeState>): void {
+  updateJsonObject<PracticeState, void>(PRACTICE_STATE_FILE, (current) => ({
+    result: undefined,
+    value: { ...(current ?? {}), ...patch, updatedAt: new Date().toISOString() },
+    changed: true,
+  }));
 }
 
 /* ──────────────────────────── study ──────────────────────────── */

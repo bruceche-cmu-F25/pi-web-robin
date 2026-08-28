@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { after, test } from "node:test";
-import { extractIconHref, fetchPageTitle, looksLikeInterstitial, nameFromUrl } from "./fetch-title.ts";
+import { extractIconHref, fetchPageMetadata, fetchPageTitle, looksLikeInterstitial, nameFromUrl } from "./fetch-title.ts";
 
 const routes = {
   "/plain": { type: "text/html", body: "<html><head><title>Hacker News</title></head><body>x</body></html>" },
@@ -33,40 +33,63 @@ const server = createServer((req, res) => {
 });
 
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-const base = `http://127.0.0.1:${server.address().port}`;
+const serverBase = `http://127.0.0.1:${server.address().port}`;
+const base = "https://example.com";
+const localFetch = (url, init) => {
+  const request = { ...init };
+  delete request.dispatcher;
+  return fetch(`${serverBase}${new URL(url).pathname}`, request);
+};
+const pageTitle = (url) => fetchPageTitle(url, localFetch);
 
 after(() => server.close());
 
 test("reads a plain title", async () => {
-  assert.equal(await fetchPageTitle(`${base}/plain`), "Hacker News");
+  assert.equal(await pageTitle(`${base}/plain`), "Hacker News");
 });
 
 test("decodes named and numeric entities", async () => {
-  assert.equal(await fetchPageTitle(`${base}/entities`), 'Tom & Jerry — "fun"');
+  assert.equal(await pageTitle(`${base}/entities`), 'Tom & Jerry — "fun"');
 });
 
 test("collapses whitespace and tolerates attributes", async () => {
-  assert.equal(await fetchPageTitle(`${base}/whitespace`), "spaced out");
-  assert.equal(await fetchPageTitle(`${base}/attributes`), "With attrs");
+  assert.equal(await pageTitle(`${base}/whitespace`), "spaced out");
+  assert.equal(await pageTitle(`${base}/attributes`), "With attrs");
 });
 
 test("returns null when there is no usable title", async () => {
-  assert.equal(await fetchPageTitle(`${base}/empty`), null);
-  assert.equal(await fetchPageTitle(`${base}/none`), null);
+  assert.equal(await pageTitle(`${base}/empty`), null);
+  assert.equal(await pageTitle(`${base}/none`), null);
 });
 
 test("refuses non-HTML and error responses", async () => {
-  assert.equal(await fetchPageTitle(`${base}/json`), null);
-  assert.equal(await fetchPageTitle(`${base}/notfound`), null);
+  assert.equal(await pageTitle(`${base}/json`), null);
+  assert.equal(await pageTitle(`${base}/notfound`), null);
 });
 
 test("stops reading before a title buried past the byte cap", async () => {
-  assert.equal(await fetchPageTitle(`${base}/huge`), null);
+  assert.equal(await pageTitle(`${base}/huge`), null);
 });
 
-test("an unreachable host resolves to null rather than throwing", async () => {
-  // Port 1 on loopback refuses immediately.
+test("a private host resolves to null rather than throwing", async () => {
   assert.equal(await fetchPageTitle("http://127.0.0.1:1/"), null);
+});
+
+test("private metadata targets are refused before fetch and redirects are checked manually", async (t) => {
+  const calls = [];
+  t.mock.method(globalThis, "fetch", async (url, init) => {
+    calls.push({ url: String(url), redirect: init?.redirect });
+    return new Response(null, {
+      status: 302,
+      headers: { Location: "http://169.254.169.254/latest/meta-data/" },
+    });
+  });
+
+  assert.deepEqual(await fetchPageMetadata("http://127.0.0.1/private"), { title: null, iconUrl: null });
+  assert.equal(calls.length, 0, "a directly private address never reaches fetch");
+
+  assert.deepEqual(await fetchPageMetadata("https://example.com/start"), { title: null, iconUrl: null });
+  assert.deepEqual(calls, [{ url: "https://example.com/start", redirect: "manual" }]);
 });
 
 test("interstitial titles are recognised, real ones are not", () => {
@@ -112,7 +135,7 @@ test("nameFromUrl skips ids, hashes, and filler segments", () => {
 });
 
 test("a page behind a login wall yields no title at all", async () => {
-  assert.equal(await fetchPageTitle(`${base}/sso`), null);
+  assert.equal(await pageTitle(`${base}/sso`), null);
 });
 
 test("extractIconHref prefers the largest raster icon", () => {

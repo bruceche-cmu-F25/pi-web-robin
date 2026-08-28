@@ -12,6 +12,7 @@
  */
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { fetchPublicWeb } from "./fetch-public-web.ts";
 import { dataPath } from "./paths.ts";
 
 const TIMEOUT_MS = 5_000;
@@ -114,9 +115,8 @@ async function storeIconFrom(id: string, iconUrl: string): Promise<string | null
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
-    const response = await fetch(parsed, {
+    const response = await fetchPublicWeb(parsed.toString(), {
       signal: controller.signal,
-      redirect: "follow",
       headers: {
         "User-Agent": "Mozilla/5.0 (compatible; RobinDashboard/1.0)",
         Accept: "image/png,image/webp,image/*",

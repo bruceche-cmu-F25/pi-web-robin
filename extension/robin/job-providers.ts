@@ -23,6 +23,9 @@
  * by webpack on the Next.js server, so it uses global fetch and nothing else.
  */
 import { cleanDescription, type TrackedCompany } from "./jobs.ts";
+import { isPublicWebHost } from "./public-web.ts";
+
+export { isPublicWebHost } from "./public-web.ts";
 
 /** What a provider hands back. Everything else is derived downstream. */
 export interface RawPosting {
@@ -1390,42 +1393,6 @@ async function probeBySingleFetch(
 const UNKNOWN_BOARD_TIMEOUT_MS = 20_000;
 const UNKNOWN_BOARD_MAX_BYTES = 2_000_000;
 
-/** Hosts that must never be reachable from a URL we did not choose. */
-const PRIVATE_HOST = /^(?:localhost|.*\.local|.*\.internal|\[?::1\]?|0\.0\.0\.0)$/i;
-const PRIVATE_IPV4 = /^(?:10|127)\.|^169\.254\.|^192\.168\.|^172\.(?:1[6-9]|2\d|3[01])\./;
-
-/**
- * A domain name, as opposed to an address wearing one as a costume.
- *
- * Blocking private ranges by pattern is not enough on its own, because an IPv4
- * address has more spellings than the dotted-decimal one: `0x7f.0.0.1` and
- * `0177.0.0.1` both reach 127.0.0.1 through the hex and octal forms that
- * inet_aton still accepts, and neither looks anything like `127.`. Rather than
- * chase the encodings, require what a careers page actually has and an address
- * never does — a last label that is alphabetic.
- *
- * This also refuses public bare IPs, which is the right answer for this
- * caller: a job posting lives at a hostname.
- */
-const DOMAIN_NAME = /^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/i;
-
-/**
- * Whether a hostname is safe to fetch from a link we did not choose.
- *
- * String inspection only, and that is a real limit worth naming: a perfectly
- * ordinary domain whose A record points at 10.0.0.5 passes every check here,
- * because the address is not known until resolution and fetch does not offer a
- * hook there. What this does guarantee is that nothing in a posting's URL can
- * name a private target directly, in any of the encodings that would resolve
- * to one.
- */
-export function isPublicWebHost(hostname: string): boolean {
-  const host = hostname.trim().toLowerCase().replace(/^\[|\]$/g, "");
-  if (!host || PRIVATE_HOST.test(host) || PRIVATE_IPV4.test(host)) return false;
-  // Unique-local and link-local IPv6.
-  if (host.startsWith("fc") || host.startsWith("fd") || host.startsWith("fe80:")) return false;
-  return DOMAIN_NAME.test(host);
-}
 
 function unentity(text: string): string {
   return text

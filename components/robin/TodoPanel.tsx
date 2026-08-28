@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { deadlineBucket, dueBucket, isInstantOnLocalDate, type DeadlineBucket } from "@/extension/robin/dates";
 import { EVENT_COLOR_KEYS } from "@/extension/robin/eventColors";
-import type { Todo } from "@/extension/robin/store";
+import type { Todo } from "@/extension/robin/todo-domain";
 import { inferTodoUrl } from "@/extension/robin/todo-links";
 import { requestRefresh } from "./refreshBus";
 import { TodoTitle } from "./TodoTitle";

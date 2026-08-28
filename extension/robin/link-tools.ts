@@ -6,8 +6,7 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { addLink } from "./link-domain.ts";
-import { readLinks } from "./store.ts";
+import { addLink, listLinks } from "./link-domain.ts";
 import { text } from "./toolkit.ts";
 
 export function registerLinkTools(pi: ExtensionAPI): void {
@@ -61,7 +60,7 @@ export function registerLinkTools(pi: ExtensionAPI): void {
     promptSnippet: "link_list — read the user's saved links",
     parameters: Type.Object({}),
     async execute() {
-      const links = readLinks();
+      const links = listLinks();
       if (links.length === 0) return text("No links saved.");
       return text(
         links.map((l) => `${l.id}  ${l.title} — ${l.url}${l.group ? ` [${l.group}]` : ""}`).join("\n"),

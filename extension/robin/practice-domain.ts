@@ -4,7 +4,7 @@ import {
   ATTEMPT_OUTCOMES,
   PRACTICE_STATUSES,
   emptyRecord,
-  findProblem,
+  findProblemMatches,
   isDue,
   reviewDateFor,
   type Attempt,
@@ -17,8 +17,8 @@ import {
 import {
   readPracticeRecords,
   readPracticeState,
-  writePracticeRecords,
-  writePracticeState,
+  updatePracticeRecords,
+  updatePracticeState,
 } from "./store.ts";
 
 export type PracticeResult<T> = T | { error: string };
@@ -27,8 +27,15 @@ export type PracticeResult<T> = T | { error: string };
 const MAX_ATTEMPTS = 20;
 
 function resolve(slugOrName: string): PracticeResult<CatalogProblem> {
-  const problem = findProblem(slugOrName);
-  return problem ?? { error: `No problem in the NeetCode catalog matches "${slugOrName}".` };
+  const matches = findProblemMatches(slugOrName);
+  if (matches.length === 1) return matches[0] as CatalogProblem;
+  if (matches.length > 1) {
+    return {
+      error: `"${slugOrName}" matches ${matches.length} problems — pass a slug. Candidates: ${matches
+        .slice(0, 8).map((problem) => problem.link).join(", ")}`,
+    };
+  }
+  return { error: `No problem in the NeetCode catalog matches "${slugOrName}".` };
 }
 
 /**
@@ -42,14 +49,14 @@ function upsert(
   slug: string,
   change: (record: PracticeRecord) => void,
 ): PracticeRecord {
-  const records = readPracticeRecords();
-  const existing = records.find((record) => record.slug === slug);
-  const record = existing ?? emptyRecord(slug);
-  change(record);
-  record.updatedAt = new Date().toISOString();
-  if (!existing) records.push(record);
-  writePracticeRecords(records);
-  return record;
+  return updatePracticeRecords((records) => {
+    const existing = records.find((record) => record.slug === slug);
+    const record = existing ?? emptyRecord(slug);
+    change(record);
+    record.updatedAt = new Date().toISOString();
+    if (!existing) records.push(record);
+    return { value: record, changed: true };
+  });
 }
 
 export function logAttempt(input: {
@@ -155,6 +162,53 @@ export function setNote(
   return { problem: found, record };
 }
 
+export interface PracticePatch {
+  problem: string;
+  current?: boolean;
+  list?: PracticeList;
+  status?: PracticeStatus;
+  note?: string;
+  confidence?: number;
+}
+
+/** Apply one HTTP edit after resolving and validating every part up front. */
+export function patchPractice(input: PracticePatch): PracticeResult<{ problem: CatalogProblem }> {
+  const found = resolve(input.problem);
+  if ("error" in found) return found;
+
+  if (input.status !== undefined && !(PRACTICE_STATUSES as readonly string[]).includes(input.status)) {
+    return { error: `status must be one of: ${PRACTICE_STATUSES.join(", ")}` };
+  }
+
+  if (input.status !== undefined || input.note !== undefined || input.confidence !== undefined) {
+    upsert(found.link, (draft) => {
+      if (input.status !== undefined) {
+        draft.status = input.status;
+        if (input.status === "solved") {
+          draft.nextReviewOn = reviewDateFor(draft.confidence ?? 3);
+        } else {
+          delete draft.nextReviewOn;
+          if (input.status === "todo") delete draft.confidence;
+        }
+      }
+      if (input.note !== undefined) {
+        const note = input.note.trim();
+        if (note) draft.note = note;
+        else delete draft.note;
+      }
+      if (input.confidence !== undefined) {
+        draft.confidence = Math.min(Math.max(Math.round(input.confidence), 1), 5);
+        if (draft.status === "solved") draft.nextReviewOn = reviewDateFor(draft.confidence);
+      }
+    });
+  }
+
+  if (input.current) {
+    updatePracticeState({ currentSlug: found.link, ...(input.list ? { list: input.list } : {}) });
+  }
+  return { problem: found };
+}
+
 /** Mark a review done without pretending it was a fresh attempt. */
 export function reschedule(
   problemRef: string,
@@ -192,7 +246,7 @@ export function setCurrentProblem(
 ): PracticeResult<{ problem: CatalogProblem }> {
   const found = resolve(problemRef);
   if ("error" in found) return found;
-  writePracticeState({ currentSlug: found.link, ...(list ? { list } : {}) });
+  updatePracticeState({ currentSlug: found.link, ...(list ? { list } : {}) });
   return { problem: found };
 }
 
@@ -204,7 +258,7 @@ export function setCurrentProblem(
  * you are working through Blind 75 is answering about someone else's week.
  */
 export function setPracticeList(list: PracticeList): void {
-  writePracticeState({ list });
+  updatePracticeState({ list });
 }
 
 /** The list the workspace is working from, for tools that need a default. */

@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { readIcon } from "@/extension/robin/icons";
-import { refreshLinkIcon } from "@/extension/robin/link-domain";
-import { readLinks } from "@/extension/robin/store";
+import { getLink, refreshLinkIcon } from "@/extension/robin/link-domain";
 import { isApiRequestAllowed } from "@/lib/request-security";
 
 export const dynamic = "force-dynamic";
@@ -17,8 +16,7 @@ export const dynamic = "force-dynamic";
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const links = readLinks();
-  const link = links.find((entry) => entry.id === id);
+  const link = getLink(id);
   if (!link?.icon) return new NextResponse(null, { status: 404 });
 
   const icon = readIcon(id, link.icon);

@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { after, test } from "node:test";
 import { claimJobs, deleteJob, dropJobs, scoreJob, updateJob } from "./job-domain.ts";
 import { deleteLink, updateLink } from "./link-domain.ts";
-import { completeTodo, updateTodo } from "./todo-domain.ts";
-import { readJobs, readLinks, readTodos, writeJobs, writeLinks, writeTodos } from "./store.ts";
+import { addTodo, completeTodo, listTodos, updateTodo } from "./todo-domain.ts";
+import { readJobs, readLinks, writeJobs, writeLinks } from "./store.ts";
 
 const previousDataDir = process.env.ROBIN_DATA_DIR;
 const dataDir = mkdtempSync(join(tmpdir(), "robin-domain-writes-"));
@@ -19,28 +19,24 @@ after(() => {
 });
 
 test("todo writes keep completion and update invariants behind one interface", () => {
-  writeTodos([{ id: "rent", title: "Pay rent", done: false, createdAt: "2026-08-01T00:00:00.000Z" }]);
-  const updated = updateTodo({ id: "rent" }, {
+  const { todo } = addTodo({ title: "Pay rent" });
+  const updated = updateTodo({ id: todo.id }, {
     title: "Pay apartment rent",
     due: "2026-08-21",
     url: "portal.example.com/rent",
   });
   assert.equal("error" in updated, false);
   // A scheme-less host is normalized, since the dashboard renders it as an href.
-  assert.equal(readTodos()[0].url, "https://portal.example.com/rent");
-  assert.throws(() => updateTodo({ id: "rent" }, { url: "javascript:alert(1)" }), /Unsupported URL scheme/);
-  updateTodo({ id: "rent" }, { url: "" });
-  const completed = completeTodo({ id: "rent" });
+  assert.equal(updated.url, "https://portal.example.com/rent");
+  assert.throws(() => updateTodo({ id: todo.id }, { url: "javascript:alert(1)" }), /Unsupported URL scheme/);
+  updateTodo({ id: todo.id }, { url: "" });
+  const completed = completeTodo({ id: todo.id });
   assert.equal("error" in completed, false);
   assert.equal(completed.alreadyDone, false);
-  assert.deepEqual(readTodos()[0], {
-    id: "rent",
-    title: "Pay apartment rent",
-    due: "2026-08-21",
-    done: true,
-    createdAt: "2026-08-01T00:00:00.000Z",
-    completedAt: readTodos()[0].completedAt,
-  });
+  assert.deepEqual(listTodos({ includeDone: true }).todos[0], completed.todo);
+  assert.equal(completed.todo.title, "Pay apartment rent");
+  assert.equal(completed.todo.due, "2026-08-21");
+  assert.equal(completed.todo.url, undefined);
 });
 
 test("link writes preserve metadata while editing and cleanly delete", async () => {

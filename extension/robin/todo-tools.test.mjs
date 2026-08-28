@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { after, test } from "node:test";
-import { readTodos, writeTodos } from "./store.ts";
+import { after, beforeEach, test } from "node:test";
+import { addTodo, deleteTodo, listTodos } from "./todo-domain.ts";
 import { registerTodoTools } from "./todo-tools.ts";
 
 const previousDataDir = process.env.ROBIN_DATA_DIR;
@@ -19,37 +19,37 @@ after(() => {
 const tools = new Map();
 registerTodoTools({ registerTool: (tool) => tools.set(tool.name, tool) });
 
+beforeEach(() => {
+  for (const todo of listTodos({ includeDone: true }).todos) deleteTodo({ id: todo.id });
+});
+
 function resultText(result) {
   return result.content[0].text;
 }
 
 test("todo_update edits a title and due date", async () => {
-  writeTodos([{ id: "rent", title: "Pay rent", done: false, createdAt: "2026-08-01T00:00:00.000Z" }]);
+  const todo = addTodo({ title: "Pay rent" }).todo;
 
   const result = await tools.get("todo_update").execute("call", {
-    id: "rent",
+    id: todo.id,
     newTitle: "Pay apartment rent",
     due: "2026-08-21",
   });
 
   assert.match(resultText(result), /Updated/);
-  assert.deepEqual(readTodos()[0], {
-    id: "rent",
-    title: "Pay apartment rent",
-    due: "2026-08-21",
-    done: false,
-    createdAt: "2026-08-01T00:00:00.000Z",
-  });
+  const updated = listTodos().todos[0];
+  assert.equal(updated.id, todo.id);
+  assert.equal(updated.title, "Pay apartment rent");
+  assert.equal(updated.due, "2026-08-21");
+  assert.equal(updated.done, false);
 });
 
 test("todo_delete removes only the selected todo", async () => {
-  writeTodos([
-    { id: "rent", title: "Pay rent", done: false, createdAt: "2026-08-01T00:00:00.000Z" },
-    { id: "milk", title: "Buy milk", done: false, createdAt: "2026-08-01T00:00:00.000Z" },
-  ]);
+  addTodo({ title: "Pay rent" });
+  const milk = addTodo({ title: "Buy milk" }).todo;
 
   const result = await tools.get("todo_delete").execute("call", { title: "rent" });
 
   assert.equal(resultText(result), "Deleted \"Pay rent\".");
-  assert.deepEqual(readTodos().map((todo) => todo.id), ["milk"]);
+  assert.deepEqual(listTodos().todos.map((todo) => todo.id), [milk.id]);
 });

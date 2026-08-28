@@ -61,6 +61,10 @@ test("findProblem accepts a slug, a title, and NeetCode's own slug", () => {
   assert.equal(findProblem("nothing-like-this-exists"), null);
 });
 
+test("findProblem does not choose the first result for an ambiguous partial name", () => {
+  assert.equal(findProblem("duplicate"), null);
+});
+
 test("groupByPattern counts progress per pattern in roadmap order", () => {
   const problems = problemsInList("blind75");
   const first = problems[0];

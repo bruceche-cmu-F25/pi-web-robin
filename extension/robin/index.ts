@@ -17,9 +17,10 @@ import { registerJobTools } from "./job-tools.ts";
 import { registerLinkTools } from "./link-tools.ts";
 import { registerPracticeTools } from "./practice-tools.ts";
 import { registerStudyTools } from "./study-tools.ts";
+import { dataPath } from "./paths.ts";
 import { registerProviderTools } from "./provider-tools.ts";
+import { listTodos } from "./todo-domain.ts";
 import { registerTodoTools } from "./todo-tools.ts";
-import { readTodos, todosPath } from "./store.ts";
 
 const robin = (pi: ExtensionAPI) => {
   registerTodoTools(pi);
@@ -35,9 +36,9 @@ const robin = (pi: ExtensionAPI) => {
   pi.registerCommand("robin-status", {
     description: "Show Robin store location and todo counts",
     handler: async (_args, ctx) => {
-      const todos = readTodos();
-      const open = todos.filter((t) => !t.done).length;
-      ctx.ui.notify(`Robin store: ${todosPath()} — ${todos.length} todo(s), ${open} open.`);
+      const { todos } = listTodos({ includeDone: true });
+      const open = todos.filter((todo) => !todo.done).length;
+      ctx.ui.notify(`Robin store: ${dataPath("todos.json")} — ${todos.length} todo(s), ${open} open.`);
     },
   });
 };

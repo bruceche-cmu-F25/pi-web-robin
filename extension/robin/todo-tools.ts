@@ -6,8 +6,14 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { addTodo, completeTodo, deleteTodo, updateTodo } from "./todo-domain.ts";
-import { formatTodo, localDate, readTodos } from "./store.ts";
+import {
+  addTodo,
+  completeTodo,
+  deleteTodo,
+  formatTodo,
+  listTodos,
+  updateTodo,
+} from "./todo-domain.ts";
 import { text } from "./toolkit.ts";
 
 export function registerTodoTools(pi: ExtensionAPI): void {
@@ -56,9 +62,7 @@ export function registerTodoTools(pi: ExtensionAPI): void {
       includeDone: Type.Optional(Type.Boolean({ description: "Include completed todos (default false)" })),
     }),
     async execute(_toolCallId, params) {
-      const todos = readTodos();
-      const today = localDate();
-      const visible = params.includeDone ? todos : todos.filter((t) => !t.done);
+      const { todos: visible, today } = listTodos({ includeDone: params.includeDone });
       // The local date is stated explicitly so relative dates ("tomorrow") are
       // resolved against the user's day, not the model's assumed UTC one.
       const header = `Today is ${today} (user's local date).`;
@@ -141,9 +145,8 @@ export function registerTodoTools(pi: ExtensionAPI): void {
     async execute(_toolCallId, params) {
       const result = completeTodo(params);
       if ("error" in result) return text(result.error);
-      const today = localDate();
-      if (result.alreadyDone) return text(`Already done: ${formatTodo(result.todo, today)}`);
-      return text(`Completed ${formatTodo(result.todo, today)}\n${result.open} open todo(s) left.`);
+      if (result.alreadyDone) return text(`Already done: ${formatTodo(result.todo)}`);
+      return text(`Completed ${formatTodo(result.todo)}\n${result.open} open todo(s) left.`);
     },
   });
 }

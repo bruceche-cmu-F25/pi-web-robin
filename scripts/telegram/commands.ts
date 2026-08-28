@@ -18,7 +18,7 @@ import { formatEventTime, occursOn, type DashboardEvent } from "../../extension/
 import { dueBucket, localDate } from "../../extension/robin/dates.ts";
 // Type-only: erased at compile time, so the bridge does not pull the store's
 // node:fs graph in just to name a shape.
-import type { Todo } from "../../extension/robin/store.ts";
+import type { Todo } from "../../extension/robin/todo-domain.ts";
 import { numberedJobButtons, todoButtons } from "./callbacks.ts";
 import { piWeb, runAssistant, type PiWebContext } from "./pi-web.ts";
 import type { BridgeLocale } from "./protocol.ts";

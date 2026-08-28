@@ -10,7 +10,7 @@ import {
   weeksFrom,
 } from "@/extension/robin/dates";
 import { eventsInRange, type DashboardEvent } from "@/extension/robin/events";
-import type { Todo } from "@/extension/robin/store";
+import type { Todo } from "@/extension/robin/todo-domain";
 import { AgendaView, MonthView, type CalendarView } from "./CalendarViews";
 import { WeekGrid } from "./WeekGrid";
 import { GoogleConnect } from "./GoogleConnect";

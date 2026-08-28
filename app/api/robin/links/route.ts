@@ -2,10 +2,10 @@ import { NextResponse } from "next/server";
 import {
   addLink,
   deleteLink,
+  listLinks,
   reorderLinkGroups,
   updateLink,
 } from "@/extension/robin/link-domain";
-import { readLinks } from "@/extension/robin/store";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 
 export const dynamic = "force-dynamic";
@@ -28,7 +28,7 @@ export async function GET(req: Request) {
   const blocked = guard(req, false);
   if (blocked) return blocked;
   try {
-    return NextResponse.json({ links: readLinks() });
+    return NextResponse.json({ links: listLinks() });
   } catch (error) {
     return fail(error, 500);
   }

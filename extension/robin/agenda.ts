@@ -1,5 +1,5 @@
 import { groupEventsByDate, type CalendarEvent } from "./events.ts";
-import type { Todo } from "./store.ts";
+import type { Todo } from "./todo-domain.ts";
 
 export interface AgendaDay<TEvent extends CalendarEvent> {
   date: string;

@@ -6,17 +6,20 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   addDays,
+  addMonths,
+  deadlineBucket,
   dueBucket,
-  formatTodo,
+  isInstantOnLocalDate,
+  isSameMonth,
   localDate,
+  monthGrid,
   normalizeDue,
-  normalizeTodoColor,
   parseLocalDate,
-  pruneCompletedTodos,
-} from "./store.ts";
-import { addMonths, deadlineBucket, isInstantOnLocalDate, isSameMonth, monthGrid, startOfMonth, startOfWeek, weekDays, weeksFrom } from "./dates.ts";
-
-const todo = (fields) => ({ id: "x", title: "t", done: false, createdAt: "", ...fields });
+  startOfMonth,
+  startOfWeek,
+  weekDays,
+  weeksFrom,
+} from "./dates.ts";
 
 test("localDate follows the local day, not the UTC one", () => {
   // 21:19 PDT on Aug 14 is already Aug 15 in UTC — the exact case that made
@@ -62,12 +65,6 @@ test("normalizeDue keeps calendar dates and resolves timestamps locally", () => 
   // Same instant as the regression above: UTC says the 15th, the user meant the 14th.
   assert.equal(normalizeDue("2026-08-15T04:19:00.000Z"), "2026-08-14");
   assert.throws(() => normalizeDue("next thursday"));
-});
-
-test("todo colours reuse the calendar palette", () => {
-  assert.equal(normalizeTodoColor("  Plum "), "plum");
-  assert.throws(() => normalizeTodoColor("red"), /Unknown todo colour/);
-  assert.throws(() => normalizeTodoColor("#a1b2c3"), /Unknown todo colour/);
 });
 
 test("dueBucket classifies against the supplied local today", () => {
@@ -142,23 +139,6 @@ test("monthGrid for August 2026 spans six weeks", () => {
   assert.equal(grid.length, 42);
   assert.equal(grid[0], "2026-07-27");
   assert.equal(grid[41], "2026-09-06");
-});
-
-test("formatTodo labels relative due dates and drops them once done", () => {
-  const today = "2026-08-14";
-  assert.match(formatTodo(todo({ due: "2026-08-14" }), today), /due today/);
-  assert.match(formatTodo(todo({ due: "2026-08-15" }), today), /due tomorrow/);
-  assert.match(formatTodo(todo({ due: "2026-08-13" }), today), /overdue/);
-  assert.equal(formatTodo(todo({ due: "2026-08-13", done: true }), today), "[x] x  t");
-});
-
-test("completed todos are retained for one week", () => {
-  const now = Date.parse("2026-08-14T12:00:00.000Z");
-  const open = todo({ id: "open", createdAt: "2020-01-01T00:00:00.000Z" });
-  const recent = todo({ id: "recent", done: true, completedAt: "2026-08-08T12:00:01.000Z" });
-  const expired = todo({ id: "expired", done: true, completedAt: "2026-08-07T12:00:00.000Z" });
-
-  assert.deepEqual(pruneCompletedTodos([open, recent, expired], now), [open, recent]);
 });
 
 test("weeksFrom returns whole weeks starting on the containing Monday", () => {

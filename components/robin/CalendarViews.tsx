@@ -14,7 +14,7 @@ import {
 import { layoutSpanBars } from "@/extension/robin/layout";
 import { spanSurface, timedSurface } from "./eventSurface";
 import { TodoTitle } from "./TodoTitle";
-import type { Todo } from "@/extension/robin/store";
+import type { Todo } from "@/extension/robin/todo-domain";
 import { useTodayInView } from "./useTodayInView";
 
 export type CalendarView = "agenda" | "week" | "month";

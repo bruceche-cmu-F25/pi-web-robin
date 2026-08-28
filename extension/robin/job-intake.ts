@@ -37,7 +37,7 @@ import {
   type RawPosting,
 } from "./job-providers.ts";
 import { newId } from "./paths.ts";
-import { readJobs, writeJobs } from "./store.ts";
+import { readJobs, updateJobs } from "./store.ts";
 
 /** A posting plus the provider that produced it — providers do not label themselves. */
 export type ScannedPosting = RawPosting & { source: string };
@@ -228,9 +228,12 @@ export async function absorb(
   await hydrateDescriptions(postings, ctx, {
     readUnknownBoards: rules.profile.readUnknownBoards,
   });
-  const merged = mergePostings(pruneJobs(readJobs()), postings, rules.profile);
-  writeJobs(merged.jobs);
-  return { added: merged.added };
+  const added = updateJobs((jobs) => {
+    const merged = mergePostings(pruneJobs(jobs), postings, rules.profile);
+    jobs.splice(0, jobs.length, ...merged.jobs);
+    return { value: merged.added, changed: true };
+  });
+  return { added };
 }
 
 /**
@@ -265,13 +268,18 @@ export async function expireClosedPostings(
   const dead = await findDeadPostings(worth.map((job) => job.url), ctx).catch(() => new Set<string>());
   if (dead.size === 0) return { checked: worth.length, closed: 0 };
 
-  let closed = 0;
-  for (const job of jobs) {
-    if (job.status !== "dropped" && dead.has(job.url)) {
-      job.status = "dropped";
-      closed += 1;
+  // The probes above perform network I/O. Merge their verdicts into the latest
+  // store so scores, notes, statuses, and newly discovered jobs written while
+  // the board was answering are not replaced by the earlier snapshot.
+  const closed = updateJobs((latest) => {
+    let count = 0;
+    for (const job of latest) {
+      if (job.status !== "dropped" && dead.has(job.url)) {
+        job.status = "dropped";
+        count += 1;
+      }
     }
-  }
-  if (closed > 0) writeJobs(jobs);
+    return { value: count, changed: count > 0 };
+  });
   return { checked: worth.length, closed };
 }

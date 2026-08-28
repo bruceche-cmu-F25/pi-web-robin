@@ -9,6 +9,7 @@ import {
   currentList,
   currentProblem,
   logAttempt,
+  patchPractice,
   reschedule,
   setCurrentProblem,
   setNote,
@@ -120,6 +121,41 @@ test("unknown problems are refused rather than invented", () => {
   assert.ok("error" in result);
   assert.match(result.error, /No problem in the NeetCode catalog/);
   assert.deepEqual(readPracticeRecords(), []);
+});
+
+test("ambiguous partial names are refused with slug candidates", () => {
+  const result = logAttempt({ problem: "duplicate", outcome: "solved" });
+  assert.ok("error" in result);
+  assert.match(result.error, /matches \d+ problems/);
+  assert.match(result.error, /contains-duplicate/);
+  assert.deepEqual(readPracticeRecords(), []);
+});
+
+test("a combined patch validates before changing the current problem or record", () => {
+  setCurrentProblem("two-sum");
+  const result = patchPractice({ problem: "valid-anagram", current: true, status: "not-a-status" });
+  assert.ok("error" in result);
+  assert.equal(currentProblem().problem.link, "two-sum", "the invalid patch must not replace the current problem");
+  assert.deepEqual(readPracticeRecords(), []);
+});
+
+test("a combined patch writes status, note, confidence, and current problem once", () => {
+  const result = patchPractice({
+    problem: "two-sum",
+    current: true,
+    list: "blind75",
+    status: "solved",
+    note: "Use the complement as the lookup key.",
+    confidence: 2,
+  });
+  assert.equal("error" in result, false);
+  const record = readPracticeRecords()[0];
+  assert.equal(record.status, "solved");
+  assert.equal(record.note, "Use the complement as the lookup key.");
+  assert.equal(record.confidence, 2);
+  assert.equal(record.nextReviewOn, reviewDateFor(2, localDate()));
+  assert.equal(currentProblem().problem.link, "two-sum");
+  assert.equal(currentList(), "blind75");
 });
 
 /**

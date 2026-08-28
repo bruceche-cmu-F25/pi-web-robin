@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { addTodo, deleteTodo, updateTodo } from "@/extension/robin/todo-domain";
-import { localDate, readTodos } from "@/extension/robin/store";
+import { localDate } from "@/extension/robin/dates";
+import { addTodo, deleteTodo, listTodos, updateTodo } from "@/extension/robin/todo-domain";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 
 export const dynamic = "force-dynamic";
@@ -28,7 +28,7 @@ export async function GET(req: Request) {
   const blocked = guard(req, false);
   if (blocked) return blocked;
   try {
-    return NextResponse.json({ todos: readTodos(), today: localDate() });
+    return NextResponse.json(listTodos({ includeDone: true }));
   } catch (error) {
     return fail(error, 500);
   }
