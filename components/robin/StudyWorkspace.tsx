@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { CURRICULUM, findTrack, type CurriculumItem } from "@/extension/robin/study";
+import { CURRICULUM, findItem, findTrack, type CurriculumItem } from "@/extension/robin/study";
 import { AgentPanel } from "./AgentPanel";
+import { CurriculumRail } from "./CurriculumRail";
 import { PaneDivider } from "./PaneDivider";
 import { SyllabusBoard } from "./SyllabusBoard";
 import {
@@ -23,8 +24,9 @@ interface StudyResponse {
 
 const TRACK_STORAGE_KEY = "pi-study-track";
 
-/** The two panes, in the order a phone steps through them. */
+/** The three panes, in the order a phone steps through them. */
 const PANES = [
+  { id: "path", labelKey: "coding.pane.path" },
   { id: "syllabus", labelKey: "coding.pane.syllabus" },
   { id: "mentor", labelKey: "coding.mentor.title" },
 ] as const;
@@ -38,15 +40,12 @@ const MENTOR_TOOL_KEYS: Record<string, string> = {
 };
 
 /**
- * The curriculum track: syllabus and mentor.
+ * The curriculum track: fixed path, syllabus, and mentor.
  *
- * Two columns where the practice side has three, because the third one had
- * nothing to hold. Problems need a middle pane — the editor is the work. A
- * curriculum does not: most of the catalog either refuses to be framed or is
- * a milestone rather than a page, so the frame stood empty most of the time,
- * and even when it filled, a tutorial reads better in a real tab than in a
- * pane. So the syllabus takes the room the frame was wasting and the
- * resources open where they belong.
+ * The left rail answers the question the catalog alone could not: which module
+ * comes next in the job-focused route. The center remains the full catalog for
+ * the selected area, and resources still open in real tabs where tutorials
+ * keep their own history, scroll position, and useful reading width.
  *
  * The same habits as the practice side otherwise, but not the same
  * bookkeeping. Nothing here is scored, counted, or marked read: a review
@@ -64,6 +63,9 @@ export function StudyWorkspace(chrome: WorkspaceChrome) {
   const { data, error, refresh } = usePolledResource<StudyResponse>("/api/robin/study", 15_000);
   const [trackId, setTrackId] = useState<string>(CURRICULUM[0].id);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [focusedModuleId, setFocusedModuleId] = useState<string | null>(null);
+  const [focusRequest, setFocusRequest] = useState(0);
+  const [showOverview, setShowOverview] = useState(true);
   const [actionError, setActionError] = useState<string | null>(null);
   // The resource the newest click asked for. A slower earlier request must not
   // be allowed to drag the mark back to what was open before it.
@@ -71,9 +73,7 @@ export function StudyWorkspace(chrome: WorkspaceChrome) {
   // Until the first response lands, the server's answer is unknown; adopting it
   // once avoids overriding a later click with a stale value.
   const [adopted, setAdopted] = useState(false);
-  // No rail on this track, so the mentor panel may take the room the rail
-  // would otherwise be holding against it.
-  const panes = usePaneWidths(false);
+  const panes = usePaneWidths(true);
   /**
    * A phone gets one pane at a time. The mentor column is 360px wide before it
    * is readable, which on a 375px screen leaves the syllabus beside it about
@@ -104,6 +104,13 @@ export function StudyWorkspace(chrome: WorkspaceChrome) {
   }, [data, adopted]);
 
   const track = useMemo(() => findTrack(trackId) ?? CURRICULUM[0], [trackId]);
+  const selectedLocation = useMemo(() => selectedId ? findItem(selectedId) : null, [selectedId]);
+  const activeModuleId = showOverview
+    ? null
+    : focusedModuleId
+      ?? (selectedLocation?.track.id === track.id ? selectedLocation.module.id : null)
+      ?? track.modules[0]?.id
+      ?? null;
 
   /** Every write goes through here, so a failure reaches the page instead of the console. */
   const runAction = useCallback(async (action: () => Promise<void>) => {
@@ -128,6 +135,8 @@ export function StudyWorkspace(chrome: WorkspaceChrome) {
    */
   const select = useCallback(async (item: CurriculumItem, nextTrack: string = trackId) => {
     setSelectedId(item.id);
+    setShowOverview(false);
+    setFocusedModuleId(findItem(item.id)?.module.id ?? null);
     requestedId.current = item.id;
     const response = await fetch("/api/robin/study", {
       method: "PATCH",
@@ -146,8 +155,27 @@ export function StudyWorkspace(chrome: WorkspaceChrome) {
 
   const chooseTrack = (next: string) => {
     setTrackId(next);
+    setShowOverview(false);
+    setFocusedModuleId(findTrack(next)?.modules[0]?.id ?? null);
+    setFocusRequest((request) => request + 1);
     window.localStorage.setItem(TRACK_STORAGE_KEY, next);
     void runAction(() => mutate("/api/robin/study", "PATCH", { track: next }));
+  };
+
+  const chooseModule = (nextTrack: string, moduleId: string) => {
+    setTrackId(nextTrack);
+    setShowOverview(false);
+    setFocusedModuleId(moduleId);
+    setFocusRequest((request) => request + 1);
+    window.localStorage.setItem(TRACK_STORAGE_KEY, nextTrack);
+    if (isMobile) setPane("syllabus");
+    void runAction(() => mutate("/api/robin/study", "PATCH", { track: nextTrack }));
+  };
+
+  const chooseOverview = () => {
+    setShowOverview(true);
+    setFocusedModuleId(null);
+    if (isMobile) setPane("syllabus");
   };
 
   return (
@@ -164,11 +192,34 @@ export function StudyWorkspace(chrome: WorkspaceChrome) {
       </WorkspaceHeader>
 
       <div className="flex flex-1" style={{ minHeight: 0 }}>
+        <WorkspacePane active={isMobile ? pane === "path" : null}>
+          <CurriculumRail
+            width={isMobile ? null : panes.rail.width}
+            overviewActive={showOverview}
+            activeModuleId={activeModuleId}
+            onOverview={chooseOverview}
+            onSelect={chooseModule}
+          />
+        </WorkspacePane>
+
+        {isMobile ? null : (
+          <PaneDivider
+            edge="left"
+            label={t("coding.pane.rail")}
+            title={t("coding.pane.resetHint")}
+            {...panes.rail}
+          />
+        )}
+
         <WorkspacePane active={isMobile ? pane === "syllabus" : null}>
           <SyllabusBoard
             track={track}
             onTrackChange={chooseTrack}
             selected={selectedId}
+            overview={showOverview}
+            focusedModuleId={activeModuleId}
+            focusRequest={focusRequest}
+            onModuleChange={chooseModule}
             onOpen={(item) => void runAction(() => select(item))}
           />
         </WorkspacePane>

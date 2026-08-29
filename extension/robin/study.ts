@@ -13,6 +13,8 @@
  */
 import {
   CURRICULUM,
+  CURRICULUM_OVERVIEW,
+  CURRICULUM_PATH,
   LEARNING_SHELF,
   type CurriculumItem,
   type CurriculumModule,
@@ -22,11 +24,20 @@ import {
 export type {
   CurriculumItem,
   CurriculumModule,
+  CurriculumModuleGuide,
+  CurriculumOverviewStage,
   CurriculumTrack,
+  CurriculumPathStep,
   ShelfGroup,
   ShelfLink,
 } from "./curriculum.ts";
-export { CURRICULUM, ITEM_KINDS, LEARNING_SHELF } from "./curriculum.ts";
+export {
+  CURRICULUM,
+  CURRICULUM_OVERVIEW,
+  CURRICULUM_PATH,
+  ITEM_KINDS,
+  LEARNING_SHELF,
+} from "./curriculum.ts";
 
 export const TRACK_IDS = CURRICULUM.map((track) => track.id);
 
@@ -45,6 +56,32 @@ export function allItems(): CurriculumItem[] {
 
 export function itemsInTrack(track: CurriculumTrack): CurriculumItem[] {
   return track.modules.flatMap((module) => module.items);
+}
+
+export interface CurriculumPathEntry {
+  track: CurriculumTrack;
+  module: CurriculumModule;
+}
+
+/** Resolve the fixed path to the catalog objects the UI and mentor already use. */
+export function curriculumPath(): CurriculumPathEntry[] {
+  return CURRICULUM_PATH.flatMap((step) => {
+    const track = findTrack(step.trackId);
+    const courseModule = track?.modules.find((module) => module.id === step.moduleId);
+    return track && courseModule ? [{ track, module: courseModule }] : [];
+  });
+}
+
+export interface CurriculumOverviewEntry extends CurriculumPathEntry {
+  id: string;
+}
+
+export function curriculumOverview(): CurriculumOverviewEntry[] {
+  return CURRICULUM_OVERVIEW.flatMap((stage) => {
+    const track = findTrack(stage.trackId);
+    const courseModule = track?.modules.find((module) => module.id === stage.moduleId);
+    return track && courseModule ? [{ id: stage.id, track, module: courseModule }] : [];
+  });
 }
 
 export interface ItemLocation {

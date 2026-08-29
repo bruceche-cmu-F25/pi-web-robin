@@ -62,12 +62,12 @@ test("every seam a track has is resizable", async () => {
     "RoadmapRail.tsx",
   );
 
-  // The curriculum has two, and the syllabus is one of them rather than a rail
-  // beside a frame. Pinned here because the empty frame is what the layout was
-  // changed to get rid of: a middle pane creeping back in would bring it too.
+  // Curriculum also has three panes now: the fixed path, syllabus, and mentor.
+  // The center remains a syllabus rather than the empty resource frame that the
+  // previous redesign removed.
   const study = await read("StudyWorkspace.tsx");
-  assert.match(study, /usePaneWidths\(false\)/, "the curriculum has no rail to hide");
-  assert.doesNotMatch(study, /edge="left"/, "the curriculum has no rail seam");
+  assert.match(study, /usePaneWidths\(true\)/, "the curriculum path stays visible");
+  assert.match(study, /<PaneDivider\s+edge="left"[\s\S]*?\{\.\.\.panes\.rail\}/, "curriculum path seam");
   assert.doesNotMatch(study, /<iframe|ResourceFrame/, "the curriculum frames nothing");
 });
 

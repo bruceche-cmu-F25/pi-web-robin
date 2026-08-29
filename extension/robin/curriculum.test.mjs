@@ -1,8 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
-import { CURRICULUM, ITEM_KINDS, LEARNING_SHELF } from "./curriculum.ts";
-import { allItems, findItem, learningShelf } from "./study.ts";
+import {
+  CURRICULUM,
+  CURRICULUM_OVERVIEW,
+  CURRICULUM_PATH,
+  ITEM_KINDS,
+  LEARNING_SHELF,
+} from "./curriculum.ts";
+import { allItems, curriculumOverview, curriculumPath, findItem, learningShelf } from "./study.ts";
+import { hasZhCNModuleCopy, localizeCurriculumModule } from "./curriculum-locales.ts";
 
 const items = allItems();
 
@@ -61,6 +68,85 @@ test("every module states an outcome and ends in something built", () => {
     const milestones = track.modules.flatMap((module) =>
       module.items.filter((item) => item.kind === "milestone"));
     assert.ok(milestones.length > 0, `${track.id} has nothing to build`);
+  }
+});
+
+test("the detailed path stays intact and every unit explains how to use it", () => {
+  const resolved = curriculumPath();
+  const expected = [
+    "js-core",
+    "web-fundamentals",
+    "frontend-libraries",
+    "backend-apis",
+    "testing-auth",
+    "state-engineering",
+    "typescript",
+    "relational-data",
+    "production",
+    "security-scale",
+    "project-sources",
+    "architecture-in-the-small",
+    "distributed-fundamentals",
+    "designing-a-system",
+    "reading-architectures",
+  ];
+
+  assert.equal(resolved.length, CURRICULUM_PATH.length);
+  assert.deepEqual(resolved.map(({ module }) => module.id), expected);
+  assert.equal(new Set(CURRICULUM_PATH.map(({ moduleId }) => moduleId)).size, CURRICULUM_PATH.length);
+
+  for (const { module } of resolved) {
+    assert.ok(module.guide, `${module.id} needs a unit introduction`);
+    for (const field of [
+      "plainLanguage",
+      "prerequisites",
+      "applicationRole",
+      "jobRelevance",
+      "smallExercise",
+      "exitCriteria",
+    ]) {
+      assert.ok(module.guide[field].length > 40, `${module.id}.${field} needs a real explanation`);
+    }
+    assert.ok(
+      module.items.some((item) => item.id === module.guide.minimumItemId && item.kind !== "milestone"),
+      `${module.id} minimum resource must be a real resource in the unit`,
+    );
+  }
+});
+
+test("the overview adds eight system questions without replacing the detailed path", () => {
+  const resolved = curriculumOverview();
+
+  assert.equal(resolved.length, 8);
+  assert.equal(resolved.length, CURRICULUM_OVERVIEW.length);
+  assert.deepEqual(
+    resolved.map(({ id }) => id),
+    ["browser-runtime", "page-state", "http", "server", "data", "auth", "production", "architecture"],
+  );
+  assert.ok(CURRICULUM_PATH.length > CURRICULUM_OVERVIEW.length);
+});
+
+test("every detailed unit has Simplified Chinese teaching copy", () => {
+  for (const { module } of curriculumPath()) {
+    assert.equal(hasZhCNModuleCopy(module.id), true, module.id);
+    const localized = localizeCurriculumModule(module, "zh-CN");
+    assert.notEqual(localized.title, module.title, `${module.id}.title`);
+    assert.notEqual(localized.outcome, module.outcome, `${module.id}.outcome`);
+    assert.notEqual(localized.guide.plainLanguage, module.guide.plainLanguage, `${module.id}.guide`);
+    assert.deepEqual(
+      localized.items.map(({ id, title, url }) => ({ id, title, url })),
+      module.items.map(({ id, title, url }) => ({ id, title, url })),
+      `${module.id} must keep official resources`,
+    );
+    for (let index = 0; index < module.items.length; index += 1) {
+      if (module.items[index].hint) {
+        assert.notEqual(localized.items[index].hint, module.items[index].hint, `${module.items[index].id}.hint`);
+      }
+    }
+
+    const traditional = localizeCurriculumModule(module, "zh-TW");
+    assert.notEqual(traditional.title, module.title, `${module.id}.zh-TW.title`);
+    assert.notEqual(traditional.guide.plainLanguage, module.guide.plainLanguage, `${module.id}.zh-TW.guide`);
   }
 });
 
@@ -130,7 +216,7 @@ test("the shelf keeps the groups the reading list was collected in", () => {
   // link again by remembering where you filed it, not what it teaches.
   assert.deepEqual(
     LEARNING_SHELF.map((group) => group.id),
-    ["entry", "freecodecamp", "python", "architecture", "projects", "design", "gym"],
+    ["entry", "freecodecamp", "fullstack", "python", "architecture", "projects", "design", "gym"],
   );
 });
 
