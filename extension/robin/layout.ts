@@ -87,24 +87,56 @@ export function layoutDayEvents<T extends CalendarEvent>(events: T[]): Positione
   return placed;
 }
 
+/** Where an empty week opens. Nothing to measure, so this is just waking hours. */
+const EMPTY_FIRST = 8;
+const EMPTY_LAST = 20;
+/** A grid shorter than this stops reading as a day at all. */
+const MIN_HOURS = 8;
 /**
- * Default to waking hours, expanding only for timed events in the supplied range.
+ * The top of the grid snaps to a multiple of this many hours.
  *
- * The day opens at 06:00 rather than at the first event: a grid that started
- * wherever the calendar happened to be busiest would move under you from week
- * to week, and an empty early band is what tells you an 08:00 is early.
+ * The range used to be pinned at 06:00–22:00 and could only grow, on the
+ * argument that a top edge tracking the first event would move under you from
+ * week to week. The argument is right and the fix was too blunt: sixteen hours
+ * is ~900px at the current hour height, so a week that starts at 09:30 opened
+ * with three and a half empty hours you had to scroll past every time.
+ *
+ * Snapping keeps both. The top moves only when the week genuinely shifts by
+ * two hours, not every time one meeting is rescheduled. The bottom is not
+ * snapped: it is the edge you scroll to, not the one you read from, and
+ * rounding it up only adds height back.
+ *
+ * The snap rounds down to the bracket the first event is *in*, and adds
+ * nothing on top of that. An earlier version padded an hour of air above the
+ * first event before snapping, so that the earliest block was not welded to
+ * the top rule — but an hour of air plus a rounding down is up to three empty
+ * hours, and a 06:00 start opened the grid at 04:00. An early week is early;
+ * it should not have to be scrolled into.
+ */
+const SNAP_HOURS = 2;
+
+/**
+ * The hours the week grid draws, measured from the timed events in it.
+ *
+ * All-day and multi-day events are excluded — they live in their own band and
+ * have no position on the hour grid, so a trip must not stretch it to midnight.
  */
 export function visibleHourRange<T extends CalendarEvent>(
   events: T[],
-  defaultFirst = 6,
-  defaultLast = 22,
 ): { first: number; last: number } {
-  let first = defaultFirst;
-  let last = defaultLast;
+  let earliest = Number.POSITIVE_INFINITY;
+  let latest = Number.NEGATIVE_INFINITY;
   for (const event of layoutDayEvents(events)) {
-    first = Math.min(first, Math.floor(event.startMinutes / 60));
-    last = Math.max(last, Math.ceil(event.endMinutes / 60));
+    earliest = Math.min(earliest, Math.floor(event.startMinutes / 60));
+    latest = Math.max(latest, Math.ceil(event.endMinutes / 60));
   }
+  if (earliest === Number.POSITIVE_INFINITY) return { first: EMPTY_FIRST, last: EMPTY_LAST };
+
+  let first = Math.max(0, Math.floor(earliest / SNAP_HOURS) * SNAP_HOURS);
+  let last = Math.min(24, latest);
+  // Grow downwards first: a short day should gain an evening, not a dawn.
+  while (last - first < MIN_HOURS && last < 24) last += 1;
+  while (last - first < MIN_HOURS && first > 0) first -= 1;
   return { first, last };
 }
 

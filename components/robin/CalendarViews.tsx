@@ -12,7 +12,7 @@ import {
   type DashboardEvent,
 } from "@/extension/robin/events";
 import { layoutSpanBars } from "@/extension/robin/layout";
-import { spanSurface, timedSurface } from "./eventSurface";
+import { useEventSurface } from "./eventSurface";
 import { TodoTitle } from "./TodoTitle";
 import type { Todo } from "@/extension/robin/todo-domain";
 import { useTodayInView } from "./useTodayInView";
@@ -33,6 +33,15 @@ interface AgendaViewProps extends ViewProps {
 /** Grids are laid out for a wide viewport; narrow screens scroll rather than crush. */
 const GRID_SCROLL = "overflow-x-auto";
 const GRID_MIN_WIDTH = "min-w-[42rem]";
+
+/**
+ * The same three sizes the week grid sets its blocks in — see WeekGrid.tsx.
+ * A month chip and an agenda row are the same object at a different density,
+ * so they are set from the same scale rather than from a size picked per view.
+ */
+const TITLE_SIZE = 13.5;
+const TITLE_SIZE_TIGHT = 12;
+const META_SIZE = 10.5;
 
 /** Relative day headings, translated here rather than in the shared module
  *  that the English-only agent tools also use. */
@@ -57,18 +66,24 @@ function EventChip({ event, onSelect, t }: {
   onSelect: (event: DashboardEvent) => void;
   t: (key: string) => string;
 }) {
+  const surface = useEventSurface();
   return (
     <button
       type="button"
       onClick={() => onSelect(event)}
       aria-haspopup="dialog"
       className="pointer-events-auto flex w-full items-baseline gap-1.5 py-0.5 pl-1 pr-1.5 text-left"
-      style={{ ...timedSurface(event), fontSize: 12 }}
+      style={{ ...surface.timed(event), fontSize: TITLE_SIZE }}
       title={`${formatEventTime(event)} ${event.title}${event.calendar ? ` — ${event.calendar}` : ""}`}
     >
       {/* The clock stays quieter than the title: same hue would make the row
-          two equal halves, and the thing you scan for is the name. */}
-      <span className="shrink-0 tabular-nums" style={{ color: "var(--text-muted)", fontSize: 10 }}>
+          two equal halves, and the thing you scan for is the name. It also
+          names the mono, because the surface sets the serif for the title and
+          a time in a proportional face stops lining up column to column. */}
+      <span
+        className="shrink-0 tabular-nums"
+        style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: META_SIZE }}
+      >
         {event.start ?? t("robin.calendar.allDay")}
       </span>
       <span className="min-w-0 flex-1 truncate">{event.title}</span>
@@ -87,6 +102,7 @@ export function AgendaView({
   onCompleteTodo,
 }: AgendaViewProps) {
   const { t, locale } = useI18n();
+  const surface = useEventSurface();
   const grouped = groupAgendaItems(events, todos);
   // Today always gets a row, even when empty: on a daily dashboard "nothing on
   // today" is itself the answer, and omitting the day reads as a load failure.
@@ -160,15 +176,20 @@ export function AgendaView({
               // Same two-axis colouring as the grids: hue for the kind of
               // thing, weight for whether it is yours. Which day it is under
               // is the heading's job, not the row's.
-              style={isAllDayBand(event) ? spanSurface(event) : timedSurface(event)}
+              style={isAllDayBand(event) ? surface.span(event) : surface.timed(event)}
             >
               <span
-                className="shrink-0 text-xs tabular-nums"
-                style={{ color: "var(--text-muted)", minWidth: "5.5rem" }}
+                className="shrink-0 tabular-nums"
+                style={{
+                  color: "var(--text-muted)",
+                  fontFamily: "var(--font-mono)",
+                  fontSize: META_SIZE,
+                  minWidth: "5.5rem",
+                }}
               >
                 {formatEventTime(event)}
               </span>
-              <span className="min-w-0 flex-1 truncate" style={{ fontSize: 12.5 }}>
+              <span className="min-w-0 flex-1 truncate" style={{ fontSize: TITLE_SIZE }}>
                 {event.title}
                 {event.location && <span style={{ color: "var(--text-dim)" }}> @ {event.location}</span>}
                 {isReadOnlyEvent(event) && (
@@ -251,6 +272,7 @@ function MonthWeekRow({
   onCompleteTodo: (todo: Todo) => void;
   t: (key: string, params?: Record<string, string>) => string;
 }) {
+  const surface = useEventSurface();
   const { bars, lanes } = layoutSpanBars(events, days);
   const barsHeight = lanes * BAR_HEIGHT;
   // The window always opens on today's week, but when today falls late in it
@@ -369,9 +391,9 @@ function MonthWeekRow({
             width: `calc(${((bar.endIndex - bar.startIndex + 1) / 7) * 100}% - 4px)`,
             top: DAY_NUMBER_HEIGHT + bar.lane * BAR_HEIGHT + 2,
             height: BAR_HEIGHT - 2,
-            ...spanSurface(bar.event),
+            ...surface.span(bar.event),
             borderRadius: 0,
-            fontSize: 11.5,
+            fontSize: TITLE_SIZE_TIGHT,
           }}
         >
           {bar.continuesBefore && "‹ "}

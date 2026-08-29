@@ -75,16 +75,48 @@ test("all-day and spanning events are excluded from the time grid", () => {
   assert.deepEqual(placed.map((p) => p.event.id), ["normal"]);
 });
 
-test("visible hours expand for timed events, not all-day or spanning events", () => {
+test("visible hours are measured from timed events, not all-day or spanning ones", () => {
   const bands = [
     allDay("allday", "2026-08-14"),
     at("trip", "00:00", "23:59", { endDate: "2026-08-16" }),
   ];
-  assert.deepEqual(visibleHourRange(bands), { first: 6, last: 22 });
+  // Nothing on the hour grid at all: the default waking-hours window.
+  assert.deepEqual(visibleHourRange(bands), { first: 8, last: 20 });
   assert.deepEqual(
     visibleHourRange([...bands, at("early", "02:30", "03:00"), at("late", "22:30", "23:15")]),
     { first: 2, last: 24 },
   );
+});
+
+test("the grid trims to the week's own hours, with the top snapped", () => {
+  // 09:30–21:00 → the bracket 09:30 falls in, which is 08:00.
+  assert.deepEqual(
+    visibleHourRange([at("standup", "09:30", "10:00"), at("gym", "20:00", "21:00")]),
+    { first: 8, last: 21 },
+  );
+  // Rescheduling inside the same two-hour bracket must not move the top edge.
+  assert.equal(visibleHourRange([at("a", "09:00", "10:00"), at("b", "18:00", "19:00")]).first, 8);
+  assert.equal(visibleHourRange([at("a", "09:59", "10:30"), at("b", "18:00", "19:00")]).first, 8);
+  // A genuinely earlier week does move it.
+  assert.equal(visibleHourRange([at("a", "06:30", "07:00"), at("b", "18:00", "19:00")]).first, 6);
+});
+
+test("an early start is not padded into", () => {
+  // Nothing is added above the first event: a 06:00 start opens the grid at
+  // 06:00, not at 04:00.
+  assert.equal(visibleHourRange([at("dawn", "06:00", "07:00"), at("dusk", "19:00", "20:00")]).first, 6);
+  // An event already on a bracket edge keeps that edge.
+  assert.equal(visibleHourRange([at("a", "08:00", "09:00"), at("b", "19:00", "20:00")]).first, 8);
+  // And one just past it rounds down to it, never up past the event.
+  assert.equal(visibleHourRange([at("a", "07:05", "08:00"), at("b", "19:00", "20:00")]).first, 6);
+  assert.equal(visibleHourRange([at("a", "00:15", "01:00"), at("b", "19:00", "20:00")]).first, 0);
+});
+
+test("a thin week still gets a day's worth of grid", () => {
+  // One hour of events would otherwise be a two-hour sliver.
+  assert.deepEqual(visibleHourRange([at("only", "10:00", "11:00")]), { first: 10, last: 18 });
+  // Late evening: it grows to midnight first, then back up past the events.
+  assert.deepEqual(visibleHourRange([at("late", "22:00", "23:00")]), { first: 16, last: 24 });
 });
 
 test("span bars clip to the week and flag where they continue", () => {

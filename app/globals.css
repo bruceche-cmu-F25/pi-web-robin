@@ -233,36 +233,64 @@
   --focus-ring: rgb(139 81 60 / 0.72);
 
   /* Calendar event palette. Each event is drawn in one of six muted colours —
-     picked from a stable hash of its identity, with recurring occurrences
-     sharing one seed — so commitments are distinguishable at a glance. Low
-     saturation on purpose: the calendar is a field of quiet washes, and the
-     one loud thing on it must stay the current day. Each key carries four
-     alphas: solid for the editable rule, `-line` for the held-back Google
-     rule, `-soft` for a timed chip, `-fill` for a spanning bar. */
+     picked from a stable hash of **the calendar it belongs to** — see
+     eventColors.ts — so a week carries as many colours as you have calendars
+     rather than as many as you have events. Low saturation on purpose: the
+     calendar is a field of quiet washes, and the one loud thing on it must
+     stay the current day. Each key carries five alphas: solid for the spine
+     down a block's left edge, `-line` for a hairline of the same hue,
+     `-faint` for the block a timed event is drawn on, `-soft` for a chip or
+     an all-day band, `-fill` for a spanning bar.
+
+     `-faint` is the quietest of them and the one that does the most work: a
+     timed block is drawn on it so that the grid reads as a single material
+     and the hue arrives through the spine instead, in one vertical sweep the
+     eye can follow down a column. */
   --event-clay: #a8745c;
   --event-clay-soft: rgb(168 116 92 / 0.24);
+  --event-clay-faint: rgb(168 116 92 / 0.09);
   --event-clay-fill: rgb(168 116 92 / 0.32);
   --event-clay-line: rgb(168 116 92 / 0.55);
   --event-sage: #8b8f5f;
   --event-sage-soft: rgb(139 143 95 / 0.24);
+  --event-sage-faint: rgb(139 143 95 / 0.09);
   --event-sage-fill: rgb(139 143 95 / 0.32);
   --event-sage-line: rgb(139 143 95 / 0.55);
   --event-teal: #5c8a83;
   --event-teal-soft: rgb(92 138 131 / 0.24);
+  --event-teal-faint: rgb(92 138 131 / 0.09);
   --event-teal-fill: rgb(92 138 131 / 0.32);
   --event-teal-line: rgb(92 138 131 / 0.55);
   --event-slate: #75839a;
   --event-slate-soft: rgb(117 131 154 / 0.24);
+  --event-slate-faint: rgb(117 131 154 / 0.09);
   --event-slate-fill: rgb(117 131 154 / 0.32);
   --event-slate-line: rgb(117 131 154 / 0.55);
   --event-plum: #99718a;
   --event-plum-soft: rgb(153 113 138 / 0.24);
+  --event-plum-faint: rgb(153 113 138 / 0.09);
   --event-plum-fill: rgb(153 113 138 / 0.32);
   --event-plum-line: rgb(153 113 138 / 0.55);
   --event-honey: #a58a4d;
   --event-honey-soft: rgb(165 138 77 / 0.24);
+  --event-honey-faint: rgb(165 138 77 / 0.09);
   --event-honey-fill: rgb(165 138 77 / 0.32);
   --event-honey-line: rgb(165 138 77 / 0.55);
+  --event-fern: #5f8a5c;
+  --event-fern-soft: rgb(95 138 92 / 0.24);
+  --event-fern-faint: rgb(95 138 92 / 0.09);
+  --event-fern-fill: rgb(95 138 92 / 0.32);
+  --event-fern-line: rgb(95 138 92 / 0.55);
+  --event-iris: #8578a6;
+  --event-iris-soft: rgb(133 120 166 / 0.24);
+  --event-iris-faint: rgb(133 120 166 / 0.09);
+  --event-iris-fill: rgb(133 120 166 / 0.32);
+  --event-iris-line: rgb(133 120 166 / 0.55);
+  --event-rose: #a76a6c;
+  --event-rose-soft: rgb(167 106 108 / 0.24);
+  --event-rose-faint: rgb(167 106 108 / 0.09);
+  --event-rose-fill: rgb(167 106 108 / 0.32);
+  --event-rose-line: rgb(167 106 108 / 0.55);
 
   /* Todo text uses the calendar's hue families with more saturation and
      contrast, so a manually marked item stands out from the quieter event
@@ -273,6 +301,9 @@
   --todo-slate: #416fa8;
   --todo-plum: #985080;
   --todo-honey: #8c6600;
+  --todo-fern: #267326;
+  --todo-iris: #5f4a9e;
+  --todo-rose: #b53c50;
 
   /* Today. Reserved for the current day and used for nothing else: the one
      square of a different hue on a grid where every event is drawn in the
@@ -285,6 +316,10 @@
      the fill only has to tint the cell, not shout. */
   --today-mark: #d9669c;
   --today-wash: rgb(217 102 156 / 0.12);
+  /* Today is already carried by the badge, the rule under its heading and
+     the now-line. The column only has to be findable, not shouted; at 0.12 it
+     was a fourth mark competing with the three that identify the day. */
+  --today-wash-quiet: rgb(217 102 156 / 0.05);
 
   /* The dashboard is read as paper on a desk: the ground is washed a step
      toward parchment so the panels laid on it have something to sit on. Light
@@ -383,38 +418,63 @@ html.dark {
   --focus-ring: rgb(106 159 204 / 0.72);
   --event-clay: #c08b6f;
   --event-clay-soft: rgb(192 139 111 / 0.24);
+  --event-clay-faint: rgb(192 139 111 / 0.11);
   --event-clay-fill: rgb(192 139 111 / 0.32);
   --event-clay-line: rgb(192 139 111 / 0.55);
   --event-sage: #a9ab77;
   --event-sage-soft: rgb(169 171 119 / 0.24);
+  --event-sage-faint: rgb(169 171 119 / 0.11);
   --event-sage-fill: rgb(169 171 119 / 0.32);
   --event-sage-line: rgb(169 171 119 / 0.55);
   /* The teal slot shifts to violet in dark: today already owns teal here
      (--today-mark), so an event in the same hue would read as "now". */
   --event-teal: #9488cc;
   --event-teal-soft: rgb(148 136 204 / 0.24);
+  --event-teal-faint: rgb(148 136 204 / 0.11);
   --event-teal-fill: rgb(148 136 204 / 0.32);
   --event-teal-line: rgb(148 136 204 / 0.55);
   --event-slate: #96a6c0;
   --event-slate-soft: rgb(150 166 192 / 0.24);
+  --event-slate-faint: rgb(150 166 192 / 0.11);
   --event-slate-fill: rgb(150 166 192 / 0.32);
   --event-slate-line: rgb(150 166 192 / 0.55);
   --event-plum: #bb90a4;
   --event-plum-soft: rgb(187 144 164 / 0.24);
+  --event-plum-faint: rgb(187 144 164 / 0.11);
   --event-plum-fill: rgb(187 144 164 / 0.32);
   --event-plum-line: rgb(187 144 164 / 0.55);
   --event-honey: #c3a565;
   --event-honey-soft: rgb(195 165 101 / 0.24);
+  --event-honey-faint: rgb(195 165 101 / 0.11);
   --event-honey-fill: rgb(195 165 101 / 0.32);
   --event-honey-line: rgb(195 165 101 / 0.55);
+  --event-fern: #86b07c;
+  --event-fern-soft: rgb(134 176 124 / 0.24);
+  --event-fern-faint: rgb(134 176 124 / 0.11);
+  --event-fern-fill: rgb(134 176 124 / 0.32);
+  --event-fern-line: rgb(134 176 124 / 0.55);
+  --event-iris: #c98dce;
+  --event-iris-soft: rgb(201 141 206 / 0.24);
+  --event-iris-faint: rgb(201 141 206 / 0.11);
+  --event-iris-fill: rgb(201 141 206 / 0.32);
+  --event-iris-line: rgb(201 141 206 / 0.55);
+  --event-rose: #dfa0a2;
+  --event-rose-soft: rgb(223 160 162 / 0.24);
+  --event-rose-faint: rgb(223 160 162 / 0.11);
+  --event-rose-fill: rgb(223 160 162 / 0.32);
+  --event-rose-line: rgb(223 160 162 / 0.55);
   --todo-clay: #ff966f;
   --todo-sage: #b9d96f;
   --todo-teal: #57d4ca;
   --todo-slate: #8dbbff;
   --todo-plum: #eda0d5;
   --todo-honey: #f3c85d;
+  --todo-fern: #75d775;
+  --todo-iris: #dfa0ef;
+  --todo-rose: #ff9aa8;
   --today-mark: var(--accent-teal);
   --today-wash: rgb(95 179 171 / 0.13);
+  --today-wash-quiet: rgb(95 179 171 / 0.05);
   --dashboard-ground: rgb(13 17 22 / 0.40);
   --card-shadow: 0 1px 2px rgb(0 0 0 / 0.35), 0 10px 24px -16px rgb(0 0 0 / 0.8);
   /* Bright enough that a black logo reads, held under white so a row of them

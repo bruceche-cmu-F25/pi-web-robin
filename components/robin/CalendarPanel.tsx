@@ -10,11 +10,13 @@ import {
   weeksFrom,
 } from "@/extension/robin/dates";
 import { eventsInRange, type DashboardEvent } from "@/extension/robin/events";
+import { orderSeriesColors } from "@/extension/robin/eventColors";
 import type { Todo } from "@/extension/robin/todo-domain";
 import { AgendaView, MonthView, type CalendarView } from "./CalendarViews";
 import { WeekGrid } from "./WeekGrid";
 import { GoogleConnect } from "./GoogleConnect";
 import { EventDetailsDialog } from "./EventDetailsDialog";
+import { SeriesPaletteContext } from "./eventSurface";
 import { requestRefresh } from "./refreshBus";
 import { mutate, usePolledResource } from "./usePolledResource";
 
@@ -48,6 +50,7 @@ function readStoredView(): CalendarView {
   }
   return "week";
 }
+
 
 export function CalendarPanel() {
   const { t, locale } = useI18n();
@@ -94,6 +97,12 @@ export function CalendarPanel() {
     const grid = weeksFrom(activeAnchor, MONTH_WEEKS);
     return { from: grid[0] as string, to: grid[grid.length - 1] as string };
   }, [view, activeAnchor, today]);
+
+  /**
+   * Dealt from every event the panel holds, not from the visible slice, so
+   * paging between weeks never repaints a series.
+   */
+  const palette = useMemo(() => orderSeriesColors(data?.events ?? []), [data]);
 
   const visible = useMemo(
     () => (range ? eventsInRange(data?.events ?? [], range.from, range.to) : []),
@@ -307,39 +316,41 @@ export function CalendarPanel() {
         <p className="text-xs" style={{ color: "var(--accent)" }}>{actionError ?? error ?? todosError}</p>
       )}
 
-      {today && view === "agenda" && (
-        <AgendaView
-          events={visible}
-          todos={visibleTodos}
-          today={today}
-          onSelectEvent={setSelectedEvent}
-          onCompleteTodo={completeTodo}
-        />
-      )}
-      {today && view === "week" && (
-        <WeekGrid
-          events={visible}
-          todos={visibleTodos}
-          today={today}
-          anchor={activeAnchor}
-          onSelectEvent={setSelectedEvent}
-          onCompleteTodo={completeTodo}
-        />
-      )}
-      {today && view === "month" && (
-        <MonthView
-          events={visible}
-          todos={visibleTodos}
-          today={today}
-          days={weeksFrom(activeAnchor, MONTH_WEEKS)}
-          onSelectDay={(day) => {
-            setAnchor(day);
-            chooseView("week");
-          }}
-          onSelectEvent={setSelectedEvent}
-          onCompleteTodo={completeTodo}
-        />
-      )}
+      <SeriesPaletteContext.Provider value={palette}>
+        {today && view === "agenda" && (
+          <AgendaView
+            events={visible}
+            todos={visibleTodos}
+            today={today}
+            onSelectEvent={setSelectedEvent}
+            onCompleteTodo={completeTodo}
+          />
+        )}
+        {today && view === "week" && (
+          <WeekGrid
+            events={visible}
+            todos={visibleTodos}
+            today={today}
+            anchor={activeAnchor}
+            onSelectEvent={setSelectedEvent}
+            onCompleteTodo={completeTodo}
+          />
+        )}
+        {today && view === "month" && (
+          <MonthView
+            events={visible}
+            todos={visibleTodos}
+            today={today}
+            days={weeksFrom(activeAnchor, MONTH_WEEKS)}
+            onSelectDay={(day) => {
+              setAnchor(day);
+              chooseView("week");
+            }}
+            onSelectEvent={setSelectedEvent}
+            onCompleteTodo={completeTodo}
+          />
+        )}
+      </SeriesPaletteContext.Provider>
 
       <GoogleConnect status={data?.google} onChanged={refresh} />
 

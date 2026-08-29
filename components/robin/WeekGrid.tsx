@@ -15,12 +15,21 @@ import {
   visibleHourRange,
 } from "@/extension/robin/layout";
 import type { Todo } from "@/extension/robin/todo-domain";
-import { spanSurface, timedSurface } from "./eventSurface";
+import { useEventSurface } from "./eventSurface";
 import { TodoTitle } from "./TodoTitle";
 import { useTodayInView } from "./useTodayInView";
 
 /** Give dense cards enough vertical room for title, time, and useful details. */
 const HOUR_HEIGHT = 56;
+/**
+ * The block's type scale. Three sizes and no more: the title, the machinery
+ * under it, and one step down for a title in a four-way overlap. What was here
+ * before was nine sizes between 9 and 18 with nothing relating them, and 9px
+ * for a location is below what this app sets anything else at.
+ */
+const TITLE_SIZE = 13.5;
+const TITLE_SIZE_TIGHT = 12;
+const META_SIZE = 10.5;
 const PX_PER_MINUTE = HOUR_HEIGHT / 60;
 const TIME_GUTTER = "4rem";
 
@@ -59,6 +68,7 @@ export function WeekGrid({
   onCompleteTodo: (todo: Todo) => void;
 }) {
   const { t, locale } = useI18n();
+  const surface = useEventSurface();
   const days = weekDays(anchor);
   const scrollerRef = useTodayInView(anchor, today);
   const { bars, lanes } = layoutSpanBars(events, days);
@@ -103,7 +113,10 @@ export function WeekGrid({
                   {weekdayLabel(date, locale)}
                 </span>
                 {isToday ? (
-                  <span className="pi-today-badge" style={{ minWidth: "2em", fontSize: 16 }}>
+                  // Set at the size of the plain numbers beside it. At 16 against
+                  // their 18 today's date came out the smallest on the row, which
+                  // is the opposite of what the badge is for.
+                  <span className="pi-today-badge" style={{ minWidth: "2em", fontSize: 18 }}>
                     {parseLocalDate(date).getDate()}
                   </span>
                 ) : (
@@ -130,11 +143,10 @@ export function WeekGrid({
           >
             <div className="pi-meta pr-1 text-right" style={{ color: "var(--text-dim)" }}>{t("robin.calendar.allDay")}</div>
             <div className="relative col-span-7" style={{ height: lanes * 22 }}>
-              <div className="absolute inset-0 grid grid-cols-7 gap-px">
-                {days.map((date) => (
-                  <div key={date} style={{ background: date === today ? "var(--today-wash)" : "transparent" }} />
-                ))}
-              </div>
+              {/* No today wash in here. The column below carries one, and the
+                  day is already named by its badge and the rule under its
+                  heading; repeating the tint in every band was what made the
+                  other six days look faulty rather than making today clear. */}
               {bars.map((bar) => (
                 <button
                   key={bar.event.id}
@@ -148,7 +160,7 @@ export function WeekGrid({
                     width: `calc(${((bar.endIndex - bar.startIndex + 1) / 7) * 100}% - 2px)`,
                     top: bar.lane * 22,
                     height: 20,
-                    ...spanSurface(bar.event),
+                    ...surface.span(bar.event),
                     borderRadius: 0,
                     fontSize: 12,
                   }}
@@ -176,11 +188,7 @@ export function WeekGrid({
               {t("robin.todos.deadlines")}
             </div>
             {days.map((date) => (
-              <div
-                key={date}
-                className="flex min-w-0 flex-col gap-1 px-0.5"
-                style={{ background: date === today ? "var(--today-wash)" : "transparent" }}
-              >
+              <div key={date} className="flex min-w-0 flex-col gap-1 px-0.5">
                 {todos.filter((todo) => todo.due === date).map((todo) => (
                   <div
                     key={todo.id}
@@ -242,9 +250,12 @@ export function WeekGrid({
                   className="relative"
                   style={{
                     height: gridHeight,
-                    // A hue of its own, so it separates from the accent-tinted
-                    // blocks laid on top of it.
-                    background: isToday ? "var(--today-wash)" : "transparent",
+                    // A hue of its own, so it separates from the event-tinted
+                    // blocks laid on top of it — and the one today mark that
+                    // covers area rather than a line, so it stays the quiet
+                    // one. The badge, the heading rule and the now-line are
+                    // what actually identify the day.
+                    background: isToday ? "var(--today-wash-quiet)" : "transparent",
                   }}
                 >
                   {hours.map((hour) => (
@@ -279,7 +290,11 @@ export function WeekGrid({
                     const showTime = height >= 36;
                     const showLocation = height >= 68 && Boolean(event.location);
                     const titleLines = height >= 52 ? 2 : 1;
-                    const titleSize = columns >= 4 ? 11 : columns === 3 ? 12 : 13;
+                    // The serif holds its size a column longer than the mono
+                    // did — it is the narrower face, which is the whole reason
+                    // the title is set in it — so only a four-way overlap
+                    // needs a step down.
+                    const titleSize = columns >= 4 ? TITLE_SIZE_TIGHT : TITLE_SIZE;
                     return (
                       <button
                         key={event.id}
@@ -296,7 +311,7 @@ export function WeekGrid({
                           height,
                           left: `calc(${(column / columns) * 100}% + 1px)`,
                           width: `calc(${(1 / columns) * 100}% - 2px)`,
-                          ...timedSurface(event),
+                          ...surface.timed(event),
                         }}
                       >
                         <span
@@ -305,9 +320,18 @@ export function WeekGrid({
                             WebkitBoxOrient: "vertical",
                             WebkitLineClamp: titleLines,
                             overflow: "hidden",
-                            overflowWrap: "anywhere",
+                            // `anywhere` breaks inside a word whenever it helps
+                            // the line, which in a narrow column turned
+                            // "Anthropic" into "Anthropi / c". `break-word`
+                            // only splits a word that cannot fit a line of its
+                            // own, which here is the genuine last resort.
+                            overflowWrap: "break-word",
+                            // When a word genuinely cannot fit — a 55px column
+                            // in a four-way overlap — break it at a syllable
+                            // with a hyphen rather than mid-letter.
+                            hyphens: "auto",
                             fontSize: titleSize,
-                            lineHeight: 1.25,
+                            lineHeight: 1.22,
                           }}
                         >
                           {event.title}
@@ -317,7 +341,7 @@ export function WeekGrid({
                             className="block max-w-full truncate tabular-nums"
                             style={{
                               fontFamily: "var(--font-mono)",
-                              fontSize: 10,
+                              fontSize: META_SIZE,
                               lineHeight: 1.3,
                               color: "var(--text-muted)",
                             }}
@@ -330,9 +354,9 @@ export function WeekGrid({
                             className="block max-w-full truncate"
                             style={{
                               fontFamily: "var(--font-mono)",
-                              fontSize: 9,
+                              fontSize: META_SIZE,
                               lineHeight: 1.3,
-                              color: "var(--text-muted)",
+                              color: "var(--text-dim)",
                             }}
                           >
                             {event.location}
