@@ -23,6 +23,13 @@ import { userMessageKey } from "@/lib/prompt-recovery";
 import { AgentEventConnection } from "@/lib/agent-event-connection";
 import { getToolExecutionProgress } from "@/lib/tool-execution-progress";
 import {
+  agentLifecycleTransition,
+  graceOutcome,
+  isGraceCheckStale,
+  type AgentLifecycleEvent,
+  type AgentStatusReport,
+} from "@/lib/agent-stream-lifecycle";
+import {
   CHAT_SCROLL_REATTACH_TOLERANCE,
   CHAT_SCROLL_TAIL_TOLERANCE,
   getLiveFollowAttached,
@@ -845,59 +852,53 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     eventStreamGraceActiveRef.current = true;
     const generation = eventStreamGraceGenerationRef.current;
 
-    const checkServerIdle = async () => {
-      if (
-        generation !== eventStreamGraceGenerationRef.current
-        || sessionIdRef.current !== sid
-        || !eventStreamGraceActiveRef.current
-      ) return;
+    const overtaken = () => isGraceCheckStale({
+      generation,
+      currentGeneration: eventStreamGraceGenerationRef.current,
+      sessionId: sid,
+      currentSessionId: sessionIdRef.current,
+      graceActive: eventStreamGraceActiveRef.current,
+    });
 
+    const checkServerIdle = async () => {
+      if (overtaken()) return;
+
+      let report: AgentStatusReport | null = null;
       try {
         const res = await fetch(`/api/agent/${encodeURIComponent(sid)}`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json() as { running?: boolean; state?: AgentStateResponse };
-        if (
-          generation !== eventStreamGraceGenerationRef.current
-          || sessionIdRef.current !== sid
-          || !eventStreamGraceActiveRef.current
-        ) return;
+        report = await res.json() as AgentStatusReport;
+      } catch {
+        // Leave `report` null: an unreadable server is not an idle server.
+        report = null;
+      }
+      if (overtaken()) return;
 
-        const state = data.state;
-        const promptActive = Boolean(data.running && state && (state.isStreaming || state.isPromptRunning));
-        if (promptActive) {
-          eventStreamGraceActiveRef.current = false;
-          eventStreamGraceTimerRef.current = null;
-          sdkAgentActiveRef.current = Boolean(state?.isStreaming);
-          rpcPromptPendingRef.current = Boolean(state?.isPromptRunning);
-          agentRunningRef.current = true;
-          setAgentRunning(true);
-          setAgentPhase(state?.isStreaming ? { kind: "waiting_model" } : { kind: "running_command" });
-          return;
-        }
-
-        if (data.running && state?.isCompacting) {
-          setIsCompacting(true);
-          eventStreamGraceTimerRef.current = setTimeout(() => void checkServerIdle(), PROMPT_SETTLE_POLL_MS);
-          return;
-        }
-
+      const outcome = graceOutcome(report);
+      if (outcome.kind === "adopt") {
         eventStreamGraceActiveRef.current = false;
         eventStreamGraceTimerRef.current = null;
-        closeEvents();
-      } catch {
-        // Keep the stream alive while state cannot be verified.
-        if (
-          generation !== eventStreamGraceGenerationRef.current
-          || sessionIdRef.current !== sid
-          || !eventStreamGraceActiveRef.current
-        ) return;
-        eventStreamGraceTimerRef.current = setTimeout(() => void checkServerIdle(), PROMPT_SETTLE_POLL_MS);
+        sdkAgentActiveRef.current = outcome.sdkAgentActive;
+        rpcPromptPendingRef.current = outcome.rpcPromptPending;
+        agentRunningRef.current = true;
+        setAgentRunning(true);
+        setAgentPhase({ kind: outcome.phase });
+        return;
       }
+
+      if (outcome.kind === "poll") {
+        if (outcome.reason === "compacting") setIsCompacting(true);
+        eventStreamGraceTimerRef.current = setTimeout(() => void checkServerIdle(), PROMPT_SETTLE_POLL_MS);
+        return;
+      }
+
+      eventStreamGraceActiveRef.current = false;
+      eventStreamGraceTimerRef.current = null;
+      closeEvents();
     };
 
     eventStreamGraceTimerRef.current = setTimeout(() => void checkServerIdle(), EVENT_STREAM_IDLE_GRACE_MS);
   }, [cancelEventStreamGrace, closeEvents]);
-
   const finishPromptWithoutStream = useCallback(async (sid: string | null = sessionIdRef.current, runId = promptRunIdRef.current) => {
     // Bail out before loadSession too: a stale finish for a previous run
     // must not overwrite the messages of the run currently streaming.
@@ -1042,6 +1043,70 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     agentRunningRef.current = agentRunning;
   }, [agentRunning]);
 
+  /**
+   * Refresh the panels an ended turn can invalidate. Unlike
+   * `reconcileAgentState` this never finishes the prompt — `agent_end` is not a
+   * completion, so it only repaints.
+   */
+  const reloadAgentState = useCallback((sid: string) => {
+    fetch(`/api/agent/${encodeURIComponent(sid)}`)
+      .then((r) => r.json())
+      .then((d: { state?: AgentStateResponse }) => {
+        if (d.state?.contextUsage !== undefined) setContextUsage(d.state.contextUsage ?? null);
+        if (d.state?.systemPrompt !== undefined) setSystemPrompt(d.state.systemPrompt ?? null);
+        if (d.state?.extensionStatuses !== undefined) setExtensionStatuses(d.state.extensionStatuses ?? []);
+        if (d.state?.extensionWidgets !== undefined) setExtensionWidgets(d.state.extensionWidgets ?? []);
+        // Aborted turns can leave messages queued in pi (delivered with the
+        // next turn); dead wrapper (no state) means the queue is gone.
+        setQueuedMessages(normalizeQueuedMessages(d.state?.queuedMessages));
+      })
+      .catch(() => {});
+  }, []);
+
+  /**
+   * Run one lifecycle event: ask agent-stream-lifecycle what it means, write the
+   * refs it decided, then perform the effects it asked for, in order.
+   */
+  const applyLifecycleEvent = useCallback((event: AgentLifecycleEvent) => {
+    const { next, effects } = agentLifecycleTransition(event, {
+      agentRunning: agentRunningRef.current,
+      sdkAgentActive: sdkAgentActiveRef.current,
+      rpcPromptPending: rpcPromptPendingRef.current,
+      notifiedRunId: notifiedPromptRunIdRef.current,
+      promptRunId: promptRunIdRef.current,
+    });
+
+    agentRunningRef.current = next.agentRunning;
+    sdkAgentActiveRef.current = next.sdkAgentActive;
+    rpcPromptPendingRef.current = next.rpcPromptPending;
+    notifiedPromptRunIdRef.current = next.notifiedRunId;
+
+    const sid = sessionIdRef.current;
+    for (const effect of effects) {
+      switch (effect) {
+        case "cancel-grace": cancelEventStreamGrace(); break;
+        case "enter-waiting-model":
+          setAgentRunning(true);
+          setAgentPhase({ kind: "waiting_model" });
+          break;
+        case "stream-start": dispatch({ type: "start" }); break;
+        case "stream-end": dispatch({ type: "end" }); break;
+        case "clear-phase": setAgentPhase(null); break;
+        case "clear-retry": setRetryInfo(null); break;
+        case "clear-compacting": setIsCompacting(false); break;
+        case "clear-optimistic-user-message": optimisticUserMessageKeyRef.current = null; break;
+        case "settle-ui": settleUiStage(); break;
+        case "reload-session": if (sid) void loadSession(sid); break;
+        case "reload-agent-state": if (sid) reloadAgentState(sid); break;
+        case "schedule-close": if (sid) scheduleEventStreamClose(sid); break;
+        case "notify-agent-end": onAgentEnd?.(); break;
+      }
+    }
+  }, [
+    cancelEventStreamGrace, loadSession, onAgentEnd, reloadAgentState,
+    scheduleEventStreamClose, settleUiStage,
+  ]);
+
   const handleAgentEvent = useCallback((event: AgentEvent) => {
     switch (event.type) {
       case "connected": {
@@ -1056,71 +1121,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         break;
       }
       case "agent_start":
-        cancelEventStreamGrace();
-        sdkAgentActiveRef.current = true;
-        agentRunningRef.current = true;
-        setAgentRunning(true);
-        setAgentPhase({ kind: "waiting_model" });
-        dispatch({ type: "start" });
-        break;
       case "agent_end":
-        // One logical prompt can emit multiple agent_end events before retrying,
-        // compacting, or continuing messages queued by extension handlers.
-        // Keep the stream open until prompt_done/agent_settled and the idle grace.
-        if (!agentRunningRef.current) break;
-        setAgentPhase(null);
-        setRetryInfo(null);
-        dispatch({ type: "end" });
-        if (sessionIdRef.current) {
-          loadSession(sessionIdRef.current);
-          fetch(`/api/agent/${encodeURIComponent(sessionIdRef.current)}`)
-            .then((r) => r.json())
-            .then((d: { state?: AgentStateResponse }) => {
-              if (d.state?.contextUsage !== undefined) setContextUsage(d.state.contextUsage ?? null);
-              if (d.state?.systemPrompt !== undefined) setSystemPrompt(d.state.systemPrompt ?? null);
-              if (d.state?.extensionStatuses !== undefined) setExtensionStatuses(d.state.extensionStatuses ?? []);
-              if (d.state?.extensionWidgets !== undefined) setExtensionWidgets(d.state.extensionWidgets ?? []);
-              // Aborted turns can leave messages queued in pi (delivered with the
-              // next turn); dead wrapper (no state) means the queue is gone.
-              setQueuedMessages(normalizeQueuedMessages(d.state?.queuedMessages));
-            })
-            .catch(() => {});
-        }
-        break;
-      case "agent_settled": {
-        const agentWasActive = sdkAgentActiveRef.current;
-        sdkAgentActiveRef.current = false;
-        if (!agentWasActive || rpcPromptPendingRef.current) break;
-
-        const sid = sessionIdRef.current;
-        const wasRunning = settleUiStage();
-        setIsCompacting(false);
-        if (sid) {
-          void loadSession(sid);
-          scheduleEventStreamClose(sid);
-        }
-        if (wasRunning) onAgentEnd?.();
-        break;
-      }
+      case "agent_settled":
       case "prompt_done":
-        {
-          const runId = promptRunIdRef.current;
-          const promptWasPending = rpcPromptPendingRef.current;
-          rpcPromptPendingRef.current = false;
-          optimisticUserMessageKeyRef.current = null;
-          const firstNotification = notifyPromptStage(runId);
-          if (!promptWasPending && !firstNotification) break;
-
-          const sid = sessionIdRef.current;
-          if (sid) void loadSession(sid);
-          // An extension-injected agent may already have started before the
-          // command's prompt_done. Keep that active stage visible and let its
-          // agent_settled event perform the next completion transition.
-          if (!sdkAgentActiveRef.current) {
-            settleUiStage();
-            if (sid) scheduleEventStreamClose(sid);
-          }
-        }
+        applyLifecycleEvent(event.type);
         break;
       case "prompt_error":
         addNotice({ type: "error", message: (event.errorMessage as string | undefined) ?? "Command failed" });
@@ -1270,7 +1274,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         handleExtensionUiRequest(event as ExtensionUiRequest);
         break;
     }
-  }, [addNotice, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, scheduleEventStreamClose, scrollToBottom, settleUiStage]);
+  }, [addNotice, applyLifecycleEvent, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, scrollToBottom]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {

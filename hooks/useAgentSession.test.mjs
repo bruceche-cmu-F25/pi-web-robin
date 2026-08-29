@@ -12,43 +12,17 @@ test("keeps the session event stream open through the idle grace window", () => 
     source.indexOf("const finishPromptWithoutStream"),
     source.indexOf("const waitForPromptSettlement"),
   );
-  const graceSource = source.slice(
-    source.indexOf("const scheduleEventStreamClose"),
-    source.indexOf("const finishPromptWithoutStream"),
-  );
-  const agentEndSource = source.slice(
-    source.indexOf('case "agent_end"'),
-    source.indexOf('case "agent_settled"'),
-  );
-  const agentStartSource = source.slice(
-    source.indexOf('case "agent_start"'),
-    source.indexOf('case "agent_end"'),
-  );
-  const agentSettledSource = source.slice(
-    source.indexOf('case "agent_settled"'),
-    source.indexOf('case "prompt_done"'),
-  );
-  const promptDoneSource = source.slice(
-    source.indexOf('case "prompt_done"'),
-    source.indexOf('case "prompt_error"'),
-  );
   const sendSource = source.slice(
     source.indexOf("  const handleSend = useCallback"),
     source.indexOf("  const executeBash = useCallback"),
   );
 
+  // The four lifecycle cases are decided by lib/agent-stream-lifecycle and
+  // covered for real in lib/agent-stream-lifecycle.test.mjs. What is left here
+  // is the wiring those tests cannot see.
   assert.match(source, /const EVENT_STREAM_IDLE_GRACE_MS = 30_000/);
-  assert.match(graceSource, /setTimeout\(\(\) => void checkServerIdle\(\), EVENT_STREAM_IDLE_GRACE_MS\)/);
-  assert.match(graceSource, /fetch\(`\/api\/agent\/\$\{encodeURIComponent\(sid\)\}`\)/);
-  assert.match(graceSource, /closeEvents\(\)/);
   assert.match(finishSource, /scheduleEventStreamClose\(sid\)/);
   assert.doesNotMatch(finishSource, /closeEvents\(\)/);
-  assert.doesNotMatch(agentEndSource, /closeEvents\(\)/);
-  assert.match(agentStartSource, /cancelEventStreamGrace\(\)/);
-  assert.match(agentSettledSource, /scheduleEventStreamClose\(sid\)/);
-  assert.match(agentSettledSource, /onAgentEnd\?\.\(\)/);
-  assert.match(promptDoneSource, /notifyPromptStage\(runId\)/);
-  assert.match(promptDoneSource, /scheduleEventStreamClose\(sid\)/);
   assert.match(sendSource, /const definitivelyRejected = !promptRequestStarted/);
   assert.match(sendSource, /if \(!definitivelyRejected && sentSessionId\) \{[\s\S]*?waitForPromptSettlement/);
   assert.match(sendSource, /restoreSubmission\(message, images, composerDraftKey\);[\s\S]*?if \(sentSessionId\) \{[\s\S]*?reconcileAgentState\(sentSessionId\);[\s\S]*?return;[\s\S]*?\}[\s\S]*?closeEvents\(\)/);
@@ -263,10 +237,7 @@ test("delegates event stream readiness and hides an empty agent phase", () => {
   assert.match(source, /shouldMaintain: \(sid\)[\s\S]*?sessionIdRef\.current === sid/);
   assert.match(ensureSource, /eventConnectionRef\.current!\.ensureConnected\(sid\)/);
   assert.match(ensureSource, /eventConnectionRef\.current!\.maintain\(sid\)/);
-  assert.match(chatWindowSource, /const hasStreamingContent = Boolean\(streamState\.streamingMessage\?\.content\.length\)/);
-  assert.match(chatWindowSource, /streamState\.isStreaming && hasStreamingContent && streamState\.streamingMessage/);
-  assert.match(chatWindowSource, /agentRunning && !hasStreamingContent && agentPhase/);
-  assert.match(chatWindowSource, /return null;/);
+  // The tail view and the phase label are covered for real in components/ChatWindow.test.mjs.
 });
 
 test("uses one absolute agent-readiness deadline instead of a five-second transport deadline", () => {
@@ -342,8 +313,7 @@ test("shows the latest streamed tool execution progress in the running phase", (
 
   assert.match(updateSource, /getToolExecutionProgress\(event\.partialResult\)/);
   assert.match(updateSource, /tools: \[\.\.\.tools\.filter\([\s\S]*?, updated\]/);
-  assert.match(chatWindowSource, /if \(latest\?\.progress\)/);
-  assert.match(chatWindowSource, /chat\.runningNamedTool[\s\S]*latest\.progress/);
+  // The tail view and the phase label are covered for real in components/ChatWindow.test.mjs.
 });
 
 test("plays the enabled sound once for each extension dialog", () => {

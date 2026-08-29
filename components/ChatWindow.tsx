@@ -61,7 +61,30 @@ interface Props {
   unlockAudio?: () => void;
 }
 
-function phaseLabel(phase: AgentPhase, t: (key: string, params?: Record<string, string | number>) => string): string | null {
+/**
+ * What the message list shows after the last completed message.
+ *
+ * A streaming assistant message and the phase indicator are mutually exclusive:
+ * once the model has produced any content the partial message replaces the
+ * indicator, so the two can never render at the same time and leave a ghost
+ * "waiting" line above live text.
+ */
+export type ChatTailView = "streaming-message" | "phase" | "idle";
+
+export function chatTailView(input: {
+  isStreaming: boolean;
+  /** Length of the partial assistant content, 0 when there is none yet. */
+  streamingContentLength: number;
+  agentRunning: boolean;
+  hasPhase: boolean;
+}): ChatTailView {
+  const hasStreamingContent = input.streamingContentLength > 0;
+  if (input.isStreaming && hasStreamingContent) return "streaming-message";
+  if (input.agentRunning && !hasStreamingContent && input.hasPhase) return "phase";
+  return "idle";
+}
+
+export function phaseLabel(phase: AgentPhase, t: (key: string, params?: Record<string, string | number>) => string): string | null {
   if (phase?.kind === "running_tools") {
     const latest = phase.tools[phase.tools.length - 1];
     if (latest?.progress) {
@@ -569,7 +592,12 @@ export function ChatWindow({ session, sessionRunning, sessionSearchOpen = false,
   }, [sessionSearchMatches.length]);
 
   const isEmptyNew = isNew && messages.length === 0 && !streamState.isStreaming && !sessionBusy;
-  const hasStreamingContent = Boolean(streamState.streamingMessage?.content.length);
+  const tailView = chatTailView({
+    isStreaming: streamState.isStreaming,
+    streamingContentLength: streamState.streamingMessage?.content.length ?? 0,
+    agentRunning,
+    hasPhase: agentPhase !== null,
+  });
   const messageCwd = session?.cwd ?? newSessionCwd ?? undefined;
   const messageContentRef = useRef<HTMLDivElement | null>(null);
   const promptAnchorSpacerRef = useRef<HTMLDivElement | null>(null);
@@ -1151,11 +1179,11 @@ export function ChatWindow({ session, sessionRunning, sessionSearchOpen = false,
                 </>
               );
             })()}
-            {streamState.isStreaming && hasStreamingContent && streamState.streamingMessage && (
+            {tailView === "streaming-message" && streamState.streamingMessage && (
               <MessageView message={streamState.streamingMessage as AgentMessage} isStreaming modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} onOpenSession={onOpenSession} />
             )}
 
-            {agentRunning && !hasStreamingContent && agentPhase && (
+            {tailView === "phase" && agentPhase && (
               <div className="break-words py-2 text-[13px] text-text-muted">
                 <span className="animate-[pulse_1.5s_infinite]">{phaseLabel(agentPhase, t)}</span>
               </div>
