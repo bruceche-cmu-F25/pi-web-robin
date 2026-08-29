@@ -35,6 +35,7 @@ import {
   ConfigSidebarText,
   ConfigSplitView,
 } from "./SettingsUi";
+import { UsagePanel } from "./UsagePanel";
 // Color icons (have their own fill colors — no background needed)
 import AnthropicIcon from "@lobehub/icons/es/Anthropic/components/Mono";
 import OpenAIIcon from "@lobehub/icons/es/OpenAI/components/Mono";
@@ -194,6 +195,7 @@ type ModelCatalogState =
   | { phase: "error"; message: string };
 
 type Selection =
+  | { type: "usage" }
   | { type: "provider"; name: string }
   | { type: "model"; providerName: string; index: number }
   | { type: "oauth"; providerId: string }
@@ -206,6 +208,9 @@ function readRememberedSelection(): Selection | null {
     const value: unknown = JSON.parse(raw);
     if (value === null || typeof value !== "object") return null;
     const selection = value as Record<string, unknown>;
+    if (selection.type === "usage") {
+      return { type: "usage" };
+    }
     if (selection.type === "provider" && typeof selection.name === "string") {
       return { type: "provider", name: selection.name };
     }
@@ -2122,6 +2127,9 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
   // Resolve current detail
   const detailContent = (() => {
     if (!selection) return null;
+    if (selection.type === "usage") {
+      return <UsagePanel />;
+    }
     if (selection.type === "oauth") {
       const p = oauthProviders.find((p) => p.id === selection.providerId);
       if (!p) return null;
@@ -2172,6 +2180,23 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
           {/* Left: tree */}
           <ConfigSidebar>
             <ConfigSidebarList>
+              {/* Subscription quota dashboard */}
+              <ConfigSidebarItem
+                active={selection?.type === "usage"}
+                onClick={() => setSelection({ type: "usage" })}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--text-dim)", flexShrink: 0 }}>
+                  <path d="M12 20a8 8 0 1 1 8-8" />
+                  <path d="M12 12l4-4" />
+                  <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
+                </svg>
+                <ConfigSidebarText className="is-grow">{t("models.usage")}</ConfigSidebarText>
+              </ConfigSidebarItem>
+
+              {(activeOAuth.length > 0 || activeApiKey.length > 0 || providers.length > 0) && (
+                <div style={{ margin: "4px 8px", borderTop: "1px solid var(--border)" }} />
+              )}
+
               {/* Active OAuth subscriptions */}
               {activeOAuth.map((p) => {
                 const isSelected = selection?.type === "oauth" && selection.providerId === p.id;

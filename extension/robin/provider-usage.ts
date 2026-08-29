@@ -7,7 +7,7 @@
  * standard, so parsing is deliberately defensive and failures stay isolated.
  */
 
-export type SubscriptionProvider = "openai-codex" | "anthropic";
+export type SubscriptionProvider = "openai-codex" | "anthropic" | "opencode";
 
 export interface UsageWindow {
   label: string;
@@ -31,7 +31,7 @@ export interface ResolvedSubscriptionAuth {
 }
 
 export type ResolveSubscriptionAuth = (
-  provider: SubscriptionProvider,
+  provider: string,
 ) => Promise<ResolvedSubscriptionAuth | undefined>;
 
 type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
@@ -125,6 +125,30 @@ export function parseOpenAIUsage(value: unknown, now = Date.now()): ProviderUsag
   };
 }
 
+/** OpenCode zen subscription windows returned by opencode.ai/zen/go/v1/usage. */
+const OPENCODE_WINDOWS: Array<[string, string]> = [
+  ["rolling", "Rolling"],
+  ["weekly", "Weekly"],
+  ["monthly", "Monthly"],
+];
+
+export function parseOpenCodeUsage(value: unknown): ProviderUsage {
+  const data = record(value) ?? {};
+  const usage = record(data.usage);
+  const windows = OPENCODE_WINDOWS.flatMap(([key, label]) => {
+    const window = record(usage?.[key]);
+    const usedPercent = percent(window?.percent);
+    if (usedPercent === undefined) return [];
+    const resetAt = resetTime(window?.resetsAt);
+    return [{ label, usedPercent, ...(resetAt !== undefined ? { resetAt } : {}) }];
+  });
+  return {
+    provider: "opencode",
+    displayName: "OpenCode",
+    windows,
+  };
+}
+
 const ANTHROPIC_WINDOWS: Array<[string, string]> = [
   ["five_hour", "5 hours"],
   ["seven_day", "7 days"],
@@ -160,21 +184,41 @@ function requestSignal(parent?: AbortSignal): AbortSignal {
   return parent ? AbortSignal.any([parent, timeout]) : timeout;
 }
 
+/**
+ * OpenCode zen keys may be stored under either the `opencode` or the
+ * `opencode-go` provider id, depending on which login the user ran.
+ */
+const OPENCODE_AUTH_IDS = ["opencode-go", "opencode"] as const;
+
 async function fetchOne(
   provider: SubscriptionProvider,
   resolveAuth: ResolveSubscriptionAuth,
   fetchFn: FetchLike,
   signal?: AbortSignal,
 ): Promise<ProviderUsage> {
-  const displayName = provider === "openai-codex" ? "OpenAI Codex" : "Anthropic Claude";
+  const displayName = provider === "openai-codex"
+    ? "OpenAI Codex"
+    : provider === "anthropic"
+      ? "Anthropic Claude"
+      : "OpenCode";
+  const isOpenCode = provider === "opencode";
   try {
-    const resolved = await resolveAuth(provider);
-    if (!resolved?.token || resolved.source !== "OAuth") {
+    let resolved: ResolvedSubscriptionAuth | undefined;
+    for (const id of isOpenCode ? OPENCODE_AUTH_IDS : [provider]) {
+      const candidate = await resolveAuth(id);
+      if (candidate?.token) {
+        resolved = candidate;
+        break;
+      }
+    }
+    if (!resolved?.token || (!isOpenCode && resolved.source !== "OAuth")) {
       return {
         provider,
         displayName,
         windows: [],
-        error: `Subscription OAuth is not active; run /login ${provider}`,
+        error: isOpenCode
+          ? "OpenCode subscription key is not configured; add an opencode-go API key"
+          : `Subscription OAuth is not active; run /login ${provider}`,
       };
     }
 
@@ -187,16 +231,25 @@ async function fetchOne(
         cache: "no-store",
         signal: requestSignal(signal),
       })
-      : await fetchFn("https://api.anthropic.com/api/oauth/usage", {
-        headers: {
-          Authorization: `Bearer ${resolved.token}`,
-          Accept: "application/json",
-          "anthropic-version": "2023-06-01",
-          "anthropic-beta": "oauth-2025-04-20",
-        },
-        cache: "no-store",
-        signal: requestSignal(signal),
-      });
+      : provider === "anthropic"
+        ? await fetchFn("https://api.anthropic.com/api/oauth/usage", {
+          headers: {
+            Authorization: `Bearer ${resolved.token}`,
+            Accept: "application/json",
+            "anthropic-version": "2023-06-01",
+            "anthropic-beta": "oauth-2025-04-20",
+          },
+          cache: "no-store",
+          signal: requestSignal(signal),
+        })
+        : await fetchFn("https://opencode.ai/zen/go/v1/usage", {
+          headers: {
+            Authorization: `Bearer ${resolved.token}`,
+            Accept: "application/json",
+          },
+          cache: "no-store",
+          signal: requestSignal(signal),
+        });
 
     if (!response.ok) {
       const error = response.status === 401 || response.status === 403
@@ -208,7 +261,9 @@ async function fetchOne(
     const data: unknown = await response.json();
     const usage = provider === "openai-codex"
       ? parseOpenAIUsage(data)
-      : parseAnthropicUsage(data);
+      : provider === "anthropic"
+        ? parseAnthropicUsage(data)
+        : parseOpenCodeUsage(data);
     if (usage.windows.length === 0) usage.error = "Provider returned no recognizable quota windows";
     return usage;
   } catch (error) {
@@ -230,6 +285,7 @@ export async function fetchSubscriptionUsage(
   return Promise.all([
     fetchOne("openai-codex", resolveAuth, fetchFn, options.signal),
     fetchOne("anthropic", resolveAuth, fetchFn, options.signal),
+    fetchOne("opencode", resolveAuth, fetchFn, options.signal),
   ]);
 }
 

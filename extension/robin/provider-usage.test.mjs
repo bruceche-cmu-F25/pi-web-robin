@@ -4,6 +4,7 @@ import {
   fetchSubscriptionUsage,
   formatSubscriptionUsage,
   parseAnthropicUsage,
+  parseOpenCodeUsage,
   parseOpenAIUsage,
 } from "./provider-usage.ts";
 
@@ -41,6 +42,19 @@ test("parses provider quota windows and reset times defensively", () => {
 
   assert.deepEqual(parseOpenAIUsage({ rate_limit: { primary_window: { used_percent: "bad" } } }).windows, []);
   assert.deepEqual(parseAnthropicUsage(null).windows, []);
+
+  const opencode = parseOpenCodeUsage({
+    usage: {
+      rolling: { percent: 10, resetsAt: "2026-08-18T00:00:00.000Z" },
+      monthly: { percent: 88 },
+    },
+  });
+  assert.equal(opencode.provider, "opencode");
+  assert.equal(opencode.displayName, "OpenCode");
+  assert.equal(opencode.windows.length, 2);
+  assert.equal(opencode.windows[0].usedPercent, 10);
+  assert.equal(opencode.windows[1].usedPercent, 88);
+  assert.deepEqual(parseOpenCodeUsage(null).windows, []);
 });
 
 test("fetches with refreshed OAuth auth without exposing tokens", async () => {
@@ -58,6 +72,14 @@ test("fetches with refreshed OAuth auth without exposing tokens", async () => {
             },
           });
         }
+        if (String(url).includes("opencode.ai")) {
+          return Response.json({
+            usage: {
+              rolling: { percent: 15, resetsAt: "2026-08-18T00:00:00.000Z" },
+              weekly: { percent: 40, resetsAt: "2026-08-21T00:00:00.000Z" },
+            },
+          });
+        }
         return Response.json({
           five_hour: { utilization: 30, resets_at: "2026-08-18T00:00:00.000Z" },
         });
@@ -65,18 +87,32 @@ test("fetches with refreshed OAuth auth without exposing tokens", async () => {
     },
   );
 
-  assert.deepEqual(seenHeaders, [`Bearer ${secret}`, `Bearer ${secret}`]);
+  assert.equal(seenHeaders.length, 3);
+  assert.ok(seenHeaders.every((header) => header === `Bearer ${secret}`));
   assert.equal(JSON.stringify(usage).includes(secret), false);
   assert.equal(formatSubscriptionUsage(usage, NOW).includes(secret), false);
+
+  const opencode = usage.find((entry) => entry.provider === "opencode");
+  assert.equal(opencode?.windows.length, 2);
+  assert.equal(opencode?.windows[0].usedPercent, 15);
 });
 
-test("requires subscription OAuth and does not call the provider with an API key", async () => {
-  let called = false;
+test("never sends an API key to OpenAI or Anthropic; OpenCode consumes its own key", async () => {
+  const calledUrls = [];
   const usage = await fetchSubscriptionUsage(
     async () => ({ token: "api-key", source: "ANTHROPIC_API_KEY" }),
-    { fetchFn: async () => { called = true; return Response.json({}); } },
+    {
+      fetchFn: async (url) => {
+        calledUrls.push(String(url));
+        return Response.json({});
+      },
+    },
   );
-  assert.equal(called, false);
-  assert.match(usage[0].error, /Subscription OAuth/);
-  assert.match(usage[1].error, /Subscription OAuth/);
+  assert.deepEqual(calledUrls, ["https://opencode.ai/zen/go/v1/usage"]);
+  const openai = usage.find((entry) => entry.provider === "openai-codex");
+  const anthropic = usage.find((entry) => entry.provider === "anthropic");
+  assert.ok(openai);
+  assert.ok(anthropic);
+  assert.match(openai.error, /Subscription OAuth/);
+  assert.match(anthropic.error, /Subscription OAuth/);
 });
