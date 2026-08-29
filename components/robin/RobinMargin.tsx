@@ -202,6 +202,17 @@ export function RobinMargin({ drawer, onClose, onNavigate }: {
       status: { count: learningActions },
       covers: ["/coding"],
     },
+    {
+      href: withChatContext("/research"),
+      path: "/research",
+      label: t("robin.nav.research"),
+      icon: ResearchIcon,
+      // Seventh entry, sixth hue: the palette has six families and adding a
+      // stray colour would read as a different kind of thing. Honey belongs to
+      // settings, which lives in the utility row, so the two never sit side by
+      // side — the same trade the events entry makes with chat's plum.
+      tone: "honey",
+    },
   ];
 
   const utilityItems: NavItem[] = [
@@ -271,6 +282,10 @@ function EventsIcon(props: SVGProps<SVGSVGElement>) {
 
 function LearningIcon(props: SVGProps<SVGSVGElement>) {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" {...props}><path d="M4 4.5h6a3 3 0 0 1 3 3V21a3 3 0 0 0-3-3H4z" /><path d="M20 4.5h-4a3 3 0 0 0-3 3V21a3 3 0 0 1 3-3h4z" /></svg>;
+}
+
+function ResearchIcon(props: SVGProps<SVGSVGElement>) {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M10 3h4M10.5 3v6.2L5.2 18a2 2 0 0 0 1.7 3h10.2a2 2 0 0 0 1.7-3l-5.3-8.8V3" /><path d="M8 14h8" /></svg>;
 }
 
 function ChatIcon(props: SVGProps<SVGSVGElement>) {
