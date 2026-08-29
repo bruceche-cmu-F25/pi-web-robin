@@ -127,7 +127,7 @@ function StatusLine({ label, status, t }: { label: string; status: SecretStatus;
 }
 
 export function SettingsPanel() {
-  const { t } = useI18n();
+  const { locale, setLocale, supportedLocales, t } = useI18n();
   const [data, setData] = useState<SettingsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -264,6 +264,38 @@ export function SettingsPanel() {
       >
         <p>{t("robin.settings.storedAt", { path: data?.storedAt ?? "~/.pi/robin/secrets.json" })}</p>
         <p style={{ color: "var(--text-dim)" }}>{t("robin.settings.privacyNote")}</p>
+      </section>
+
+      <section
+        className="flex flex-col gap-2 rounded-lg p-4"
+        style={{ background: "var(--bg-panel)", border: "1px solid var(--border)" }}
+      >
+        <div>
+          <h2 className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+            {t("common.language")}
+          </h2>
+          <p className="text-xs" style={{ color: "var(--text-dim)" }}>
+            {t("settings.languageDescription")}
+          </p>
+        </div>
+        <div role="radiogroup" aria-label={t("common.language")} className="flex flex-wrap gap-2">
+          {supportedLocales.map((plugin) => {
+            const selected = locale === plugin.id;
+            return (
+              <button
+                key={plugin.id}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                onClick={() => setLocale(plugin.id as typeof locale)}
+                className="ui-action ui-action--outline min-h-11 rounded px-3 py-2 text-sm"
+                data-state={selected ? "accent" : undefined}
+              >
+                {plugin.label}
+              </button>
+            );
+          })}
+        </div>
       </section>
 
       {error && <p className="text-sm" style={{ color: "var(--accent)" }}>{error}</p>}
