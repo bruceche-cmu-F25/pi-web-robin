@@ -1,17 +1,25 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { toTraditionalChinese } from "@/lib/i18n/zh-traditional";
+import { iconFallback } from "@/extension/robin/links";
 import {
   CATEGORY_TONE,
   GAPS,
   PIPELINE,
+  PRIOR_WORK_READINGS,
+  PROGRESS_SHEET,
+  PROJECT_DRIVE,
+  PROJECT_REPOSITORY,
   RESEARCH_CATEGORIES,
+  RESEARCH_READINGS,
   RESEARCH_STACK,
   RESULTS,
+  STATUS_REPORT,
   type Bilingual,
   type ResearchCategory,
+  type ResearchReading,
   type StackEntry,
 } from "@/extension/robin/research";
 
@@ -94,14 +102,33 @@ export function ResearchStack() {
           </p>
         </header>
 
-        {/* Three documents, not three sections of one. This page answers
+        <ProjectResources />
+        <WeeklyObjective />
+        <ResearchReadings />
+
+        {/* Five documents, not five sections of one. This page answers
             "what is this term"; the report answers "how did the project get
             here and what actually holds up"; the walkthrough answers "what
-            does line 231 do". Merging any two would make both worse. */}
+            does line 231 do"; the runbook answers "what do I type"; the
+            architecture page answers "where does any of this live", and is
+            about a different codebase from the rest. Merging any two would
+            make both worse. */}
         <section className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))" }}>
           {[
+            // Ordered the way they should be read, not by when they were
+            // written: the briefing is the only one you have to finish before
+            // touching anything.
+            { href: "/research/brief", tone: "rose", title: t("research.stack.brief"), blurb: t("research.stack.briefBlurb") },
             { href: "/research/report", tone: "clay", title: t("research.stack.report"), blurb: t("research.stack.reportBlurb") },
             { href: "/research/code", tone: "fern", title: t("research.stack.walkthrough"), blurb: t("research.stack.walkthroughBlurb") },
+            // Then the two that are not about what the project claims but
+            // about the code: the runbook is operational and belongs beside a
+            // terminal, and the architecture page is the odd one out — the only
+            // document about the trunk of the repository rather than the
+            // heatmap branch, so it reads oddly before you know what the
+            // others are about.
+            { href: "/research/run", tone: "honey", title: t("research.stack.run"), blurb: t("research.stack.runBlurb") },
+            { href: "/research/urrag", tone: "teal", title: t("research.stack.arch"), blurb: t("research.stack.archBlurb") },
           ].map((doc) => (
             <a
               key={doc.href}
@@ -222,6 +249,257 @@ export function ResearchStack() {
 }
 
 type Say = (value: Bilingual) => string;
+
+function ProjectResources() {
+  const { t } = useI18n();
+  return (
+    <section
+      className="pi-card flex flex-col gap-3 p-4"
+      style={{ borderInlineStart: "4px solid var(--accent)" }}
+    >
+      <h2 className="pi-label" style={{ fontSize: 12 }}>{t("research.resources.title")}</h2>
+      <ul className="grid gap-1 split:grid-cols-2">
+        {[PROJECT_REPOSITORY, PROGRESS_SHEET, PROJECT_DRIVE, STATUS_REPORT].map((resource) => (
+          <li key={resource.id}><ReadingLink reading={resource} /></li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+const LEGACY_WEEKLY_OBJECTIVE_KEY = "pi-research-weekly-objective";
+type ObjectiveSaveState = "loading" | "saving" | "saved" | "error";
+
+function WeeklyObjective() {
+  const { t } = useI18n();
+  const [objective, setObjective] = useState("");
+  const [loaded, setLoaded] = useState(false);
+  const [saveState, setSaveState] = useState<ObjectiveSaveState>("loading");
+  const objectiveRef = useRef("");
+  const savedRef = useRef("");
+  const saveInFlight = useRef<Promise<void> | null>(null);
+  const migratingLegacyValue = useRef(false);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/research/objective", { cache: "no-store" })
+      .then(async (response) => {
+        const body = await response.json().catch(() => null) as {
+          objective?: unknown;
+          updatedAt?: unknown;
+          error?: string;
+        } | null;
+        if (!response.ok || typeof body?.objective !== "string") {
+          throw new Error(body?.error ?? `Request failed (${response.status})`);
+        }
+        if (cancelled) return;
+
+        let value = body.objective;
+        try {
+          const legacy = window.localStorage.getItem(LEGACY_WEEKLY_OBJECTIVE_KEY);
+          if (body.updatedAt === null && legacy) {
+            value = legacy;
+            migratingLegacyValue.current = true;
+          } else {
+            window.localStorage.removeItem(LEGACY_WEEKLY_OBJECTIVE_KEY);
+          }
+        } catch {
+          // Browser storage is only consulted once to migrate the old value.
+        }
+
+        objectiveRef.current = value;
+        savedRef.current = body.objective;
+        setObjective(value);
+        setLoaded(true);
+        setSaveState("saved");
+      })
+      .catch(() => {
+        if (!cancelled) setSaveState("error");
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Serialize writes and keep draining until the server has the newest edit.
+  // This avoids a slow older request overwriting a newer value.
+  const saveLatest = useCallback(async () => {
+    if (!loaded || saveInFlight.current || savedRef.current === objectiveRef.current) return;
+
+    const save = (async () => {
+      try {
+        while (savedRef.current !== objectiveRef.current) {
+          const value = objectiveRef.current;
+          if (mounted.current) setSaveState("saving");
+          const response = await fetch("/api/research/objective", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ objective: value }),
+          });
+          const body = await response.json().catch(() => null) as { error?: string } | null;
+          if (!response.ok) throw new Error(body?.error ?? `Request failed (${response.status})`);
+          savedRef.current = value;
+          if (migratingLegacyValue.current) {
+            try {
+              window.localStorage.removeItem(LEGACY_WEEKLY_OBJECTIVE_KEY);
+            } catch {
+              // The server is canonical now; a blocked cleanup is harmless.
+            }
+            migratingLegacyValue.current = false;
+          }
+        }
+        if (mounted.current) setSaveState("saved");
+      } catch {
+        if (mounted.current) setSaveState("error");
+      } finally {
+        saveInFlight.current = null;
+      }
+    })();
+    saveInFlight.current = save;
+    await save;
+  }, [loaded]);
+
+  useEffect(() => {
+    if (!loaded || objective === savedRef.current) return;
+    setSaveState("saving");
+    const timer = window.setTimeout(() => { void saveLatest(); }, 500);
+    return () => window.clearTimeout(timer);
+  }, [loaded, objective, saveLatest]);
+
+  return (
+    <section className="pi-card flex flex-col gap-3 p-4">
+      <header className="flex flex-wrap items-baseline justify-between gap-2">
+        <label htmlFor="research-weekly-objective" className="pi-label" style={{ fontSize: 12 }}>
+          {t("research.objective.title")}
+        </label>
+        <span className="pi-eyebrow" aria-live="polite" style={{ fontSize: 9 }}>
+          {t(`research.objective.${saveState}`)}
+        </span>
+      </header>
+      <textarea
+        id="research-weekly-objective"
+        value={objective}
+        disabled={!loaded}
+        onChange={(event) => {
+          objectiveRef.current = event.target.value;
+          setObjective(event.target.value);
+        }}
+        onBlur={() => { void saveLatest(); }}
+        rows={4}
+        maxLength={10_000}
+        placeholder={t("research.objective.placeholder")}
+        className="w-full resize-y"
+      />
+    </section>
+  );
+}
+
+/** Reading lists kept separate from the HEAT implementation glossary. */
+function ResearchReadings() {
+  const { t } = useI18n();
+  const lists = [
+    { title: t("research.readings.title"), readings: RESEARCH_READINGS },
+    { title: t("research.readings.priorWork"), readings: PRIOR_WORK_READINGS },
+  ];
+
+  return lists.map((list) => (
+    <section key={list.title} className="pi-card flex flex-col gap-3 p-4">
+      <header className="flex items-baseline justify-between gap-3">
+        <h2 className="pi-label" style={{ fontSize: 12 }}>{list.title}</h2>
+        <span className="pi-eyebrow" style={{ fontSize: 9 }}>{list.readings.length}</span>
+      </header>
+      <ul className="grid gap-1 split:grid-cols-2">
+        {list.readings.map((reading) => (
+          <li key={reading.id}>
+            <ReadingLink reading={reading} />
+          </li>
+        ))}
+      </ul>
+    </section>
+  ));
+}
+
+function ReadingLink({ reading }: { reading: ResearchReading }) {
+  return (
+    <a
+      href={reading.url}
+      target="_blank"
+      rel="noreferrer noopener"
+      title={`${reading.title}\n${reading.url}`}
+      className="ui-action ui-action--surface flex min-h-16 items-center gap-3 bg-[var(--bg-subtle)] px-3 py-2 no-underline"
+      data-state="active"
+    >
+      <ReadingMark reading={reading} />
+      <span className="flex min-w-0 flex-1 flex-col gap-1">
+        <span className="line-clamp-2" style={{ fontSize: 13, lineHeight: 1.35 }}>
+          {reading.title}
+        </span>
+        <span className="pi-eyebrow" style={{ fontSize: 9, color: "var(--text-dim)" }}>
+          {reading.source}
+        </span>
+      </span>
+      <svg
+        aria-hidden="true"
+        width="14"
+        height="14"
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="shrink-0"
+        style={{ color: "var(--text-dim)" }}
+      >
+        <path d="M6 3h7v7M13 3 7.5 8.5" />
+        <path d="M11 9.5V13H3V5h3.5" />
+      </svg>
+    </a>
+  );
+}
+
+/** Cached site icon with the dashboard's deterministic tile as its loading/error fallback. */
+function ReadingMark({ reading }: { reading: ResearchReading }) {
+  const [mounted, setMounted] = useState(false);
+  const [status, setStatus] = useState<"loading" | "loaded" | "failed">("loading");
+  const { letter, hue } = iconFallback(reading);
+
+  // Insert the image only after hydration so a fast cached response cannot
+  // finish before React attaches the load handler and leave it transparent.
+  useEffect(() => { setMounted(true); }, []);
+  return (
+    <span
+      aria-hidden="true"
+      className="relative flex size-8 shrink-0 items-center justify-center"
+      style={{
+        background: `hsl(${hue} 22% 42%)`,
+        color: "var(--pi-moonstone)",
+        fontFamily: "var(--font-mono)",
+        fontSize: 11,
+      }}
+    >
+      {letter}
+      {mounted && status !== "failed" && (
+        // Served from our own guarded cache; no third-party favicon request leaves the browser.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={`/api/research/icon/${encodeURIComponent(reading.id)}`}
+          alt=""
+          width={32}
+          height={32}
+          onLoad={() => setStatus("loaded")}
+          onError={() => setStatus("failed")}
+          className={`absolute inset-0 size-8 object-contain ${status === "loaded" ? "opacity-100" : "opacity-0"}`}
+          style={{ background: "var(--bg-panel)" }}
+        />
+      )}
+    </span>
+  );
+}
 
 /**
  * Where the project stands, with the two columns the pipeline never printed.

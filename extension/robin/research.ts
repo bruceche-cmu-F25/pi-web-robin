@@ -52,6 +52,151 @@ export interface Bilingual {
   zh: string;
 }
 
+export interface ResearchReading {
+  id: string;
+  title: string;
+  source: string;
+  url: string;
+}
+
+export const PROJECT_REPOSITORY: ResearchReading = {
+  id: "project-repository",
+  title: "CMU-AGAI/visualization-hallucination-detection",
+  source: "GitHub",
+  url: "https://github.com/CMU-AGAI/visualization-hallucination-detection",
+};
+
+export const PROGRESS_SHEET: ResearchReading = {
+  id: "progress-sheet",
+  title: "Progress sheet",
+  source: "Google Sheets",
+  url: "https://docs.google.com/spreadsheets/d/1tT9t6KU_heFcKRpFsMzcG9LFajAfwWDd/edit?gid=574964456#gid=574964456",
+};
+
+export const PROJECT_DRIVE: ResearchReading = {
+  id: "project-drive",
+  title: "Project Google Drive",
+  source: "Google Drive",
+  url: "https://drive.google.com/drive/folders/1mp0UhY4jRTbd4RuvAQZlP8Fi2xm7ZywS",
+};
+
+export const STATUS_REPORT: ResearchReading = {
+  id: "status-report",
+  title: "Status report",
+  source: "Google Docs",
+  url: "https://docs.google.com/document/d/13cYycz0I0P7NIRAPI0sbVPrc9MPwQM2nzxpg1J1RDT8/edit?tab=t.0",
+};
+
+/** Papers collected for the current research thread, kept separate from the HEAT glossary. */
+export const RESEARCH_READINGS: readonly ResearchReading[] = [
+  {
+    id: "evaluating-large-language-models-for-accuracy-incentivizes-hallucinations",
+    title: "Evaluating large language models for accuracy incentivizes hallucinations",
+    source: "Nature",
+    url: "https://www.nature.com/articles/s41586-026-10549-w",
+  },
+  {
+    id: "probe-process-based-benchmark-for-hallucination-detection",
+    title: "PROBE: PROcess-Based BEnchmark for Hallucination Detection",
+    source: "ACL Anthology",
+    url: "https://aclanthology.org/2026.findings-acl.2099/",
+  },
+  {
+    id: "rlseek-evidence-grounded-reasoning-for-rag-hallucination-detection",
+    title: "RLSeek: Evidence-Grounded Reasoning for RAG Hallucination Detection",
+    source: "ACL Anthology",
+    url: "https://aclanthology.org/2026.acl-long.1492/",
+  },
+  {
+    id: "fine-grained-detection-of-context-grounded-hallucinations-using-llms",
+    title: "Fine-Grained Detection of Context-Grounded Hallucinations Using LLMs",
+    source: "ACL Anthology",
+    url: "https://aclanthology.org/2026.findings-acl.1907/",
+  },
+  {
+    id: "vista-verification-in-sequential-turn-based-assessment",
+    title: "VISTA: Verification In Sequential Turn-based Assessment",
+    source: "ACL Anthology",
+    url: "https://aclanthology.org/2026.acl-long.1890/?utm_source=chatgpt.com",
+  },
+  {
+    id: "prism-probing-reasoning-instruction-and-source-memory-in-llm-hallucinations",
+    title: "PRISM: Probing Reasoning, Instruction, and Source Memory in LLM Hallucinations",
+    source: "ACL Anthology",
+    url: "https://aclanthology.org/2026.acl-long.1551/",
+  },
+  {
+    id: "explainable-hallucination-mitigation-in-large-language-models-a-survey",
+    title: "Explainable Hallucination Mitigation in Large Language Models: A Survey",
+    source: "Wiley",
+    url: "https://wires.onlinelibrary.wiley.com/doi/abs/10.1002/widm.70110",
+  },
+  {
+    id: "hallucination-detection-verification-and-correction-in-generative-ai-a-comprehensive-survey",
+    title: "Hallucination Detection, Verification, and Correction in Generative AI: A Comprehensive Survey",
+    source: "ScienceDirect",
+    url: "https://www.sciencedirect.com/science/article/pii/S2949719126000361?utm_source=chatgpt.com",
+  },
+];
+
+/** The five core papers named in the previous independent-study report. */
+export const PRIOR_WORK_READINGS: readonly ResearchReading[] = [
+  {
+    id: "selfcheckgpt",
+    title: "SelfCheckGPT: Zero-Resource Black-Box Hallucination Detection for Generative Large Language Models",
+    source: "ACL Anthology",
+    url: "https://aclanthology.org/2023.emnlp-main.557/",
+  },
+  {
+    id: "halueval",
+    title: "HaluEval: A Large-Scale Hallucination Evaluation Benchmark for Large Language Models",
+    source: "ACL Anthology",
+    url: "https://aclanthology.org/2023.emnlp-main.397/",
+  },
+  {
+    id: "inside",
+    title: "INSIDE: LLMs' Internal States Retain the Power of Hallucination Detection",
+    source: "ICLR 2024",
+    url: "https://proceedings.iclr.cc/paper_files/paper/2024/hash/0d1986a61e30e5fa408c81216a616e20-Abstract-Conference.html",
+  },
+  {
+    id: "semantic-entropy",
+    title: "Detecting hallucinations in large language models using semantic entropy",
+    source: "Nature",
+    url: "https://www.nature.com/articles/s41586-024-07421-0",
+  },
+  {
+    id: "dola",
+    title: "DoLa: Decoding by Contrasting Layers Improves Factuality in Large Language Models",
+    source: "ICLR 2024",
+    url: "https://proceedings.iclr.cc/paper_files/paper/2024/hash/edc36117f795ca52a0cbf6a7b3882859-Abstract-Conference.html",
+  },
+  {
+    id: "factscore-prior-work",
+    title: "FActScore: Fine-grained Atomic Evaluation of Factual Precision in Long Form Text Generation",
+    source: "ACL Anthology",
+    url: "https://aclanthology.org/2023.emnlp-main.741/",
+  },
+  {
+    id: "prometheus-prior-work",
+    title: "PROMETHEUS: Inducing Fine-Grained Evaluation Capability in Language Models",
+    source: "arXiv",
+    url: "https://arxiv.org/abs/2310.08491",
+  },
+  {
+    id: "ur-rag-paper",
+    title: "UR-RAG: Unified Risk-Controlled Retrieval-Augmented Generation via Conformal Calibration of Retrieval and Semantic Entropy",
+    source: "ResearchGate",
+    url: "https://www.researchgate.net/publication/406947419_UR-RAG_Unified_Risk_Calibration_for_Retrieval-Augmented_Generation",
+  },
+  {
+    id: "ur-rag-code",
+    title: "UR-RAG: Risk-Controlled Multi-Tier RAG — code repository",
+    source: "GitHub",
+    url: "https://github.com/CMU-AGAI/urrag-hallucination-detection",
+  },
+];
+
 export interface StackEntry {
   /** Stable slug; the URL hash and the filter state are keyed on it. */
   id: string;
