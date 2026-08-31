@@ -95,6 +95,13 @@ export function LearningHub() {
       blurb: t("learn.entry.capabilityMap.blurb"),
       progress: null,
     },
+    {
+      id: "gpt2-walkthrough",
+      href: "/learn/gpt2",
+      title: t("learn.entry.gpt2.title"),
+      blurb: t("learn.entry.gpt2.blurb"),
+      progress: null,
+    },
   ];
 
   return (

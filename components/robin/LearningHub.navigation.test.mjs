@@ -45,6 +45,18 @@ test("the hub stays a front door rather than a second dashboard", async () => {
   assert.match(source, /<LearningShelf \/>/);
 });
 
+test("the hub links to the focused GPT-2 walkthrough page", () => {
+  assert.match(source, /id: "gpt2-walkthrough"/);
+  assert.match(source, /href: "\/learn\/gpt2"/);
+});
+
+test("the GPT-2 page keeps the official video and companion repository links", async () => {
+  const page = await read("GPT2Walkthrough.tsx");
+  assert.match(page, /https:\/\/www\.youtube\.com\/watch\?v=l8pRSuU81PU/);
+  assert.match(page, /https:\/\/github\.com\/karpathy\/build-nanogpt/);
+  assert.match(page, /https:\/\/github\.com\/karpathy\/nn-zero-to-hero/);
+});
+
 test("only the practice entry carries a number", async () => {
   // The curriculum side keeps no progress, so the hub has nothing to fetch for
   // it and nothing to say about how far along it is. A poll appearing here
