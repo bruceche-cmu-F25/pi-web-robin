@@ -86,7 +86,7 @@ test("the outline is structure and outcomes, with no count in it", () => {
   assert.match(fastapi.outcome, /typed request and response models/);
   assert.deepEqual(
     fastapi.items.map((item) => item.id),
-    ["fastapi-tutorial", "fastapi-milestone"],
+    ["fastapi-tutorial", "fastapi-full-stack-template", "fastapi-milestone"],
   );
   // Nothing that could be read as progress: no status, no counts, no "left".
   assert.deepEqual(Object.keys(fastapi).sort(), ["items", "moduleId", "outcome", "title"]);

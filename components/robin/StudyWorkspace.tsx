@@ -81,6 +81,9 @@ export function StudyWorkspace(chrome: WorkspaceChrome) {
    */
   const isMobile = useIsMobile();
   const [pane, setPane] = useState<Pane>("syllabus");
+  // The roadmap gets the canvas by default. The mounted-but-hidden mentor keeps
+  // its local transcript when the user closes it and opens it again.
+  const [mentorOpen, setMentorOpen] = useState(false);
 
   useEffect(() => {
     // Read after mount, not during render: the server has no localStorage and
@@ -183,7 +186,19 @@ export function StudyWorkspace(chrome: WorkspaceChrome) {
       <WorkspaceHeader {...chrome}>
         {isMobile ? (
           <WorkspacePaneSwitch panes={PANES} active={pane} onChange={setPane} />
-        ) : null}
+        ) : (
+          <button
+            type="button"
+            onClick={() => setMentorOpen((open) => !open)}
+            className="ui-action pi-chrome-label pi-bracket ml-auto"
+            data-state={mentorOpen ? "accent" : undefined}
+            style={{ fontSize: 10 }}
+            aria-expanded={mentorOpen}
+            aria-controls="study-mentor-panel"
+          >
+            {t(mentorOpen ? "coding.mentor.hide" : "coding.mentor.show")}
+          </button>
+        )}
         {/* A failed write has to be visible: without this, clicking a resource
             that the server rejected would look like nothing happened. */}
         {error ?? actionError ? (
@@ -224,21 +239,25 @@ export function StudyWorkspace(chrome: WorkspaceChrome) {
           />
         </WorkspacePane>
 
-        {isMobile ? null : (
+        {!isMobile && mentorOpen ? (
           <PaneDivider
             edge="right"
             label={t("coding.pane.panel")}
             title={t("coding.pane.resetHint")}
             {...panes.panel}
           />
-        )}
+        ) : null}
 
         <WorkspacePane active={isMobile ? pane === "mentor" : null}>
           <div
+            id="study-mentor-panel"
             className="flex flex-col"
+            aria-hidden={!isMobile && !mentorOpen ? "true" : undefined}
             style={isMobile
               ? { flex: 1, minWidth: 0, minHeight: 0 }
-              : { width: panes.panel.width, flex: "0 0 auto", minHeight: 0 }}
+              : mentorOpen
+                ? { width: panes.panel.width, flex: "0 0 auto", minHeight: 0 }
+                : { display: "none" }}
           >
             <AgentPanel
               mode="mentor"

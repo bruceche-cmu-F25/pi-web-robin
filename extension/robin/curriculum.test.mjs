@@ -71,7 +71,31 @@ test("every module states an outcome and ends in something built", () => {
   }
 });
 
-test("the detailed path stays intact and every unit explains how to use it", () => {
+test("every roadmap module and resource explains how to use it", () => {
+  for (const track of CURRICULUM) {
+    for (const courseModule of track.modules) {
+      for (const field of [
+        "plainLanguage",
+        "prerequisites",
+        "applicationRole",
+        "jobRelevance",
+        "smallExercise",
+        "exitCriteria",
+      ]) {
+        assert.ok(courseModule.guide[field].length > 40, `${courseModule.id}.${field} needs a real explanation`);
+      }
+      assert.ok(
+        courseModule.items.some((item) => item.id === courseModule.guide.minimumItemId && item.kind !== "milestone"),
+        `${courseModule.id} minimum resource must be a real resource in the unit`,
+      );
+      for (const item of courseModule.items) {
+        assert.ok(item.hint.length > 40, `${item.id} needs specific usage guidance`);
+      }
+    }
+  }
+});
+
+test("the detailed path stays intact", () => {
   const resolved = curriculumPath();
   const expected = [
     "js-core",
@@ -94,24 +118,6 @@ test("the detailed path stays intact and every unit explains how to use it", () 
   assert.equal(resolved.length, CURRICULUM_PATH.length);
   assert.deepEqual(resolved.map(({ module }) => module.id), expected);
   assert.equal(new Set(CURRICULUM_PATH.map(({ moduleId }) => moduleId)).size, CURRICULUM_PATH.length);
-
-  for (const { module } of resolved) {
-    assert.ok(module.guide, `${module.id} needs a unit introduction`);
-    for (const field of [
-      "plainLanguage",
-      "prerequisites",
-      "applicationRole",
-      "jobRelevance",
-      "smallExercise",
-      "exitCriteria",
-    ]) {
-      assert.ok(module.guide[field].length > 40, `${module.id}.${field} needs a real explanation`);
-    }
-    assert.ok(
-      module.items.some((item) => item.id === module.guide.minimumItemId && item.kind !== "milestone"),
-      `${module.id} minimum resource must be a real resource in the unit`,
-    );
-  }
 });
 
 test("the overview adds eight system questions without replacing the detailed path", () => {
@@ -126,27 +132,27 @@ test("the overview adds eight system questions without replacing the detailed pa
   assert.ok(CURRICULUM_PATH.length > CURRICULUM_OVERVIEW.length);
 });
 
-test("every detailed unit has Simplified Chinese teaching copy", () => {
-  for (const { module } of curriculumPath()) {
-    assert.equal(hasZhCNModuleCopy(module.id), true, module.id);
-    const localized = localizeCurriculumModule(module, "zh-CN");
-    assert.notEqual(localized.title, module.title, `${module.id}.title`);
-    assert.notEqual(localized.outcome, module.outcome, `${module.id}.outcome`);
-    assert.notEqual(localized.guide.plainLanguage, module.guide.plainLanguage, `${module.id}.guide`);
-    assert.deepEqual(
-      localized.items.map(({ id, title, url }) => ({ id, title, url })),
-      module.items.map(({ id, title, url }) => ({ id, title, url })),
-      `${module.id} must keep official resources`,
-    );
-    for (let index = 0; index < module.items.length; index += 1) {
-      if (module.items[index].hint) {
-        assert.notEqual(localized.items[index].hint, module.items[index].hint, `${module.items[index].id}.hint`);
+test("every roadmap module and resource has Simplified Chinese teaching copy", () => {
+  for (const track of CURRICULUM) {
+    for (const courseModule of track.modules) {
+      assert.equal(hasZhCNModuleCopy(courseModule.id), true, courseModule.id);
+      const localized = localizeCurriculumModule(courseModule, "zh-CN");
+      assert.notEqual(localized.title, courseModule.title, `${courseModule.id}.title`);
+      assert.notEqual(localized.outcome, courseModule.outcome, `${courseModule.id}.outcome`);
+      assert.notEqual(localized.guide.plainLanguage, courseModule.guide.plainLanguage, `${courseModule.id}.guide`);
+      assert.deepEqual(
+        localized.items.map(({ id, title, url }) => ({ id, title, url })),
+        courseModule.items.map(({ id, title, url }) => ({ id, title, url })),
+        `${courseModule.id} must keep official resources`,
+      );
+      for (let index = 0; index < courseModule.items.length; index += 1) {
+        assert.notEqual(localized.items[index].hint, courseModule.items[index].hint, `${courseModule.items[index].id}.hint`);
       }
-    }
 
-    const traditional = localizeCurriculumModule(module, "zh-TW");
-    assert.notEqual(traditional.title, module.title, `${module.id}.zh-TW.title`);
-    assert.notEqual(traditional.guide.plainLanguage, module.guide.plainLanguage, `${module.id}.zh-TW.guide`);
+      const traditional = localizeCurriculumModule(courseModule, "zh-TW");
+      assert.notEqual(traditional.title, courseModule.title, `${courseModule.id}.zh-TW.title`);
+      assert.notEqual(traditional.guide.plainLanguage, courseModule.guide.plainLanguage, `${courseModule.id}.zh-TW.guide`);
+    }
   }
 });
 

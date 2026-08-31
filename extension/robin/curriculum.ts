@@ -27,8 +27,8 @@ export interface CurriculumItem {
   kind: ItemKind;
   /** Absent only on a milestone, which is something you do rather than somewhere you go. */
   url?: string;
-  /** One line on why this earns a place here — not a description of its contents. */
-  hint?: string;
+  /** How to use this resource for the module outcome — never just a description of its contents. */
+  hint: string;
 }
 
 export interface CurriculumModuleGuide {
@@ -48,8 +48,8 @@ export interface CurriculumModule {
   title: string;
   /** What you can do once this module is behind you. Written as a capability, not a topic. */
   outcome: string;
-  /** Present on the fixed path; reference-only modules do not pretend to be units. */
-  guide?: CurriculumModuleGuide;
+  /** Every module teaches through the same complete brief, including reference tracks. */
+  guide: CurriculumModuleGuide;
   items: CurriculumItem[];
 }
 
@@ -210,12 +210,14 @@ export const CURRICULUM: readonly CurriculumTrack[] = [
             title: "Full Stack Open — Part 1: Introduction to React",
             kind: "course",
             url: "https://fullstackopen.com/en/part1",
+            hint: "Build each exercise instead of reading ahead; keep drawing the component tree and naming the owner of every state value.",
           },
           {
             id: "fso-part-2",
             title: "Full Stack Open — Part 2: Communicating with server",
             kind: "course",
             url: "https://fullstackopen.com/en/part2",
+            hint: "Use DevTools beside every exercise: trace the request, response, local state update, and rerender as one visible loop.",
           },
           {
             id: "fcc-frontend-libraries",
@@ -258,6 +260,7 @@ export const CURRICULUM: readonly CurriculumTrack[] = [
             title: "Full Stack Open — Part 3: Node.js and Express",
             kind: "course",
             url: "https://fullstackopen.com/en/part3",
+            hint: "Follow one route end to end, then separate validation, business decisions, persistence, and HTTP response shaping in your own version.",
           },
           {
             id: "fcc-backend-apis",
@@ -300,12 +303,14 @@ export const CURRICULUM: readonly CurriculumTrack[] = [
             title: "Full Stack Open — Part 4: Testing and user administration",
             kind: "course",
             url: "https://fullstackopen.com/en/part4",
+            hint: "Treat each test as a contract for a server-side rule; include invalid input, missing identity, and the wrong owner—not only success.",
           },
           {
             id: "fso-part-5",
             title: "Full Stack Open — Part 5: Testing React apps and routing",
             kind: "course",
             url: "https://fullstackopen.com/en/part5",
+            hint: "Test behavior at the boundary a user can observe, then keep one end-to-end test for the authenticated flow most expensive to break.",
           },
           {
             id: "testing-auth-milestone",
@@ -341,12 +346,14 @@ export const CURRICULUM: readonly CurriculumTrack[] = [
             title: "Full Stack Open — Part 6: Advanced state management",
             kind: "course",
             url: "https://fullstackopen.com/en/part6",
+            hint: "Compare each shared-state tool against plain local state first; record which ownership problem it solves and what synchronization cost it adds.",
           },
           {
             id: "fso-part-7",
             title: "Full Stack Open — Part 7: Hooks and tooling",
             kind: "course",
             url: "https://fullstackopen.com/en/part7",
+            hint: "Extract a hook only after the same stateful boundary appears twice, then explain its inputs, outputs, effects, and failure behavior.",
           },
           {
             id: "state-engineering-milestone",
@@ -382,6 +389,7 @@ export const CURRICULUM: readonly CurriculumTrack[] = [
             title: "Full Stack Open — Part 9: TypeScript",
             kind: "course",
             url: "https://fullstackopen.com/en/part9",
+            hint: "Translate real runtime states into unions and narrow them at boundaries; avoid finishing exercises with `any` or unexplained casts.",
           },
           {
             id: "ts-docs",
@@ -431,6 +439,7 @@ export const CURRICULUM: readonly CurriculumTrack[] = [
             title: "Full Stack Open — Part 13: Relational databases",
             kind: "course",
             url: "https://fullstackopen.com/en/part13",
+            hint: "Draw the schema before writing the ORM model; name each constraint, transaction boundary, query shape, and index it needs.",
           },
           {
             id: "fcc-relational-database",
@@ -473,12 +482,14 @@ export const CURRICULUM: readonly CurriculumTrack[] = [
             title: "Full Stack Open — Part 11: CI/CD",
             kind: "course",
             url: "https://fullstackopen.com/en/part11",
+            hint: "Build one pipeline from a clean checkout, deliberately fail every gate once, and document the artifact and rollback path.",
           },
           {
             id: "fso-part-12",
             title: "Full Stack Open — Part 12: Containers",
             kind: "course",
             url: "https://fullstackopen.com/en/part12",
+            hint: "Use containers to make runtime assumptions explicit; inspect image layers, configuration, persistence, networking, and shutdown behavior.",
           },
           {
             id: "full-stack-open-milestone",
@@ -541,41 +552,115 @@ export const CURRICULUM: readonly CurriculumTrack[] = [
       "Write Python that ships: typed, tested, packaged, and running in CI rather than on your machine.",
     modules: [
       {
+        id: "python-foundations",
+        title: "Python foundations in 30 days",
+        outcome:
+          "Write readable Python with functions, classes, modules, exceptions, files, and a small project you can explain.",
+        guide: {
+          plainLanguage:
+            "Make the language feel ordinary before adding a web framework. The point is not to race through 30 days; it is to write code daily and gradually shape it into modules that can be tested and reused.",
+          prerequisites: "Basic programming experience and a local Python environment you can run every day.",
+          applicationRole:
+            "This is the language layer shared by AI services, data scripts, automation, and the FastAPI back end later in the track.",
+          jobRelevance:
+            "Python interviews and production work both expose fluency with functions, data structures, exceptions, modules, classes, and readable control flow.",
+          minimumItemId: "python-30-days",
+          smallExercise:
+            "Complete one small exercise each day, then turn one into a typed multi-module CLI with a README and tests.",
+          exitCriteria:
+            "Continue when you can read and change a multi-module Python project, explain its data and error flow, and add types and tests without being prompted.",
+        },
+        items: [
+          {
+            id: "python-30-days",
+            title: "30 Days of Python — Asabeneh",
+            kind: "course",
+            url: "https://github.com/Asabeneh/30-Days-Of-Python",
+            hint: "Move at your own pace instead of obeying the 30-day label; write and run code every session, then revisit weak language features.",
+          },
+          {
+            id: "python-foundations-milestone",
+            title: "Build: a small typed Python CLI",
+            kind: "milestone",
+            hint: "Turn one exercise into a multi-module CLI with a README, type hints, and at least one useful test.",
+          },
+        ],
+      },
+      {
         id: "fastapi",
-        title: "Services with FastAPI",
-        outcome: "Serve typed request and response models, with docs you would hand to a stranger.",
+        title: "Python backend architecture with FastAPI",
+        outcome:
+          "Serve typed request and response models from a FastAPI service with clear API, application, domain, and persistence boundaries, plus docs you would hand to a stranger.",
+        guide: {
+          plainLanguage:
+            "FastAPI adapts HTTP and validates inputs and outputs; it should not own every business rule. Separate routes, use cases, domain decisions, and persistence so each boundary can be tested and replaced.",
+          prerequisites: "Python functions, classes, type hints, exception handling, and basic HTTP requests and responses.",
+          applicationRole:
+            "This is the Python back-end boundary for AI tools and model services: receive a request, validate data, execute a use case, access storage, and return a stable response.",
+          jobRelevance:
+            "AI back-end roles need more than model calls: they need APIs that are testable, observable, explicit about failures, and safe to change.",
+          minimumItemId: "fastapi-tutorial",
+          smallExercise:
+            "Put one Python tool behind FastAPI, separate the route from the service, and test success, validation failure, and an internal dependency failure.",
+          exitCriteria:
+            "Continue when you can explain every layer, keep OpenAPI aligned with behavior, and test business rules without starting an HTTP server.",
+        },
         items: [
           {
             id: "fastapi-tutorial",
             title: "FastAPI Tutorial",
             kind: "docs",
             url: "https://fastapi.tiangolo.com/tutorial/",
+            hint: "Learn routing, validation, dependencies, errors, and OpenAPI first; then move the business rule out of the route in your own service.",
+          },
+          {
+            id: "fastapi-full-stack-template",
+            title: "FastAPI Full Stack Template",
+            kind: "repo",
+            url: "https://github.com/fastapi/full-stack-fastapi-template",
+            hint: "Read the structure for boundaries and deployment ideas; do not copy a template before you understand its trade-offs.",
           },
           {
             id: "fastapi-milestone",
             title: "Build: put one of your own tools behind an API",
             kind: "milestone",
-            hint: "Typed models both directions, and generated docs that are enough on their own.",
+            hint: "Separate router, service, domain, and persistence concerns; type both directions and expose useful generated docs.",
           },
         ],
       },
       {
         id: "testing-ci",
-        title: "Tests and CI",
+        title: "Python testing and CI with pytest",
         outcome:
-          "Write tests that fail for the right reason, and a pipeline that blocks a merge when they do.",
+          "Write pytest tests that fail for the right reason, isolate boundaries, and run them in a pipeline that blocks a merge when they do.",
+        guide: {
+          plainLanguage:
+            "Tests are not a score; each one should name the behavior contract that broke. Start with pure functions, then add tests around API, database, and external-service boundaries where failure becomes expensive.",
+          prerequisites: "The ability to read and change Python modules, plus a FastAPI or other Python project worth testing.",
+          applicationRole:
+            "Tests protect domain rules, API contracts, and the release path so model, prompt, tool, and failure behavior can be changed without guessing.",
+          jobRelevance:
+            "Engineering teams value tests that localize a failure, not happy-path coverage alone; that directly changes review, release, and incident-recovery speed.",
+          minimumItemId: "pytest-getting-started",
+          smallExercise:
+            "Test one API for success, invalid input, unauthorized use, and dependency failure, then run the same checks in CI.",
+          exitCriteria:
+            "Continue when you can choose unit, integration, or end-to-end scope deliberately, control boundaries with fixtures, and prove CI blocks a deliberate failure.",
+        },
         items: [
           {
             id: "pytest-getting-started",
             title: "pytest — Getting Started",
             kind: "docs",
             url: "https://docs.pytest.org/en/stable/getting-started.html",
+            hint: "Start with one pure rule and one clear assertion, then use fixtures only where setup is genuinely shared or controls an external boundary.",
           },
           {
             id: "gh-actions-python",
             title: "GitHub Actions — Build and Test Python",
             kind: "docs",
             url: "https://docs.github.com/en/actions/tutorials/build-and-test-code/python",
+            hint: "Turn the local test command into a clean-checkout gate, pin the Python versions you support, and keep failure output visible in the job log.",
           },
           {
             id: "testing-ci-milestone",
@@ -588,14 +673,29 @@ export const CURRICULUM: readonly CurriculumTrack[] = [
       },
       {
         id: "packaging",
-        title: "Packaging",
-        outcome: "Turn a folder of scripts into something installable by someone who is not you.",
+        title: "Package Python for other people",
+        outcome: "Turn a folder of scripts into a versioned package that a stranger can install, run, and upgrade in a clean environment.",
+        guide: {
+          plainLanguage:
+            "Packaging makes the installation contract explicit: project metadata, dependencies, import layout, command entry points, build artifacts, and versions stop depending on your laptop.",
+          prerequisites: "A small multi-module Python project with tests and a command or library interface worth sharing.",
+          applicationRole:
+            "This is the delivery boundary between source code and every environment that consumes it, from a teammate's virtualenv to CI and deployment images.",
+          jobRelevance:
+            "Python teams expect engineers to understand `pyproject.toml`, dependency boundaries, reproducible installs, versioning, and why a package can work locally but fail when distributed.",
+          minimumItemId: "packaging-python",
+          smallExercise:
+            "Build a wheel and source distribution, publish both to TestPyPI, then install the package into a brand-new virtual environment and run its public command.",
+          exitCriteria:
+            "Continue when installation needs no repository checkout or hidden path change, metadata is accurate, imports work from anywhere, and one version can be upgraded or removed cleanly.",
+        },
         items: [
           {
             id: "packaging-python",
             title: "Packaging Python Projects",
             kind: "docs",
             url: "https://packaging.python.org/en/latest/tutorials/packaging-projects/",
+            hint: "Follow the official path from `pyproject.toml` through build and TestPyPI, and explain what each generated artifact is for.",
           },
           {
             id: "packaging-milestone",
@@ -768,18 +868,21 @@ export const CURRICULUM: readonly CurriculumTrack[] = [
             title: "PocketFlow — Codebase Knowledge",
             kind: "repo",
             url: "https://github.com/the-pocket/pocketflow-tutorial-codebase-knowledge",
+            hint: "Trace how a repository becomes navigable knowledge: ingestion, structure extraction, retrieval, generation, and the points where stale or missing context appears.",
           },
           {
             id: "repowiki",
             title: "RepoWiki",
             kind: "repo",
             url: "https://github.com/he-yufeng/RepoWiki",
+            hint: "Compare its repository map and generated documentation boundary with PocketFlow; note what it stores, recomputes, and trusts from the model.",
           },
           {
             id: "aider",
             title: "Aider",
             kind: "repo",
             url: "https://github.com/Aider-AI/aider",
+            hint: "Read one mature coding-agent architecture by following command input through repository mapping, model context, edits, Git integration, and error recovery.",
           },
           {
             id: "pi-web",
@@ -943,12 +1046,14 @@ export const CURRICULUM: readonly CurriculumTrack[] = [
             title: "Project Based Learning",
             kind: "repo",
             url: "https://github.com/practical-tutorials/project-based-learning",
+            hint: "Choose by the capability you need next, not by novelty; reduce the tutorial to one deployable user flow before writing code.",
           },
           {
             id: "build-your-own-x",
             title: "Build Your Own X",
             kind: "repo",
             url: "https://github.com/codecrafters-io/build-your-own-x",
+            hint: "Use this when you need to understand an abstraction from the inside; pick one system, define the smallest faithful version, and document what you omitted.",
           },
           {
             id: "project-sources-milestone",
@@ -960,14 +1065,29 @@ export const CURRICULUM: readonly CurriculumTrack[] = [
       },
       {
         id: "daily-assistant",
-        title: "Daily Assistant",
-        outcome: "Keep your own project honest: read it back against what you have since learned.",
+        title: "Re-read Daily Assistant as a system",
+        outcome: "Explain the project's browser, API, and data boundaries, then identify one redesign that is justified by evidence rather than hindsight.",
+        guide: {
+          plainLanguage:
+            "Your own project is the cheapest realistic architecture case study. Read it as unfamiliar code: find entry points, state owners, request paths, duplicated decisions, and assumptions that only worked on the original machine.",
+          prerequisites: "The full-stack request flow plus enough distance from the original implementation to question its decisions.",
+          applicationRole:
+            "This project joins a React learning interface to a FastAPI service, making it a concrete place to inspect state ownership and the browser-server boundary.",
+          jobRelevance:
+            "Strong portfolio discussion is specific: what constraint produced a decision, what failed, what evidence changed your mind, and what you would change now.",
+          minimumItemId: "daily-assistant-repo",
+          smallExercise:
+            "Draw one complete user action from the React event through the API and back, then propose one boundary change with the files it would affect.",
+          exitCriteria:
+            "Continue when another engineer can use your diagram to find the flow and you can defend one decision you would keep and one you would replace.",
+        },
         items: [
           {
             id: "daily-assistant-repo",
             title: "Daily Assistant — repository",
             kind: "repo",
             url: "https://github.com/bruceche-cmu-F25/Daily_Asistant/tree/codex/react-fastapi-refactor",
+            hint: "Start with the top-level structure and README, identify each deployable boundary, then follow one feature instead of browsing every folder.",
           },
           {
             id: "daily-assistant-learnpage",
@@ -975,6 +1095,7 @@ export const CURRICULUM: readonly CurriculumTrack[] = [
             kind: "repo",
             url:
               "https://github.com/bruceche-cmu-F25/Daily_Asistant/blob/codex/react-fastapi-refactor/frontend/src/pages/LearnPage.tsx",
+            hint: "Inventory local, derived, URL, and server state; mark each effect and ask which synchronization responsibility forced it to exist.",
           },
           {
             id: "daily-assistant-backend",
@@ -982,25 +1103,42 @@ export const CURRICULUM: readonly CurriculumTrack[] = [
             kind: "repo",
             url:
               "https://github.com/bruceche-cmu-F25/Daily_Asistant/tree/codex/react-fastapi-refactor/backend/daily_dashboard",
+            hint: "Trace request validation, business rules, persistence, and error translation; note every place framework or storage details leak inward.",
           },
         ],
       },
       {
         id: "ai-tooling",
-        title: "AI tooling worth reading",
-        outcome: "Know how the agent tools you use are built, so you can bend them rather than wait.",
+        title: "Read AI tools as production systems",
+        outcome: "Trace how an agent receives work, chooses context and tools, executes safely, reports state, and recovers from failure.",
+        guide: {
+          plainLanguage:
+            "An agent product is more than a model call. It needs a work queue, context selection, tool permissions, execution isolation, streaming state, persistence, cancellation, and a way for humans to understand what happened.",
+          prerequisites: "A full-stack application, asynchronous jobs, API boundaries, and basic experience using a coding or work agent.",
+          applicationRole:
+            "These repositories expose the orchestration layer between a user request, model reasoning, tools that affect the world, and the interface that supervises the run.",
+          jobRelevance:
+            "Full-stack AI roles increasingly test whether you can build the harness around a model: state, tools, evals, security, latency, cost, and recovery.",
+          minimumItemId: "openworker",
+          smallExercise:
+            "For one repository, draw the lifecycle from submitted task to final artifact and label context assembly, tool execution, persistence, cancellation, and failure recovery.",
+          exitCriteria:
+            "Continue when you can compare the two systems using concrete boundaries and explain one trade-off in safety, observability, latency, or operator control.",
+        },
         items: [
           {
             id: "openworker",
             title: "OpenWorker",
             kind: "repo",
             url: "https://github.com/andrewyng/openworker",
+            hint: "Read the worker lifecycle first: how work enters, where execution state lives, what tools can do, and how a failed or interrupted run is represented.",
           },
           {
             id: "openwork",
             title: "OpenWork",
             kind: "repo",
             url: "https://github.com/different-ai/openwork",
+            hint: "Use it as the product-side comparison: trace how the interface creates, observes, steers, and resumes work rather than cataloging components.",
           },
         ],
       },
@@ -1013,46 +1151,78 @@ export const CURRICULUM: readonly CurriculumTrack[] = [
     modules: [
       {
         id: "inspiration",
-        title: "Galleries",
-        outcome: "Build a reference library you can point at during a design argument.",
+        title: "Build a design reference library",
+        outcome: "Turn visual references into a vocabulary of layout, type, color, hierarchy, and interaction decisions you can reuse and defend.",
+        guide: {
+          plainLanguage:
+            "Inspiration becomes useful only after you name what works. Collect individual decisions—not whole pages—and annotate the hierarchy, spacing, typography, color role, motion, and product constraint behind each one.",
+          prerequisites: "One interface you are actively designing and the ability to inspect responsive states rather than judging a single screenshot.",
+          applicationRole:
+            "This is the evidence layer for visual decisions: references help a team align before implementation and make critique about observable choices instead of taste alone.",
+          jobRelevance:
+            "Front-end and product engineers are expected to translate references into accessible, responsive systems without blindly copying a surface treatment.",
+          minimumItemId: "noiced",
+          smallExercise:
+            "Collect five references for one real page and annotate exactly one transferable decision from each; then combine no more than two into a wireframe.",
+          exitCriteria:
+            "Continue when every saved reference has a named reason, a target problem, and a note about what should not be copied.",
+        },
         items: [
-          { id: "noiced", title: "Noiced", kind: "gallery", url: "https://noiced.com/" },
-          { id: "minimum", title: "Minimum", kind: "gallery", url: "https://mnmm.xyz/" },
-          { id: "deck-gallery", title: "Deck Gallery", kind: "gallery", url: "https://deck.gallery/" },
-          { id: "recent-design", title: "Recent", kind: "gallery", url: "https://recent.design/" },
-          { id: "logosystem", title: "Logosystem", kind: "gallery", url: "https://logosystem.co/" },
+          { id: "noiced", title: "Noiced", kind: "gallery", url: "https://noiced.com/", hint: "Use the curated product work to study full-page hierarchy; save one composition and label its primary action, reading order, and spacing rhythm." },
+          { id: "minimum", title: "Minimum", kind: "gallery", url: "https://mnmm.xyz/", hint: "Study restraint: identify what was removed, how contrast replaces decoration, and where the design still provides enough interaction feedback." },
+          { id: "deck-gallery", title: "Deck Gallery", kind: "gallery", url: "https://deck.gallery/", hint: "Use slide sequences to practice narrative hierarchy—how one idea is staged, paced, and handed to the next without a permanent navigation shell." },
+          { id: "recent-design", title: "Recent", kind: "gallery", url: "https://recent.design/", hint: "Use current examples as a trend check, then separate durable information design from treatments likely to date quickly." },
+          { id: "logosystem", title: "Logosystem", kind: "gallery", url: "https://logosystem.co/", hint: "Study identity as a system: record the rules connecting marks, type, color, spacing, and responsive variations rather than saving one logo." },
           {
             id: "wild-craft",
             title: "Wild — Craft, Engineered",
             kind: "gallery",
             url: "https://craft.wild.as/",
+            hint: "Inspect the engineering behind expressive work: identify which effects serve hierarchy and which performance or accessibility fallback keeps them usable.",
           },
           {
             id: "unicorn-studio",
             title: "Unicorn Studio — Inspiration",
             kind: "gallery",
             url: "https://www.unicorn.studio/inspiration",
+            hint: "Use it for motion references; describe the trigger, spatial relationship, timing, and reduced-motion alternative before choosing an effect.",
           },
         ],
       },
       {
         id: "motion-tools",
-        title: "Motion and components",
-        outcome: "Reach for a motion idea deliberately, and implement it without a library you cannot debug.",
+        title: "Use motion as interface feedback",
+        outcome: "Choose one motion idea that clarifies state or spatial continuity, implement it accessibly, and remove effects that compete with the task.",
+        guide: {
+          plainLanguage:
+            "Motion should explain what changed, where something came from, or what deserves attention. Start with the smallest native transition; use a library only when sequencing, interruption, or scroll coordination makes it genuinely simpler.",
+          prerequisites: "A finished static layout, clear interaction states, and familiarity with CSS transforms, opacity, and `prefers-reduced-motion`.",
+          applicationRole:
+            "Motion sits between visual design and interaction behavior: it connects states while sharing the rendering budget with the rest of the page.",
+          jobRelevance:
+            "Polished front-end work requires timing, interruption, performance, and accessibility judgment—not just the ability to paste an animation snippet.",
+          minimumItemId: "gsap",
+          smallExercise:
+            "Choose one state change in an existing page, storyboard start and end, implement it with transform and opacity, then test rapid interruption and reduced motion.",
+          exitCriteria:
+            "Continue when the interaction is understandable with motion off, stays smooth under load, survives repeated input, and every animated property has a stated purpose.",
+        },
         items: [
           {
             id: "react-bits-dither",
             title: "React Bits — Dither",
             kind: "docs",
             url: "https://reactbits.dev/backgrounds/dither",
+            hint: "Treat this as an effect study, not a default background: inspect its cost, contrast impact, input behavior, and static fallback before borrowing it.",
           },
           {
             id: "canvas-ui",
             title: "Canvas UI — Components",
             kind: "docs",
             url: "https://canvasui.dev/components",
+            hint: "Study how expressive components package state and interaction; reproduce one behavior with your design tokens instead of importing a mismatched visual system.",
           },
-          { id: "gsap", title: "GSAP", kind: "repo", url: "https://github.com/greensock/gsap" },
+          { id: "gsap", title: "GSAP", kind: "repo", url: "https://github.com/greensock/gsap", hint: "Use the core API for one interruptible timeline; add a plugin only when the interaction specifically needs scroll, drag, SVG, or layout coordination." },
           {
             id: "motion-tools-milestone",
             title: "Build: give one page a single motion idea",
@@ -1193,7 +1363,9 @@ export const LEARNING_SHELF: readonly ShelfGroup[] = [
   {
     id: "python",
     links: [
+      { id: "python-30-days" },
       { id: "fastapi-tutorial" },
+      { id: "fastapi-full-stack-template" },
       { id: "pytest-getting-started" },
       { id: "packaging-python" },
       { id: "cosmic-python" },

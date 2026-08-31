@@ -232,6 +232,12 @@
   --accent-line-strong: rgb(139 81 60 / 0.60);
   --focus-ring: rgb(139 81 60 / 0.72);
 
+  /* Roadmap surfaces are opaque enough to quiet the graph paper beneath them.
+     Topic and checkpoint remain different in shape and label as well as colour,
+     while the route stays subordinate to the words sitting on it. */
+  --roadmap-ground: color-mix(in srgb, var(--bg-deep) 28%, transparent);
+  --roadmap-path: color-mix(in srgb, var(--accent) 78%, var(--text));
+
   /* Calendar event palette. Each event is drawn in one of six muted colours —
      picked from a stable hash of **the calendar it belongs to** — see
      eventColors.ts — so a week carries as many colours as you have calendars
@@ -416,6 +422,10 @@ html.dark {
   --accent-line: rgb(106 159 204 / 0.36);
   --accent-line-strong: rgb(106 159 204 / 0.50);
   --focus-ring: rgb(106 159 204 / 0.72);
+
+  --roadmap-ground: color-mix(in srgb, var(--bg-deep) 58%, transparent);
+  --roadmap-path: color-mix(in srgb, var(--accent) 72%, var(--bg-panel));
+
   --event-clay: #c08b6f;
   --event-clay-soft: rgb(192 139 111 / 0.24);
   --event-clay-faint: rgb(192 139 111 / 0.11);
@@ -1325,6 +1335,12 @@ body {
 
 .ui-action:hover:not(:disabled):not([data-inert="true"]) {
   color: var(--text);
+}
+
+/* Spatial roadmap nodes keep their bounds fixed; the outer ring is the hover
+   response, so tracing the route never makes neighbouring nodes or lines jump. */
+.study-roadmap-node:hover:not(:disabled) {
+  box-shadow: 0 0 0 2px var(--accent-line), var(--card-shadow);
 }
 
 /* Semantic states keep their hue on hover; only the surface responds. */
