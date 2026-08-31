@@ -6,6 +6,7 @@ import {
   inBayArea,
   isScanDue,
   mergeTechEvents,
+  rateTechEventForFullStackAi,
   sortTechEvents,
   SCAN_INTERVAL_MS,
 } from "./tech-events.ts";
@@ -89,6 +90,57 @@ test("the score is capped so one keyword-stuffed title cannot own the day", () =
     title: "AI LLM agents inference embeddings rust kubernetes python api hackathon demo",
   });
   assert.ok(stuffed.score <= 5);
+});
+
+test("Full-stack AI build events outrank adjacent single-topic talks", () => {
+  const build = rateTechEventForFullStackAi(event({
+    title: "Agentic Full Stack Build Night",
+    topics: ["ai", "swe"],
+    score: 4.5,
+    free: true,
+  }), []);
+  const systems = rateTechEventForFullStackAi(event({
+    title: "Beyond Containers",
+    topics: ["swe"],
+    score: 1.5,
+  }), []);
+
+  assert.ok(build.relevance > systems.relevance);
+  assert.ok(build.suitability > systems.suitability);
+  assert.ok(build.signals.includes("fullstack-ai"));
+  assert.ok(build.signals.includes("hands-on"));
+});
+
+test("schedule conflicts are exact facts and lower suitability", () => {
+  const starts = new Date("2026-09-01T18:00:00");
+  const candidate = event({
+    startAt: starts.toISOString(),
+    endAt: new Date("2026-09-01T20:00:00").toISOString(),
+    topics: ["ai", "swe"],
+    score: 5,
+  });
+  const clear = rateTechEventForFullStackAi(candidate, []);
+  const busy = rateTechEventForFullStackAi(candidate, [{
+    id: "class",
+    title: "Evening class",
+    date: "2026-09-01",
+    start: "18:30",
+    end: "19:30",
+    createdAt: "",
+  }]);
+  const adjacent = rateTechEventForFullStackAi(candidate, [{
+    id: "lunch",
+    title: "Lunch",
+    date: "2026-09-01",
+    start: "12:00",
+    end: "13:00",
+    createdAt: "",
+  }]);
+
+  assert.equal(busy.conflicts[0].title, "Evening class");
+  assert.ok(busy.suitability < clear.suitability);
+  assert.ok(busy.signals.includes("schedule-conflict"));
+  assert.equal(adjacent.conflicts.length, 0);
 });
 
 /* ─────────────────────────── the region ─────────────────────────── */

@@ -14,6 +14,8 @@
  * saved feed without a network or a data directory.
  */
 
+import type { CalendarEvent } from "./events.ts";
+
 /** Rough Bay Area box: Santa Cruz up to Santa Rosa, coast to the Delta. */
 const BAY_AREA_BOUNDS = { minLat: 36.9, maxLat: 38.5, minLon: -123.2, maxLon: -121.4 };
 
@@ -83,6 +85,34 @@ export interface TechEvent {
   discoveredAt: string;
   saved?: boolean;
   hidden?: boolean;
+}
+
+export type TechEventSignal =
+  | "fullstack-ai"
+  | "hands-on"
+  | "accessible"
+  | "popular"
+  | "approval"
+  | "sold-out"
+  | "schedule-conflict";
+
+export interface TechEventConflict {
+  id: string;
+  title: string;
+  date: string;
+  start?: string;
+  end?: string;
+}
+
+export interface TechEventRating {
+  /** Match to the user's Full-stack AI target, 1–5. */
+  relevance: number;
+  /** Practical fit, including format, availability, and calendar load, 1–5. */
+  suitability: number;
+  /** Relevance-led combined score, 1–5. */
+  overall: number;
+  signals: TechEventSignal[];
+  conflicts: TechEventConflict[];
 }
 
 export interface TechEventSourceResult {
@@ -317,6 +347,123 @@ export function classifyTechEvent(input: {
     topics: TECH_EVENT_TOPICS.filter((topic) => topics.includes(topic)),
     score,
     matched: [...new Set([...ai, ...swe, ...brand])].slice(0, 6),
+  };
+}
+
+const FULLSTACK_TERMS = [
+  "full stack", "fullstack", "frontend", "backend", "react", "nextjs", "typescript",
+  "javascript", "node", "api", "database", "postgres", "product engineer",
+];
+const HANDS_ON_TERMS = [
+  "build", "builder", "build night", "buildathon", "hack", "hackathon", "hack night",
+  "workshop", "demo", "demos", "demo night", "coding", "code lab", "lab",
+];
+
+function oneDecimal(value: number): number {
+  return Math.round(Math.max(1, Math.min(5, value)) * 10) / 10;
+}
+
+function calendarInterval(event: CalendarEvent): { start: number; end: number } | null {
+  const firstDay = event.date;
+  const lastDay = event.endDate && event.endDate > firstDay ? event.endDate : firstDay;
+  if (!event.start) {
+    const startDate = new Date(`${firstDay}T00:00:00`);
+    const endDate = new Date(`${lastDay}T00:00:00`);
+    endDate.setDate(endDate.getDate() + 1);
+    const start = startDate.getTime();
+    const end = endDate.getTime();
+    return Number.isFinite(start) && Number.isFinite(end) ? { start, end } : null;
+  }
+
+  const start = new Date(`${firstDay}T${event.start}:00`).getTime();
+  const explicitEnd = event.end
+    ? new Date(`${lastDay}T${event.end}:00`).getTime()
+    : Number.NaN;
+  const end = Number.isFinite(explicitEnd) && explicitEnd > start
+    ? explicitEnd
+    : start + 60 * 60 * 1_000;
+  return Number.isFinite(start) ? { start, end } : null;
+}
+
+/** Calendar commitments that overlap the public event's actual instant. */
+export function findTechEventConflicts(
+  event: TechEvent,
+  schedule: readonly CalendarEvent[],
+): TechEventConflict[] {
+  const start = Date.parse(event.startAt);
+  if (!Number.isFinite(start)) return [];
+  const parsedEnd = event.endAt ? Date.parse(event.endAt) : Number.NaN;
+  const end = Number.isFinite(parsedEnd) && parsedEnd > start
+    ? parsedEnd
+    : start + 2 * 60 * 60 * 1_000;
+
+  return schedule.flatMap((commitment) => {
+    const interval = calendarInterval(commitment);
+    if (!interval || interval.start >= end || interval.end <= start) return [];
+    return [{
+      id: commitment.id,
+      title: commitment.title,
+      date: commitment.date,
+      ...(commitment.start ? { start: commitment.start } : {}),
+      ...(commitment.end ? { end: commitment.end } : {}),
+    }];
+  });
+}
+
+/**
+ * Score one listing for the user's stated target: practical Full-stack AI.
+ *
+ * This stays deterministic and explainable. The scanner's general technical
+ * score supplies evidence, while the second axis asks whether the format is
+ * useful and realistically attendable. Calendar conflicts are facts, not an
+ * LLM judgement, and therefore reduce suitability directly.
+ */
+export function rateTechEventForFullStackAi(
+  event: TechEvent,
+  schedule: readonly CalendarEvent[],
+): TechEventRating {
+  const subject = tokenize(`${event.title} ${event.host ?? ""} ${event.matched.join(" ")}`);
+  const hasAi = event.topics.includes("ai");
+  const hasSoftware = event.topics.includes("swe");
+  const fullstack = matchTerms(subject, FULLSTACK_TERMS).length > 0;
+  const handsOn = matchTerms(subject, HANDS_ON_TERMS).length > 0;
+  const conflicts = findTechEventConflicts(event, schedule);
+
+  const relevance = oneDecimal(
+    1
+      + event.score * 0.45
+      + (hasAi && hasSoftware ? 1.35 : hasAi ? 0.6 : hasSoftware ? 0.4 : 0)
+      + (fullstack ? 0.7 : 0)
+      + (handsOn ? 0.4 : 0),
+  );
+
+  const suitability = oneDecimal(
+    2.35
+      + (hasAi && hasSoftware ? 0.85 : 0)
+      + (handsOn ? 0.75 : 0)
+      + (event.online ? 0.35 : 0)
+      + (event.free ? 0.2 : 0)
+      + (typeof event.guests === "number" && event.guests >= 50 ? 0.2 : 0)
+      - (event.requiresApproval ? 0.3 : 0)
+      - (event.soldOut ? 2.2 : 0)
+      - (conflicts.length > 0 ? Math.min(2.2, 0.9 + (conflicts.length - 1) * 0.4) : 0),
+  );
+
+  const signals: TechEventSignal[] = [];
+  if (hasAi && hasSoftware) signals.push("fullstack-ai");
+  if (handsOn) signals.push("hands-on");
+  if (event.online || event.free) signals.push("accessible");
+  if (typeof event.guests === "number" && event.guests >= 50) signals.push("popular");
+  if (event.requiresApproval) signals.push("approval");
+  if (event.soldOut) signals.push("sold-out");
+  if (conflicts.length > 0) signals.push("schedule-conflict");
+
+  return {
+    relevance,
+    suitability,
+    overall: oneDecimal(relevance * 0.65 + suitability * 0.35),
+    signals,
+    conflicts,
   };
 }
 

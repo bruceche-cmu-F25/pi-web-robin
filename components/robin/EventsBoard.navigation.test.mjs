@@ -59,6 +59,13 @@ test("third-party event links open with noreferrer", () => {
   assert.match(boardSource, /rel="noopener noreferrer"/);
 });
 
+test("recommendations are scored against the merged local and Google schedule", () => {
+  assert.match(boardSource, /usePolledResource<ScheduleResponse>\("\/api\/robin\/events"/);
+  assert.match(boardSource, /rateTechEventForFullStackAi\(event, schedule\)/);
+  assert.match(boardSource, /event\.rating\.conflicts\.length <= 1/);
+  assert.match(boardSource, /conflictCount/);
+});
+
 test("every label the board asks for exists in the locale packs", () => {
   const keys = [...boardSource.matchAll(/\bt\("([a-zA-Z0-9._]+)"/g)].map((match) => match[1]);
   assert.ok(keys.length > 10);
@@ -68,6 +75,9 @@ test("every label the board asks for exists in the locale packs", () => {
   // The two template keys are built from a union rather than written out.
   for (const topic of ["all", "ai", "swe", "data", "hardware", "startup"]) {
     assert.ok(enLocale.messages[`robin.events.topic.${topic}`], `missing topic label: ${topic}`);
+  }
+  for (const signal of ["fullstack-ai", "hands-on", "accessible", "popular", "approval", "sold-out", "schedule-conflict"]) {
+    assert.ok(enLocale.messages[`robin.events.signal.${signal}`], `missing signal label: ${signal}`);
   }
   assert.ok(enLocale.messages["robin.nav.events"]);
 });
