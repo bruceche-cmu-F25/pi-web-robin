@@ -11,6 +11,7 @@ import { TabBar, type Tab } from "./TabBar";
 import { openFileTab, saveFileViewerState } from "./file-tab-state";
 import { SettingsPanel, SettingsSectionIcon } from "./SettingsPanel";
 import { ProjectTrustDialog } from "./ProjectTrustDialog";
+import { AssistantPalette } from "./robin/AssistantPalette";
 import { BranchNavigator, hasSessionBranches } from "./BranchNavigator";
 import { SystemPromptPanel } from "./SystemPromptPanel";
 import { ToolDefinitionsPanel } from "./ToolDefinitionsPanel";
@@ -2635,6 +2636,10 @@ export function AppShell() {
         onConfirm={() => void handleTrustProject()}
       />
     )}
+    <AssistantPalette
+      sessionId={selectedSession?.id ?? null}
+      cwd={selectedSession?.cwd ?? newSessionCwd ?? activeCwd}
+    />
     </>
   );
 }

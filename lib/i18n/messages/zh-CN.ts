@@ -623,6 +623,7 @@ export const zhCNLocale: LocalePlugin = {
     "learn.shelf.gym": "Project Gym",
     "robin.assistant.placeholder": "搜索链接和待办，或告诉 pi 做什么…",
     "robin.assistant.send": "发送",
+    "robin.assistant.open": "打开",
     "robin.assistant.working": "处理中…",
     "robin.search.results": "全局搜索结果",
     "robin.common.add": "添加",

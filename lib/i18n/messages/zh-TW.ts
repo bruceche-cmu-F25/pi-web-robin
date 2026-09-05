@@ -626,6 +626,7 @@ export const zhTWLocale: LocalePlugin = {
     "robin.nav.gmail": "邮箱",
     "robin.assistant.placeholder": "搜尋連結和待辦，或告訴 pi 做什麼…",
     "robin.assistant.send": "发送",
+    "robin.assistant.open": "開啟",
     "robin.assistant.working": "处理中…",
     "robin.search.results": "全局搜索结果",
     "robin.common.add": "添加",

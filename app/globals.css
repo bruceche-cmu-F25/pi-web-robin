@@ -1187,6 +1187,51 @@ body {
   padding: 0;
 }
 
+.robin-command-dialog {
+  width: min(720px, calc(100% - 24px));
+  max-width: none;
+  margin: max(10vh, env(safe-area-inset-top)) auto auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  overflow: visible;
+}
+.robin-command-dialog::backdrop {
+  background: rgb(0 0 0 / 0.42);
+  backdrop-filter: blur(3px);
+}
+.robin-command-dialog__content {
+  position: relative;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  box-shadow: var(--overlay-shadow);
+}
+.robin-command-dialog .robin-command-dialog__content .robin-assistant-bar {
+  padding: 16px 56px 10px 16px;
+  border: 0;
+  box-shadow: none;
+}
+.robin-command-dialog__close {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 1;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 20px;
+}
+.robin-command-dialog__hint {
+  margin: 0;
+  padding: 0 16px 12px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
 /* Opaque and lifted, unlike the chat shell's panels. The chat surface is one
    continuous document and stays flat; the dashboard is a stack of separate
    sheets, and without a real step against the ground they dissolve into it. */

@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useI18n } from "@/hooks/useI18n";
+import { getInitialNavigation } from "@/lib/initial-navigation";
 import {
   searchDashboard,
   type DashboardSearchData,
@@ -15,6 +17,22 @@ import { splitReplyLinks } from "./reply-links";
 interface AssistantResponse {
   reply: string;
   usedTools: string[];
+}
+
+const COMMAND_ROUTES: Record<string, string> = {
+  daily: "/dashboard",
+  job: "/dashboard/jobs",
+  jobs: "/dashboard/jobs",
+  gmail: "/dashboard/gmail",
+  events: "/dashboard/events",
+  learn: "/learn",
+  research: "/research",
+  product: "/product",
+  chat: "/",
+};
+
+export function dashboardCommandPath(input: string): string | null {
+  return COMMAND_ROUTES[input.trim().toLowerCase()] ?? null;
 }
 
 /** Tool names map to message keys so the summary follows the chosen language. */
@@ -46,8 +64,21 @@ async function fetchSearchResource<T>(url: string, signal: AbortSignal): Promise
   return body;
 }
 
-export function AssistantBar() {
+export function AssistantBar({
+  sessionId,
+  cwd,
+  onNavigate,
+}: {
+  sessionId?: string | null;
+  cwd?: string | null;
+  onNavigate?: () => void;
+} = {}) {
   const { t } = useI18n();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const navigation = getInitialNavigation(searchParams);
+  const preservedSessionId = sessionId === undefined ? navigation.sessionId : sessionId;
+  const preservedCwd = cwd === undefined ? navigation.requestedCwd : cwd;
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [reply, setReply] = useState<AssistantResponse | null>(null);
@@ -55,12 +86,19 @@ export function AssistantBar() {
   const [searchData, setSearchData] = useState<DashboardSearchData | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const commandPath = dashboardCommandPath(message);
+  const commandQuery = preservedSessionId
+    ? `?session=${encodeURIComponent(preservedSessionId)}`
+    : preservedCwd
+      ? `?cwd=${encodeURIComponent(preservedCwd)}`
+      : "";
+  const commandHref = commandPath ? `${commandPath}${commandQuery}` : null;
 
   // The assistant field doubles as global search over links and todos — not the
   // calendar, which is already on screen. Load both small collections once per
   // query, then filter locally while the user keeps typing.
   useEffect(() => {
-    if (!message.trim()) {
+    if (!message.trim() || commandPath) {
       setSearchData(null);
       setSearchError(null);
       return;
@@ -86,7 +124,7 @@ export function AssistantBar() {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [message, searchData]);
+  }, [commandPath, message, searchData]);
 
   const searchResults = useMemo(
     () => searchData ? searchDashboard(searchData, message) : [],
@@ -97,6 +135,13 @@ export function AssistantBar() {
     event.preventDefault();
     const text = message.trim();
     if (!text || busy) return;
+
+    if (commandHref) {
+      setMessage("");
+      router.push(commandHref, { scroll: false });
+      onNavigate?.();
+      return;
+    }
 
     setBusy(true);
     setError(null);
@@ -164,11 +209,25 @@ export function AssistantBar() {
           className="ui-action ui-action--outline pi-bracket px-3 disabled:opacity-40"
           data-state="accent"
         >
-          {busy ? "…" : t("robin.assistant.send")}
+          {busy ? "…" : t(commandHref ? "robin.assistant.open" : "robin.assistant.send")}
         </button>
       </form>
 
-      {!busy && searchResults.length > 0 && <SearchResults results={searchResults} t={t} />}
+      {!busy && commandHref && (
+        <a
+          href={commandHref}
+          onClick={onNavigate}
+          className="ui-action ui-action--surface flex min-h-11 items-center gap-3 border px-3"
+        >
+          <span className="pi-eyebrow">{t("robin.assistant.open")}</span>
+          <strong className="min-w-0 flex-1 truncate text-sm" style={{ color: "var(--text)" }}>
+            {message.trim().toLowerCase()}
+          </strong>
+          <span aria-hidden="true" style={{ color: "var(--text-dim)" }}>↵</span>
+        </a>
+      )}
+
+      {!busy && !commandHref && searchResults.length > 0 && <SearchResults results={searchResults} t={t} />}
 
       {busy && (
         <p className="text-xs" style={{ color: "var(--text-dim)" }}>{t("robin.assistant.working")}</p>

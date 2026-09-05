@@ -623,6 +623,7 @@ export const enLocale: LocalePlugin = {
     "learn.shelf.gym": "Project gym",
     "robin.assistant.placeholder": "Search links and todos, or tell pi what to do…",
     "robin.assistant.send": "Send",
+    "robin.assistant.open": "Open",
     "robin.assistant.working": "Working…",
     "robin.search.results": "Global search results",
     "robin.common.add": "add",

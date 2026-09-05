@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsSplitLayout } from "@/hooks/useIsMobile";
 import { RobinMargin } from "./RobinMargin";
+import { AssistantPalette } from "./AssistantPalette";
 
 /** Shared top navigation on wide screens and an off-canvas drawer on narrow screens. */
 export function RobinShell({ children }: { children: ReactNode }) {
@@ -94,6 +95,8 @@ export function RobinShell({ children }: { children: ReactNode }) {
       >
         {children}
       </div>
+
+      <AssistantPalette />
     </div>
   );
 }
