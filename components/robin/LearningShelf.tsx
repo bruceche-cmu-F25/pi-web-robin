@@ -34,8 +34,7 @@ export function LearningShelf() {
 
   return (
     <section
-      className="grid gap-4"
-      style={{ gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))" }}
+      style={{ columns: "300px", columnGap: "1rem" }}
       aria-label={t("learn.shelf.title")}
     >
       {groups.map((group, groupIndex) => {
@@ -44,7 +43,10 @@ export function LearningShelf() {
         // families held at the contrast that reads as text.
         const hue = EVENT_COLOR_KEYS[groupIndex % EVENT_COLOR_KEYS.length];
         return (
-          <section key={group.id} className="pi-card flex flex-col gap-2 p-4">
+          <section
+            key={group.id}
+            className="pi-card mb-4 flex w-full break-inside-avoid flex-col gap-2 p-4"
+          >
             <h2
               className="pi-label"
               style={{ fontSize: 11, color: `var(--todo-${hue})`, borderLeftColor: `var(--event-${hue})` }}

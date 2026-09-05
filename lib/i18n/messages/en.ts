@@ -626,6 +626,7 @@ export const enLocale: LocalePlugin = {
     "learn.shelf.entry": "Course entry points",
     "learn.shelf.freecodecamp": "freeCodeCamp path",
     "learn.shelf.fullstack": "Full-stack spine",
+    "learn.shelf.roadmaps": "roadmap.sh paths",
     "learn.shelf.python": "Python engineering",
     "learn.shelf.architecture": "Architecture & system design",
     "learn.shelf.projects": "Projects & AI tooling",

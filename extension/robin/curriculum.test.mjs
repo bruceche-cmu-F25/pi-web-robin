@@ -222,7 +222,7 @@ test("the shelf keeps the groups the reading list was collected in", () => {
   // link again by remembering where you filed it, not what it teaches.
   assert.deepEqual(
     LEARNING_SHELF.map((group) => group.id),
-    ["entry", "freecodecamp", "fullstack", "python", "architecture", "projects", "design", "gym"],
+    ["entry", "freecodecamp", "fullstack", "roadmaps", "python", "architecture", "projects", "design", "gym"],
   );
 });
 

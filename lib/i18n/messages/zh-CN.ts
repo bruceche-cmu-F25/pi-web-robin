@@ -626,6 +626,7 @@ export const zhCNLocale: LocalePlugin = {
     "learn.shelf.entry": "课程入口",
     "learn.shelf.freecodecamp": "freeCodeCamp 路线",
     "learn.shelf.fullstack": "全栈主干",
+    "learn.shelf.roadmaps": "roadmap.sh 路线",
     "learn.shelf.python": "Python Engineering",
     "learn.shelf.architecture": "架构与系统设计",
     "learn.shelf.projects": "项目与 AI 工具",

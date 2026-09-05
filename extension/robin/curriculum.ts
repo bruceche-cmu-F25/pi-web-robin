@@ -227,6 +227,13 @@ export const CURRICULUM: readonly CurriculumTrack[] = [
             hint: "Supplement only: use its exercises when React syntax needs more repetitions.",
           },
           {
+            id: "roadmap-frontend",
+            title: "roadmap.sh — Frontend Developer Roadmap",
+            kind: "docs",
+            url: "https://roadmap.sh/frontend",
+            hint: "Use as a gap checklist after building a working interface, not as a reading order.",
+          },
+          {
             id: "frontend-libraries-milestone",
             title: "Build: rebuild one panel of this dashboard",
             kind: "milestone",
@@ -268,6 +275,13 @@ export const CURRICULUM: readonly CurriculumTrack[] = [
             kind: "course",
             url: "https://www.freecodecamp.org/learn/back-end-development-and-apis/",
             hint: "Supplement only: use it when Express and REST need a second explanation.",
+          },
+          {
+            id: "roadmap-backend",
+            title: "roadmap.sh — Backend Developer Roadmap",
+            kind: "docs",
+            url: "https://roadmap.sh/backend",
+            hint: "Use as a gap checklist after shipping an API, not as a reason to learn every listed technology.",
           },
           {
             id: "backend-apis-milestone",
@@ -490,6 +504,20 @@ export const CURRICULUM: readonly CurriculumTrack[] = [
             kind: "course",
             url: "https://fullstackopen.com/en/part12",
             hint: "Use containers to make runtime assumptions explicit; inspect image layers, configuration, persistence, networking, and shutdown behavior.",
+          },
+          {
+            id: "roadmap-devops",
+            title: "roadmap.sh — DevOps Roadmap",
+            kind: "docs",
+            url: "https://roadmap.sh/devops",
+            hint: "Use after operating one deployed application to identify the next production skill worth practicing.",
+          },
+          {
+            id: "roadmap-kubernetes",
+            title: "roadmap.sh — Kubernetes Roadmap",
+            kind: "docs",
+            url: "https://roadmap.sh/kubernetes",
+            hint: "Keep as a later checklist; learn Kubernetes when a real deployment needs orchestration beyond one host.",
           },
           {
             id: "full-stack-open-milestone",
@@ -836,6 +864,13 @@ export const CURRICULUM: readonly CurriculumTrack[] = [
             hint: "Diagram-first. Good for checking whether you can redraw a thing from memory.",
           },
           {
+            id: "roadmap-system-design",
+            title: "roadmap.sh — System Design Roadmap",
+            kind: "docs",
+            url: "https://roadmap.sh/system-design",
+            hint: "Use as a coverage checklist after practicing complete designs aloud.",
+          },
+          {
             id: "designing-a-system-milestone",
             title: "Build: the design doc for a URL shortener",
             kind: "milestone",
@@ -1140,6 +1175,13 @@ export const CURRICULUM: readonly CurriculumTrack[] = [
             url: "https://github.com/different-ai/openwork",
             hint: "Use it as the product-side comparison: trace how the interface creates, observes, steers, and resumes work rather than cataloging components.",
           },
+          {
+            id: "roadmap-ai-engineer",
+            title: "roadmap.sh — AI Engineer Roadmap",
+            kind: "docs",
+            url: "https://roadmap.sh/ai-engineer",
+            hint: "Use as a gap checklist after building one end-to-end AI feature with evaluation and failure handling.",
+          },
         ],
       },
     ],
@@ -1358,6 +1400,18 @@ export const LEARNING_SHELF: readonly ShelfGroup[] = [
       { id: "fso-part-12" },
       { id: "cs50w" },
       { id: "roadmap-full-stack" },
+    ],
+  },
+  {
+    id: "roadmaps",
+    links: [
+      { id: "roadmap-full-stack" },
+      { id: "roadmap-devops" },
+      { id: "roadmap-ai-engineer" },
+      { id: "roadmap-frontend" },
+      { id: "roadmap-backend" },
+      { id: "roadmap-system-design" },
+      { id: "roadmap-kubernetes" },
     ],
   },
   {
