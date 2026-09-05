@@ -16,13 +16,25 @@ const COMPOSITION_END_ENTER_GRACE_MS = 100;
 
 interface Props {
   /** Which assistant mode this panel talks to — its persona, tools, and session. */
-  mode: "coach" | "mentor";
-  /** i18n keys for the chrome, so the two personas read as different people. */
+  mode: string;
+  /** i18n keys for the chrome, so the personas read as different people. */
   titleKey: string;
   placeholderKey: string;
   restartHintKey: string;
   /** Tool name → i18n key, for the line under a reply saying what it touched. */
   toolKeys: Record<string, string>;
+  /** Product agents use their own scoped-session route but keep this panel's UX. */
+  endpoint?: string;
+  requestBody?: Record<string, string>;
+  /**
+   * A message the page wants sent on the user's behalf — a research brief
+   * assembled from a record, rather than something they typed.
+   *
+   * Keyed rather than a bare string: the same brief may be asked for twice,
+   * and the id is what tells a repeat from a re-render.
+   */
+  pending?: { id: string; text: string };
+  onClose?: () => void;
 }
 
 /**
@@ -41,7 +53,17 @@ interface Props {
  * page therefore gives a clean panel and an agent that still remembers — which
  * is the behaviour you want from someone sitting beside you.
  */
-export function AgentPanel({ mode, titleKey, placeholderKey, restartHintKey, toolKeys }: Props) {
+export function AgentPanel({
+  mode,
+  titleKey,
+  placeholderKey,
+  restartHintKey,
+  toolKeys,
+  endpoint = "/api/robin/assistant",
+  requestBody = {},
+  pending,
+  onClose,
+}: Props) {
   const { t } = useI18n();
   const [turns, setTurns] = useState<Turn[]>([]);
   const [message, setMessage] = useState("");
@@ -50,6 +72,7 @@ export function AgentPanel({ mode, titleKey, placeholderKey, restartHintKey, too
   const transcriptRef = useRef<HTMLDivElement>(null);
   const composingRef = useRef(false);
   const lastCompositionEndAtRef = useRef(0);
+  const dispatchedRef = useRef<string | null>(null);
 
   useEffect(() => {
     const node = transcriptRef.current;
@@ -64,10 +87,10 @@ export function AgentPanel({ mode, titleKey, placeholderKey, restartHintKey, too
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch("/api/robin/assistant", {
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode, message: trimmed }),
+        body: JSON.stringify({ mode, ...requestBody, message: trimmed }),
       });
       const body = await response.json().catch(() => null) as
         { reply?: string; usedTools?: string[]; error?: string } | null;
@@ -87,13 +110,27 @@ export function AgentPanel({ mode, titleKey, placeholderKey, restartHintKey, too
     }
   };
 
+  // Held in a ref so dispatching a brief does not depend on `send`'s identity,
+  // which changes every render and would re-run the effect each time.
+  const sendRef = useRef(send);
+  useEffect(() => { sendRef.current = send; });
+
+  // A brief handed over by the page is sent once, and only when the panel is
+  // free: `send` refuses while a turn is in flight, so marking it dispatched
+  // before that would swallow it silently.
+  useEffect(() => {
+    if (!pending || busy || dispatchedRef.current === pending.id) return;
+    dispatchedRef.current = pending.id;
+    void sendRef.current(pending.text);
+  }, [busy, pending]);
+
   const restart = async () => {
     setBusy(true);
     try {
-      const response = await fetch("/api/robin/assistant", {
+      const response = await fetch(endpoint, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode }),
+        body: JSON.stringify({ mode, ...requestBody }),
       });
       if (!response.ok) {
         const body = await response.json().catch(() => null) as { error?: string } | null;
@@ -117,11 +154,21 @@ export function AgentPanel({ mode, titleKey, placeholderKey, restartHintKey, too
         style={{ borderColor: "var(--border)" }}
       >
         <h2 className="pi-label">{t(titleKey)}</h2>
+        {onClose ? (
+          <button
+            type="button"
+            onClick={onClose}
+            className="ui-action pi-chrome-label pi-bracket ml-auto"
+            style={{ fontSize: 10 }}
+          >
+            {t("product.agent.close")}
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={() => void restart()}
           disabled={busy}
-          className="ui-action pi-chrome-label pi-bracket ml-auto"
+          className={`ui-action pi-chrome-label pi-bracket${onClose ? "" : " ml-auto"}`}
           style={{ fontSize: 10 }}
           title={t(restartHintKey)}
         >

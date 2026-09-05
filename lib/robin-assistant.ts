@@ -329,3 +329,28 @@ export async function runAssistantTurn(
   const { reply, usedTools } = await runTurn(session, prompt, images, mode.timeoutMs);
   return { reply, usedTools, sessionId };
 }
+
+/**
+ * One turn for a caller whose session key is data-driven rather than one of the
+ * fixed dashboard personas above (for example, one product-agent session per
+ * product). The caller still supplies an exact allow-list; this helper never
+ * falls back to coding tools.
+ */
+export async function runScopedAssistantTurn(options: {
+  remembered: string | null;
+  remember: (sessionId: string) => void;
+  toolNames: string[];
+  message: string;
+  preamble: string;
+  images?: Array<{ type: "image"; data: string; mimeType: string }>;
+  timeoutMs?: number;
+}): Promise<{ reply: string; usedTools: string[]; sessionId: string }> {
+  const { session, sessionId, fresh } = await acquireSession(
+    options.toolNames,
+    options.remembered,
+    options.remember,
+  );
+  const prompt = fresh ? `${options.preamble}\n\n---\n\n${options.message}` : options.message;
+  const result = await runTurn(session, prompt, options.images ?? [], options.timeoutMs ?? TURN_TIMEOUT_MS);
+  return { ...result, sessionId };
+}

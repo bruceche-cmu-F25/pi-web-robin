@@ -34,6 +34,11 @@ test("hub navigation lives in the shared shell and can challenge Basic Auth", ()
   assert.match(navigationSource, /href: chatHref/);
 });
 
+test("product has its own navigation tone", () => {
+  assert.match(navigationSource, /icon: DashboardIcon,[\s\S]*?tone: "clay"/);
+  assert.match(navigationSource, /icon: ProductIcon,[\s\S]*?tone: "fern"/);
+});
+
 test("the hub stays a front door rather than a second dashboard", async () => {
   // It holds the ways in and the study links. Calendar, todos, the job
   // pipeline, and the saved-links collection live on the dashboard;

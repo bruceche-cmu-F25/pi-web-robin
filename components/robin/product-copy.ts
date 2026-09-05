@@ -1,0 +1,208 @@
+const en = {
+  title: "Product",
+  subtitle: "Capture ideas, test the risky parts, and ship the ones that earn another bet.",
+  agent: "Agent",
+  close: "Close",
+  details: "Open",
+  blurbSource: "Where demand and competitors are already visible.",
+  blurbTest: "Cheap ways to find out before you build.",
+  blurbTool: "What you build it with.",
+  blurbStack: "Ready-made stacks, so you do not assemble one.",
+  blurbDistribution: "Ways to get seen without a budget.",
+  capturePlaceholder: "Write an idea, paste a link, or attach screenshots…",
+  ideas: "Ideas",
+  ideaName: "Name",
+  noIdeas: "Nothing here yet. Capture something above.",
+  thinking: "Thinking",
+  making: "Making",
+  parked: "Parked",
+  step: "Step",
+  whatFor: "This step answers",
+  whatToDo: "What to do",
+  nextAction: "Next action",
+  whatDone: "Done when",
+  toolsHere: "Reach for",
+  showGuide: "Open guide",
+  hideGuide: "Close guide",
+  stepDone: "Done — next step",
+  park: "Park it",
+  unpark: "Pick it up again",
+  parkedNote: "Set aside",
+  note: "Note",
+  notePlaceholder: "What is it, who is it for, what would have to be true…",
+  links: "Links",
+  link: "Link",
+  addLink: "Add link",
+  research: "Research this",
+  researching: "Briefing the agent…",
+  bet: "What has to be true",
+  betPlaceholder: "e.g. builders will pay $10/mo to stop using spreadsheets",
+  betBy: "Check by",
+  betHeld: "It held",
+  betBroke: "It didn't",
+  betSettledHeld: "held",
+  betSettledBroke: "did not hold",
+  overdue: "Unchecked",
+  stale: "Untouched",
+  clearBet: "Clear",
+  byAgent: "agent",
+  capture: "Review capture",
+  classifying: "Classifying…",
+  attach: "Attach images",
+  images: "images",
+  removeImage: "Remove image",
+  pendingCaptures: "Unsorted captures",
+  saving: "Saving…",
+  suggestion: "Classification suggestion",
+  original: "Original capture",
+  type: "Type",
+  idea: "Idea",
+  resource: "Resource",
+  titleField: "Title",
+  confidence: "Confidence",
+  reason: "Why",
+  confirm: "Confirm",
+  cancel: "Cancel",
+  lastChecked: "Checked",
+  unverified: "Unverified",
+  price: "Price",
+  source: "Source",
+  resources: "Resources",
+  mine: "Mine",
+  playbooksInLibrary: "{n} playbooks — interviews, fake doors, launch plays — are in the library.",
+  decisions: "Decisions",
+  save: "Save",
+  delete: "Delete product",
+  deleteConfirm: "Permanently delete this product and its workspace?",
+  url: "Source URL",
+  remove: "Remove",
+  loading: "Loading…",
+  error: "Could not load product data.",
+} as const;
+
+const zh: Record<keyof typeof en, string> = {
+  title: "产品",
+  subtitle: "记录想法，测试高风险假设，把值得继续下注的产品落地。",
+  agent: "Agent",
+  close: "关闭",
+  details: "展开",
+  blurbSource: "需求和竞品已经摆在明面上的地方。",
+  blurbTest: "动手之前花小钱问出答案的方法。",
+  blurbTool: "造东西用的工具。",
+  blurbStack: "现成的技术栈配方,省得自己攒。",
+  blurbDistribution: "没有预算也能让人看到的打法。",
+  capturePlaceholder: "写下想法、粘贴链接或附上截图…",
+  ideas: "想法",
+  ideaName: "名称",
+  noIdeas: "还没有东西。先在上面捕获一条。",
+  thinking: "在想",
+  making: "在做",
+  parked: "搁置",
+  step: "步骤",
+  whatFor: "这一步要回答",
+  whatToDo: "具体做什么",
+  nextAction: "下一步",
+  whatDone: "什么算做完",
+  toolsHere: "这一步用得上",
+  showGuide: "展开指南",
+  hideGuide: "收起指南",
+  stepDone: "这步过了 — 进入下一步",
+  park: "先搁置",
+  unpark: "重新捡起来",
+  parkedNote: "已搁置",
+  note: "笔记",
+  notePlaceholder: "这是什么、给谁用、什么条件成立才值得做…",
+  links: "链接",
+  link: "链接",
+  addLink: "添加链接",
+  research: "去调研",
+  researching: "正在交给 Agent…",
+  bet: "什么必须成立",
+  betPlaceholder: "例如：独立开发者愿意每月付 $10 来摆脱表格",
+  betBy: "在此之前验证",
+  betHeld: "成立",
+  betBroke: "不成立",
+  betSettledHeld: "成立",
+  betSettledBroke: "不成立",
+  overdue: "已过期未验证",
+  stale: "很久没动",
+  clearBet: "清除",
+  byAgent: "agent",
+  capture: "检查并分类",
+  classifying: "正在分类…",
+  attach: "添加图片",
+  images: "张图片",
+  removeImage: "移除图片",
+  pendingCaptures: "待整理素材",
+  saving: "正在保存…",
+  suggestion: "分类建议",
+  original: "原始素材",
+  type: "类型",
+  idea: "Idea",
+  resource: "资源",
+  titleField: "标题",
+  confidence: "置信度",
+  reason: "判断理由",
+  confirm: "确认保存",
+  cancel: "取消",
+  lastChecked: "核验于",
+  unverified: "未核验",
+  price: "价格",
+  source: "来源",
+  resources: "资源",
+  mine: "我在用",
+  playbooksInLibrary: "还有 {n} 个方法卡片——用户访谈、Fake Door、发布打法——在资源库里。",
+  decisions: "决策记录",
+  save: "保存",
+  delete: "删除产品",
+  deleteConfirm: "永久删除这个产品及其工作区？",
+  url: "来源链接",
+  remove: "移除",
+  loading: "正在加载…",
+  error: "无法加载产品数据。",
+};
+
+export type ProductCopy = typeof en;
+export function productCopy(locale: string): ProductCopy {
+  return (locale.startsWith("zh") ? zh : en) as ProductCopy;
+}
+
+/**
+ * What the agent is actually asked to go and find out.
+ *
+ * The reason this exists at all: the expensive half of deciding whether an
+ * idea is worth a month is looking — at who already does it, at whether anyone
+ * pays, at what people complain about — and that is exactly the half a machine
+ * can do cheaply and a person keeps not doing. A library of thirty-four links
+ * to research sites is not research; it is a list of places you could have
+ * gone.
+ *
+ * The last instruction matters most. A tool that only ever accumulates ideas
+ * is a graveyard, so the brief asks explicitly for the discouraging answer
+ * when that is the answer.
+ */
+export function researchBrief(idea: { name: string; note: string }, locale: string): string {
+  const zh = locale.startsWith("zh");
+  const head = zh
+    ? `请调研这条想法，并把找到的每一个来源用 product_add_link 存回来。\n\n想法：${idea.name}\n笔记：${idea.note || "（没有笔记）"}`
+    : `Research this idea and save every source you find with product_add_link.\n\nIdea: ${idea.name}\nNotes: ${idea.note || "(none)"}`;
+  const questions = zh
+    ? [
+      "1. 已经有谁在做？列出最接近的三个，附链接。",
+      "2. 有人为此付费吗？给出价格，或者说明这个品类是免费的。",
+      "3. 这些用户聚在哪里？没有预算的情况下能不能触达他们？",
+      "4. 现有方案里，人们在抱怨什么？引用原话。",
+      "5. 什么必须成立，这件事才值得花一个月？有没有证据表明它成立？",
+    ]
+    : [
+      "1. Who already does this? Name the closest three, with links.",
+      "2. Does anyone pay for it? Give prices, or say the category is free.",
+      "3. Where do these users gather, and can I reach them with no budget?",
+      "4. What do people complain about in the existing options? Quote them.",
+      "5. What would have to be true for this to be worth a month — and is there evidence it is?",
+    ];
+  const tail = zh
+    ? "只存来源，不要把你的结论存成链接。如果答案是劝退的，请直说——我需要知道哪条想法该放弃。"
+    : "Save sources only, never your own conclusions. If the answer is discouraging, say so plainly — I need to know which ideas to drop.";
+  return [head, "", ...questions, "", tail].join("\n");
+}

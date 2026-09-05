@@ -16,6 +16,7 @@ import { registerGmailTools } from "./gmail-tools.ts";
 import { registerJobTools } from "./job-tools.ts";
 import { registerLinkTools } from "./link-tools.ts";
 import { registerPracticeTools } from "./practice-tools.ts";
+import { registerProductTools } from "./product-tools.ts";
 import { registerStudyTools } from "./study-tools.ts";
 import { dataPath } from "./paths.ts";
 import { registerProviderTools } from "./provider-tools.ts";
@@ -30,6 +31,7 @@ const robin = (pi: ExtensionAPI) => {
   registerProviderTools(pi);
   registerJobTools(pi);
   registerPracticeTools(pi);
+  registerProductTools(pi);
   registerStudyTools(pi);
 
   // Confirms the extension actually loaded, and where its data went.

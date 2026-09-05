@@ -34,7 +34,7 @@ interface TechEventsResponse {
 }
 
 type Icon = ComponentType<SVGProps<SVGSVGElement>>;
-type NavTone = "clay" | "sage" | "teal" | "slate" | "plum" | "honey";
+type NavTone = "clay" | "sage" | "teal" | "slate" | "plum" | "honey" | "fern";
 
 interface NavStatus {
   count?: number;
@@ -207,11 +207,18 @@ export function RobinMargin({ drawer, onClose, onNavigate }: {
       path: "/research",
       label: t("robin.nav.research"),
       icon: ResearchIcon,
-      // Seventh entry, sixth hue: the palette has six families and adding a
-      // stray colour would read as a different kind of thing. Honey belongs to
-      // settings, which lives in the utility row, so the two never sit side by
-      // side — the same trade the events entry makes with chat's plum.
+      // Honey also belongs to settings, which lives in the utility row, so
+      // the two never sit side by side — the same trade events makes with chat.
       tone: "honey",
+    },
+    {
+      href: withChatContext("/product"),
+      path: "/product",
+      label: t("robin.nav.product"),
+      icon: ProductIcon,
+      // Fern is Product's own growth tone; Dashboard keeps clay, so the two
+      // workspaces no longer begin and end the main navigation in the same hue.
+      tone: "fern",
     },
   ];
 
@@ -286,6 +293,10 @@ function LearningIcon(props: SVGProps<SVGSVGElement>) {
 
 function ResearchIcon(props: SVGProps<SVGSVGElement>) {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M10 3h4M10.5 3v6.2L5.2 18a2 2 0 0 0 1.7 3h10.2a2 2 0 0 0 1.7-3l-5.3-8.8V3" /><path d="M8 14h8" /></svg>;
+}
+
+function ProductIcon(props: SVGProps<SVGSVGElement>) {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" {...props}><path d="m12 3 8 4.5-8 4.5-8-4.5z" /><path d="m4 12 8 4.5 8-4.5M4 16.5l8 4.5 8-4.5" /></svg>;
 }
 
 function ChatIcon(props: SVGProps<SVGSVGElement>) {
