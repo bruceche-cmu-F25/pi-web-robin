@@ -244,7 +244,7 @@ export const DEFAULT_JOB_PROFILE: JobProfile = {
  * The aggregator feeds alone are a thin diet: they carry only remote roles and
  * only their latest hundred or so, so a first scan sees barely a hundred
  * postings and matches two. Company boards are where the volume is — these
- * twenty-six carry roughly five thousand openings between them.
+ * the starter set carries several thousand openings between them.
  *
  * Every slug here was checked against the live API and returned a non-empty
  * board; `job-providers.test.mjs` re-checks that each URL still routes to a
@@ -277,6 +277,26 @@ export const STARTER_COMPANIES: readonly { name: string; url: string }[] = [
   { name: "Elastic", url: "https://job-boards.greenhouse.io/elastic" },
   { name: "Supabase", url: "https://jobs.ashbyhq.com/supabase" },
   { name: "PostHog", url: "https://jobs.ashbyhq.com/posthog" },
+
+  // Large tech employers with proprietary boards. Their early-career roles are
+  // read from the SimplifyJobs index by the big-tech provider, so these stay
+  // scannable without brittle scraping or private APIs.
+  { name: "Google", url: "https://www.google.com/about/careers/applications/jobs/results/" },
+  { name: "Amazon", url: "https://www.amazon.jobs/en/search" },
+  { name: "Meta", url: "https://www.metacareers.com/jobsearch/" },
+  { name: "Apple", url: "https://jobs.apple.com/en-us/search" },
+  { name: "Microsoft", url: "https://apply.careers.microsoft.com/careers" },
+  { name: "Netflix", url: "https://explore.jobs.netflix.net/careers" },
+  { name: "Uber", url: "https://www.uber.com/us/en/careers/list/" },
+  { name: "LinkedIn", url: "https://www.linkedin.com/jobs/search/?f_C=1337" },
+  { name: "TikTok", url: "https://lifeattiktok.com/search" },
+  { name: "ByteDance", url: "https://jobs.bytedance.com/en/position" },
+  { name: "Oracle", url: "https://careers.oracle.com/jobs/" },
+  { name: "Cisco", url: "https://jobs.cisco.com/jobs/SearchJobs/" },
+  { name: "Intel", url: "https://jobs.intel.com/en/search-jobs" },
+  { name: "Tesla", url: "https://www.tesla.com/careers/search/" },
+  { name: "Snap", url: "https://careers.snap.com/jobs" },
+  { name: "DoorDash", url: "https://careersatdoordash.com/job-search/" },
 
   // Product companies with large Bay Area and remote engineering orgs
   { name: "Stripe", url: "https://job-boards.greenhouse.io/stripe" },

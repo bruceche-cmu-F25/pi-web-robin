@@ -1065,11 +1065,13 @@ const workingnomads: Provider = {
  */
 interface ListingsFeed { id: string; label: string; url: string; fallbackCompany: string }
 
+const SIMPLIFY_LISTINGS_URL = "https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/dev/.github/scripts/listings.json";
+
 const LISTING_FEEDS: readonly ListingsFeed[] = [
   {
     id: "simplify",
     label: "SimplifyJobs New Grad",
-    url: "https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/dev/.github/scripts/listings.json",
+    url: SIMPLIFY_LISTINGS_URL,
     fallbackCompany: "SimplifyJobs",
   },
   {
@@ -1124,6 +1126,65 @@ const listingFeedProviders: Provider[] = LISTING_FEEDS.map((feed) => ({
     return parseListings(await ctx.fetchJson(api, { timeoutMs: 60_000 }), feed.fallbackCompany);
   },
 }));
+
+/* ─────────────────── proprietary big-tech boards ─────────────────── */
+
+/**
+ * Large employers whose own portals have no stable public listing API.
+ *
+ * The official URL remains visible in settings, while discovery comes from
+ * the same active new-grad index already offered as a broad source. This is
+ * intentionally early-career coverage, not a claim that we mirror each
+ * company's complete careers site. The index is fetched once per scan even
+ * when every company below is enabled.
+ */
+const BIG_TECH_COMPANIES = new Map<string, string>([
+  ["www.google.com", "Google"],
+  ["www.amazon.jobs", "Amazon"],
+  ["www.metacareers.com", "Meta"],
+  ["jobs.apple.com", "Apple"],
+  ["apply.careers.microsoft.com", "Microsoft"],
+  ["explore.jobs.netflix.net", "Netflix"],
+  ["www.uber.com", "Uber"],
+  ["www.linkedin.com", "LinkedIn"],
+  ["lifeattiktok.com", "TikTok"],
+  ["jobs.bytedance.com", "ByteDance"],
+  ["careers.oracle.com", "Oracle"],
+  ["jobs.cisco.com", "Cisco"],
+  ["jobs.intel.com", "Intel"],
+  ["www.tesla.com", "Tesla"],
+  ["careers.snap.com", "Snap"],
+  ["careersatdoordash.com", "DoorDash"],
+]);
+
+function bigTechCompany(url: string): string | null {
+  const parsed = parseUrl(url);
+  return parsed ? BIG_TECH_COMPANIES.get(parsed.hostname) ?? null : null;
+}
+
+const bigTechIndexCache = new WeakMap<FetchContext, Promise<RawPosting[]>>();
+
+function bigTechListings(ctx: FetchContext): Promise<RawPosting[]> {
+  const cached = bigTechIndexCache.get(ctx);
+  if (cached) return cached;
+  const api = assertHost(SIMPLIFY_LISTINGS_URL, (host) => host === GITHUB_RAW_HOST, "bigtech-index");
+  const request = ctx.fetchJson(api, { timeoutMs: 60_000 })
+    .then((json) => parseListings(json, "SimplifyJobs"));
+  bigTechIndexCache.set(ctx, request);
+  return request;
+}
+
+const bigTechIndex: Provider = {
+  id: "bigtech-index",
+  label: "Big Tech via SimplifyJobs",
+  detect: (company) => bigTechCompany(company.url) !== null,
+  async fetch(company, ctx) {
+    const expected = bigTechCompany(company.url);
+    if (!expected) throw new Error(`bigtech-index: unsupported careers URL ${company.url}`);
+    const key = expected.toLowerCase();
+    return (await bigTechListings(ctx)).filter((posting) => posting.company.trim().toLowerCase() === key);
+  },
+};
 
 /**
  * A third community list, published as markdown tables rather than JSON.
@@ -1596,6 +1657,7 @@ export async function findDeadPostings(
 /** Alphabetical, so detect() precedence is the same on every machine. */
 export const PROVIDERS: readonly Provider[] = [
   ashby,
+  bigTechIndex,
   greenhouse,
   lever,
   recruitee,

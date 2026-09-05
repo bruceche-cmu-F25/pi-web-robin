@@ -49,6 +49,9 @@ test("each supported board is recognised from its public URL", () => {
     ["https://acme.wd5.myworkdayjobs.com/AcmeCareers", "workday"],
     ["https://acme.wd103.myworkdayjobs.com/en-US/AcmeCareers", "workday"],
     ["https://apply.workable.com/acme", "workable"],
+    ["https://www.google.com/about/careers/applications/jobs/results/", "bigtech-index"],
+    ["https://www.amazon.jobs/en/search", "bigtech-index"],
+    ["https://www.metacareers.com/jobsearch/", "bigtech-index"],
   ];
   for (const [url, expected] of cases) {
     assert.equal(resolveProvider(company({ url }))?.id, expected, url);
@@ -68,6 +71,26 @@ test("an explicit provider wins over detection, and an unknown one is refused", 
   const forced = resolveProvider(company({ url: "https://careers.acme.com", provider: "greenhouse" }));
   assert.equal(forced?.id, "greenhouse");
   assert.equal(resolveProvider(company({ url: "https://jobs.lever.co/acme", provider: "nope" })), null);
+});
+
+test("big-tech company entries share one index fetch and keep only their own jobs", async () => {
+  const { fetch, urls } = fakeFetch([
+    { company_name: "Google", title: "Software Engineer", url: "https://google.example/1", locations: ["Mountain View, CA"], active: true },
+    { company_name: "Meta", title: "Production Engineer", url: "https://meta.example/2", locations: ["Menlo Park, CA"], active: true },
+    { company_name: "Metadata Inc", title: "Unrelated", url: "https://metadata.example/3", locations: ["Remote"], active: true },
+  ]);
+  const ctx = makeFetchContext(fetch);
+  const provider = providerById("bigtech-index");
+  assert.ok(provider);
+
+  const [google, meta] = await Promise.all([
+    provider.fetch(company({ name: "Google", url: "https://www.google.com/about/careers/applications/jobs/results/" }), ctx),
+    provider.fetch(company({ name: "Meta", url: "https://www.metacareers.com/jobsearch/" }), ctx),
+  ]);
+
+  assert.deepEqual(google.map((posting) => posting.company), ["Google"]);
+  assert.deepEqual(meta.map((posting) => posting.company), ["Meta"]);
+  assert.equal(urls.length, 1, "the large shared index is downloaded once per scan");
 });
 
 test("aggregator feeds are offered separately from company boards", () => {
@@ -195,7 +218,10 @@ test("every shipped starter board routes to a provider", () => {
     const provider = resolveProvider(company({ name: entry.name, url: entry.url }));
     assert.ok(provider, `${entry.name}: ${entry.url} routes to no provider`);
   }
-  assert.ok(STARTER_COMPANIES.length >= 20, "a starter set this small would not fix the empty-scan problem");
+  assert.ok(STARTER_COMPANIES.length >= 45, "the starter set must retain broad big-tech coverage");
+  for (const name of ["Google", "Amazon", "Meta", "Apple", "Microsoft", "Netflix"]) {
+    assert.ok(STARTER_COMPANIES.some((entry) => entry.name === name), `${name} must stay in the starter set`);
+  }
 });
 
 /* ── Workday ── */
