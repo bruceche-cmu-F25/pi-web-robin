@@ -50,6 +50,7 @@ const SCORING_TIMEOUT_MS = 300_000;
  * a full inbox day, short enough not to hang the page forever.
  */
 const MAIL_TIMEOUT_MS = 180_000;
+const MAIL_MODEL = { provider: "deepseek", modelId: "deepseek-v4-flash" } as const;
 
 const TOOL_NAMES = [...ROBIN_TOOL_NAMES];
 
@@ -192,9 +193,9 @@ async function acquireSession(
       await session.send({ type: "set_model", provider: model.provider, modelId: model.modelId });
     } catch (error) {
       // A model that has been removed or renamed must not take the whole
-      // scoring run down — falling back to the default still scores jobs.
+      // assistant run down — falling back to the default still completes it.
       console.error(
-        `[robin] scoring model ${model.provider}/${model.modelId} unavailable, using the default:`,
+        `[robin] pinned model ${model.provider}/${model.modelId} unavailable, using the default:`,
         error instanceof Error ? error.message : error,
       );
     }
@@ -315,11 +316,14 @@ export async function runAssistantTurn(
 ): Promise<{ reply: string; usedTools: string[]; sessionId: string }> {
   const mode = MODES[modeName];
   const stateless = "stateless" in mode && mode.stateless === true;
+  const model = modeName === "scoring"
+    ? readJobProfile().scoreModel
+    : modeName === "mail" ? MAIL_MODEL : null;
   const { session, sessionId, fresh } = await acquireSession(
     [...mode.toolNames],
     stateless ? null : mode.read(),
     mode.write,
-    modeName === "scoring" ? readJobProfile().scoreModel : null,
+    model,
   );
   // A mode's preamble belongs to the session, not to the turn: it rides along
   // with the first message of a new one and is never repeated, because
