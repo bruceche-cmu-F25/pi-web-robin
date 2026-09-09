@@ -17,7 +17,7 @@ import {
 import { AgentPanel } from "./AgentPanel";
 import { NeetCodeFrame } from "./NeetCodeFrame";
 import { PaneDivider } from "./PaneDivider";
-import { PracticeRecordBar } from "./PracticeRecordBar";
+import { PracticeRecordBar, type PracticeAttemptInput } from "./PracticeRecordBar";
 import { RoadmapRail } from "./RoadmapRail";
 import {
   WorkspaceHeader,
@@ -71,7 +71,10 @@ const COACH_TOOL_KEYS: Record<string, string> = {
  * the coach runs on the server and its only way of knowing what "this problem"
  * means is the record written when the rail was clicked.
  */
-export function PracticeWorkspace(chrome: WorkspaceChrome) {
+export function PracticeWorkspace({ initialProblem, initialList, ...chrome }: WorkspaceChrome & {
+  initialProblem?: string | null;
+  initialList?: string | null;
+}) {
   const { t } = useI18n();
   const { data, error, refresh } = usePolledResource<PracticeResponse>("/api/robin/practice", 15_000);
   const [list, setList] = useState<PracticeList>("neetcode150");
@@ -98,14 +101,15 @@ export function PracticeWorkspace(chrome: WorkspaceChrome) {
   const [pane, setPane] = useState<Pane>("problem");
 
   useEffect(() => {
-    const stored = window.localStorage.getItem(LIST_STORAGE_KEY);
+    const stored = initialList && (PRACTICE_LISTS as readonly string[]).includes(initialList)
+      ? initialList : window.localStorage.getItem(LIST_STORAGE_KEY);
     if (stored && (PRACTICE_LISTS as readonly string[]).includes(stored)) {
       setList(stored as PracticeList);
     }
     // Read after mount, not during render: the server has no localStorage and
     // would otherwise disagree with the first client paint.
     setRailOpen(window.localStorage.getItem(RAIL_STORAGE_KEY) !== "closed");
-  }, []);
+  }, [initialList]);
 
   const toggleRail = () => {
     setRailOpen((open) => {
@@ -113,21 +117,6 @@ export function PracticeWorkspace(chrome: WorkspaceChrome) {
       return !open;
     });
   };
-
-  /**
-   * Adopt the open problem from the server once.
-   *
-   * Deliberately not the list: that is a browser preference, like the
-   * calendar's view, and localStorage already answered for it above. The
-   * server keeps a mirrored copy only so the coach's default matches what the
-   * rail is showing — reading it back here would let the last machine to click
-   * a problem silently reset this one's choice.
-   */
-  useEffect(() => {
-    if (!data || adopted) return;
-    setSelectedSlug(data.currentSlug);
-    setAdopted(true);
-  }, [data, adopted]);
 
   const records = useMemo(() => recordMap(data?.records ?? []), [data?.records]);
   const today = data?.today ?? "";
@@ -140,11 +129,9 @@ export function PracticeWorkspace(chrome: WorkspaceChrome) {
   /**
    * Open a problem — on the server first, then here.
    *
-   * The selection is shown optimistically so the frame moves on the click, but
-   * what the page ends up displaying is whatever the server says is open. They
-   * are the same thing in the normal case; when two selections race, this is
-   * what stops the frame and the coach from ending up on different problems,
-   * which would be the one failure the user could not see.
+   * Only display the new frame after the server accepts it. A failed Daily
+   * deep link must not show a problem different from the coach's context.
+   * When selections race, only the latest click may update the frame.
    */
   /** Every write goes through here, so a failure reaches the page instead of the console. */
   const runAction = useCallback(async (action: () => Promise<void>) => {
@@ -157,7 +144,6 @@ export function PracticeWorkspace(chrome: WorkspaceChrome) {
   }, []);
 
   const select = useCallback(async (problem: CatalogProblem, nextList: PracticeList = list) => {
-    setSelectedSlug(problem.link);
     requestedSlug.current = problem.link;
     const response = await fetch("/api/robin/practice", {
       method: "PATCH",
@@ -179,6 +165,27 @@ export function PracticeWorkspace(chrome: WorkspaceChrome) {
     await refresh();
   }, [list, refresh]);
 
+  // A Daily deep link wins over the last-opened problem. Resolve it through
+  // the normal selection write, so the frame and coach share the same context.
+  useEffect(() => {
+    if (!data || adopted) return;
+    setAdopted(true);
+    if (!initialProblem) {
+      setSelectedSlug(data.currentSlug);
+      return;
+    }
+    const problem = findProblem(initialProblem);
+    if (!problem) {
+      setActionError(t("learn.daily.invalidProblem"));
+      return;
+    }
+    const nextList = initialList && (PRACTICE_LISTS as readonly string[]).includes(initialList)
+      ? initialList as PracticeList : list;
+    setList(nextList);
+    window.localStorage.setItem(LIST_STORAGE_KEY, nextList);
+    void runAction(() => select(problem, nextList));
+  }, [data, adopted, initialProblem, initialList, list, runAction, select, t]);
+
   const chooseList = (next: PracticeList) => {
     setList(next);
     window.localStorage.setItem(LIST_STORAGE_KEY, next);
@@ -190,6 +197,12 @@ export function PracticeWorkspace(chrome: WorkspaceChrome) {
   const setStatus = async (status: PracticeStatus) => {
     if (!selected) return;
     await mutate("/api/robin/practice", "PATCH", { problem: selected.link, status });
+    await refresh();
+  };
+
+  const recordAttempt = async (attempt: PracticeAttemptInput) => {
+    if (!selected) return;
+    await mutate("/api/robin/practice", "POST", { problem: selected.link, ...attempt });
     await refresh();
   };
 
@@ -233,6 +246,15 @@ export function PracticeWorkspace(chrome: WorkspaceChrome) {
             {t("coding.next", { problem: suggestion.problem })}
           </button>
         ) : null}
+        {selected && (
+          <button type="button" className="ui-action pi-chrome-label pi-bracket min-h-11"
+            style={{ fontSize: 11 }} onClick={() => {
+              setPane("coach");
+              requestAnimationFrame(() => document.getElementById("practice-record")?.focus());
+            }}>
+            {t("coding.record.log")}
+          </button>
+        )}
         {/* Without this the rail just renders empty, which reads as "no
             problems" rather than "the store could not be read". */}
         {error ?? actionError ? (
@@ -293,6 +315,7 @@ export function PracticeWorkspace(chrome: WorkspaceChrome) {
                 record={selectedRecord}
                 onStatus={setStatus}
                 onNote={setNote}
+                onRecord={recordAttempt}
               />
             ) : null}
             <AgentPanel

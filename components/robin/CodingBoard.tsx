@@ -63,6 +63,7 @@ export function CodingBoard() {
   const chrome = { track, onTrackChange: chooseTrack };
 
   return track === "problems"
-    ? <PracticeWorkspace {...chrome} />
+    ? <PracticeWorkspace {...chrome} key={searchParams.toString()}
+      initialProblem={searchParams.get("problem")} initialList={searchParams.get("list")} />
     : <StudyWorkspace {...chrome} />;
 }

@@ -1,13 +1,26 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
-import { PRACTICE_STATUSES, type PracticeRecord } from "@/extension/robin/practice";
+import { PRACTICE_STATUSES, PRACTICE_ROUND_TARGET, attemptDay, practiceProgress, type AttemptOutcome, type PracticeRecord } from "@/extension/robin/practice";
+
+export interface PracticeAttemptInput {
+  outcome: AttemptOutcome;
+  hintLevel?: number;
+  confidence: number;
+}
+
+const RESULTS = [
+  { key: "independent", outcome: "solved", hintLevel: 0, confidence: 4 },
+  { key: "assisted", outcome: "solved", confidence: 2 },
+  { key: "stuck", outcome: "stuck", confidence: 1 },
+] as const;
 
 interface Props {
   record: PracticeRecord | null;
   onStatus: (status: (typeof PRACTICE_STATUSES)[number]) => Promise<void>;
   onNote: (note: string) => Promise<void>;
+  onRecord: (attempt: PracticeAttemptInput) => Promise<void>;
 }
 
 /**
@@ -24,12 +37,15 @@ interface Props {
  * ones it did not — a problem solved on the train still has to be able to
  * enter the history, or the review queue quietly describes the wrong person.
  */
-export function PracticeRecordBar({ record, onStatus, onNote }: Props) {
+export function PracticeRecordBar({ record, onStatus, onNote, onRecord }: Props) {
   const { t } = useI18n();
   const [note, setNote] = useState(record?.note ?? "");
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
+  const saving = useRef(false);
   const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const progress = practiceProgress(record);
 
   const status = record?.status ?? "todo";
 
@@ -40,6 +56,8 @@ export function PracticeRecordBar({ record, onStatus, onNote }: Props) {
    * the text still in it rather than closing over a change that never landed.
    */
   const run = async (action: () => Promise<void>): Promise<boolean> => {
+    if (saving.current) return false;
+    saving.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -49,12 +67,32 @@ export function PracticeRecordBar({ record, onStatus, onNote }: Props) {
       setError(caught instanceof Error ? caught.message : String(caught));
       return false;
     } finally {
+      saving.current = false;
       setBusy(false);
     }
   };
 
   return (
-    <div className="flex flex-col gap-2 border-b px-3 py-2" style={{ borderColor: "var(--border)" }}>
+    <div id="practice-record" tabIndex={-1} className="flex flex-col gap-2 border-b px-3 py-2" style={{ borderColor: "var(--border)" }}>
+      <p className="text-xs" style={{ fontVariantNumeric: "tabular-nums" }}>
+        {t("coding.record.attempts", { count: progress.attempts })} · {t("coding.record.rounds", { count: progress.rounds, target: PRACTICE_ROUND_TARGET })}
+      </p>
+      <fieldset disabled={busy || saved} className="flex flex-wrap gap-x-3 gap-y-1">
+        <legend className="text-xs" style={{ color: "var(--text-muted)" }}>{t("coding.record.log")}</legend>
+        {RESULTS.map(({ key, ...attempt }) => (
+          <button key={key} type="button" className="ui-action pi-bracket min-h-11 text-xs disabled:opacity-40"
+            onClick={() => {
+              setSaved(false);
+              void run(() => onRecord(attempt)).then(setSaved);
+            }}>
+            {t(`coding.record.${key}`)}
+          </button>
+        ))}
+      </fieldset>
+      {saved && <div className="flex flex-wrap items-center gap-2 text-xs">
+        <p role="status" style={{ color: "var(--success)" }}>{t("coding.record.saved")}</p>
+        <button type="button" className="ui-action min-h-11" onClick={() => setSaved(false)}>{t("coding.record.another")}</button>
+      </div>}
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         {PRACTICE_STATUSES.map((candidate) => (
           <button
@@ -79,15 +117,23 @@ export function PracticeRecordBar({ record, onStatus, onNote }: Props) {
         ) : null}
       </div>
 
-      {record && record.attempts.length > 0 ? (
-        <p className="pi-eyebrow" style={{ fontSize: 10, fontVariantNumeric: "tabular-nums" }}>
-          {t("coding.record.attempts", { count: record.attempts.length })}
-          {record.confidence ? ` · ${t("coding.record.confidence", { value: record.confidence })}` : ""}
-        </p>
-      ) : null}
+      <p className="text-xs" style={{ color: "var(--text-muted)" }}>{t("coding.record.countRule")}</p>
+      {record && record.attempts.length > 0 && (
+        <details>
+          <summary className="ui-action flex min-h-11 cursor-pointer items-center text-xs">{t("coding.record.history")}</summary>
+          <ul className="text-xs" style={{ color: "var(--text-muted)" }}>
+            {record.attempts.slice(-6).reverse().map((attempt, index) => (
+              <li key={`${attempt.at}-${index}`} className="py-1">
+                {attemptDay(attempt)} · {t(`coding.outcome.${attempt.outcome}`)}
+                {attempt.hintLevel !== undefined ? ` · ${t("coding.record.hint", { level: attempt.hintLevel })}` : ""}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
 
       {error ? (
-        <p style={{ fontSize: 11, color: "var(--danger)" }}>{error}</p>
+        <p role="alert" style={{ fontSize: 11, color: "var(--danger)" }}>{error}</p>
       ) : null}
 
       {editing ? (

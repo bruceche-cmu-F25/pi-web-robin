@@ -6,6 +6,7 @@ import {
   emptyRecord,
   findProblemMatches,
   isDue,
+  practiceProgress,
   reviewDateFor,
   type Attempt,
   type AttemptOutcome,
@@ -22,9 +23,6 @@ import {
 } from "./store.ts";
 
 export type PracticeResult<T> = T | { error: string };
-
-/** Only the last stretch of history is worth keeping per problem. */
-const MAX_ATTEMPTS = 20;
 
 function resolve(slugOrName: string): PracticeResult<CatalogProblem> {
   const matches = findProblemMatches(slugOrName);
@@ -76,6 +74,7 @@ export function logAttempt(input: {
   const attempt: Attempt = {
     at: new Date().toISOString(),
     outcome: input.outcome,
+    on: localDate(),
     ...(Number.isFinite(input.minutes) ? { minutes: Math.max(0, Math.round(input.minutes as number)) } : {}),
     ...(Number.isFinite(input.hintLevel)
       ? { hintLevel: Math.min(Math.max(Math.round(input.hintLevel as number), 0), 4) }
@@ -83,10 +82,9 @@ export function logAttempt(input: {
   };
 
   const record = upsert(found.link, (draft) => {
+    attempt.kind = draft.status === "todo" && draft.attempts.length === 0 ? "new" : "review";
+    // Keep the complete log: truncation made cumulative counts shrink at 20.
     draft.attempts.push(attempt);
-    if (draft.attempts.length > MAX_ATTEMPTS) {
-      draft.attempts.splice(0, draft.attempts.length - MAX_ATTEMPTS);
-    }
     // "Attempted" is never a downgrade from "solved": having once solved a
     // problem is a fact about the past that a later bad sitting does not undo.
     // What a bad sitting does change is when it comes back — see below.
@@ -102,11 +100,19 @@ export function logAttempt(input: {
     const confidence = Number.isFinite(input.confidence)
       ? Math.min(Math.max(Math.round(input.confidence as number), 1), 5)
       : outcomeConfidence(input.outcome, attempt.hintLevel);
+    attempt.confidence = confidence;
     draft.confidence = confidence;
-    draft.nextReviewOn = draft.status === "solved" ? reviewDateFor(confidence) : undefined;
+    schedule(draft, attempt.on);
   });
 
   return { problem: found, record };
+}
+
+/** All write paths use the same history-aware policy; status edits add no rounds. */
+function schedule(record: PracticeRecord, from = localDate()): void {
+  record.scheduleVersion = 2;
+  record.nextReviewOn = record.status === "todo" ? undefined
+    : reviewDateFor(record.confidence ?? 3, from, practiceProgress(record).stage);
 }
 
 /**
@@ -132,17 +138,10 @@ export function setStatus(
   }
 
   const record = upsert(found.link, (draft) => {
+    if (draft.status === status) return;
     draft.status = status;
-    if (status === "solved") {
-      draft.nextReviewOn = reviewDateFor(draft.confidence ?? 3);
-    } else {
-      delete draft.nextReviewOn;
-      if (status === "todo") {
-        // Back to untouched: keep the note, drop the schedule and the rating,
-        // which no longer describe anything.
-        delete draft.confidence;
-      }
-    }
+    if (status === "todo") delete draft.confidence;
+    schedule(draft);
   });
 
   return { problem: found, record };
@@ -182,14 +181,10 @@ export function patchPractice(input: PracticePatch): PracticeResult<{ problem: C
 
   if (input.status !== undefined || input.note !== undefined || input.confidence !== undefined) {
     upsert(found.link, (draft) => {
+      const statusChanged = input.status !== undefined && input.status !== draft.status;
       if (input.status !== undefined) {
         draft.status = input.status;
-        if (input.status === "solved") {
-          draft.nextReviewOn = reviewDateFor(draft.confidence ?? 3);
-        } else {
-          delete draft.nextReviewOn;
-          if (input.status === "todo") delete draft.confidence;
-        }
+        if (input.status === "todo") delete draft.confidence;
       }
       if (input.note !== undefined) {
         const note = input.note.trim();
@@ -198,8 +193,8 @@ export function patchPractice(input: PracticePatch): PracticeResult<{ problem: C
       }
       if (input.confidence !== undefined) {
         draft.confidence = Math.min(Math.max(Math.round(input.confidence), 1), 5);
-        if (draft.status === "solved") draft.nextReviewOn = reviewDateFor(draft.confidence);
       }
+      if (statusChanged || input.confidence !== undefined) schedule(draft);
     });
   }
 
@@ -219,7 +214,7 @@ export function reschedule(
   const clamped = Math.min(Math.max(Math.round(confidence), 1), 5);
   const record = upsert(found.link, (draft) => {
     draft.confidence = clamped;
-    if (draft.status === "solved") draft.nextReviewOn = reviewDateFor(clamped);
+    schedule(draft);
   });
   return { problem: found, record };
 }

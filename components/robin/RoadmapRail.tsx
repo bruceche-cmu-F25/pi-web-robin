@@ -4,6 +4,9 @@ import { useMemo, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import {
   PRACTICE_LISTS,
+  PRACTICE_ROUND_TARGET,
+  dailyPracticePlan,
+  practiceProgress,
   groupByPattern,
   isDue,
   problemsInList,
@@ -12,6 +15,8 @@ import {
   type PracticeList,
   type PracticeRecord,
 } from "@/extension/robin/practice";
+
+import { PracticeDailyPlan } from "./PracticeDailyPlan";
 
 const STATUS_MARK: Record<string, string> = {
   todo: "·",
@@ -48,6 +53,7 @@ export function RoadmapRail({ width, list, onListChange, records, today, selecte
   const problems = useMemo(() => problemsInList(list), [list]);
   const groups = useMemo(() => groupByPattern(problems, records), [problems, records]);
   const stats = useMemo(() => statsFor(problems, records, today), [problems, records, today]);
+  const plan = useMemo(() => dailyPracticePlan(problems, records, today), [problems, records, today]);
 
   const toggle = (pattern: string) => {
     setCollapsed((previous) => {
@@ -93,6 +99,9 @@ export function RoadmapRail({ width, list, onListChange, records, today, selecte
       </header>
 
       <div className="flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
+        {today && <div className="border-b p-3" style={{ borderColor: "var(--border)" }}>
+          <PracticeDailyPlan plan={plan} list={list} onSelect={onSelect} />
+        </div>}
         {groups.map((group) => {
           const isCollapsed = collapsed.has(group.pattern);
           return (
@@ -146,6 +155,10 @@ export function RoadmapRail({ width, list, onListChange, records, today, selecte
                           </span>
                           <span className="min-w-0 flex-1 truncate" style={{ fontSize: 12.5 }}>
                             {problem.problem}
+                          </span>
+                          <span className="pi-eyebrow shrink-0" style={{ fontSize: 11 }}
+                            title={t("coding.record.rounds", { count: practiceProgress(record).rounds, target: PRACTICE_ROUND_TARGET })}>
+                            {practiceProgress(record).rounds}/{PRACTICE_ROUND_TARGET}
                           </span>
                           {due ? (
                             <span

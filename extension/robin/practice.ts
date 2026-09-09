@@ -60,6 +60,11 @@ export interface Attempt {
   /** UTC instant, ISO 8601. */
   at: string;
   outcome: AttemptOutcome;
+  /** Local day at recording time; old entries fall back to the timestamp. */
+  on?: string;
+  /** Distinguishes a first sitting from a review of a status-only legacy record. */
+  kind?: "new" | "review";
+  confidence?: number;
   minutes?: number;
   /**
    * How far up the coach's hint ladder this attempt went, 0–4.
@@ -81,22 +86,66 @@ export interface PracticeRecord {
   note?: string;
   /** Local calendar date, YYYY-MM-DD. Never a timestamp. */
   nextReviewOn?: string;
+  /** Version of the interval policy; legacy dates are adapted on read. */
+  scheduleVersion?: 2;
   /** UTC instant, ISO 8601. */
   updatedAt: string;
 }
 
-/**
- * Days until a problem comes back, by confidence.
- *
- * Plain fixed intervals rather than SM-2: the input here is one self-rating on
- * a handful of problems a week, which is far too coarse a signal to feed an
- * ease factor. Index 0 is unused — confidence is 1-based.
- */
-const REVIEW_INTERVAL_DAYS = [0, 1, 3, 7, 21, 60];
+/** Practical expanding spacing, not a fitted Ebbinghaus memory model. */
+export const REVIEW_INTERVAL_DAYS = [1, 3, 7, 14, 30, 60] as const;
+export const PRACTICE_ROUND_TARGET = 6;
+export const DAILY_NEW_TARGET = 1;
+export const DAILY_REVIEW_TARGET = 3;
 
-export function reviewDateFor(confidence: number, from: string = localDate()): string {
-  const clamped = Math.min(Math.max(Math.round(confidence), 1), 5);
-  return addDays(from, REVIEW_INTERVAL_DAYS[clamped]);
+export function attemptDay(attempt: Attempt): string {
+  return attempt.on ?? localDate(new Date(attempt.at));
+}
+
+/** No hints (explicitly recorded), successful recall, and no low self-rating. */
+function independent(attempt: Attempt): boolean {
+  return attempt.outcome === "solved" && attempt.hintLevel === 0
+    && (attempt.confidence ?? 4) >= 3;
+}
+
+export function practiceProgress(record: PracticeRecord | null | undefined) {
+  const days = new Map<string, Attempt[]>();
+  for (const attempt of record?.attempts ?? []) {
+    const day = attemptDay(attempt);
+    const bucket = days.get(day);
+    if (bucket) bucket.push(attempt);
+    else days.set(day, [attempt]);
+  }
+  let stage = 0;
+  let rounds = 0;
+  for (const [, attempts] of [...days].sort(([a], [b]) => a.localeCompare(b))) {
+    // Looking at a hint then immediately reproducing it isn't cold recall.
+    if (attempts.every(independent)) {
+      rounds += 1;
+      stage = Math.min(stage + 1, REVIEW_INTERVAL_DAYS.length);
+    } else {
+      stage = 0;
+    }
+  }
+  return { attempts: record?.attempts.length ?? 0, rounds, stage };
+}
+
+export function reviewDateFor(confidence: number, from: string = localDate(), stage = 1): string {
+  const index = confidence < 3 ? 0 : Math.min(Math.max(stage - 1, 0), REVIEW_INTERVAL_DAYS.length - 1);
+  return addDays(from, REVIEW_INTERVAL_DAYS[index]);
+}
+
+/** Adapt old long/absent schedules without inventing attempts or writing on GET. */
+export function normalizePracticeRecord(record: PracticeRecord): PracticeRecord {
+  if (record.scheduleVersion === 2 || record.status === "todo") return record;
+  const last = record.attempts.at(-1);
+  const from = last ? attemptDay(last) : localDate(new Date(record.updatedAt));
+  const recommended = reviewDateFor(record.confidence ?? 3, from, practiceProgress(record).stage);
+  return {
+    ...record,
+    scheduleVersion: 2,
+    nextReviewOn: record.nextReviewOn && record.nextReviewOn < recommended ? record.nextReviewOn : recommended,
+  };
 }
 
 export function emptyRecord(slug: string): PracticeRecord {
@@ -247,17 +296,19 @@ export function statsFor(
 
 export function isDue(record: PracticeRecord | undefined, today: string): boolean {
   if (!record?.nextReviewOn) return false;
-  return record.status === "solved" && record.nextReviewOn <= today;
+  return record.status !== "todo" && record.nextReviewOn <= today;
 }
 
-/** Solved problems whose review date has arrived, soonest first. */
+/** Previously studied problems, including failures, oldest due date first. */
 export function dueForReview(
   records: readonly PracticeRecord[],
   today: string,
 ): PracticeRecord[] {
   return records
     .filter((record) => isDue(record, today))
-    .sort((a, b) => (a.nextReviewOn ?? "").localeCompare(b.nextReviewOn ?? ""));
+    .sort((a, b) => (a.nextReviewOn ?? "").localeCompare(b.nextReviewOn ?? "")
+      || (a.confidence ?? 0) - (b.confidence ?? 0)
+      || a.slug.localeCompare(b.slug));
 }
 
 /**
@@ -272,16 +323,49 @@ export function suggestNext(
   records: ReadonlyMap<string, PracticeRecord>,
   today: string,
 ): CatalogProblem | null {
-  const groups = groupByPattern(problems, records);
-  for (const group of groups) {
-    for (const problem of group.problems) {
-      if (isDue(records.get(problem.link), today)) return problem;
-    }
-  }
-  for (const group of groups) {
-    for (const problem of group.problems) {
-      if ((records.get(problem.link)?.status ?? "todo") !== "solved") return problem;
-    }
-  }
-  return null;
+  const plan = dailyPracticePlan(problems, records, today);
+  return plan.reviews[0] ?? plan.newProblems[0] ?? null;
+}
+
+/** Daily budgets count distinct problems, not clicks; completed work never refills. */
+export function dailyPracticePlan(
+  problems: readonly CatalogProblem[],
+  records: ReadonlyMap<string, PracticeRecord>,
+  today: string,
+) {
+  const ordered = groupByPattern(problems, records).flatMap((group) => group.problems);
+  const studiedToday = ordered.filter((problem) =>
+    records.get(problem.link)?.attempts.some((attempt) => attemptDay(attempt) === today));
+  const newDone = studiedToday.filter((problem) => {
+    const record = records.get(problem.link)!;
+    const first = record.attempts[0];
+    return first.kind ? first.kind === "new" && attemptDay(first) === today
+      : record.attempts.every((attempt) => attemptDay(attempt) >= today);
+  }).length;
+  const reviewDone = studiedToday.length - newDone;
+  const done = new Set(studiedToday.map((problem) => problem.link));
+  const bySlug = new Map(ordered.map((problem) => [problem.link, problem]));
+  const due = dueForReview([...records.values()], today)
+    .filter((record) => bySlug.has(record.slug) && !done.has(record.slug));
+  const fresh = ordered.filter((problem) => {
+    const record = records.get(problem.link);
+    return (!record || (record.status === "todo" && !record.attempts.length)) && !done.has(problem.link);
+  });
+  const upcoming = [...records.values()]
+    .filter((record) => bySlug.has(record.slug) && record.status !== "todo"
+      && record.nextReviewOn && record.nextReviewOn > today)
+    .sort((a, b) => a.nextReviewOn!.localeCompare(b.nextReviewOn!))[0];
+  return {
+    today,
+    newTarget: DAILY_NEW_TARGET,
+    reviewTarget: DAILY_REVIEW_TARGET,
+    newDone,
+    reviewDone,
+    newProblems: fresh.slice(0, Math.max(0, DAILY_NEW_TARGET - newDone)),
+    reviews: due.slice(0, Math.max(0, DAILY_REVIEW_TARGET - reviewDone)).map((record) => bySlug.get(record.slug)!),
+    dueCount: due.length,
+    nextReviewOn: upcoming?.nextReviewOn ?? null,
+    rounds: ordered.reduce((sum, problem) => sum + Math.min(PRACTICE_ROUND_TARGET, practiceProgress(records.get(problem.link)).rounds), 0),
+    roundTarget: problems.length * PRACTICE_ROUND_TARGET,
+  };
 }

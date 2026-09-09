@@ -15,8 +15,10 @@ import { localDate } from "./dates.ts";
 import {
   ATTEMPT_OUTCOMES,
   PRACTICE_STATUSES,
-  dueForReview,
-  findProblem,
+  dailyPracticePlan,
+  attemptDay,
+  practiceProgress,
+  PRACTICE_ROUND_TARGET,
   leetcodeUrl,
   problemsInList,
   recordMap,
@@ -43,7 +45,7 @@ function describe(problem: CatalogProblem, record: PracticeRecord | null): strin
     ...(problem.blind75 ? ["Blind 75"] : []),
   ];
   const history = record
-    ? `${record.status}, ${record.attempts.length} attempt(s)`
+    ? `${record.status}, ${record.attempts.length} recorded attempt(s), ${practiceProgress(record).rounds}/${PRACTICE_ROUND_TARGET} independent rounds on separate days`
       + (record.confidence ? `, confidence ${record.confidence}/5` : "")
       + (record.nextReviewOn ? `, review on ${record.nextReviewOn}` : "")
     : "no attempts yet";
@@ -59,7 +61,7 @@ function describeSnapshot(snapshot: PracticeSnapshot): string {
   if (snapshot.record?.note) lines.push(`Their note: ${snapshot.record.note}`);
   if (snapshot.record?.attempts.length) {
     const recent = snapshot.record.attempts.slice(-3).map((attempt) =>
-      `  ${attempt.at.slice(0, 10)} ${attempt.outcome}`
+      `  ${attemptDay(attempt)} ${attempt.outcome}`
         + (attempt.minutes ? `, ${attempt.minutes}min` : "")
         + (attempt.hintLevel ? `, hint level ${attempt.hintLevel}` : ""));
     lines.push("Recent attempts:", ...recent);
@@ -161,7 +163,7 @@ export function registerPracticeTools(pi: ExtensionAPI): void {
       if ("error" in result) return text(result.error);
       const { problem, record } = result;
       const review = record.nextReviewOn ? ` Next review ${record.nextReviewOn}.` : "";
-      return text(`Recorded ${params.outcome} on "${problem.problem}" (confidence ${record.confidence}/5).${review}`);
+      return text(`Recorded ${params.outcome} on "${problem.problem}" (confidence ${record.confidence}/5). ${record.attempts.length} recorded attempts; ${practiceProgress(record).rounds}/${PRACTICE_ROUND_TARGET} independent rounds.${review}`);
     },
   });
 
@@ -209,29 +211,26 @@ export function registerPracticeTools(pi: ExtensionAPI): void {
     name: "practice_due",
     label: "Review queue",
     description:
-      "List solved problems whose review date has arrived, soonest first. Use this when the user asks what to work on, or wants a warm-up.",
+      "Read today's plan for the active list: 1 new problem and up to 3 due reviews, with completed counts and remaining backlog. Includes failed attempts. Use this when the user asks what to work on or how to review.",
     promptSnippet: "practice_due — problems due for review today",
     parameters: Type.Object({}),
     async execute() {
       const today = localDate();
       const records = readPracticeRecords();
-      const due = dueForReview(records, today);
-      if (due.length === 0) {
-        const scheduled = records.filter((record) => record.nextReviewOn).length;
-        return text(
-          scheduled === 0
-            ? `Nothing scheduled yet (today is ${today}). Reviews appear once problems are recorded as solved.`
-            : `Nothing due today (${today}); ${scheduled} problem(s) are scheduled for later.`,
-        );
-      }
-      const lines = due.map((record) => {
-        const problem = findProblem(record.slug);
-        const name = problem ? problem.problem : record.slug;
-        return `${record.nextReviewOn}  ${name}`
-          + (record.confidence ? ` (confidence ${record.confidence}/5)` : "")
-          + (record.note ? ` — ${record.note}` : "");
-      });
-      return text([`${due.length} due for review as of ${today}:`, ...lines].join("\n"));
+      const list = currentList();
+      const bySlug = recordMap(records);
+      const plan = dailyPracticePlan(problemsInList(list), bySlug, today);
+      return text([
+        `Today ${today} (${list}): new ${plan.newDone}/${plan.newTarget}, reviews ${plan.reviewDone}/${plan.reviewTarget} practised.`,
+        ...plan.newProblems.map((problem) => `New: ${describe(problem, bySlug.get(problem.link) ?? null)}`),
+        ...plan.reviews.map((problem) => {
+          const record = bySlug.get(problem.link)!;
+          return `Review: ${describe(problem, record)}` + (record.note ? ` — ${record.note}` : "");
+        }),
+        `${plan.dueCount} due in total; ${Math.max(0, plan.dueCount - plan.reviews.length)} remain outside today's budget.`,
+        ...(plan.nextReviewOn ? [`Next future review: ${plan.nextReviewOn}.`] : []),
+        "Target: 6 independent rounds on separate days. Expanding intervals: 1, 3, 7, 14, 30, 60 days; hints, failure or low confidence reset to tomorrow. A practical spacing policy, not an exact memory prediction. Do not invent extra due reviews to fill the quota.",
+      ].join("\n"));
     },
   });
 }

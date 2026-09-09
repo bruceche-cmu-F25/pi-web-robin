@@ -15,7 +15,7 @@ import type { CalendarEvent } from "./events.ts";
 import type { MailReview } from "./mail.ts";
 import { DEFAULT_JOB_PROFILE, type Job, type JobProfile } from "./jobs.ts";
 import type { Link } from "./links.ts";
-import type { PracticeList, PracticeRecord } from "./practice.ts";
+import { normalizePracticeRecord, type PracticeList, type PracticeRecord } from "./practice.ts";
 import type { TechEvent, TechEventScanState } from "./tech-events.ts";
 import { createDeliveryLedger } from "./delivery-ledger.ts";
 import {
@@ -481,7 +481,7 @@ export function practicePath(): string {
 }
 
 export function readPracticeRecords(): PracticeRecord[] {
-  return readJsonArray<PracticeRecord>(PRACTICE_FILE);
+  return readJsonArray<PracticeRecord>(PRACTICE_FILE).map(normalizePracticeRecord);
 }
 
 export function writePracticeRecords(records: PracticeRecord[]): void {
@@ -491,7 +491,10 @@ export function writePracticeRecords(records: PracticeRecord[]): void {
 export function updatePracticeRecords<R>(
   updater: (records: PracticeRecord[]) => { value: R; changed: boolean },
 ): R {
-  return updateJsonArray(PRACTICE_FILE, updater);
+  return updateJsonArray<PracticeRecord, R>(PRACTICE_FILE, (records) => {
+    records.forEach((record, index) => { records[index] = normalizePracticeRecord(record); });
+    return updater(records);
+  });
 }
 
 /**

@@ -76,26 +76,28 @@ test("groupByPattern counts progress per pattern in roadmap order", () => {
   assert.deepEqual(patterns, PATTERN_ORDER.filter((pattern) => patterns.includes(pattern)));
 });
 
-test("review intervals stretch with confidence", () => {
-  assert.equal(reviewDateFor(1, "2026-08-20"), "2026-08-21");
-  assert.equal(reviewDateFor(3, "2026-08-20"), "2026-08-27");
-  assert.equal(reviewDateFor(5, "2026-08-20"), "2026-10-19");
+test("review intervals expand with recall history, not first-solve confidence", () => {
+  assert.equal(reviewDateFor(1, "2026-08-20", 6), "2026-08-21");
+  assert.equal(reviewDateFor(5, "2026-08-20"), "2026-08-21");
+  assert.equal(reviewDateFor(3, "2026-08-20", 3), "2026-08-27");
+  assert.equal(reviewDateFor(5, "2026-08-20", 6), "2026-10-19");
   // Out-of-range ratings are clamped rather than producing an invalid date.
   assert.equal(reviewDateFor(9, "2026-08-20"), reviewDateFor(5, "2026-08-20"));
   assert.equal(reviewDateFor(0, "2026-08-20"), reviewDateFor(1, "2026-08-20"));
 });
 
-test("only solved problems come due", () => {
+test("failed attempts also come due, but explicitly paused todo records do not", () => {
   const solved = record("two-sum", { status: "solved", nextReviewOn: "2026-08-20" });
   const attempted = record("3sum", { status: "attempted", nextReviewOn: "2026-08-20" });
 
   assert.equal(isDue(solved, "2026-08-20"), true);
   assert.equal(isDue(solved, "2026-08-19"), false);
-  assert.equal(isDue(attempted, "2026-08-21"), false);
+  assert.equal(isDue(attempted, "2026-08-21"), true);
+  assert.equal(isDue({ ...attempted, status: "todo" }, "2026-08-21"), false);
   assert.equal(isDue(undefined, "2026-08-21"), false);
 
   const due = dueForReview([attempted, solved], "2026-08-21");
-  assert.deepEqual(due.map((entry) => entry.slug), ["two-sum"]);
+  assert.deepEqual(due.map((entry) => entry.slug), ["3sum", "two-sum"]);
 });
 
 test("stats count solves by difficulty and reviews that are due", () => {

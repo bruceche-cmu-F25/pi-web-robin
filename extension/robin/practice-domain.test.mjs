@@ -3,8 +3,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, beforeEach, test } from "node:test";
-import { localDate } from "./dates.ts";
-import { reviewDateFor } from "./practice.ts";
+import { localDate, addDays } from "./dates.ts";
+import { reviewDateFor, practiceProgress, dailyPracticePlan, problemsInList, recordMap } from "./practice.ts";
 import {
   currentList,
   currentProblem,
@@ -52,8 +52,13 @@ test("logging a solve creates the record and schedules the review", () => {
  * most of the way there must come back sooner than one that did not.
  */
 test("hints lower the inferred confidence and pull the review closer", () => {
-  const cold = logAttempt({ problem: "two-sum", outcome: "solved" });
-  writePracticeRecords([]);
+  const seed = () => writePracticeRecords([{
+    slug: "two-sum", status: "solved", updatedAt: new Date().toISOString(),
+    attempts: [-4, -3].map((days) => ({ at: new Date().toISOString(), on: addDays(localDate(), days), outcome: "solved", hintLevel: 0 })),
+  }]);
+  seed();
+  const cold = logAttempt({ problem: "two-sum", outcome: "solved", hintLevel: 0 });
+  seed();
   const walked = logAttempt({ problem: "two-sum", outcome: "solved", hintLevel: 4 });
 
   assert.equal(cold.record.confidence, 4);
@@ -71,17 +76,17 @@ test("a later bad sitting does not un-solve a problem, but does reschedule it", 
   assert.equal(stuck.record.nextReviewOn, reviewDateFor(1, localDate()));
 });
 
-test("an unsolved attempt carries no review date", () => {
+test("an unsolved attempt comes back tomorrow", () => {
   const result = logAttempt({ problem: "two-sum", outcome: "partial" });
   assert.equal(result.record.status, "attempted");
-  assert.equal(result.record.nextReviewOn, undefined);
+  assert.equal(result.record.nextReviewOn, addDays(localDate(), 1));
 });
 
-test("attempt history is bounded", () => {
+test("attempt history is retained beyond twenty sittings", () => {
   for (let index = 0; index < 25; index += 1) {
     logAttempt({ problem: "two-sum", outcome: "partial" });
   }
-  assert.equal(readPracticeRecords()[0].attempts.length, 20);
+  assert.equal(readPracticeRecords()[0].attempts.length, 25);
 });
 
 test("resetting to todo drops the schedule but keeps the note", () => {
@@ -201,4 +206,34 @@ test("the workspace list is mirrored for the coach to default to", () => {
   // …and naming one explicitly still moves it.
   setCurrentProblem("valid-anagram", "all");
   assert.equal(currentList(), "all");
+});
+
+test("manual logging, status changes and legacy reviews keep counts truthful", () => {
+  setStatus("two-sum", "solved");
+  assert.equal(practiceProgress(readPracticeRecords()[0]).rounds, 0);
+  logAttempt({ problem: "two-sum", outcome: "solved", hintLevel: 0 });
+  logAttempt({ problem: "two-sum", outcome: "solved", hintLevel: 0 });
+  const saved = readPracticeRecords()[0];
+  assert.deepEqual(practiceProgress(saved), { attempts: 2, rounds: 1, stage: 1 });
+  assert.equal(saved.attempts[0].kind, "review");
+  assert.equal(saved.attempts[0].on, localDate());
+  assert.equal(saved.attempts[0].confidence, 4);
+  setStatus("two-sum", "solved");
+  const after = readPracticeRecords();
+  assert.equal(after[0].attempts.length, 2, "status edits must not inflate counts");
+  const plan = dailyPracticePlan(problemsInList("neetcode150"), recordMap(after), localDate());
+  assert.equal(plan.reviewDone, 1);
+  assert.equal(plan.newDone, 0);
+});
+
+test("re-selecting the same status cannot clear an overdue review", () => {
+  const overdue = addDays(localDate(), -2);
+  writePracticeRecords([{
+    slug: "two-sum", status: "solved", attempts: [], nextReviewOn: overdue,
+    scheduleVersion: 2, updatedAt: new Date().toISOString(),
+  }]);
+  setStatus("two-sum", "solved");
+  assert.equal(readPracticeRecords()[0].nextReviewOn, overdue);
+  patchPractice({ problem: "two-sum", status: "solved", note: "A note is not a sitting" });
+  assert.equal(readPracticeRecords()[0].nextReviewOn, overdue);
 });
