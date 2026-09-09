@@ -90,6 +90,18 @@ export const STATUS_REPORT: ResearchReading = {
 /** Papers collected for the current research thread, kept separate from the HEAT glossary. */
 export const RESEARCH_READINGS: readonly ResearchReading[] = [
   {
+    id: "too-consistent-to-detect-self-consistent-errors-in-llms",
+    title: "Too Consistent to Detect: A Study of Self-Consistent Errors in LLMs",
+    source: "ACL Anthology",
+    url: "https://aclanthology.org/2025.emnlp-main.238/",
+  },
+  {
+    id: "rethinking-hallucinations-correctness-consistency-and-prompt-multiplicity",
+    title: "Rethinking Hallucinations: Correctness, Consistency, and Prompt Multiplicity",
+    source: "ACL Anthology",
+    url: "https://aclanthology.org/2026.eacl-long.327/",
+  },
+  {
     id: "evaluating-large-language-models-for-accuracy-incentivizes-hallucinations",
     title: "Evaluating large language models for accuracy incentivizes hallucinations",
     source: "Nature",
