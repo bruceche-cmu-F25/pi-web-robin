@@ -36,6 +36,10 @@ async (page) => {
   await page.reload();
   const card = page.locator("#fullstack-open article").filter({ hasText: "Full Stack Open" });
   const preview = card.getByRole("region", { name: "接下来", exact: true });
+  const details = card.locator("summary").filter({ hasText: "章节详情与后续预览" });
+  await details.waitFor();
+  check(!(await preview.isVisible()), "Course details start collapsed");
+  await details.click();
   await preview.waitFor();
   check(await preview.getByRole("link").count() === initial.fullstack.upcoming.length, "Preview uses actual pending steps");
   for (const link of await preview.getByRole("link").all()) {
@@ -54,6 +58,7 @@ async (page) => {
   for (const theme of ["light", "dark"]) {
     await page.evaluate((value) => localStorage.setItem("pi-theme", value), theme);
     await page.reload();
+    await details.click();
     await preview.waitFor();
     await page.emulateMedia({ reducedMotion: "reduce" });
     for (const width of [375, 768, 1440]) {
