@@ -430,6 +430,8 @@ export interface JobSweepState {
   }[];
   /** How far each directory got, so a killed sweep can resume. */
   cursors: Record<string, number>;
+  /** Version 1 double-counted progress; only v2 checkpoints are resumable. */
+  cursorVersion?: 2;
   error: string | null;
 }
 

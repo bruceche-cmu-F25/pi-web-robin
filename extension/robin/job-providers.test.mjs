@@ -13,6 +13,10 @@ import {
   markdownRows,
   isPublicWebHost,
   looksLikeJobDescription,
+  normalizeAgenticJob,
+  parseBuiltInPage,
+  parseHnHiringComment,
+  parseIcimsSearchPage,
   parseListings,
   proseRatio,
   providerById,
@@ -49,6 +53,7 @@ test("each supported board is recognised from its public URL", () => {
     ["https://acme.wd5.myworkdayjobs.com/AcmeCareers", "workday"],
     ["https://acme.wd103.myworkdayjobs.com/en-US/AcmeCareers", "workday"],
     ["https://apply.workable.com/acme", "workable"],
+    ["https://careers-acme.icims.com/jobs/search?ss=1", "icims"],
     ["https://www.google.com/about/careers/applications/jobs/results/", "bigtech-index"],
     ["https://www.amazon.jobs/en/search", "bigtech-index"],
     ["https://www.metacareers.com/jobsearch/", "bigtech-index"],
@@ -96,8 +101,11 @@ test("big-tech company entries share one index fetch and keep only their own job
 test("aggregator feeds are offered separately from company boards", () => {
   assert.ok(BOARD_PROVIDERS.every((provider) => provider.board === true));
   assert.ok(COMPANY_PROVIDERS.every((provider) => provider.board !== true));
-  assert.ok(BOARD_PROVIDERS.some((provider) => provider.id === "remoteok"));
+  for (const id of ["remoteok", "agentic-jobs", "builtinsf", "hackernews"]) {
+    assert.ok(BOARD_PROVIDERS.some((provider) => provider.id === id), id);
+  }
   assert.ok(COMPANY_PROVIDERS.some((provider) => provider.id === "greenhouse"));
+  assert.ok(COMPANY_PROVIDERS.some((provider) => provider.id === "icims"));
 });
 
 /* ── request shape ── */
@@ -315,6 +323,60 @@ test("a listing row with no company falls back to the feed's own name", () => {
   );
   assert.equal(postings[0].company, "SimplifyJobs");
   assert.equal(postings[0].postedAt, undefined);
+});
+
+/* ── Career-Ops discovery feeds ── */
+
+test("Agentic Jobs records keep the fields used by admission and scoring", () => {
+  const posting = normalizeAgenticJob({
+    title: "Agent Engineer",
+    companyName: "Acme AI",
+    slug: "agent-engineer-1",
+    location: "Remote - United States",
+    postedAt: "2026-09-05T12:00:00Z",
+    description: "Build <b>LangGraph</b> agents.",
+  });
+  assert.equal(posting?.company, "Acme AI");
+  assert.equal(posting?.postedAt, "2026-09-05");
+  assert.match(posting?.description ?? "", /LangGraph/);
+  assert.equal(normalizeAgenticJob({ title: "Unsafe", companyName: "Acme", slug: "../x" }), null);
+});
+
+test("HN hiring comments remain filterable while carrying the full description", () => {
+  const posting = parseHnHiringComment(
+    "Acme | AI Product Manager | San Francisco | https://acme.test/jobs/1<p>We build agents.</p>",
+  );
+  assert.equal(posting?.company, "Acme");
+  assert.equal(posting?.location, "San Francisco");
+  assert.match(posting?.title ?? "", /AI Product Manager/);
+  assert.match(posting?.description ?? "", /build agents/);
+});
+
+test("Built In joins its JSON-LD rows to company, location, and freshness cards", () => {
+  const html = [
+    '<a href="/company/acme">Acme AI</a>',
+    '<a data-id="job-card-title" data-builtin-track-job-id="123">AI Product Manager</a>',
+    '<i class="fa-house-building"></i><span>Hybrid</span>',
+    '<i class="fa-location-dot"></i><span>San Francisco, CA</span>',
+    '<i class="fa-clock"></i><span>Yesterday</span>',
+    '{"@type":"ListItem","position":1,"name":"AI Product Manager","url":"https://www.builtinsf.com/job/ai-product-manager/123","description":"Own the AI roadmap"}',
+  ].join("");
+  const [posting] = parseBuiltInPage(html, Date.parse("2026-09-06T12:00:00Z"));
+  assert.equal(posting.company, "Acme AI");
+  assert.equal(posting.location, "San Francisco, CA");
+  assert.equal(posting.postedAt, "2026-09-05");
+});
+
+test("iCIMS cards resolve only same-origin posting links", () => {
+  const html = [
+    '<li class="iCIMS_JobCardItem">',
+    '<a class="iCIMS_Anchor" href="/jobs/42/ai-product-manager/job"><h3 class="title">AI Product Manager</h3></a>',
+    '<span class="field-label extra">Location</span><span>San Francisco, CA</span>',
+    '</li>',
+  ].join("");
+  const [posting] = parseIcimsSearchPage(html, "https://careers-acme.icims.com", "Acme");
+  assert.equal(posting.url, "https://careers-acme.icims.com/jobs/42/ai-product-manager/job");
+  assert.equal(posting.location, "San Francisco, CA");
 });
 
 /* ── hydrate ── */

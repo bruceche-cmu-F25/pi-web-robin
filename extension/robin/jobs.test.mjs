@@ -21,7 +21,7 @@ import {
 
 const job = (over = {}) => ({
   id: "j1",
-  url: "https://example.com/jobs/1",
+  url: `https://example.com/jobs/${over.id ?? "1"}`,
   company: "Acme",
   title: "Engineer",
   location: "Remote",
@@ -196,7 +196,7 @@ test("pendingJobs skips dropped jobs and returns the oldest first", () => {
 test("only new, unsent jobs at or above the floor are pushed", () => {
   const profile = { ...DEFAULT_JOB_PROFILE, minScore: 3.5 };
   const batch = digestCandidates([
-    job({ id: "good", score: 4.0 }),
+    job({ id: "good", score: 3.8 }),
     job({ id: "exactly-floor", score: 3.5 }),
     job({ id: "below", score: 3.4 }),
     job({ id: "unscored" }),
@@ -390,19 +390,20 @@ test("years counted in a company's story are not years asked of the candidate", 
 test("a number with no experience wording nearby is not a requirement", () => {
   assert.equal(extractYearsRequired("The lease runs 5 years"), null);
   assert.equal(extractYearsRequired(""), null);
-  // Out of range: 0 is not a bar and 30 is a company's age, not a career.
-  assert.equal(extractYearsRequired("0 years of experience required"), null);
+  // An explicit zero is different from silence; 30 is outside the supported range.
+  assert.equal(extractYearsRequired("0 years of experience required"), 0);
   assert.equal(extractYearsRequired("30 years of engineering experience"), null);
 });
 
 test("the push gate drops postings asking for more years than the profile allows", () => {
-  const profile = { ...DEFAULT_JOB_PROFILE, minScore: 4, maxYears: 3 };
-  const base = { status: "new", score: 4.5, url: "https://x/1", company: "A", title: "T", location: "", source: "s", discoveredAt: "2026-01-01" };
+  // High-score evidence is tested separately in job-evidence.test.mjs.
+  const profile = { ...DEFAULT_JOB_PROFILE, minScore: 3, maxYears: 3 };
+  const base = { status: "new", score: 3.5, url: "https://x/1", company: "A", title: "T", location: "", source: "s", discoveredAt: "2026-01-01" };
   const jobs = [
-    { ...base, id: "fits", yearsRequired: 3 },
-    { ...base, id: "over", yearsRequired: 5 },
+    { ...base, id: "fits", url: "https://x/fits", yearsRequired: 3 },
+    { ...base, id: "over", url: "https://x/over", yearsRequired: 5 },
     // Silent postings stay in: not saying is not the same as asking for seven.
-    { ...base, id: "silent" },
+    { ...base, id: "silent", url: "https://x/silent" },
   ];
   assert.deepEqual(digestCandidates(jobs, profile).map((job) => job.id).sort(), ["fits", "silent"]);
   // Zero is the off switch, not a ceiling of zero.

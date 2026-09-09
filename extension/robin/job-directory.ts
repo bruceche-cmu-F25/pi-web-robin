@@ -152,6 +152,20 @@ export const DIRECTORIES: readonly Directory[] = [
       : null),
   },
   {
+    id: "icims",
+    label: "iCIMS",
+    providerId: "icims",
+    dataset: `${DATASET_BASE}/icims_companies.json`,
+    // About ten thousand tenants: two thousand per night completes a rotation
+    // inside the seven-day freshness window without dominating the sweep.
+    nightlyLimit: 2_000,
+    toCompany: (slug) => {
+      if (!SLUG_RE.test(slug)) return null;
+      const host = `careers-${slug.toLowerCase()}.icims.com`;
+      return onHost(slug, `https://${host}/jobs/search?ss=1&in_iframe=1`, (hostname) => hostname === host);
+    },
+  },
+  {
     // The largest of the four by a distance: on a sample of three thousand
     // active early-career postings, Workday carried more than Greenhouse,
     // Ashby and Lever combined. Its entries are "tenant|instance|site"
@@ -288,6 +302,13 @@ export async function runDirectorySweep(options: SweepOptions): Promise<JobSweep
   // passes "keep" for the opposite and equally good reason.
   const rules = { profile, undated: "drop" as const };
   const admits = compileAdmission(rules);
+  // iCIMS list pages omit dates. Let an undated posting through the cheap
+  // title/location gates, hydrate only that small candidate set, then apply
+  // the real freshness rule below.
+  const admitsBeforeDate = compileAdmission({
+    profile: { ...profile, sinceDays: 0 },
+    undated: "keep",
+  });
   const cutoff = freshnessCutoff(profile.sinceDays);
 
   const state: JobSweepState = {
@@ -302,14 +323,18 @@ export async function runDirectorySweep(options: SweepOptions): Promise<JobSweep
     added: 0,
     directories: [],
     cursors: {},
+    cursorVersion: 2,
     error: null,
   };
 
   // Resuming means "carry on where the last run stopped". A sweep the server
   // restart killed at board 9,000 should not re-read those nine thousand.
-  const previous = resume ? readJobSweepState()?.cursors ?? {} : {};
+  const saved = resume ? readJobSweepState() : null;
+  // Old cursors were double-counted. Restart once rather than trusting a
+  // checkpoint that can permanently skip a window of employers.
+  const previous = saved?.cursorVersion === 2 ? saved.cursors : {};
 
-  const plans: { directory: Directory; slugs: string[] }[] = [];
+  const plans: { directory: Directory; slugs: string[]; start: number }[] = [];
   for (const id of directories) {
     const directory = directoryById(id);
     if (!directory) continue;
@@ -322,7 +347,7 @@ export async function runDirectorySweep(options: SweepOptions): Promise<JobSweep
     // own nightly budget applies, and the cursor carries the rest to tomorrow.
     const budget = limit === Infinity ? directory.nightlyLimit ?? slugs.length : limit;
     const window = slugs.slice(start, start + budget);
-    plans.push({ directory, slugs: window });
+    plans.push({ directory, slugs: window, start });
     state.cursors[directory.id] = start;
     state.directories.push({ id: directory.id, label: directory.label, status, boards: window.length, matched: 0 });
     state.boardsTotal += window.length;
@@ -371,10 +396,12 @@ export async function runDirectorySweep(options: SweepOptions): Promise<JobSweep
       if (!provider || !record) continue;
 
       let next = 0;
+      let completedPrefix = 0;
+      const completed = new Set<number>();
       const inFlight = Math.min(plan.directory.concurrency ?? CONCURRENCY, plan.slugs.length);
       await Promise.all(Array.from({ length: inFlight }, async () => {
         for (;;) {
-          if (signal?.aborted) return;
+          if (signal?.aborted || state.error) return;
           const index = next;
           next += 1;
           const slug = plan.slugs[index];
@@ -384,14 +411,19 @@ export async function runDirectorySweep(options: SweepOptions): Promise<JobSweep
           // Providers that page in date order can stop early with this; the
           // rest ignore it and are filtered downstream exactly as before.
           const company = base && cutoff ? { ...base, since: cutoff } : base;
-          state.boardsDone += 1;
           if (!company) {
             state.unreachable += 1;
           } else {
             try {
               const postings = await provider.fetch(company, ctx);
               state.scanned += postings.length;
-              for (const posting of postings) {
+              const candidates = postings.filter((posting) =>
+                posting.postedAt ? admits(posting) : admitsBeforeDate(posting));
+              const undated = candidates.filter((posting) => !posting.postedAt);
+              if (undated.length > 0 && provider.hydrate) {
+                await provider.hydrate(undated, ctx);
+              }
+              for (const posting of candidates) {
                 if (!admits(posting)) continue;
                 pending.push({ ...posting, source: provider.id });
                 state.matched += 1;
@@ -405,16 +437,26 @@ export async function runDirectorySweep(options: SweepOptions): Promise<JobSweep
             }
           }
 
+          state.boardsDone += 1;
+          completed.add(index);
+          while (completed.delete(completedPrefix)) completedPrefix += 1;
           if (state.boardsDone - flushedAt >= FLUSH_EVERY) {
-            const advanced = state.boardsDone - flushedAt;
             flushedAt = state.boardsDone;
+            // Checkpoint only the contiguous, completed prefix, and only
+            // after its postings are durable. Slow earlier boards cannot be
+            // skipped by faster workers; overlapping flushes cannot regress it.
+            const checkpoint = plan.start + completedPrefix;
             await flush();
-            state.cursors[plan.directory.id] = (state.cursors[plan.directory.id] ?? 0) + advanced;
+            if (!state.error) {
+              state.cursors[plan.directory.id] = Math.max(state.cursors[plan.directory.id] ?? 0, checkpoint);
+            }
             publish();
           }
         }
       }));
-      state.cursors[plan.directory.id] = (state.cursors[plan.directory.id] ?? 0) + plan.slugs.length;
+      await flush();
+      if (!state.error) state.cursors[plan.directory.id] = plan.start + completedPrefix;
+      if (signal?.aborted || state.error) break;
     }
   } catch (error) {
     state.error = error instanceof Error ? error.message : String(error);

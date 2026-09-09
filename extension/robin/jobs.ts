@@ -15,6 +15,8 @@
  * that survived the block list.
  */
 
+import { experienceProblem, needsJobScoring, reviewProblem, type JobReview } from "./job-evidence.ts";
+
 /** One tracked employer. `url` is a careers page or an ATS board URL. */
 export interface TrackedCompany {
   id: string;
@@ -83,6 +85,10 @@ export interface JobProfile {
    * number will keep finding reasons not to.
    */
   maxYears: number;
+  /** User-confirmed professional work only; never inferred from degrees or the scan ceiling. */
+  professionalExperienceMonths: number | null;
+  /** Largest stated requirement still worth trying despite a months shortfall. */
+  experienceStretchYears: number;
   /** How many jobs one Telegram digest carries. */
   digestSize: number;
   /**
@@ -133,10 +139,13 @@ export interface Job {
   postedAt?: string;
   /** Provider id the posting came from. */
   source: string;
-  /** Untrusted employer-authored text, truncated. Absent unless free to fetch. */
+  /** Bounded full employer text, never instructions. Legacy rows may only have a snippet. */
   description?: string;
+  /** Provider handle retained for safe rehydration of branded apply URLs. */
+  ref?: { board: string; id: string };
+  alternateUrls?: string[];
   /**
-   * Smallest years-of-experience figure the posting states, when it states one.
+   * Binding required years, excluding preferred figures; degree alternatives stay unknown.
    *
    * Read off the description by regex at merge time, not asked of the model.
    * "Does this posting say five years" is a lookup, and a lookup that a model
@@ -158,6 +167,10 @@ export interface Job {
   scoredAt?: string;
   /** Model that produced `score`, so a bad batch can be found later. */
   scoredBy?: string;
+  /** Evidence is versioned against the JD and scoring preferences, not notification settings. */
+  scoreContext?: string;
+  scoreStale?: boolean;
+  review?: JobReview;
 
   status: JobStatus;
   /**
@@ -226,6 +239,8 @@ export const DEFAULT_JOB_PROFILE: JobProfile = {
   // career, and a shipped default would silently hide senior roles from senior
   // people. The settings panel is where this gets a number.
   maxYears: 0,
+  professionalExperienceMonths: null,
+  experienceStretchYears: 0,
   digestSize: 10,
   scoreBatch: 40,
   rubricLocale: "en",
@@ -397,13 +412,16 @@ export const EXCLUDE_PRESETS: readonly JobPreset[] = [
   },
 ];
 
+const BAY_AREA_CITIES = [
+  "San Francisco", "South San Francisco", "Palo Alto", "Mountain View", "Sunnyvale",
+  "Santa Clara", "San Jose", "Redwood City", "Menlo Park", "Cupertino", "Oakland",
+  "San Mateo", "San Bruno", "Foster City", "Burlingame", "Fremont", "Berkeley", "San Carlos",
+];
+
 export const LOCATION_PRESETS: readonly JobPreset[] = [
   {
     id: "sfbay",
-    locationAllow: [
-      "San Francisco", "South San Francisco", "Bay Area", "Palo Alto", "Mountain View",
-      "Sunnyvale", "Santa Clara", "San Jose", "Redwood City", "Menlo Park", "Cupertino", "Oakland",
-    ],
+    locationAllow: ["Bay Area", ...BAY_AREA_CITIES],
   },
   { id: "remoteus", locationAllow: ["Remote", "United States", "USA", "US"] },
   { id: "nyc", locationAllow: ["New York", "NYC", "Brooklyn"] },
@@ -533,8 +551,16 @@ export function compileKeyword(keyword: string): (lowerTitle: string) => boolean
  * spelling that catches both "Director of Engineering" and
  * "Director - Software Engineering".
  */
+function normalizeTitle(title: string): string {
+  return title.toLowerCase()
+    .replace(/\bfull[-\s]*stack\b/g, "full stack")
+    .replace(/\bsoftware development engineer\b|\bsoftware developer\b/g, "software engineer")
+    .replace(/\bai\s*\/\s*ml engineer\b/g, "ai engineer machine learning engineer")
+    .replace(/\s+/g, " ");
+}
+
 function compileTitleEntry(entry: string): (lowerTitle: string) => boolean {
-  const terms = entry.split(" + ").map((part) => part.trim()).filter(Boolean);
+  const terms = normalizeTitle(entry).split(" + ").map((part) => part.trim()).filter(Boolean);
   if (terms.length === 0) return () => false;
   const matchers = terms.map(compileKeyword);
   return (lower) => matchers.every((matches) => matches(lower));
@@ -552,12 +578,17 @@ export function buildTitleFilter(titles: string[], excludeTitles: string[] = [])
     .filter(Boolean)
     .map((entry) => ({ entry, matches: compileTitleEntry(entry) }));
   const negative = excludeTitles
-    .map((entry) => entry.trim())
+    .map((entry) => normalizeTitle(entry.trim()))
     .filter(Boolean)
-    .map(compileKeyword);
+    .map((entry) => {
+      // A level is a word, not a substring: "lead" is not "leadership".
+      const escaped = entry.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const pattern = new RegExp(`(?<![a-z0-9])${escaped}(?![a-z0-9])`);
+      return (lower: string) => pattern.test(lower);
+    });
 
   return (title: string) => {
-    const lower = title.toLowerCase();
+    const lower = normalizeTitle(title);
     if (negative.some((matches) => matches(lower))) return null;
     if (positive.length === 0) return "";
     return positive.find(({ matches }) => matches(lower))?.entry ?? null;
@@ -593,6 +624,10 @@ export interface LocationRules {
  * and it is a different place either way.
  */
 function compileLocationTerm(term: string): (lowerLocation: string) => boolean {
+  if (term === "bay area" || term === "san francisco bay area") {
+    const metro = new RegExp(`(?<![a-z])(?:bay area|${BAY_AREA_CITIES.join("|")})(?![a-z])`, "i");
+    return (lower) => metro.test(lower);
+  }
   if (!/^[a-z]+(?: [a-z]+)*$/.test(term)) return (lower) => lower.includes(term);
   const pattern = new RegExp(`(?<!\\bnew[ -])(?<![a-z])${term}(?![a-z])`);
   return (lower) => pattern.test(lower);
@@ -621,9 +656,15 @@ export function buildLocationFilter(rules: LocationRules): (location: string) =>
     const lower = location.trim().toLowerCase();
     if (!lower) return true;
     if (always.some((matches) => matches(lower))) return true;
-    if (block.some((matches) => matches(lower))) return false;
-    if (allow.length === 0) return true;
-    return allow.some((matches) => matches(lower));
+    const allowed = (place: string) => allow.length === 0 || allow.some((matches) => matches(place));
+    if (!block.some((matches) => matches(lower))) return allowed(lower);
+    // Separate alternatives, not city/country pairs (commas) or remote
+    // restrictions ("Remote - UK"). A standalone "Remote" is not a second
+    // geography that can cancel a country restriction in another segment.
+    const alternatives = lower.split(/\s*[;·|\n]\s*|\s+(?:or|\/)\s+/);
+    return alternatives.length > 1 && alternatives.some((place) =>
+      place.trim() !== "" && !/^(?:remote|hybrid|onsite|on-site)$/.test(place.trim())
+      && !block.some((matches) => matches(place)) && allowed(place));
   };
 }
 
@@ -640,8 +681,30 @@ export function buildLocationFilter(rules: LocationRules): (location: string) =>
 export function jobKey(url: string): string {
   try {
     const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
     const path = parsed.pathname.replace(/\/$/, "").toLowerCase();
-    return `${parsed.hostname.toLowerCase()}${path}${parsed.search.toLowerCase()}`;
+    const parts = path.split("/").filter(Boolean);
+    if (host === "jobs.ashbyhq.com" && parts[0] && parts[1]) {
+      return `ashby:${parts[0]}:${parts[1]}`;
+    }
+    if (/^jobs\.(?:eu\.)?lever\.co$/.test(host) && parts[0] && parts[1]) {
+      return `${host}:${parts[0]}:${parts[1]}`;
+    }
+    if (/^(?:boards|job-boards|job-boards\.eu)\.greenhouse\.io$/.test(host)
+      && parts[1] === "jobs" && /^\d+$/.test(parts[2] ?? "")) {
+      return `greenhouse:${host.includes(".eu.") ? "eu" : "us"}:${parts[0]}:${parts[2]}`;
+    }
+    if (/^[a-z0-9-]+\.wd\d+\.myworkdayjobs\.com$/.test(host)) {
+      const req = path.match(/_((?:jr|req|r)[a-z0-9][a-z0-9-]*)(?:\/apply)?$/i)?.[1];
+      if (req) return `workday:${host.split(".")[0]}:${req}`;
+    }
+    const query = new URLSearchParams();
+    for (const [key, value] of parsed.searchParams) {
+      if (/^(?:utm_.+|gh_src|lever-source|gclid|fbclid)$/i.test(key)) continue;
+      if (!query.getAll(key).includes(value)) query.append(key, value);
+    }
+    query.sort();
+    return `${host}${path}${query.size ? `?${query.toString()}` : ""}`;
   } catch {
     return url.trim().toLowerCase().replace(/[#].*$/, "").replace(/\/$/, "");
   }
@@ -699,15 +762,27 @@ export function sortJobs(jobs: Job[]): Job[] {
  */
 export function digestCandidates(jobs: Job[], profile: JobProfile): Job[] {
   const maxYears = profile.maxYears > 0 ? profile.maxYears : null;
+  // Existing duplicate rows stay intact (they may carry distinct user notes),
+  // but a requisition already sent or applied must never get another slot.
+  const seen = new Set(jobs.filter((job) => job.status === "applied" || job.notifiedAt).map((job) => jobKey(job.url)));
   return sortJobs(
     jobs.filter((job) =>
       job.status === "new"
       && !job.notifiedAt
+      && !isBlacklisted(job.company, profile.blacklist)
+      && experienceProblem(job, profile) !== "blocked-experience"
       && typeof job.score === "number"
       && job.score >= profile.minScore
+      && !needsJobScoring(job, profile)
+      && (job.score < 4 || reviewProblem(job, profile, job.review) === null)
       // Absent means the posting never said, which is not a reason to drop it.
       && (maxYears === null || job.yearsRequired === undefined || job.yearsRequired <= maxYears)),
-  );
+  ).filter((job) => {
+    const key = jobKey(job.url);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 /**
@@ -801,6 +876,12 @@ function firstClause(text: string): string {
  */
 export function extractYearsRequired(description: string): number | null {
   if (!description) return null;
+  description = cleanPostingDescription(description);
+  const words = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"];
+  description = description.replace(/\b(zero|one|two|three|four|five|six|seven|eight|nine|ten)(?=\s*(?:\+|plus)?\s*(?:years?|yrs?)\b)/gi,
+    (word) => String(words.indexOf(word.toLowerCase())));
+  // Two degrees alone do not imply experience alternatives (BS or MS, then 5 years).
+  if (hasDegreeExperienceAlternatives(description)) return null;
   const pattern = /(\d{1,2})\s*(?:\+|plus)?\s*(?:-|–|—|to)?\s*(\d{1,2})?\s*\+?\s*(?:years?|yrs?)\b/gi;
   let found: number | null = null;
 
@@ -819,24 +900,42 @@ export function extractYearsRequired(description: string): number | null {
     // sit a clause or two above the bullet it governs. The nearest heading is
     // the one that governs, so anything before a later "Requirements:" is
     // superseded and must not disqualify what follows it.
-    const behind = description.slice(Math.max(0, match.index - 140), match.index);
+    const prefix = description.slice(0, match.index);
+    const preferredHeading = lastMatchEnd(prefix, /\b(?:preferred|bonus|nice[- ]to[- ]have|desired)(?:\s+(?:qualifications|requirements|skills|experience)\b|\s*:)/i);
+    const requiredHeading = lastMatchEnd(prefix, /\b(?:requirements|(?:minimum|basic|required) qualifications|must have)\b\s*:?/i);
+    if (preferredHeading > requiredHeading) continue;
+    const behind = prefix.slice(Math.max(requiredHeading, prefix.length - 140));
     const governing = behind.slice(lastMatchEnd(behind, REQUIRED_AGAIN));
     if (OPTIONAL.test(governing)) continue;
 
     const low = Number(match[1]);
-    // 0 is not a requirement, and past 20 it is a typo or a company's age.
-    if (!Number.isFinite(low) || low < 1 || low > 20) continue;
+    // Preserve an explicit zero/range lower bound; unknown is a different fact.
+    if (!Number.isFinite(low) || low < 0 || low > 20) continue;
     if (found === null || low > found) found = low;
   }
 
   return found;
 }
 
+/** Degree-linked year counts require branch-specific eligibility, not the maximum. */
+export function hasDegreeExperienceAlternatives(description: string): boolean {
+  if (!/\bor\b|\balternatively\b/i.test(description)) return false;
+  const branches = description.match(/\b(?:bachelor(?:['’]s)?|master(?:['’]s)?|ph\.?d|b\.?s\.?|m\.?s\.?)\b[^.;\n]{0,200}?\b(?:\d{1,2}|zero|one|two|three|four|five|six|seven|eight|nine|ten)\s*(?:\+|plus)?\s*(?:years?|yrs?)\b/gi) ?? [];
+  return branches.length >= 2;
+}
+
 /** Jobs the scorer has not looked at yet, oldest first so nothing starves. */
-export function pendingJobs(jobs: Job[]): Job[] {
+export function pendingJobs(jobs: Job[], profile?: JobProfile): Job[] {
+  const seen = new Set(jobs.filter((job) => job.status === "applied").map((job) => jobKey(job.url)));
   return jobs
-    .filter((job) => typeof job.score !== "number" && job.status !== "dropped")
-    .sort((a, b) => (a.discoveredAt ?? "").localeCompare(b.discoveredAt ?? ""));
+    .filter((job) => needsJobScoring(job, profile))
+    .sort((a, b) => (a.discoveredAt ?? "").localeCompare(b.discoveredAt ?? ""))
+    .filter((job) => {
+      const key = jobKey(job.url);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 }
 
 /* ─────────────────────────── formatting ─────────────────────────── */
@@ -896,6 +995,7 @@ export function formatJob(job: Job): string {
     `<${job.source}>`,
     job.status === "new" ? "" : `status:${job.status}`,
     job.reason ? `— ${job.reason}` : "",
+    job.flags?.length ? `[${job.flags.join(", ")}]` : "",
   ];
   return parts.filter(Boolean).join("  ");
 }
@@ -939,15 +1039,28 @@ export function describeFilters(profile: JobProfile): string[] {
  * size is roughly 25k tokens, which at flash-model rates is a fraction of a
  * cent per scoring round.
  */
-export function cleanDescription(raw: string, limit = 2500): string {
+/** Store the posting, not the display summary. Oversize text stays visibly incomplete. */
+export function cleanPostingDescription(raw: string): string {
   const text = raw
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
     .replace(/<[^>]*>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/\s+/g, " ")
-    .trim();
+    .replace(/&#(x[0-9a-f]+|\d+);/gi, (entity, code: string) => {
+      const point = code[0]?.toLowerCase() === "x" ? parseInt(code.slice(1), 16) : Number(code);
+      return point > 0 && point <= 0x10ffff ? String.fromCodePoint(point) : entity;
+    })
+    .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/&(?:apos|rsquo|lsquo);/g, "'").replace(/&quot;/g, '"')
+    .replace(/&[nm]dash;/g, "–")
+    .replace(/\s+/g, " ").trim();
+  // ponytail: bounded local archive, not a document store. The ellipsis keeps
+  // the high-score gate closed if an exceptional posting exceeds this bound.
+  return text.length > 100_000 ? `${text.slice(0, 100_000)}…` : text;
+}
+
+export function cleanDescription(raw: string, limit = 2500): string {
+  const text = cleanPostingDescription(raw);
   if (text.length <= limit) return text;
 
   // Over budget: keep the opening AND the requirements, rather than the

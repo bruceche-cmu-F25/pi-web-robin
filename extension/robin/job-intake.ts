@@ -36,6 +36,7 @@ import {
   type FetchContext,
   type RawPosting,
 } from "./job-providers.ts";
+import { hasSubstantiveDescription } from "./job-evidence.ts";
 import { newId } from "./paths.ts";
 import { readJobs, updateJobs } from "./store.ts";
 
@@ -72,6 +73,7 @@ export interface IntakeRules {
  * a posting you ignored twice stops costing anything.
  */
 const RETENTION_DAYS = 60;
+const AUTO_DROP_DAYS = 14;
 
 /** YYYY-MM-DD, `days` before today, in UTC to match provider-reported dates. */
 export function freshnessCutoff(sinceDays: number, now: number = Date.now()): string | null {
@@ -116,19 +118,37 @@ export function admitPostings(postings: ScannedPosting[], rules: IntakeRules): S
   return postings.filter(compileAdmission(rules));
 }
 
-/**
- * Identity of the ROLE rather than the posting.
- *
- * Location is part of it deliberately: the same title at the same employer in
- * two cities is two jobs a candidate would choose between, and collapsing
- * those would hide one of them for good. Only an exact triple repeat is
- * treated as the same opening posted twice.
- */
-function roleKey(posting: { company: string; title: string; location: string }): string {
-  const flat = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
-  // Newline separates the fields because the flattening above collapses every
-  // run of whitespace, so no field can contain one and forge a different key.
-  return [flat(posting.company), flat(posting.title), flat(posting.location)].join("\n");
+/** Upgrade discovery evidence without changing the user's application state. */
+export function enrichJob(job: Job, posting: ScannedPosting): boolean {
+  let changed = false;
+  const description = posting.description;
+  if (description && description !== job.description
+    && (hasSubstantiveDescription(description)
+      || (!hasSubstantiveDescription(job.description) && description.length > (job.description?.length ?? 0)))) {
+    job.description = description;
+    changed = true;
+  }
+  // Re-run improved extraction on legacy full descriptions too, even when
+  // fetching returned the same text (e.g. an old BS/MS alternative parse).
+  if (job.description) {
+    const years = extractYearsRequired(job.description) ?? undefined;
+    if (years !== job.yearsRequired) {
+      if (years === undefined) delete job.yearsRequired;
+      else job.yearsRequired = years;
+      changed = true;
+    }
+  }
+  if (changed && typeof job.score === "number") {
+    job.scoreStale = true;
+    job.flags = [...new Set([...(job.flags ?? []).filter((flag) => !/^asks \d+\+ yrs$/.test(flag)), "score-stale"])];
+  }
+  if (posting.ref && !job.ref) { job.ref = posting.ref; changed = true; }
+  if (posting.postedAt && !job.postedAt) { job.postedAt = posting.postedAt; changed = true; }
+  if (posting.url !== job.url && !job.alternateUrls?.includes(posting.url) && (job.alternateUrls?.length ?? 0) < 20) {
+    job.alternateUrls = [...(job.alternateUrls ?? []), posting.url];
+    changed = true;
+  }
+  return changed;
 }
 
 /**
@@ -139,20 +159,22 @@ function roleKey(posting: { company: string; title: string; location: string }):
  * deleted retention from `absorb` pass all 973 tests — the tests proved the
  * function worked and said nothing about whether anything ran it.
  *
- * A posting already known keeps its row untouched — its score, its status and
- * its `notifiedAt` are the whole point of having a store, and re-discovering a
- * job you dropped must not resurrect it.
+ * Identity comes from the ATS requisition, never a fuzzy company/title match.
+ * Known rows gain better evidence and alternate links, but user state is kept.
  */
 function mergePostings(
   existing: Job[],
   postings: ScannedPosting[],
   profile: JobProfile,
   now: string = new Date().toISOString(),
-): { jobs: Job[]; added: number } {
+): { jobs: Job[]; added: number; updated: boolean } {
   const maxYears = profile.maxYears > 0 ? profile.maxYears : null;
-  const seen = new Set(existing.map((job) => jobKey(job.url)));
-  const sameRole = new Set(existing.map(roleKey));
+  const seen = new Map<string, Job>();
+  for (const job of existing) {
+    for (const url of [job.url, ...(job.alternateUrls ?? [])]) seen.set(jobKey(url), job);
+  }
   const added: Job[] = [];
+  let updated = false;
 
   for (const posting of postings) {
     let url: string;
@@ -162,15 +184,11 @@ function mergePostings(
       continue;
     }
     const key = jobKey(url);
-    if (seen.has(key)) continue;
-    // Employers re-post one opening under several posting ids — one seen here
-    // filled four slots in a ten-job digest, and the scorer's own reason line
-    // read "duplicate of its twin". The URL key cannot catch that because the
-    // ids genuinely differ; company, title and location together can.
-    const role = roleKey(posting);
-    if (sameRole.has(role)) continue;
-    seen.add(key);
-    sameRole.add(role);
+    const known = seen.get(key);
+    if (known) {
+      updated = enrichJob(known, { ...posting, url }) || updated;
+      continue;
+    }
     const years = posting.description ? extractYearsRequired(posting.description) : null;
     // The experience ceiling, applied the moment the description is in hand.
     //
@@ -181,7 +199,7 @@ function mergePostings(
     // row stays auditable under that tab, stays out of the scorer's queue, and
     // cannot be rediscovered and re-scored on the next scan.
     const overExperienced = maxYears !== null && years !== null && years > maxYears;
-    added.push({
+    const job: Job = {
       id: newId(),
       url,
       company: posting.company,
@@ -190,17 +208,31 @@ function mergePostings(
       ...(posting.postedAt ? { postedAt: posting.postedAt } : {}),
       source: posting.source,
       ...(posting.description ? { description: posting.description } : {}),
-      // Read once, here, rather than every time something wants to know. The
-      // description is capped, so this is the only place the full text and the
-      // number are guaranteed to agree.
+      ...(posting.ref ? { ref: posting.ref } : {}),
+      // The description is the bounded full posting, not the scorer's summary.
       ...(years === null ? {} : { yearsRequired: years }),
       ...(overExperienced ? { flags: [`asks ${years}+ yrs`] } : {}),
       discoveredAt: now,
       status: overExperienced ? "dropped" : "new",
-    });
+    };
+    added.push(job);
+    seen.set(key, job);
   }
 
-  return { jobs: [...existing, ...added], added: added.length };
+  return { jobs: [...existing, ...added], added: added.length, updated };
+}
+
+/** Move untouched rows out of the active list after two weeks. */
+function autoDropUnactedJobs(jobs: Job[], now: number = Date.now()): number {
+  const cutoff = new Date(now - AUTO_DROP_DAYS * 86_400_000).toISOString();
+  let dropped = 0;
+  for (const job of jobs) {
+    if (job.status !== "new" || !job.discoveredAt || job.discoveredAt > cutoff) continue;
+    job.status = "dropped";
+    job.flags = [...new Set([...(job.flags ?? []), "inactive-14d"])];
+    dropped += 1;
+  }
+  return dropped;
 }
 
 /** Drop stale rows you never acted on; keep everything you did. Internal. */
@@ -224,14 +256,18 @@ export async function absorb(
   rules: IntakeRules,
   ctx: FetchContext,
 ): Promise<{ added: number }> {
-  if (postings.length === 0) return { added: 0 };
-  await hydrateDescriptions(postings, ctx, {
-    readUnknownBoards: rules.profile.readUnknownBoards,
-  });
+  if (postings.length > 0) {
+    await hydrateDescriptions(postings, ctx, {
+      readUnknownBoards: rules.profile.readUnknownBoards,
+    });
+  }
   const added = updateJobs((jobs) => {
-    const merged = mergePostings(pruneJobs(jobs), postings, rules.profile);
-    jobs.splice(0, jobs.length, ...merged.jobs);
-    return { value: merged.added, changed: true };
+    const autoDropped = autoDropUnactedJobs(jobs);
+    const pruned = pruneJobs(jobs);
+    const merged = mergePostings(pruned, postings, rules.profile);
+    const changed = autoDropped > 0 || pruned.length !== jobs.length || merged.added > 0 || merged.updated;
+    if (changed) jobs.splice(0, jobs.length, ...merged.jobs);
+    return { value: merged.added, changed };
   });
   return { added };
 }

@@ -48,7 +48,7 @@ const stored = (over = {}) => ({
   title: "Senior AI Engineer",
   location: "Remote (US)",
   source: "greenhouse",
-  discoveredAt: "2026-08-01T00:00:00.000Z",
+  discoveredAt: new Date().toISOString(),
   status: "new",
   ...over,
 });
@@ -129,16 +129,15 @@ test("a job you already acted on is never resurrected or overwritten", async () 
   assert.equal(jobs[1].status, "new");
 });
 
-test("one opening posted under several ids fills one slot, not four", async () => {
-  // Observed: an employer listed the same role under six Ashby posting ids and
-  // four of them landed in a ten-job digest. The URLs genuinely differ, so
-  // only company, title and location together can catch it.
+test("identical titles are not proof that different posting ids are the same opening", async () => {
+  // Different teams can use identical titles and locations. A fuzzy match is
+  // not sufficient evidence to silently remove a real requisition.
   const { added } = await intake([], [
     posting({ url: "https://x/a", company: "Heliux", title: "SWE, Core Platform", location: "HQ (SF)" }),
     posting({ url: "https://x/b", company: "Heliux", title: "SWE, Core Platform", location: "HQ (SF)" }),
     posting({ url: "https://x/c", company: "heliux", title: "swe,  core   platform", location: "hq (sf)" }),
   ]);
-  assert.equal(added, 1);
+  assert.equal(added, 3);
 });
 
 test("the same title at the same employer in two cities is two jobs", async () => {
@@ -237,12 +236,22 @@ test("with no ceiling set, a long-experience posting is left alone", async () =>
   assert.equal(jobs[0].yearsRequired, 9);
 });
 
-test("an empty batch touches neither the network nor the store", async () => {
-  const seeded = [stored({ id: "keep" })];
-  writeJobs(seeded);
+test("untouched jobs auto-drop after two weeks, even when a scan finds nothing", async () => {
+  const old = new Date(Date.now() - 15 * 86_400_000).toISOString();
+  writeJobs([
+    stored({ id: "stale", discoveredAt: old }),
+    stored({ id: "saved", status: "shortlist", discoveredAt: old, url: "https://x/saved" }),
+    stored({ id: "sent", status: "applied", discoveredAt: old, url: "https://x/sent" }),
+    stored({ id: "fresh", discoveredAt: new Date(Date.now() - 13 * 86_400_000).toISOString(), url: "https://x/fresh" }),
+  ]);
+
   assert.deepEqual(await absorb([], rules(), offline), { added: 0 });
-  assert.equal(readJobs().length, 1);
-  assert.equal(readJobs()[0].id, "keep", "not even a retention pass runs on nothing");
+  const byId = Object.fromEntries(readJobs().map((job) => [job.id, job]));
+  assert.equal(byId.stale.status, "dropped");
+  assert.deepEqual(byId.stale.flags, ["inactive-14d"]);
+  assert.equal(byId.saved.status, "shortlist");
+  assert.equal(byId.sent.status, "applied");
+  assert.equal(byId.fresh.status, "new");
 });
 
 /* ── retiring what closed ── */

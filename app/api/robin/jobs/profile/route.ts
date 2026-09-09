@@ -55,6 +55,14 @@ function number(value: unknown, field: string, fallback: number, min: number, ma
   return Math.min(Math.max(parsed, min), max);
 }
 
+function workMonths(value: unknown): number | null {
+  if (value === undefined || value === null || value === "") return null;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 1200) {
+    throw new Error("professionalExperienceMonths must be a whole number from 0 to 1200, or null");
+  }
+  return value;
+}
+
 function text(value: unknown, field: string, limit: number): string {
   if (value === undefined || value === null) return "";
   if (typeof value !== "string") throw new Error(`${field} must be text`);
@@ -183,6 +191,8 @@ export async function PUT(req: Request) {
       minScore: number(body.minScore, "minScore", DEFAULT_JOB_PROFILE.minScore, 1, 5),
       // 0 is the off switch, so the floor is 0 rather than 1.
       maxYears: number(body.maxYears, "maxYears", DEFAULT_JOB_PROFILE.maxYears, 0, 20),
+      professionalExperienceMonths: workMonths(body.professionalExperienceMonths),
+      experienceStretchYears: number(body.experienceStretchYears, "experienceStretchYears", DEFAULT_JOB_PROFILE.experienceStretchYears, 0, 20),
       digestSize: number(body.digestSize, "digestSize", DEFAULT_JOB_PROFILE.digestSize, 1, 50),
       scoreBatch: number(body.scoreBatch, "scoreBatch", DEFAULT_JOB_PROFILE.scoreBatch, 1, 40),
       rubricLocale: body.rubricLocale === "zh" ? "zh" : "en",

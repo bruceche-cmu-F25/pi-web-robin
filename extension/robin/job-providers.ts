@@ -22,7 +22,8 @@
  * No node builtins: this module is loaded by jiti inside the pi extension and
  * by webpack on the Next.js server, so it uses global fetch and nothing else.
  */
-import { cleanDescription, type TrackedCompany } from "./jobs.ts";
+import { cleanPostingDescription as cleanDescription, type TrackedCompany } from "./jobs.ts";
+import { hasSubstantiveDescription } from "./job-evidence.ts";
 import { isPublicWebHost } from "./public-web.ts";
 
 export { isPublicWebHost } from "./public-web.ts";
@@ -51,6 +52,8 @@ export interface RawPosting {
 
 export interface FetchRequest {
   timeoutMs?: number;
+  /** Provider-specific request headers for public boards that require browser-shaped traffic. */
+  headers?: Record<string, string>;
   /**
    * Present means POST, and the value is JSON-encoded as the body.
    *
@@ -159,6 +162,7 @@ export function makeFetchContext(fetchImpl: typeof fetch = fetch): FetchContext 
             Accept: accept,
             "User-Agent": USER_AGENT,
             ...(options.body === undefined ? {} : { "Content-Type": "application/json" }),
+            ...options.headers,
           },
         });
 
@@ -1280,6 +1284,327 @@ const remotive: Provider = {
   },
 };
 
+/* ─────────────────── Career-Ops discovery feeds ─────────────────── */
+
+const AGENTIC_ORIGIN = "https://agentic-engineering-jobs.com";
+
+/** Normalize one record from Agentic Engineering Jobs' documented public API. */
+export function normalizeAgenticJob(value: unknown): RawPosting | null {
+  if (!value || typeof value !== "object") return null;
+  const job = value as Record<string, unknown>;
+  const title = str(job.title);
+  const company = str(job.companyName);
+  const slug = str(job.slug);
+  if (!title || !company || !/^[A-Za-z0-9_-]+$/.test(slug)) return null;
+  const description = str(job.description);
+  const countries = Array.isArray(job.countries)
+    ? job.countries.map((entry) => str(entry)).filter(Boolean)
+    : [];
+  return {
+    title,
+    url: `${AGENTIC_ORIGIN}/jobs/${slug}`,
+    company,
+    location: str(job.location) || countries.join(" / ") || str(job.geoRegion),
+    ...(toDateString(job.postedAt) ? { postedAt: toDateString(job.postedAt) } : {}),
+    ...(description ? { description: cleanDescription(description) } : {}),
+  };
+}
+
+/** A narrow, newest-first slice stays comfortably below the documented 30 req/min limit. */
+const agenticJobs: Provider = {
+  id: "agentic-jobs",
+  label: "Agentic Engineering Jobs",
+  board: true,
+  async fetch(_company, ctx) {
+    const out: RawPosting[] = [];
+    for (let page = 1; page <= 5; page += 1) {
+      const api = assertHost(
+        `${AGENTIC_ORIGIN}/api/v1/jobs?page=${page}&sort=newest`,
+        (host) => host === "agentic-engineering-jobs.com",
+        "agentic-jobs",
+      );
+      const json = await ctx.fetchJson(api) as Record<string, unknown>;
+      if (!Array.isArray(json.data)) throw new Error("agentic-jobs: unexpected response shape");
+      const batch = json.data.map(normalizeAgenticJob).filter((job): job is RawPosting => job !== null);
+      out.push(...batch);
+      const meta = (json.meta ?? {}) as Record<string, unknown>;
+      const perPage = typeof meta.per_page === "number" && meta.per_page > 0 ? meta.per_page : 50;
+      const total = typeof meta.total === "number" ? meta.total : null;
+      if (json.data.length < perPage || (total !== null && page * perPage >= total)) break;
+    }
+    return usable(out);
+  },
+};
+
+/** Turn one free-form HN hiring comment into a filterable posting. */
+export function parseHnHiringComment(text: string, threadUrl = ""): RawPosting | null {
+  if (!text.trim()) return null;
+  const plain = unentity(text
+    .replace(/<a\s[^>]*href="([^"]+)"[^>]*>.*?<\/a>/gi, "$1")
+    .replace(/<\/?(?:p|br|div|li|h[1-6])\b[^>]*>/gi, "\n")
+    .replace(/<[^>]+>/g, " "));
+  const lines = plain.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (lines.length === 0) return null;
+  const parts = (lines[0] ?? "").split("|").map((part) => part.trim());
+  const url = plain.match(/https?:\/\/[^\s<>"')]+/)?.[0]?.replace(/[.,;!?)]+$/, "") || threadUrl;
+  const title = (lines[0] ?? "").replace(/https?:\/\/[^\s]+/g, "").trim();
+  if (!title || !url) return null;
+  return {
+    title,
+    url,
+    company: parts.length >= 2 ? parts[0] ?? "" : "HN Hiring",
+    location: parts.length >= 3 ? (parts[2] ?? "").replace(/https?:\/\/\S+/g, "").trim() : "",
+    description: cleanDescription(plain),
+  };
+}
+
+const hackernews: Provider = {
+  id: "hackernews",
+  label: "Hacker News — Who is hiring?",
+  board: true,
+  async fetch(_company, ctx) {
+    const search = await ctx.fetchJson(
+      "https://hn.algolia.com/api/v1/search_by_date?tags=story,author_whoishiring&hitsPerPage=5",
+    ) as Record<string, unknown>;
+    const hits = Array.isArray(search.hits) ? search.hits as Record<string, unknown>[] : [];
+    const thread = hits.find((hit) => /ask\s+hn[:\s]+who\s+is\s+hiring/i.test(str(hit.title)));
+    const id = str(thread?.objectID);
+    if (!id) throw new Error("hackernews: current hiring thread not found");
+    const threadUrl = `https://news.ycombinator.com/item?id=${id}`;
+    const item = await ctx.fetchJson(`https://hn.algolia.com/api/v1/items/${encodeURIComponent(id)}`) as Record<string, unknown>;
+    const children = Array.isArray(item.children) ? item.children as Record<string, unknown>[] : [];
+    return usable(children.flatMap((child) => {
+      if (child.deleted || child.dead) return [];
+      const posting = parseHnHiringComment(str(child.text), threadUrl);
+      if (!posting) return [];
+      const postedAt = toDateString(child.created_at);
+      return [{ ...posting, ...(postedAt ? { postedAt } : {}) }];
+    }));
+  },
+};
+
+const BUILTIN_SF_HOST = "www.builtinsf.com";
+const BUILTIN_ITEM = /\{"@type":"ListItem","position":\d+,"name":("(?:[^"\\]|\\.)*"),"url":("(?:[^"\\]|\\.)*")(?:,"description":("(?:[^"\\]|\\.)*"))?\}/g;
+
+function relativePostedAt(text: string, now: number): string | undefined {
+  const clean = text.replace(/^reposted\s+/i, "").trim();
+  if (/^today$/i.test(clean)) return toDateString(now);
+  if (/^yesterday$/i.test(clean)) return toDateString(now - 86_400_000);
+  const match = clean.match(/^(\d+|an?)\+?\s+(hour|day|week|month)s?\s+ago$/i);
+  if (!match) return undefined;
+  const count = /^an?$/i.test(match[1] ?? "") ? 1 : Number(match[1]);
+  const scale = { hour: 3_600_000, day: 86_400_000, week: 604_800_000, month: 2_592_000_000 };
+  const unit = scale[(match[2] ?? "").toLowerCase() as keyof typeof scale];
+  return unit ? toDateString(now - count * unit) : undefined;
+}
+
+function textAfterIcon(card: string, icon: string): string {
+  const at = card.indexOf(icon);
+  if (at < 0) return "";
+  for (const match of card.slice(at, at + 600).matchAll(/>([^<>]+)</g)) {
+    const value = detag(match[1] ?? "");
+    if (value) return value;
+  }
+  return "";
+}
+
+/** Parse Built In's schema.org spine and enrich it from the rendered cards. */
+export function parseBuiltInPage(html: string, now: number = Date.now()): RawPosting[] {
+  const starts = [...html.matchAll(/data-id="job-card-title"/g)].map((match) => match.index);
+  const cards = new Map<string, { company: string; location: string; postedAt?: string }>();
+  for (let index = 0; index < starts.length; index += 1) {
+    const start = starts[index] as number;
+    const card = html.slice(start, Math.min(starts[index + 1] ?? html.length, start + 12_000));
+    const id = card.match(/data-builtin-track-job-id="(\d+)"/)?.[1];
+    if (!id) continue;
+    let company = "";
+    const before = html.slice(index === 0 ? Math.max(0, start - 2500) : starts[index - 1], start);
+    for (const match of before.matchAll(/<a[^>]+href="\/company\/[^"]*"[^>]*>([\s\S]{0,240}?)<\/a>/g)) {
+      company = detag(match[1] ?? "");
+    }
+    const mode = textAfterIcon(card, "fa-house-building");
+    let location = textAfterIcon(card, "fa-location-dot");
+    if (/^\d+\s+Locations?$/i.test(location)) {
+      location = detag(card.match(/aria-label="Job locations"[^>]*data-bs-title="([^"]*)"/)?.[1] ?? "");
+    }
+    if (/remote/i.test(mode) && !/remote/i.test(location)) location = [mode, location].filter(Boolean).join(" · ");
+    const postedAt = relativePostedAt(textAfterIcon(card, "fa-clock"), now);
+    cards.set(id, { company, location, ...(postedAt ? { postedAt } : {}) });
+  }
+
+  const postings: RawPosting[] = [];
+  for (const match of html.matchAll(BUILTIN_ITEM)) {
+    try {
+      const title = JSON.parse(match[1] ?? "\"\"") as string;
+      const url = JSON.parse(match[2] ?? "\"\"") as string;
+      const description = match[3] ? JSON.parse(match[3]) as string : "";
+      const id = url.match(/\/(\d+)(?:[/?#]|$)/)?.[1] ?? "";
+      const card = cards.get(id);
+      postings.push({
+        title,
+        url,
+        company: card?.company || "Built In",
+        // Missing location is safer than an invented one: admission deliberately
+        // keeps unknown locations, while a wrong city can silently reject a role.
+        location: card?.location || "",
+        ...(card?.postedAt ? { postedAt: card.postedAt } : {}),
+        ...(description ? { description: cleanDescription(description) } : {}),
+      });
+    } catch {
+      // One malformed JSON-LD row must not cost the page.
+    }
+  }
+  return usable(postings);
+}
+
+const builtInSf: Provider = {
+  id: "builtinsf",
+  label: "Built In San Francisco",
+  board: true,
+  async fetch(_company, ctx) {
+    const out: RawPosting[] = [];
+    const seen = new Set<string>();
+    for (const category of ["dev-engineering", "product", "data-analytics"]) {
+      for (let page = 1; page <= 3; page += 1) {
+        const url = assertHost(
+          `https://${BUILTIN_SF_HOST}/jobs/${category}?page=${page}`,
+          (host) => host === BUILTIN_SF_HOST,
+          "builtinsf",
+        );
+        const parsed = parseBuiltInPage(await ctx.fetchText(url, {
+          maxBytes: 2_000_000,
+          headers: { "User-Agent": "Mozilla/5.0 (compatible; RobinJobs/1.0)" },
+        }));
+        if (parsed.length === 0) break;
+        let fresh = 0;
+        for (const posting of parsed) {
+          if (seen.has(posting.url)) continue;
+          seen.add(posting.url);
+          out.push(posting);
+          fresh += 1;
+        }
+        if (fresh === 0) break;
+      }
+    }
+    return out;
+  },
+};
+
+/* ─────────────────────────── iCIMS ─────────────────────────── */
+
+const ICIMS_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (compatible; RobinJobs/1.0)",
+  "Accept-Language": "en-US,en;q=0.9",
+};
+
+function icimsOrigin(company: TrackedCompany): string | null {
+  const parsed = parseUrl(company.url);
+  return parsed?.hostname.endsWith(".icims.com") ? parsed.origin : null;
+}
+
+/** Parse one public iCIMS search page. */
+export function parseIcimsSearchPage(html: string, origin: string, company: string): RawPosting[] {
+  const postings: RawPosting[] = [];
+  for (const card of html.split("iCIMS_JobCardItem").slice(1)) {
+    const href = card.match(/href="([^"]*\/jobs\/\d+\/[^"/]+\/job[^"]*)"/)?.[1];
+    const title = card.match(/<h3\b[^>]*>\s*([\s\S]*?)<\/h3>/)?.[1];
+    if (!href || !title) continue;
+    let url: URL;
+    try {
+      url = new URL(unentity(href), origin);
+    } catch {
+      continue;
+    }
+    if (url.origin !== origin) continue;
+    const location = card.match(/<span\b[^>]*class=["'][^"']*field-label[^"']*["'][^>]*>\s*Location\s*<\/span>\s*<span\b[^>]*>\s*([\s\S]*?)<\/span>/)?.[1];
+    postings.push({
+      title: detag(title),
+      url: `${url.origin}${url.pathname}`,
+      company,
+      location: location ? detag(location) : "",
+      ref: { board: origin, id: `${url.origin}${url.pathname}` },
+    });
+  }
+  return usable(postings);
+}
+
+function parseIcimsDetail(html: string): { postedAt?: string; location?: string; description?: string } {
+  for (const match of html.matchAll(/<script\b[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(match[1] ?? "");
+    } catch {
+      continue;
+    }
+    const nodes = Array.isArray(parsed)
+      ? parsed
+      : Array.isArray((parsed as Record<string, unknown> | null)?.["@graph"])
+        ? (parsed as Record<string, unknown>)["@graph"] as unknown[]
+        : [parsed];
+    for (const value of nodes) {
+      if (!value || typeof value !== "object") continue;
+      const node = value as Record<string, unknown>;
+      const type = node["@type"];
+      if (type !== "JobPosting" && !(Array.isArray(type) && type.includes("JobPosting"))) continue;
+      const address = ((Array.isArray(node.jobLocation) ? node.jobLocation[0] : node.jobLocation) as Record<string, unknown> | undefined)?.address as Record<string, unknown> | undefined;
+      const location = address
+        ? [str(address.addressLocality), str(address.addressRegion), str(address.addressCountry)].filter((part) => part && part !== "UNAVAILABLE").join(", ")
+        : "";
+      const description = str(node.description);
+      return {
+        ...(toDateString(node.datePosted) ? { postedAt: toDateString(node.datePosted) } : {}),
+        ...(location ? { location } : {}),
+        ...(description ? { description: cleanDescription(description) } : {}),
+      };
+    }
+  }
+  return {};
+}
+
+const icims: Provider = {
+  id: "icims",
+  label: "iCIMS",
+  detect: (company) => icimsOrigin(company) !== null,
+  refFromUrl(url) {
+    const parsed = parseUrl(url);
+    if (!parsed?.hostname.endsWith(".icims.com") || !/\/jobs\/\d+\/.+\/job\/?$/.test(parsed.pathname)) return null;
+    return { board: parsed.origin, id: `${parsed.origin}${parsed.pathname}` };
+  },
+  async fetch(company, ctx) {
+    const origin = icimsOrigin(company);
+    if (!origin) throw new Error(`icims: cannot derive portal origin from ${company.url}`);
+    const out: RawPosting[] = [];
+    let previous = "";
+    for (let page = 0; page < 30; page += 1) {
+      // Multi-page tenants share one host; a small pause avoids turning one
+      // large employer into a burst while single-page boards stay fast.
+      if (page > 0) await new Promise((resolve) => setTimeout(resolve, 250));
+      const url = assertHost(
+        `${origin}/jobs/search?ss=1&pr=${page}&in_iframe=1`,
+        (host) => host === new URL(origin).hostname,
+        "icims",
+      );
+      const batch = parseIcimsSearchPage(await ctx.fetchText(url, { headers: ICIMS_HEADERS }), origin, company.name);
+      if (batch.length === 0 || batch[0]?.url === previous) break;
+      previous = batch[0]?.url ?? "";
+      out.push(...batch);
+    }
+    return out;
+  },
+  async hydrate(postings, ctx) {
+    await eachLimited(postings.filter((posting) => posting.ref), HYDRATE_CONCURRENCY, async (posting) => {
+      const target = posting.ref?.id;
+      const origin = posting.ref?.board;
+      if (!target || !origin) return;
+      const url = assertHost(`${target}?in_iframe=1`, (host) => host === new URL(origin).hostname, "icims");
+      const detail = parseIcimsDetail(await ctx.fetchText(url, { headers: ICIMS_HEADERS }));
+      if (detail.postedAt) posting.postedAt = detail.postedAt;
+      if (detail.location && !posting.location) posting.location = detail.location;
+      if (detail.description) posting.description = detail.description;
+    });
+  },
+};
+
 /* ─────────────────────── SolidJobs (Poland) ─────────────────────── */
 
 /**
@@ -1656,9 +1981,13 @@ export async function findDeadPostings(
 
 /** Alphabetical, so detect() precedence is the same on every machine. */
 export const PROVIDERS: readonly Provider[] = [
+  agenticJobs,
   ashby,
   bigTechIndex,
+  builtInSf,
   greenhouse,
+  hackernews,
+  icims,
   lever,
   recruitee,
   remoteok,
@@ -1716,9 +2045,13 @@ export async function hydrateDescriptions(
   ctx: FetchContext,
   options: HydrateOptions = {},
 ): Promise<void> {
+  // Work on copies: clearing an old snippet must not erase it when a request
+  // fails. Native hydrators that skip existing descriptions now get a chance
+  // to upgrade snippets, not only completely empty rows.
+  const targets = postings.filter((posting) => !hasSubstantiveDescription(posting.description));
+  const attempts: (RawPosting & { source: string })[] = targets.map((posting) => ({ ...posting, description: undefined }));
   const bySource = new Map<string, RawPosting[]>();
-  for (const posting of postings) {
-    if (posting.description) continue;
+  for (const posting of attempts) {
     const group = bySource.get(posting.source);
     if (group) group.push(posting);
     else bySource.set(posting.source, [posting]);
@@ -1738,13 +2071,27 @@ export async function hydrateDescriptions(
         if (ref) posting.ref = ref;
       }
       await provider.hydrate(group, ctx).catch(() => {});
-      return;
+    } else {
+      await hydrateByUrl(group, ctx, { readUnknownBoards: false });
     }
-    // The source has no description of its own — a community list, say, which
-    // carries an apply link and nothing else. Route each posting to whichever
-    // provider owns the ATS the link points at.
-    await hydrateByUrl(group, ctx, options);
+    // A native provider can fail too. The public-page fallback is still
+    // opt-in and still enforces the same HTTPS/host/redirect safeguards.
+    if (options.readUnknownBoards) {
+      await eachLimited(group.filter((posting) => !hasSubstantiveDescription(posting.description)), HYDRATE_CONCURRENCY, async (posting) => {
+        const description = await readUnknownBoard(posting.url, ctx);
+        if (description && description.length > (posting.description?.length ?? 0)) posting.description = description;
+      });
+    }
   }));
+  attempts.forEach((attempt, index) => {
+    const original = targets[index]!;
+    if (attempt.description && (hasSubstantiveDescription(attempt.description)
+      || attempt.description.length > (original.description?.length ?? 0))) {
+      original.description = attempt.description;
+    }
+    if (attempt.ref) original.ref = attempt.ref;
+    if (attempt.postedAt) original.postedAt = attempt.postedAt;
+  });
 }
 
 /**

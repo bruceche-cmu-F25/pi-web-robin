@@ -1,6 +1,24 @@
 /** Job-pipeline behavior shared by the HTTP and Pi tool adapters. */
 import { JOB_STATUSES, pendingJobs, type Job, type JobStatus } from "./jobs.ts";
-import { readJobProfile, updateJobs } from "./store.ts";
+import { readJobProfile, readJobs, updateJobs } from "./store.ts";
+import { experienceProblem, reviewProblem, scoringContext, type JobReview } from "./job-evidence.ts";
+import { enrichJob } from "./job-intake.ts";
+import { hydrateDescriptions, makeFetchContext, type FetchContext } from "./job-providers.ts";
+
+/** Fetch better evidence on demand, without running scan retention or changing statuses. */
+export async function getJobDetails(id: string, ctx: FetchContext = makeFetchContext()): Promise<Job | null> {
+  const original = readJobs().find((job) => job.id === id);
+  if (!original) return null;
+  const fetched = { ...original };
+  await hydrateDescriptions([fetched], ctx, { readUnknownBoards: readJobProfile().readUnknownBoards });
+  return updateJobs((jobs) => {
+    const job = jobs.find((entry) => entry.id === id);
+    if (!job) return { value: null, changed: false };
+    // Do not replace a description another request updated while fetching.
+    const changed = job.description === original.description && enrichJob(job, fetched);
+    return { value: job, changed };
+  });
+}
 
 export function updateJob(
   id: string,
@@ -71,21 +89,46 @@ export function scoreJob(input: {
   score: number;
   reason: string;
   flags?: string[];
+  review?: JobReview;
 }): { job: Job; pending: number } | null {
   if (!Number.isFinite(input.score)) throw new Error("score must be a number between 1 and 5");
-  const pinned = readJobProfile().scoreModel;
+  if (!input.reason.trim()) throw new Error("reason must not be empty");
+  const profile = readJobProfile();
+  const pinned = profile.scoreModel;
   const result = updateJobs((jobs) => {
     const job = jobs.find((entry) => entry.id === input.id);
     if (!job) return { value: null, changed: false };
 
-    job.score = Math.min(Math.max(input.score, 1), 5);
-    job.reason = input.reason.trim();
-    job.scoredAt = new Date().toISOString();
-    if (input.flags && input.flags.length > 0) {
-      job.flags = input.flags.map((flag) => flag.trim()).filter(Boolean);
+    enrichJob(job, job);
+    let score = Math.min(Math.max(input.score, 1), 5);
+    const flags = new Set((input.flags ?? []).map((flag) => flag.trim()).filter(Boolean));
+    const problem = experienceProblem(job, profile)
+      ?? (input.review || score >= 4 ? reviewProblem(job, profile, input.review) : null);
+    if (problem) {
+      flags.add(problem);
+      score = Math.min(score, problem.startsWith("blocked-") ? 2 : 3.9);
     }
+    if (profile.maxYears > 0 && job.yearsRequired !== undefined && job.yearsRequired > profile.maxYears) {
+      score = Math.min(score, 2.5);
+      flags.add(`asks ${job.yearsRequired}+ yrs`);
+    }
+    job.score = score;
+    const caveat = problem === "stretch-experience"
+      ? (profile.rubricLocale === "zh" ? "经验可尝试" : "Experience stretch")
+      : problem?.startsWith("blocked-")
+        ? (profile.rubricLocale === "zh" ? "硬性要求不符" : "Eligibility blocked")
+        : (profile.rubricLocale === "zh" ? "待核实" : "Needs verification");
+    job.reason = `${problem ? `${caveat} (${problem}): ` : ""}${input.reason.trim()}`;
+    job.scoredAt = new Date().toISOString();
+    job.scoreContext = scoringContext(job, profile);
+    delete job.scoreStale;
+    if (input.review) job.review = input.review;
+    else delete job.review;
+    if (flags.size) job.flags = [...flags];
+    else delete job.flags;
     if (pinned) job.scoredBy = `${pinned.provider}/${pinned.modelId}`;
-    return { value: { job, pending: pendingJobs(jobs).length }, changed: true };
+    else delete job.scoredBy;
+    return { value: { job, pending: pendingJobs(jobs, profile).length }, changed: true };
   });
   return result;
 }

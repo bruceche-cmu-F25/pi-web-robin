@@ -31,7 +31,7 @@ export async function GET(req: Request) {
     scoring: readJobScoringState(),
     // Live from the store, so the page can show a backlog even when no run is
     // in flight — the number that decides whether pressing Score does anything.
-    pending: pendingJobs(readJobs()).length,
+    pending: pendingJobs(readJobs(), profile).length,
     model: profile.scoreModel ? `${profile.scoreModel.provider}/${profile.scoreModel.modelId}` : null,
   });
 }
@@ -53,7 +53,7 @@ export async function POST(req: Request) {
   }
 
   const profile = readJobProfile();
-  const startedWith = pendingJobs(readJobs()).length;
+  const startedWith = pendingJobs(readJobs(), profile).length;
   if (startedWith === 0) {
     return NextResponse.json({ started: false, reason: "nothing-pending", scoring: readJobScoringState() });
   }
@@ -76,6 +76,7 @@ export async function POST(req: Request) {
     for (let round = 1; round <= state.totalRounds; round += 1) {
       state.round = round;
       writeJobScoringState(state);
+      const beforeIds = pendingJobs(readJobs(), readJobProfile()).map(job => job.id);
       try {
         await runAssistantTurn("scoring", scoringPrompt(batch, profile.rubricLocale));
       } catch (error) {
@@ -85,11 +86,15 @@ export async function POST(req: Request) {
       }
       // Counted from the store, not decremented, so a round the model half
       // finished is reflected honestly.
-      state.remaining = pendingJobs(readJobs()).length;
+      const remainingIds = new Set(pendingJobs(readJobs(), readJobProfile()).map(job => job.id));
+      state.remaining = remainingIds.size;
+      if (beforeIds.length > 0 && beforeIds.every(id => remainingIds.has(id))) {
+        state.error = "Scoring made no progress; stopped rather than spending another model round on the same jobs.";
+      }
       writeJobScoringState(state);
-      if (state.remaining === 0) break;
+      if (state.remaining === 0 || state.error) break;
     }
-    state.remaining = pendingJobs(readJobs()).length;
+    state.remaining = pendingJobs(readJobs(), readJobProfile()).length;
     state.running = false;
     state.finishedAt = new Date().toISOString();
     writeJobScoringState(state);

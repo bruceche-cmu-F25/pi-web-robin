@@ -104,7 +104,11 @@ export async function POST(req: Request) {
     const locale = body.locale === "zh" ? "zh" as const : "en" as const;
 
     const jobs = readJobs();
-    const batch = await liveBatch(digestCandidates(jobs, profile), limit);
+    const checked = await liveBatch(digestCandidates(jobs, profile), limit);
+    // Network checks can take seconds; a blacklist/score/status edit during that
+    // wait must win over the snapshot taken before it.
+    const checkedIds = new Set(checked.map(job => job.id));
+    const batch = digestCandidates(readJobs(), readJobProfile()).filter(job => checkedIds.has(job.id));
 
     if (body.preview !== true && batch.length > 0) {
       claimJobs(batch.map((job: Job) => job.id));
@@ -116,7 +120,7 @@ export async function POST(req: Request) {
       count: batch.length,
       // How much is still unscored, and how big a bite the scorer takes. The
       // bridge sizes its scoring loop from these rather than guessing.
-      pending: pendingJobs(readJobs()).length,
+      pending: pendingJobs(readJobs(), readJobProfile()).length,
       scoreBatch: profile.scoreBatch,
     });
   } catch (error) {

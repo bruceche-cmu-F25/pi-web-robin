@@ -32,6 +32,7 @@ import {
 } from "@/extension/robin/tools";
 import { getRpcSession, startRpcSession, type AgentSessionWrapper } from "@/lib/rpc-manager";
 import { resolveSessionPath } from "@/lib/session-reader";
+import { prepareJobScoringSession } from "./job-scoring-runtime.ts";
 
 /** A dashboard command is a sentence, not a coding task; well under a minute. */
 const TURN_TIMEOUT_MS = 90_000;
@@ -330,8 +331,17 @@ export async function runAssistantTurn(
   // everything after that turn can already see it in the history.
   const preamble = fresh && "preamble" in mode ? mode.preamble : null;
   const prompt = preamble ? `${preamble}\n\n---\n\n${message}` : message;
-  const { reply, usedTools } = await runTurn(session, prompt, images, mode.timeoutMs);
-  return { reply, usedTools, sessionId };
+  try {
+    if (modeName === "scoring") await prepareJobScoringSession(session);
+    const { reply, usedTools } = await runTurn(session, prompt, images, mode.timeoutMs);
+    return { reply, usedTools, sessionId };
+  } finally {
+    // Stateless scorers must not keep running (and writing) after a timeout.
+    if (stateless) {
+      try { await session.send({ type: "abort" }); }
+      finally { session.destroy(); }
+    }
+  }
 }
 
 /**

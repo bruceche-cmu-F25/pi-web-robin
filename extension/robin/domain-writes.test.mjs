@@ -64,7 +64,7 @@ test("job writes share applied timestamps, scoring, notes and deletion", () => {
   const appliedAt = applied.appliedAt;
   updateJob("job-1", { status: "new" });
   assert.equal(updateJob("job-1", { status: "applied" }).appliedAt, appliedAt);
-  assert.equal(scoreJob({ id: "job-1", score: 4.5, reason: "Strong fit" }).job.score, 4.5);
+  assert.equal(scoreJob({ id: "job-1", score: 3, reason: "Plausible fit" }).job.score, 3);
   assert.equal(claimJobs(["job-1"]), 1);
   assert.equal(claimJobs(["job-1"]), 0, "a delivered job is claimed once");
   assert.equal(dropJobs(["job-1"]), 1);

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { deleteJob, updateJob } from "@/extension/robin/job-domain";
+import { jobSummary } from "@/extension/robin/job-evidence";
 import {
   JOB_STATUSES,
   readJobProfile,
@@ -40,7 +41,7 @@ export async function GET(req: Request) {
   try {
     const profile = readJobProfile();
     return NextResponse.json({
-      jobs: sortJobs(readJobs()),
+      jobs: sortJobs(readJobs()).map((job) => jobSummary(job, profile)),
       scan: readJobScanState(),
       minScore: profile.minScore,
       digestSize: profile.digestSize,

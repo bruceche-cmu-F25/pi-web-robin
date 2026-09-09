@@ -21,6 +21,7 @@ const SAMPLE_ENTRY = {
   greenhouse: "acme",
   lever: "acme",
   ashby: "acme",
+  icims: "acme",
   workday: "acme|wd5|External",
 };
 
@@ -32,7 +33,7 @@ test("a constructed board URL always lands on that ATS's own host", () => {
     assert.ok(company, directory.id);
     const { hostname, protocol } = new URL(company.url);
     assert.equal(protocol, "https:", directory.id);
-    assert.match(hostname, /greenhouse\.io$|lever\.co$|ashbyhq\.com$|myworkdayjobs\.com$/, directory.id);
+    assert.match(hostname, /greenhouse\.io$|lever\.co$|ashbyhq\.com$|icims\.com$|myworkdayjobs\.com$/, directory.id);
   }
 });
 
@@ -70,11 +71,13 @@ test("board slugs are tidied for display without pretending to be real names", (
   assert.equal(prettifySlug("8thlightrebuild"), "8thlightrebuild");
 });
 
-test("the one directory that would dominate a nightly run is budgeted across nights", () => {
-  const workday = DIRECTORIES.find((directory) => directory.id === "workday");
-  assert.ok(workday.nightlyLimit > 0 && workday.nightlyLimit < 12_000);
-  // The others finish in minutes, so they have nothing to spread out.
-  for (const directory of DIRECTORIES.filter((entry) => entry.id !== "workday")) {
+test("large directories are budgeted across nights", () => {
+  for (const id of ["workday", "icims"]) {
+    const directory = DIRECTORIES.find((entry) => entry.id === id);
+    assert.ok(directory.nightlyLimit > 0, id);
+  }
+  // The shared-host directories finish in minutes, so they run whole.
+  for (const directory of DIRECTORIES.filter((entry) => !["workday", "icims"].includes(entry.id))) {
     assert.equal(directory.nightlyLimit, undefined, directory.id);
   }
 });
