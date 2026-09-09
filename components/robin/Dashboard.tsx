@@ -6,6 +6,7 @@ import { localDate, parseLocalDate } from "@/extension/robin/dates";
 import { AssistantBar } from "./AssistantBar";
 import { CalendarPanel } from "./CalendarPanel";
 import { JobsPanel } from "./JobsPanel";
+import { LearningPanel } from "./LearningPanel";
 import { LinksPanel } from "./LinksPanel";
 import { TodoPanel } from "./TodoPanel";
 
@@ -106,6 +107,7 @@ export function Dashboard() {
           {/* Between the todos and the links: the morning push lands here, and
               this is the row you scan before deciding what today looks like. */}
           <JobsPanel />
+          <LearningPanel />
           <LinksPanel />
         </div>
       </main>

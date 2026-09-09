@@ -10,6 +10,7 @@ import {
   type PracticeRecord,
 } from "@/extension/robin/practice";
 import { LearningShelf } from "./LearningShelf";
+import { LearningPanel } from "./LearningPanel";
 import { usePolledResource } from "./usePolledResource";
 
 interface PracticeResponse {
@@ -49,8 +50,8 @@ interface HubEntry {
 export function LearningHub() {
   const { t } = useI18n();
   /**
-   * Only the practice side is polled.
-   *
+   * These resource-directory entries only poll practice; the dedicated FSO
+   * continuation panel above them owns its separate course progress.
    * There is nothing to fetch for the curriculum: it keeps no progress, so its
    * entry says what it is rather than how far through it you are. Reviews, on
    * the other hand, are the one number worth putting in front of someone
@@ -118,6 +119,8 @@ export function LearningHub() {
             <p className="pi-eyebrow">{t("learn.subtitle")}</p>
           </div>
         </div>
+
+        <LearningPanel showCourseOutline />
 
         <section className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))" }}>
           {entries.map((entry) => (
