@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
+import { formatRelativeTime } from "@/lib/i18n/format";
 import { ConfigEmptyState, ConfigSectionTitle } from "./SettingsUi";
 import AnthropicIcon from "@lobehub/icons/es/Anthropic/components/Mono";
 import OpenAIIcon from "@lobehub/icons/es/OpenAI/components/Mono";
@@ -35,20 +36,10 @@ type LoadState =
   | { phase: "success"; providers: ProviderUsageView[]; fetchedAt: number }
   | { phase: "error"; message: string };
 
-function formatReset(resetAt: number, now: number): string {
-  const remainingMs = resetAt - now;
-  if (remainingMs <= 0) return "now";
-  const minutes = Math.max(1, Math.ceil(remainingMs / 60_000));
-  const days = Math.floor(minutes / 1440);
-  const hours = Math.floor((minutes % 1440) / 60);
-  const mins = minutes % 60;
-  if (days > 0) return `in ${days}d ${hours}h`;
-  if (hours > 0) return `in ${hours}h ${mins}m`;
-  return `in ${mins}m`;
-}
-
-function UsageBar({ window: usageWindow, now }: { window: UsageWindowView; now: number }) {
-  const { t } = useI18n();
+export function UsageBar({ window: usageWindow, now }: { window: UsageWindowView; now: number }) {
+  const { t, locale } = useI18n();
+  const reset = new Date(usageWindow.resetAt ?? NaN);
+  const hasReset = Number.isFinite(reset.getTime());
   const used = Math.round(usageWindow.usedPercent);
   const remaining = Math.max(0, 100 - used);
   const color = used >= 80 ? "var(--danger)" : used >= 60 ? "var(--warning)" : "var(--success)";
@@ -65,11 +56,21 @@ function UsageBar({ window: usageWindow, now }: { window: UsageWindowView; now: 
       <div style={{ height: 6, marginTop: 5, background: "var(--bg-hover)", border: "1px solid var(--border)", borderRadius: 0, overflow: "hidden" }}>
         <div style={{ width: `${used}%`, height: "100%", background: color, transition: "width 0.3s ease" }} />
       </div>
-      {usageWindow.resetAt !== undefined && (
-        <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 3 }}>
-          {t("models.usageResets", { time: formatReset(usageWindow.resetAt, now) })}
-        </div>
-      )}
+      <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 5, lineHeight: 1.5, overflowWrap: "anywhere" }}>
+        {hasReset ? (
+          <>
+            <time dateTime={reset.toISOString()}>
+              {t("models.usageResets", { time: reset.toLocaleString(locale, {
+                month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZoneName: "short",
+              }) })}
+            </time>
+            {" · "}
+            {reset.getTime() <= now
+              ? t("models.usageResetPassed")
+              : formatRelativeTime(reset, locale, new Date(now))}
+          </>
+        ) : t("models.usageResetUnavailable")}
+      </div>
     </div>
   );
 }
@@ -150,6 +151,11 @@ export function UsagePanel() {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
