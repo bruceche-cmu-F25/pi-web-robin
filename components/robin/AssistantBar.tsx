@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useI18n } from "@/hooks/useI18n";
 import { getInitialNavigation } from "@/lib/initial-navigation";
@@ -79,6 +79,7 @@ export function AssistantBar({
   const navigation = getInitialNavigation(searchParams);
   const preservedSessionId = sessionId === undefined ? navigation.sessionId : sessionId;
   const preservedCwd = cwd === undefined ? navigation.requestedCwd : cwd;
+  const [mode, setMode] = useState<"search" | "execute">("search");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [reply, setReply] = useState<AssistantResponse | null>(null);
@@ -86,7 +87,11 @@ export function AssistantBar({
   const [searchData, setSearchData] = useState<DashboardSearchData | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const commandPath = dashboardCommandPath(message);
+  const searchResultsRef = useRef<HTMLDivElement>(null);
+  const inFlight = useRef(false);
+  const fieldId = useId();
+  const hintId = `${fieldId}-hint`;
+  const commandPath = mode === "search" ? dashboardCommandPath(message) : null;
   const commandQuery = preservedSessionId
     ? `?session=${encodeURIComponent(preservedSessionId)}`
     : preservedCwd
@@ -94,11 +99,10 @@ export function AssistantBar({
       : "";
   const commandHref = commandPath ? `${commandPath}${commandQuery}` : null;
 
-  // The assistant field doubles as global search over links and todos — not the
-  // calendar, which is already on screen. Load both small collections once per
-  // query, then filter locally while the user keeps typing.
+  // Search is read-only. Only explicit execute mode can invoke the assistant.
+  // Load the small collections once, then filter locally while typing.
   useEffect(() => {
-    if (!message.trim() || commandPath) {
+    if (mode !== "search" || !message.trim() || commandPath) {
       setSearchData(null);
       setSearchError(null);
       return;
@@ -112,6 +116,7 @@ export function AssistantBar({
         fetchSearchResource<Pick<DashboardSearchData, "links">>("/api/robin/links", controller.signal),
         fetchSearchResource<Pick<DashboardSearchData, "todos">>("/api/robin/todos", controller.signal),
       ]).then(([links, todos]) => {
+        if (controller.signal.aborted) return;
         setSearchData({ links: links.links, todos: todos.todos });
       }).catch((caught: unknown) => {
         if ((caught as { name?: string }).name !== "AbortError") {
@@ -124,7 +129,7 @@ export function AssistantBar({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [commandPath, message, searchData]);
+  }, [mode, commandPath, message, searchData]);
 
   const searchResults = useMemo(
     () => searchData ? searchDashboard(searchData, message) : [],
@@ -134,15 +139,21 @@ export function AssistantBar({
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     const text = message.trim();
-    if (!text || busy) return;
+    if (!text || inFlight.current) return;
 
-    if (commandHref) {
-      setMessage("");
-      router.push(commandHref, { scroll: false });
-      onNavigate?.();
+    if (mode === "search") {
+      if (commandHref) {
+        setMessage("");
+        router.push(commandHref, { scroll: false });
+        onNavigate?.();
+      } else {
+        const results = searchResultsRef.current;
+        (results?.querySelector<HTMLAnchorElement>("a") ?? results)?.focus();
+      }
       return;
     }
 
+    inFlight.current = true;
     setBusy(true);
     setError(null);
     setReply(null);
@@ -164,6 +175,7 @@ export function AssistantBar({
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
+      inFlight.current = false;
       setBusy(false);
       inputRef.current?.focus();
     }
@@ -193,25 +205,59 @@ export function AssistantBar({
     <section
       className="robin-assistant-bar pi-card flex flex-col gap-2 p-4"
     >
-      <form onSubmit={submit} className="flex gap-2">
+      <div role="group" aria-label={t("robin.assistant.mode")} className="flex flex-wrap gap-1">
+        {(["search", "execute"] as const).map((value) => (
+          <button
+            key={value}
+            type="button"
+            aria-pressed={mode === value}
+            disabled={busy}
+            data-active={mode === value ? "true" : undefined}
+            className="ui-action min-h-[44px] px-3 text-xs disabled:opacity-40"
+            onClick={() => {
+              setMode(value);
+              setError(null);
+              setReply(null);
+              inputRef.current?.focus();
+            }}
+          >
+            {t(`robin.assistant.${value}Mode`)}
+          </button>
+        ))}
+      </div>
+      <form
+        onSubmit={submit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && event.nativeEvent.isComposing) event.preventDefault();
+        }}
+        className="flex gap-2"
+      >
+        <label htmlFor={fieldId} className="sr-only">{t(`robin.assistant.${mode}Label`)}</label>
         <input
+          id={fieldId}
+          name={mode === "search" ? "query" : "instruction"}
+          aria-describedby={hintId}
+          autoComplete="off"
           ref={inputRef}
           value={message}
           onChange={(event) => setMessage(event.target.value)}
           onPaste={handlePaste}
           disabled={busy}
-          placeholder={t("robin.assistant.placeholder")}
+          placeholder={t(`robin.assistant.${mode}Placeholder`)}
           className="min-w-0 flex-1 rounded px-3 py-2 text-sm outline-none disabled:opacity-60"
         />
         <button
           type="submit"
           disabled={busy || !message.trim()}
-          className="ui-action ui-action--outline pi-bracket px-3 disabled:opacity-40"
+          className="ui-action ui-action--outline pi-bracket min-h-[44px] shrink-0 px-3 text-xs disabled:opacity-40"
           data-state="accent"
         >
-          {busy ? "…" : t(commandHref ? "robin.assistant.open" : "robin.assistant.send")}
+          {busy ? t("robin.assistant.working") : t(mode === "execute" ? "robin.assistant.execute" : commandHref ? "robin.assistant.open" : "robin.assistant.searchMode")}
         </button>
       </form>
+      <p id={hintId} className="text-xs" style={{ color: "var(--text-muted)" }}>
+        {t(`robin.assistant.${mode}Hint`)}
+      </p>
 
       {!busy && commandHref && (
         <a
@@ -227,16 +273,22 @@ export function AssistantBar({
         </a>
       )}
 
-      {!busy && !commandHref && searchResults.length > 0 && <SearchResults results={searchResults} t={t} />}
-
-      {busy && (
-        <p className="text-xs" style={{ color: "var(--text-dim)" }}>{t("robin.assistant.working")}</p>
+      {mode === "search" && !commandHref && message.trim() && searchResults.length > 0 && (
+        <SearchResults results={searchResults} containerRef={searchResultsRef} t={t} />
       )}
 
-      {searchError && message.trim() && (
-        <p className="text-xs" style={{ color: "var(--text-dim)" }}>{searchError}</p>
+      <div role="status" aria-live="polite" aria-atomic="true" className="text-xs" style={{ color: "var(--text-muted)" }}>
+        {busy ? t("robin.assistant.working") : reply ? t("robin.assistant.finished") :
+          mode === "search" && message.trim() && !commandHref && !searchError ? (
+            !searchData ? t("robin.assistant.searching") :
+              searchResults.length ? t("robin.assistant.resultCount", { count: String(searchResults.length) }) : t("robin.assistant.noResults")
+          ) : null}
+      </div>
+
+      {mode === "search" && searchError && message.trim() && (
+        <p role="alert" className="text-xs" style={{ color: "var(--danger)" }}>{searchError}</p>
       )}
-      {error && <p className="text-xs" style={{ color: "var(--accent)" }}>{error}</p>}
+      {error && <p role="alert" className="text-xs" style={{ color: "var(--danger)" }}>{error}</p>}
 
       {reply && !busy && (
         <div className="flex flex-col gap-1">
@@ -266,18 +318,23 @@ export function AssistantBar({
 
 function SearchResults({
   results,
+  containerRef,
   t,
 }: {
   results: DashboardSearchResult[];
+  containerRef: React.RefObject<HTMLDivElement | null>;
   t: (key: string, params?: Record<string, string>) => string;
 }) {
   return (
     <div
+      ref={containerRef}
+      tabIndex={-1}
       role="region"
       aria-label={t("robin.search.results")}
-      className="max-h-64 overflow-y-auto rounded"
+      className="max-h-64 overflow-y-auto rounded focus-visible:outline-2 focus-visible:outline-[var(--focus-ring)]"
       style={{ border: "1px solid var(--border)", background: "var(--bg)" }}
     >
+      <p className="pi-eyebrow px-3 py-2" style={{ color: "var(--text-muted)" }}>{t("robin.search.results")}</p>
       {results.map((result) => {
         const category = result.kind === "link" ? t("robin.links.title") : t("robin.todos.title");
         const detail = result.kind === "link"
