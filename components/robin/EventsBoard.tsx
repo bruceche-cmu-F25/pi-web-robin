@@ -13,6 +13,7 @@ import {
 } from "@/extension/robin/tech-events";
 import { useI18n } from "@/hooks/useI18n";
 import { mutate, usePolledResource } from "./usePolledResource";
+import styles from "./EventsBoard.module.css";
 
 interface EventsResponse {
   events: TechEvent[];
@@ -48,6 +49,7 @@ function formatTime(event: TechEvent, locale: string): string {
       ...(event.timezone ? { timeZone: event.timezone } : {}),
       hour: "numeric",
       minute: "2-digit",
+      timeZoneName: "short",
     }).format(new Date(event.startAt));
   } catch {
     return "";
@@ -67,10 +69,10 @@ function Chip({ label, tone }: { label: string; tone?: "accent" | "danger" | "su
   const color = tone === "accent"
     ? "var(--accent)"
     : tone === "danger"
-      ? "var(--danger)"
+      ? "color-mix(in srgb, var(--danger) 80%, var(--text))"
       : tone === "success"
-        ? "var(--success)"
-        : "var(--text-dim)";
+        ? "color-mix(in srgb, var(--success) 65%, var(--text))"
+        : "var(--text-muted)";
   return (
     <span
       className="pi-eyebrow inline-flex shrink-0 items-center gap-1 border px-1.5 py-0.5"
@@ -85,20 +87,20 @@ function Chip({ label, tone }: { label: string; tone?: "accent" | "danger" | "su
   );
 }
 
-function Score({ label, value, prominent = false }: { label: string; value: number; prominent?: boolean }) {
+function Score({ label, value }: { label: string; value: number }) {
   return (
     <div className="min-w-0">
-      <span className="pi-eyebrow block truncate" style={{ color: "var(--text-dim)" }} title={label}>{label}</span>
+      <span className="pi-eyebrow block" title={label}>{label}</span>
       <strong
-        className={`mt-0.5 block tabular-nums ${prominent ? "text-2xl" : "text-lg"}`}
-        style={{ color: prominent ? "var(--accent)" : "var(--text)", fontWeight: 600 }}
+        className="mt-0.5 block text-lg tabular-nums"
+        style={{ color: "var(--text)", fontWeight: 600 }}
       >
         {value.toFixed(1)}
       </strong>
       <div className="mt-1 h-1 overflow-hidden" style={{ background: "var(--border)" }} aria-hidden="true">
         <div
           className="h-full"
-          style={{ width: `${value * 20}%`, background: prominent ? "var(--accent)" : "var(--text-dim)" }}
+          style={{ width: `${value * 20}%`, background: "var(--accent)" }}
         />
       </div>
     </div>
@@ -116,9 +118,9 @@ function SignalChips({ signals }: { signals: TechEventSignal[] }) {
   );
 }
 
-function ScheduleStatus({ rating, ready }: { rating: TechEventRating; ready: boolean }) {
+function ScheduleStatus({ rating, ready, unavailable }: { rating: TechEventRating; ready: boolean; unavailable: boolean }) {
   const { t } = useI18n();
-  if (!ready) return <Chip label={t("robin.events.scheduleChecking")} />;
+  if (!ready) return <Chip label={t(unavailable ? "robin.events.scheduleUnavailable" : "robin.events.scheduleChecking")} />;
   if (rating.conflicts.length === 0) return <Chip label={t("robin.events.noConflict")} tone="success" />;
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -126,7 +128,7 @@ function ScheduleStatus({ rating, ready }: { rating: TechEventRating; ready: boo
         label={t("robin.events.conflictCount", { count: String(rating.conflicts.length) })}
         tone="danger"
       />
-      <span className="min-w-0 truncate text-xs" style={{ color: "var(--danger)" }} title={rating.conflicts.map((item) => item.title).join(", ")}>
+      <span className="min-w-0 text-xs break-words" style={{ color: "var(--danger)" }} title={rating.conflicts.map((item) => item.title).join(", ")}>
         {t("robin.events.conflictsWith", { title: rating.conflicts.map((item) => item.title).slice(0, 2).join("、") })}
       </span>
     </div>
@@ -137,7 +139,9 @@ function EventCard({
   event,
   locale,
   scheduleReady,
+  scheduleUnavailable,
   busy,
+  pending,
   rank,
   onSave,
   onHide,
@@ -145,7 +149,9 @@ function EventCard({
   event: RatedEvent;
   locale: string;
   scheduleReady: boolean;
+  scheduleUnavailable: boolean;
   busy: boolean;
+  pending: boolean;
   rank?: number;
   onSave: () => void;
   onHide: () => void;
@@ -156,13 +162,12 @@ function EventCard({
     : [event.venue, event.city].filter(Boolean).join(" · ");
   return (
     <article
-      className="relative overflow-hidden p-3"
-      style={{
-        background: "var(--bg-subtle)",
-        opacity: event.hidden ? 0.5 : 1,
-      }}
+      className={styles.card}
+      data-recommended={rank ? "true" : undefined}
+      data-saved={event.saved || undefined}
+      aria-busy={pending}
     >
-      <div className="flex flex-col gap-4 desktop:flex-row desktop:items-start">
+      <div className={styles.cardBody}>
         <div className="flex min-w-0 flex-1 gap-3">
           {rank && (
             <span
@@ -179,23 +184,24 @@ function EventCard({
             </span>
           )}
           <div className="min-w-0 flex-1">
-            <div className="mb-1 flex flex-wrap items-center gap-2">
-              <span className="pi-eyebrow" style={{ color: "var(--accent)" }}>
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <time className="pi-eyebrow" dateTime={event.startAt} style={{ color: "var(--accent)" }}>
                 {formatDay(localDay(event), locale, true)} · {formatTime(event, locale)}
-              </span>
+              </time>
               {event.saved && <Chip label={t("robin.events.savedMark")} tone="accent" />}
+              {event.hidden && <Chip label={t("robin.events.hiddenMark")} />}
             </div>
-            <a
+            <h3 className={styles.eventTitle}><a
               href={event.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-base leading-snug hover:underline"
+              className={styles.eventLink}
               style={{ color: "var(--text)", fontWeight: 550 }}
               title={event.url}
             >
               {event.title}
-            </a>
-            <p className="mt-1 truncate text-xs" style={{ color: "var(--text-muted)" }} title={[event.host, place].filter(Boolean).join(" · ")}>
+            </a></h3>
+            <p className="mt-2 text-xs break-words" style={{ color: "var(--text-muted)" }} title={[event.host, place].filter(Boolean).join(" · ")}>
               {[event.host, place].filter(Boolean).join(" · ")}
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-1.5">
@@ -210,30 +216,38 @@ function EventCard({
           </div>
         </div>
 
-        <div className="grid shrink-0 grid-cols-3 gap-3 desktop:w-64" aria-label={t("robin.events.scores")}>
-          <Score label={t("robin.events.overallScore")} value={event.rating.overall} prominent />
-          <Score label={t("robin.events.relevanceScore")} value={event.rating.relevance} />
-          <Score label={t("robin.events.fitScore")} value={event.rating.suitability} />
-        </div>
+        <details className={styles.scoreDetails}>
+          <summary className={styles.scoreSummary}>
+            <span className="pi-eyebrow">{t("robin.events.overallScore")}</span>
+            <strong className={styles.scoreValue}>{event.rating.overall.toFixed(1)}<small> / 5</small></strong>
+            <span className="pi-eyebrow">{t("robin.events.scoreDetails")}</span>
+          </summary>
+          <div className="grid grid-cols-2 gap-3 pt-3" aria-label={t("robin.events.scores")}>
+            <Score label={t("robin.events.relevanceScore")} value={event.rating.relevance} />
+            <Score label={t("robin.events.fitScore")} value={event.rating.suitability} />
+            <p className="col-span-2 text-xs" style={{ color: "var(--text-muted)" }}>{t("robin.events.scoreMethod")}</p>
+          </div>
+        </details>
       </div>
 
-      <div className="mt-4 flex flex-col gap-3 border-t pt-3 desktop:flex-row desktop:items-center" style={{ borderColor: "var(--border)" }}>
-        <ScheduleStatus rating={event.rating} ready={scheduleReady} />
-        <div className="flex items-center gap-4 desktop:ml-auto">
+      <div className={styles.cardFooter}>
+        <ScheduleStatus rating={event.rating} ready={scheduleReady} unavailable={scheduleUnavailable} />
+        <div className={styles.cardActions}>
           <button
             type="button"
             disabled={busy}
             onClick={onSave}
-            className="ui-action pi-eyebrow -my-3 min-h-11 py-3 disabled:opacity-40"
+            className="ui-action pi-eyebrow min-h-11 min-w-11 disabled:opacity-40"
             data-state={event.saved ? "accent" : undefined}
+            aria-pressed={!!event.saved}
           >
-            {event.saved ? t("robin.events.unsave") : t("robin.events.save")}
+            {pending ? t("robin.events.saving") : event.saved ? t("robin.events.unsave") : t("robin.events.save")}
           </button>
           <button
             type="button"
             disabled={busy}
             onClick={onHide}
-            className="ui-action pi-eyebrow -my-3 min-h-11 py-3 disabled:opacity-40"
+            className="ui-action pi-eyebrow min-h-11 min-w-11 disabled:opacity-40"
             data-hover={event.hidden ? undefined : "danger"}
           >
             {event.hidden ? t("robin.events.unhide") : t("robin.events.hide")}
@@ -250,6 +264,7 @@ export function EventsBoard() {
   const eventResource = usePolledResource<EventsResponse>("/api/robin/tech-events", 30_000);
   const scheduleResource = usePolledResource<ScheduleResponse>("/api/robin/events", 30_000);
 
+  const [query, setQuery] = useState("");
   const [topic, setTopic] = useState<TopicFilter>("all");
   const [savedOnly, setSavedOnly] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
@@ -257,7 +272,8 @@ export function EventsBoard() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
 
-  const scheduleReady = scheduleResource.data !== null;
+  const scheduleUnavailable = !!(scheduleResource.error || scheduleResource.data?.google?.error);
+  const scheduleReady = scheduleResource.data !== null && !scheduleUnavailable;
   const schedule = useMemo(() => scheduleResource.data?.events ?? [], [scheduleResource.data]);
   const events = useMemo(() => eventResource.data?.events ?? [], [eventResource.data]);
   const rated = useMemo<RatedEvent[]>(() => events.map((event) => ({
@@ -269,8 +285,17 @@ export function EventsBoard() {
     if (event.hidden && !showHidden) return false;
     if (savedOnly && !event.saved) return false;
     if (topic !== "all" && !event.topics.includes(topic)) return false;
-    return true;
-  }), [rated, showHidden, savedOnly, topic]);
+    const text = [event.title, event.host, event.city, event.venue, ...event.matched].join(" ").toLocaleLowerCase(locale);
+    return text.includes(query.trim().toLocaleLowerCase(locale));
+  }), [rated, showHidden, savedOnly, topic, query, locale]);
+
+  const hasFilters = query !== "" || topic !== "all" || savedOnly || showHidden;
+  const clearFilters = () => {
+    setQuery("");
+    setTopic("all");
+    setSavedOnly(false);
+    setShowHidden(false);
+  };
 
   const recommendations = useMemo(() => scheduleReady
     ? rated
@@ -287,7 +312,7 @@ export function EventsBoard() {
       list.push(event);
       grouped.set(day, list);
     }
-    return [...grouped.entries()].map(([day, items]) => [
+    return [...grouped.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([day, items]) => [
       day,
       items.sort((a, b) => b.rating.overall - a.rating.overall || a.startAt.localeCompare(b.startAt)),
     ] as const);
@@ -325,16 +350,18 @@ export function EventsBoard() {
   const error = actionError ?? eventResource.error ?? scheduleResource.error ?? scheduleResource.data?.google?.error;
 
   return (
-    <div className="robin-page robin-dashboard flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
-      <main className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-4 desktop:p-6">
+    <div className={`robin-page robin-dashboard flex-1 overflow-y-auto ${styles.page}`} style={{ minHeight: 0 }}>
+      <main className="mx-auto flex w-full max-w-6xl flex-col gap-5 p-4 desktop:p-6">
         <header className="flex flex-wrap items-baseline justify-between gap-4">
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-2">
+            <span className="pi-eyebrow" style={{ color: "var(--accent)" }}>{t("robin.events.kicker")}</span>
             <h1 className="text-3xl" style={{ fontStyle: "italic", fontWeight: 400, color: "var(--text)" }}>
               {t("robin.events.title")}
             </h1>
-            <p className="pi-eyebrow">{t("robin.events.subtitle")}</p>
+            <p className="text-sm" style={{ color: "var(--text-muted)" }}>{t("robin.events.subtitle")}</p>
           </div>
-          <nav className="flex flex-wrap items-baseline gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <a href="#all-upcoming-events" className={`ui-action pi-eyebrow ${styles.listShortcut}`}>{t("robin.events.allUpcoming")} ↓</a>
             <span className="pi-eyebrow">
               {scan?.finishedAt
                 ? t("robin.events.lastScan", { date: new Date(scan.finishedAt).toLocaleDateString(locale) })
@@ -343,16 +370,24 @@ export function EventsBoard() {
             <button
               type="button"
               onClick={() => void scanNow()}
-              disabled={running}
-              className="ui-action pi-chrome-label pi-bracket text-xs disabled:opacity-40"
+              disabled={running || eventResource.loading}
+              className="ui-action pi-chrome-label pi-bracket min-h-11 text-xs disabled:opacity-40"
               data-state="accent"
             >
               {running ? t("robin.events.scanning") : t("robin.events.scan")}
             </button>
-          </nav>
+          </div>
         </header>
 
-        {error && <p className="text-sm" role="alert" style={{ color: "var(--danger)" }}>{error}</p>}
+        {error && (
+          <div className={styles.error} role="alert">
+            <p className="min-w-0 flex-1 break-words text-sm">{error}</p>
+            <button type="button" className="ui-action pi-eyebrow min-h-11" onClick={() => { void eventResource.refresh(); void scheduleResource.refresh(); setActionError(null); }}>
+              {t("robin.events.retry")}
+            </button>
+          </div>
+        )}
+        {running && <p role="status" className={styles.notice}>{t("robin.events.scanningNote")}</p>}
 
         <section className="pi-card flex flex-col gap-3 p-4" aria-labelledby="event-recommendations">
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -362,33 +397,37 @@ export function EventsBoard() {
             </div>
             <div className="flex items-center gap-4 text-right">
               <div>
-                <strong className="block text-2xl tabular-nums" style={{ color: "var(--accent)" }}>{recommendations.length}</strong>
+                <strong className="block text-2xl tabular-nums" style={{ color: "var(--accent)" }}>{scheduleReady && eventResource.data ? recommendations.length : "—"}</strong>
                 <span className="pi-eyebrow">{t("robin.events.noConflictPicks")}</span>
               </div>
               <div className="hidden h-9 w-px desktop:block" style={{ background: "var(--border)" }} />
-              <p className="hidden max-w-52 text-xs desktop:block" style={{ color: "var(--text-dim)" }}>
+              <p className="hidden max-w-52 text-xs desktop:block" style={{ color: "var(--text-muted)" }}>
                 {t("robin.events.scoreMethod")}
               </p>
             </div>
           </div>
 
-          {!scheduleReady ? (
-            <div className="border p-4 text-sm" style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}>
-              {t("robin.events.scheduleChecking")}
+          {eventResource.loading || !scheduleReady ? (
+            <div className={styles.empty} role="status">
+              {t(eventResource.loading ? "robin.events.loading" : scheduleUnavailable ? "robin.events.scheduleUnavailable" : "robin.events.scheduleChecking")}
             </div>
+          ) : !eventResource.data && eventResource.error ? (
+            <p className={styles.empty}>{t("robin.events.loadFailed")}</p>
           ) : recommendations.length === 0 ? (
             <div className="border p-4 text-sm" style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}>
               {t("robin.events.noRecommendations")}
             </div>
           ) : (
-            <div className="grid gap-1">
+            <div className={styles.recommendations}>
               {recommendations.map((event, index) => (
                 <EventCard
                   key={`recommended:${event.id}`}
                   event={event}
                   locale={locale}
                   scheduleReady={scheduleReady}
-                  busy={busyId === event.id}
+                  scheduleUnavailable={scheduleUnavailable}
+                  busy={busyId !== null}
+                  pending={busyId === event.id}
                   rank={index + 1}
                   onSave={() => void patch(event, { saved: !event.saved })}
                   onHide={() => void patch(event, { hidden: !event.hidden })}
@@ -400,17 +439,21 @@ export function EventsBoard() {
 
         <section className="pi-card flex flex-col gap-3 p-4" aria-labelledby="all-upcoming-events">
           <header className="flex flex-wrap items-baseline justify-between gap-2">
-            <h2 id="all-upcoming-events" className="pi-label">{t("robin.events.allUpcoming")}</h2>
-            <span className="pi-eyebrow">{t("robin.events.sortedWithinDay")}</span>
+            <h2 id="all-upcoming-events" tabIndex={-1} className="pi-label">{t("robin.events.allUpcoming")}</h2>
+            <span className="pi-eyebrow" role="status">{t("robin.events.resultCount", { count: eventResource.data ? String(visible.length) : "—" })}</span>
           </header>
 
-          <div className="flex flex-wrap items-center gap-2" aria-label={t("robin.events.filters")}>
+          <label className="flex flex-col gap-2">
+            <span className="pi-eyebrow">{t("robin.events.search")}</span>
+            <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("robin.events.searchPlaceholder")} className="min-h-11 w-full px-3 text-sm" />
+          </label>
+          <div className={styles.filters} role="group" aria-label={t("robin.events.filters")}>
             {(["all", ...TECH_EVENT_TOPICS] as TopicFilter[]).map((candidate) => (
               <button
                 key={candidate}
                 type="button"
                 onClick={() => setTopic(candidate)}
-                className="ui-action ui-action--chip pi-eyebrow px-2 py-1"
+                className="ui-action ui-action--chip pi-eyebrow min-h-11 px-3 py-2"
                 data-state={candidate === topic ? "accent" : "muted"}
                 aria-pressed={candidate === topic}
               >
@@ -421,7 +464,7 @@ export function EventsBoard() {
               <button
                 type="button"
                 onClick={() => setSavedOnly((on) => !on)}
-                className="ui-action ui-action--chip pi-eyebrow px-2 py-1"
+                className="ui-action ui-action--chip pi-eyebrow min-h-11 px-3 py-2"
                 data-state={savedOnly ? "accent" : "muted"}
                 aria-pressed={savedOnly}
               >
@@ -430,7 +473,7 @@ export function EventsBoard() {
               <button
                 type="button"
                 onClick={() => setShowHidden((on) => !on)}
-                className="ui-action ui-action--chip pi-eyebrow px-2 py-1"
+                className="ui-action ui-action--chip pi-eyebrow min-h-11 px-3 py-2"
                 data-state={showHidden ? "accent" : "muted"}
                 aria-pressed={showHidden}
               >
@@ -439,32 +482,40 @@ export function EventsBoard() {
             </span>
           </div>
 
-          {days.length === 0 ? (
-            <p className="py-2 text-sm" style={{ color: "var(--text-dim)" }}>
-              {running
-                ? t("robin.events.scanningNote")
-                : events.length > 0
-                  ? t("robin.events.emptyFiltered")
-                  : t("robin.events.empty")}
-            </p>
+          <div className="flex min-h-11 flex-wrap items-center justify-between gap-2">
+            <span className="pi-eyebrow">{t("robin.events.sortedWithinDay")}</span>
+            {hasFilters && <button type="button" className="ui-action pi-eyebrow min-h-11" onClick={clearFilters}>{t("robin.events.clearFilters")}</button>}
+          </div>
+
+          {eventResource.loading ? (
+            <p className={styles.empty} role="status">{t("robin.events.loading")}</p>
+          ) : !eventResource.data && eventResource.error ? (
+            <p className={styles.empty}>{t("robin.events.loadFailed")}</p>
+          ) : days.length === 0 ? (
+            <div className={styles.empty}>
+              <p>{running ? t("robin.events.scanningNote") : hasFilters ? t("robin.events.emptyFiltered") : t("robin.events.empty")}</p>
+              <p className="mt-2 text-xs">{hasFilters ? t("robin.events.filterHint") : t("robin.events.cadence")}</p>
+            </div>
           ) : days.map(([day, dayEvents]) => (
             <section key={day} className="flex flex-col gap-1" aria-labelledby={`events-${day}`}>
               <h3
                 id={`events-${day}`}
-                className="pi-eyebrow sticky top-0 z-10 flex items-center gap-2 border-b py-2"
+                className="pi-eyebrow flex items-center gap-2 border-b py-3"
                 style={{ background: "var(--bg-panel)", borderColor: "var(--border)", color: "var(--text)" }}
               >
                 {day === eventResource.data?.today ? t("robin.events.today") : formatDay(day, locale)}
-                <span className="tabular-nums" style={{ color: "var(--text-dim)" }}>{dayEvents.length}</span>
+                <span className="tabular-nums" style={{ color: "var(--text-muted)" }}>{dayEvents.length}</span>
               </h3>
-              <div className="grid gap-1">
+              <div className={styles.eventList}>
                 {dayEvents.map((event) => (
                   <EventCard
                     key={event.id}
                     event={event}
                     locale={locale}
                     scheduleReady={scheduleReady}
-                    busy={busyId === event.id}
+                    scheduleUnavailable={scheduleUnavailable}
+                    busy={busyId !== null}
+                    pending={busyId === event.id}
                     onSave={() => void patch(event, { saved: !event.saved })}
                     onHide={() => void patch(event, { hidden: !event.hidden })}
                   />
@@ -474,8 +525,8 @@ export function EventsBoard() {
           ))}
         </section>
 
-        <section className="pi-card flex flex-col gap-1 p-4">
-          <h2 className="pi-label self-start">{t("robin.events.sources")}</h2>
+        <details className={`pi-card p-4 ${styles.sources}`}>
+          <summary className="pi-eyebrow min-h-11 content-center">{t("robin.events.sources")}{failures.length > 0 ? ` · ${t("robin.events.sourceFailures", { count: String(failures.length) })}` : ""}</summary>
           {scan ? (
             <p className="text-xs" style={{ color: "var(--text-muted)" }}>
               {t("robin.events.scanSummary", {
@@ -488,8 +539,8 @@ export function EventsBoard() {
           {failures.map((source) => (
             <p key={source.id} className="text-xs" style={{ color: "var(--danger)" }}>{source.name}: {source.error}</p>
           ))}
-          <p className="pi-eyebrow">{t("robin.events.cadence")}</p>
-        </section>
+          <p className="pi-eyebrow mt-2">{t("robin.events.cadence")}</p>
+        </details>
       </main>
     </div>
   );
