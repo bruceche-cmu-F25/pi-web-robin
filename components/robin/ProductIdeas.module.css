@@ -1,0 +1,108 @@
+/* Respond to the workbench's width, including when the agent pane is open. */
+.page {
+  container-type: inline-size;
+}
+
+.page button,
+.page input,
+.page select,
+.page textarea {
+  scroll-margin-block: 16px;
+}
+
+.journey {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-block-start: 1px solid var(--border);
+  border-inline-start: 1px solid var(--border);
+}
+
+.stage {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  min-width: 0;
+  text-align: start;
+  color: var(--text);
+  background: linear-gradient(180deg, var(--stage-wash), var(--bg-panel));
+  border-inline-end: 1px solid var(--border);
+  border-block-end: 1px solid var(--border);
+  box-shadow: inset 0 3px var(--stage-color);
+}
+
+.stage > span:first-child {
+  width: 100%;
+}
+
+.stageCount {
+  font-variant-numeric: tabular-nums;
+  color: var(--stage-color);
+}
+
+.stage[data-selected="true"] {
+  box-shadow: inset 0 3px var(--stage-color), inset 0 -3px var(--stage-color);
+  background: linear-gradient(180deg, var(--stage-wash), var(--bg-panel) 140%);
+}
+
+.stage[data-selected="true"] > span:last-child {
+  color: var(--stage-color);
+}
+
+.workbench {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 24px;
+}
+
+.filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border);
+}
+
+.filters button[data-selected="true"] {
+  color: var(--accent);
+  box-shadow: inset 0 -2px var(--accent);
+}
+
+.empty {
+  padding: 32px 24px;
+  color: var(--text);
+}
+
+.idea {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Keep hidden drafts mounted without letting card styles expose them. */
+.idea[hidden] {
+  display: none;
+}
+
+.capture {
+  align-self: start;
+  border-block-start: 3px solid var(--accent);
+  background: linear-gradient(145deg, var(--accent-subtle), var(--bg-panel) 42%);
+}
+
+@container (min-width: 640px) {
+  .journey {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+  .stage {
+    padding: 16px;
+  }
+}
+
+@container (min-width: 900px) {
+  .captureShortcut {
+    display: none;
+  }
+  .workbench {
+    grid-template-columns: minmax(0, 1fr) 320px;
+  }
+}

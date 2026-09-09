@@ -37,6 +37,7 @@ export function ProductResourceShelf({ locale, resources, onRefresh }: {
   onRefresh: () => Promise<void>;
 }) {
   const copy = productCopy(locale);
+  const categoryNames = { source: copy.sourceCategory, test: copy.testCategory, tool: copy.toolCategory, stack: copy.stackCategory, distribution: copy.distributionCategory };
   const [open, setOpen] = useState<LibraryCategory | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -80,25 +81,31 @@ export function ProductResourceShelf({ locale, resources, onRefresh }: {
     <>
       {error ? <p className="text-sm" style={{ color: "var(--danger)" }}>{error}</p> : null}
       <section aria-labelledby="product-resource-shelf-title">
-        <h2 id="product-resource-shelf-title" className="pi-label mb-4">{copy.resources}</h2>
+        <h2 id="product-resource-shelf-title" className="sr-only">{copy.resources}</h2>
         <div style={{ columns: "300px", columnGap: "1rem" }}>
         {groups.map(({ category, items }) => {
           const expanded = open === category;
+          const chip = categoryChip(category);
           return (
             <article
               key={category}
               className="pi-card mb-4 flex w-full break-inside-avoid flex-col gap-2 p-4"
               // Opened, it takes the whole measure: the detail carries a
               // summary and editable price per item, which need the width.
-              style={expanded ? { columnSpan: "all" } : undefined}
+              style={{
+                ...(expanded ? { columnSpan: "all" } : {}),
+                borderTop: `3px solid ${chip.color}`,
+                background: `linear-gradient(145deg, ${chip.background}, var(--bg-panel) 34%)`,
+              }}
             >
               <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                <span className="pi-eyebrow inline-block border px-1.5 py-0.5" style={categoryChip(category)}>{category}</span>
+                <span className="pi-eyebrow inline-block border px-1.5 py-0.5" style={chip}>{categoryNames[category]}</span>
                 <span className="pi-eyebrow tabular-nums">{items.length}</span>
                 <button
                   type="button"
                   onClick={() => setOpen(expanded ? null : category)}
                   aria-expanded={expanded}
+                  aria-label={`${expanded ? copy.close : copy.details} ${categoryNames[category]}`}
                   className="ui-action pi-bracket ml-auto min-h-[44px] px-2 text-xs split:min-h-0 split:px-0"
                 >
                   {expanded ? copy.close : copy.details}
@@ -147,19 +154,19 @@ function CompactResourceRow({ resource }: { resource: ProductLibraryResource }) 
       <span className="min-w-0 flex-1">
         <span className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
           <span
-            className="text-[12.5px] leading-[1.35] group-hover:underline"
+            className="text-sm font-semibold group-hover:underline"
             style={{ color: resource.status === "using" ? "var(--text)" : "var(--text-muted)" }}
           >
             {resource.name}
           </span>
           {resource.url ? (
-            <span className="pi-eyebrow shrink-0" style={{ fontSize: 9 }}>{hostOf(resource.url)}</span>
+            <span className="pi-eyebrow break-all">{hostOf(resource.url)}</span>
           ) : null}
         </span>
         <span className="mt-0.5 block text-xs leading-relaxed" style={{ color: "var(--text-dim)" }}>
           {resource.summary}
         </span>
-        <span className="pi-eyebrow mt-0.5 block" style={{ fontSize: 9 }}>{resource.price}</span>
+        <span className="pi-eyebrow mt-1 block">{resource.price}</span>
       </span>
     </>
   );

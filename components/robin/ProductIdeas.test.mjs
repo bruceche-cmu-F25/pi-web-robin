@@ -29,9 +29,10 @@ test("the brief asks for the discouraging answer", () => {
 });
 
 test("saving another field never clears an unsaved name or note", () => {
-  assert.match(source, /if \(saved && clearsDraft\) setDirty\(false\)/);
+  assert.match(source, /if \(saved && clearsDraft\) setDraft\(null\)/);
   assert.match(source, /save\(\{ name: name\.trim\(\), note \}, true\)/);
-  assert.doesNotMatch(source, /if \(saved\) setDirty\(false\)/);
+  assert.doesNotMatch(source, /if \(saved\) setDraft\(null\)/);
+  assert.match(source, /const \{ name, note \} = draft \?\? idea/);
 });
 
 test("an idea can be wrong, and says so on the row", () => {

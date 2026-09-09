@@ -103,7 +103,7 @@ export function ProductIncubatorShell({ children }: { children: ReactNode }) {
           <h1 className="text-3xl" style={{ fontStyle: "italic", fontWeight: 400, color: "var(--text)" }}>
             {copy.title}
           </h1>
-          <p className="pi-eyebrow hidden split:block">{copy.subtitle}</p>
+          <p className="max-w-2xl text-xs" style={{ color: "var(--text-muted)" }}>{copy.subtitle}</p>
         </div>
         <button
           type="button"

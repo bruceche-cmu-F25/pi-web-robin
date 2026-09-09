@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, type CSSProperties } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { localDate } from "@/extension/robin/dates";
-import { PLAYBOOK, PLAYBOOK_STEPS, nextStep, playbookStep, type PlaybookStep } from "@/extension/robin/product-playbook";
+import { PLAYBOOK, PLAYBOOK_STEPS, nextStep, playbookStep, type PlaybookStep, type StepId } from "@/extension/robin/product-playbook";
 import { ideaAttention } from "@/extension/robin/product-shape";
 import type { Idea, IdeaLink, ProductCapture, ProductLibraryResource } from "@/extension/robin/product-domain";
 // The chat input already downscales before base64, which matters: a
@@ -14,6 +14,7 @@ import { ProductResourceShelf } from "./ProductResourceShelf";
 import { productCopy, researchBrief, type ProductCopy } from "./product-copy";
 import { categoryChip, stepSurface } from "./productSurface";
 import { usePolledResource } from "./usePolledResource";
+import styles from "./ProductIdeas.module.css";
 
 interface IdeasResponse {
   ideas: Idea[];
@@ -40,20 +41,7 @@ async function jsonRequest<T>(url: string, method: string, body: unknown): Promi
   return parsed;
 }
 
-/**
- * The whole of Product, on one page.
- *
- * There used to be a six-column board here and a second route behind every
- * card holding eight kinds of structured record. After all of it shipped the
- * store held one real idea with every one of those collections empty — the
- * apparatus was sized for running a portfolio, and what actually happens is
- * that you have an idea and want somewhere to put what you learn.
- *
- * So: capture at the top, the ideas under it, the library's links at the
- * bottom. An idea opens in place rather than on its own page, because
- * navigating away from the list to read one line of a note is most of what
- * made keeping this current feel like a chore.
- */
+/** A workbench, not a portfolio dashboard: ideas first, tools on demand. */
 export function ProductIdeas() {
   const { locale } = useI18n();
   const copy = productCopy(locale);
@@ -65,6 +53,8 @@ export function ProductIdeas() {
   const { data: library, error: libraryError, refresh: refreshLibrary } = usePolledResource<{ resources: ProductLibraryResource[] }>("/api/robin/product-library", 60_000);
   const [openId, setOpenId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<"active" | "attention" | "parked" | StepId>("active");
+  const [libraryOpen, setLibraryOpen] = useState(false);
 
   const ideas = useMemo(() => data?.ideas ?? [], [data?.ideas]);
   const today = localDate();
@@ -78,12 +68,18 @@ export function ProductIdeas() {
     [ideas],
   );
   const parked = useMemo(() => ideas.filter((idea) => idea.parked).length, [ideas]);
-  // Said once at the top rather than only per row: the point of the count is
-  // that you see it without going looking.
+  // The decision queue uses the same attention rules as each idea card.
   const needsAttention = useMemo(
     () => ideas.filter((idea) => ideaAttention(idea, today) !== null).length,
     [ideas, today],
   );
+
+  const selectedStep = PLAYBOOK.find((step) => step.id === filter);
+  const visibleIds = new Set(ideas.filter((idea) => {
+    if (filter === "parked") return !!idea.parked;
+    if (filter === "attention") return ideaAttention(idea, today) !== null;
+    return !idea.parked && (filter === "active" || idea.step === filter);
+  }).map((idea) => idea.id));
 
   const act = async <T,>(run: () => Promise<T>): Promise<T | null> => {
     setActionError(null);
@@ -98,39 +94,84 @@ export function ProductIdeas() {
   };
 
   return (
-    <main className="flex flex-1 flex-col overflow-y-auto" style={{ minWidth: 0, minHeight: 0 }}>
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 p-4 desktop:p-6">
-        <Capture captures={data?.captures ?? []} ideas={ideas} copy={copy} locale={locale} onDone={refresh} />
-
-        {error || libraryError || actionError ? <p className="text-sm" style={{ color: "var(--danger)" }}>{error ?? libraryError ?? actionError}</p> : null}
-
-        <section className="pi-card flex flex-col p-4">
-          <header className="mb-3 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-            <h2 className="pi-label">{copy.ideas}</h2>
-            <p className="pi-eyebrow tabular-nums">
-              {counts.map(({ step, n }, index) => (
-                <span key={step.id}>
-                  {index > 0 ? <span style={{ color: "var(--text-dim)" }}> → </span> : null}
-                  <span style={{ color: n > 0 ? stepSurface(step.id).ink : "var(--text-dim)" }}>
-                    {step.name[zh ? "zh" : "en"]}{n > 0 ? ` ${n}` : ""}
-                  </span>
-                </span>
-              ))}
-              {parked > 0 ? <span style={{ color: "var(--text-dim)" }}> · {copy.parked} {parked}</span> : null}
-            </p>
-            {needsAttention > 0 ? (
-              <p className="pi-eyebrow tabular-nums" style={{ color: "var(--warning)" }}>{copy.overdue} {needsAttention}</p>
-            ) : null}
+    <main className={`${styles.page} flex flex-1 flex-col overflow-y-auto`} style={{ minWidth: 0, minHeight: 0 }}>
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 p-4 desktop:p-6">
+        <section aria-labelledby="product-journey" className="flex flex-col gap-3">
+          <header className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 id="product-journey" className="pi-label">{copy.journey}</h2>
+            <span className="pi-eyebrow">{data ? `${ideas.length - parked} ${copy.activeUnit}` : copy.loading}</span>
           </header>
+          <div className={styles.journey} role="group" aria-label={copy.step}>
+            {counts.map(({ step, n }, index) => {
+              const surface = stepSurface(step.id);
+              return (
+                <button
+                  key={step.id}
+                  type="button"
+                  aria-pressed={filter === step.id}
+                  onClick={() => setFilter(filter === step.id ? "active" : step.id)}
+                  className={`ui-action ${styles.stage}`}
+                  data-selected={filter === step.id}
+                  style={{ "--stage-color": surface.ink, "--stage-wash": surface.wash } as CSSProperties}
+                >
+                  <span className="pi-eyebrow flex items-center justify-between gap-2">
+                    <span aria-hidden="true">0{index + 1}</span>
+                    <span className={styles.stageCount}>{data ? n : "—"}</span>
+                  </span>
+                  <span className="text-sm font-semibold">{step.name[zh ? "zh" : "en"]}</span>
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+            {selectedStep ? selectedStep.question[zh ? "zh" : "en"] : copy.journeyHint}
+          </p>
+        </section>
 
-          {ideas.length === 0 ? (
-            <p className="text-sm" style={{ color: "var(--text-dim)" }}>{copy.noIdeas}</p>
-          ) : (
-            <ul className="m-0 flex list-none flex-col p-0">
+        {error || libraryError || actionError ? (
+          <p role="alert" className="pi-panel p-3 text-sm" style={{ color: "var(--danger)" }}>{error ?? libraryError ?? actionError}</p>
+        ) : null}
+
+        <div className={styles.workbench}>
+          <section className="flex min-w-0 flex-col gap-4" aria-labelledby="product-workbench">
+            <header className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 id="product-workbench" className="text-lg" style={{ color: "var(--text)" }}>{copy.workspace}</h2>
+                <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>{copy.workspaceHint}</p>
+              </div>
+              <a href="#product-capture-title" className={`ui-action pi-bracket min-h-[44px] content-center text-xs ${styles.captureShortcut}`}>{copy.directIdea}</a>
+            </header>
+            <div className={styles.filters} role="group" aria-label={copy.ideas}>
+              {([
+                ["active", copy.active, ideas.length - parked],
+                ["attention", copy.attention, needsAttention],
+                ["parked", copy.parked, parked],
+              ] as const).map(([value, label, count]) => (
+                <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)} className="ui-action min-h-[44px] px-3 text-xs" data-selected={filter === value}>
+                  {label} <span className="ml-1 tabular-nums">{data ? count : "—"}</span>
+                </button>
+              ))}
+              {selectedStep ? <span className="pi-eyebrow px-3">{selectedStep.name[zh ? "zh" : "en"]}</span> : null}
+            </div>
+
+            {!data ? <p role="status" className="pi-panel p-6 text-sm">{error ? copy.error : copy.loading}</p> : null}
+            {data && visibleIds.size === 0 ? (
+              <div className={`${styles.empty} pi-card`}>
+                <span className="pi-eyebrow">{selectedStep ? selectedStep.name[zh ? "zh" : "en"] : copy.ideas}</span>
+                <h3 className="mt-3 text-lg">{ideas.length === 0 ? copy.noIdeas : copy.noMatches}</h3>
+                <p className="mt-2 max-w-lg text-sm" style={{ color: "var(--text-muted)" }}>
+                  {selectedStep ? selectedStep.does[0]?.[zh ? "zh" : "en"] : copy.noIdeasHint}
+                </p>
+                {filter !== "active" ? <button type="button" onClick={() => setFilter("active")} className="ui-action pi-bracket mt-4 min-h-[44px] text-xs">{copy.clearFilter}</button> : null}
+              </div>
+            ) : null}
+            {/* Keep filtered rows mounted: changing views must not discard drafts. */}
+            <ul className="m-0 flex list-none flex-col gap-3 p-0" aria-label={copy.ideas}>
               {ideas.map((idea) => (
                 <IdeaRow
                   key={idea.id}
                   idea={idea}
+                  hidden={!visibleIds.has(idea.id)}
                   copy={copy}
                   locale={locale}
                   today={today}
@@ -138,32 +179,50 @@ export function ProductIdeas() {
                   open={openId === idea.id}
                   onToggle={() => setOpenId(openId === idea.id ? null : idea.id)}
                   onAct={act}
-                  onGone={() => { setOpenId(null); void refresh(); }}
+                  onGone={() => setOpenId(null)}
                 />
               ))}
             </ul>
-          )}
-        </section>
+          </section>
 
-        <ProductResourceShelf
-          locale={locale}
-          resources={library?.resources ?? []}
-          onRefresh={refreshLibrary}
-        />
+          <Capture
+            captures={data?.captures ?? []}
+            ideas={ideas}
+            copy={copy}
+            locale={locale}
+            onDone={async () => { await Promise.all([refresh(), refreshLibrary()]); }}
+            onCreated={(idea) => { setFilter("active"); setOpenId(idea.id); }}
+          />
+        </div>
+
+        <section className="border-t pt-5" style={{ borderColor: "var(--border)" }} aria-labelledby="product-toolkit">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 id="product-toolkit" className="pi-label">{copy.resources}</h2>
+              <p className="mt-2 text-xs" style={{ color: "var(--text-muted)" }}>{copy.libraryHint}</p>
+            </div>
+            <button type="button" aria-expanded={libraryOpen} aria-controls="product-library" onClick={() => setLibraryOpen(!libraryOpen)} className="ui-action pi-bracket min-h-[44px] text-xs">
+              {libraryOpen ? copy.hideResources : copy.browseResources}
+              {library ? ` · ${library.resources.filter((item) => item.status !== "archived").length}` : ""}
+            </button>
+          </div>
+          <div id="product-library" hidden={!libraryOpen} className="mt-4">
+            <ProductResourceShelf
+              locale={locale}
+              resources={library?.resources ?? []}
+              onRefresh={refreshLibrary}
+            />
+          </div>
+        </section>
       </div>
     </main>
   );
 }
 
-/**
- * One idea: a line when closed, its note and links when open.
- *
- * The note is a draft held locally and saved on demand — an idea is written in
- * passes, and a field that saved on every keystroke would fight the 30s poll
- * for the same text.
- */
-function IdeaRow({ idea, copy, locale, today, resources, open, onToggle, onAct, onGone }: {
+/** Preview the next question; keep edits local until explicitly saved. */
+function IdeaRow({ idea, hidden, copy, locale, today, resources, open, onToggle, onAct, onGone }: {
   idea: Idea;
+  hidden: boolean;
   copy: ProductCopy;
   locale: string;
   today: string;
@@ -173,9 +232,9 @@ function IdeaRow({ idea, copy, locale, today, resources, open, onToggle, onAct, 
   onAct: <T,>(run: () => Promise<T>) => Promise<T | null>;
   onGone: () => void;
 }) {
-  const [note, setNote] = useState(idea.note);
-  const [name, setName] = useState(idea.name);
-  const [dirty, setDirty] = useState(false);
+  const [draft, setDraft] = useState<{ name: string; note: string } | null>(null);
+  const { name, note } = draft ?? idea;
+  const dirty = draft !== null;
   const [busy, setBusy] = useState(false);
   const surface = stepSurface(idea.step, idea.parked);
   const step = playbookStep(idea.step);
@@ -189,27 +248,27 @@ function IdeaRow({ idea, copy, locale, today, resources, open, onToggle, onAct, 
     setBusy(false);
     // Stage, bet, link, and parked-state writes must not claim that a separate
     // name/note draft was saved. Only the button that sends that draft clears it.
-    if (saved && clearsDraft) setDirty(false);
+    if (saved && clearsDraft) setDraft(null);
   };
 
   const firstLine = idea.note.split("\n").find((line) => line.trim()) ?? "";
 
   return (
-    <li className="border-b last:border-b-0" style={{ borderColor: "var(--border)" }}>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2.5 pl-3 pr-1" style={{ borderLeft: surface.spine, background: open ? surface.wash : undefined }}>
+    <li
+      hidden={hidden}
+      className={`pi-card ${styles.idea}`}
+      style={{ borderLeft: surface.spine, background: `linear-gradient(100deg, ${surface.wash}, var(--bg-panel) 34%)` }}
+    >
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 p-4">
         <button
           type="button"
           onClick={onToggle}
           aria-expanded={open}
-          className="ui-action flex min-h-[44px] min-w-0 basis-full items-center gap-2 text-left split:min-h-0 split:basis-auto split:flex-1 split:items-baseline"
+          aria-controls={`product-notebook-${idea.id}`}
+          className="ui-action flex min-h-[44px] min-w-0 basis-full flex-col items-start gap-2 text-left split:basis-auto split:flex-1"
         >
-          {/* Both truncate, and the preview only appears where there is room
-              for it. On a phone the name alone filled the row and, being
-              unshrinkable, pushed itself under the state control. */}
-          <span className="min-w-0 shrink truncate text-sm font-semibold" style={{ color: "var(--text)" }}>{idea.name}</span>
-          {!open && firstLine ? (
-            <span className="hidden min-w-0 flex-1 truncate text-xs split:block" style={{ color: "var(--text-muted)" }}>{firstLine}</span>
-          ) : null}
+          <span className="text-lg font-semibold" style={{ color: "var(--text)", overflowWrap: "anywhere" }}>{idea.name}</span>
+          {!open && firstLine ? <span className="line-clamp-2 text-sm" style={{ color: "var(--text-muted)" }}>{firstLine}</span> : null}
         </button>
 
         {attention ? (
@@ -218,9 +277,8 @@ function IdeaRow({ idea, copy, locale, today, resources, open, onToggle, onAct, 
           </span>
         ) : null}
 
-        {idea.links.length > 0 ? (
-          <span className="pi-eyebrow shrink-0 tabular-nums" title={copy.links}>{idea.links.length}</span>
-        ) : null}
+        {idea.parked ? <span className="pi-eyebrow">{copy.parked}</span> : null}
+        {dirty ? <span className="pi-eyebrow" style={{ color: "var(--warning)" }}>{copy.unsaved}</span> : null}
 
         <select
           value={idea.step}
@@ -233,20 +291,38 @@ function IdeaRow({ idea, copy, locale, today, resources, open, onToggle, onAct, 
           {PLAYBOOK.map((item) => <option key={item.id} value={item.id}>{item.name[zh ? "zh" : "en"]}</option>)}
         </select>
 
-        <span className="pi-eyebrow hidden shrink-0 whitespace-nowrap split:inline">
-          {new Date(idea.updatedAt).toLocaleDateString(locale, { month: "short", day: "numeric" })}
-        </span>
+      </div>
+
+      {!open ? (
+        <div className="mx-4 border-t py-3" style={{ borderColor: "var(--border)" }}>
+          <p className="pi-eyebrow">{idea.bet && !idea.bet.settled ? copy.bet : copy.nextAction}</p>
+          <p className="mt-1 line-clamp-2 text-sm" style={{ color: "var(--text)" }}>
+            {idea.bet && !idea.bet.settled ? idea.bet.claim : step.does[0]?.[zh ? "zh" : "en"]}
+          </p>
+          {idea.bet?.by && !idea.bet.settled ? <p className="pi-eyebrow mt-2">{copy.betBy} · {idea.bet.by}</p> : null}
+        </div>
+      ) : null}
+
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 pb-3">
+        <span className="pi-eyebrow">{copy.links} · {idea.links.length}</span>
+        <span className="pi-eyebrow">{copy.updated} {new Date(idea.updatedAt).toLocaleDateString(locale, { month: "short", day: "numeric" })}</span>
+        <button type="button" onClick={onToggle} aria-expanded={open} aria-controls={`product-notebook-${idea.id}`} className="ui-action pi-bracket ml-auto min-h-[44px] text-xs" data-state={open ? undefined : "accent"}>
+          {open ? copy.closeIdea : copy.openIdea}
+        </button>
       </div>
 
       {open ? (
-        <div className="flex flex-col gap-3 py-3 pl-3 pr-1" style={{ borderLeft: surface.spine }}>
+        <div id={`product-notebook-${idea.id}`} className="flex flex-col gap-4 border-t p-4" style={{ borderColor: "var(--border)" }}>
+          <label className="flex flex-col gap-2">
+            <span className="pi-eyebrow">{copy.ideaName}</span>
           <input
             value={name}
             disabled={busy}
-            onChange={(event) => { setName(event.target.value); setDirty(true); }}
+            onChange={(event) => setDraft({ name: event.target.value, note })}
             aria-label={copy.ideaName}
             className="pi-panel min-h-[44px] w-full px-2 text-sm outline-none disabled:opacity-60"
           />
+          </label>
 
           <StepCard
             idea={idea}
@@ -258,30 +334,30 @@ function IdeaRow({ idea, copy, locale, today, resources, open, onToggle, onAct, 
             onSave={save}
             onResearch={() => agent.ask({ ideaId: idea.id, brief: researchBrief({ name, note }, locale) })}
           />
+          <label className="flex flex-col gap-2">
+            <span className="pi-eyebrow">{copy.notebook}</span>
           <textarea
             value={note}
             disabled={busy}
-            onChange={(event) => { setNote(event.target.value); setDirty(true); }}
+            onChange={(event) => setDraft({ name, note: event.target.value })}
             aria-label={copy.note}
             placeholder={copy.notePlaceholder}
             rows={6}
             className="pi-panel w-full resize-y p-2 text-sm outline-none disabled:opacity-60"
           />
+          </label>
+          <div className="flex items-center gap-3">
+            <button type="button" disabled={busy || !dirty || !name.trim()} onClick={() => void save({ name: name.trim(), note }, true)} className="ui-action pi-bracket min-h-[44px] text-xs disabled:opacity-40" data-state="accent">
+              {busy ? copy.saving : copy.save}
+            </button>
+            <span role="status" className="pi-eyebrow">{dirty ? copy.unsaved : copy.saved}</span>
+          </div>
 
           <Bet idea={idea} copy={copy} busy={busy} today={today} onSave={save} />
 
           <IdeaLinks idea={idea} copy={copy} busy={busy} onAct={onAct} onSave={save} />
 
           <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              disabled={busy || !dirty || !name.trim()}
-              onClick={() => void save({ name: name.trim(), note }, true)}
-              className="ui-action pi-bracket min-h-[44px] px-2 text-xs disabled:opacity-40 split:min-h-0 split:px-0"
-              data-state="accent"
-            >
-              {copy.save}
-            </button>
             <button
               type="button"
               disabled={busy}
@@ -293,11 +369,15 @@ function IdeaRow({ idea, copy, locale, today, resources, open, onToggle, onAct, 
             </button>
             <button
               type="button"
-              className="ui-action ml-auto min-h-[44px] px-2 text-xs split:min-h-0 split:px-0"
+              disabled={busy}
+              className="ui-action ml-auto min-h-[44px] px-2 text-xs disabled:opacity-40"
               style={{ color: "var(--danger)" }}
-              onClick={() => {
+              onClick={async () => {
                 if (!window.confirm(copy.deleteConfirm)) return;
-                void fetch(`/api/robin/products/${encodeURIComponent(idea.id)}`, { method: "DELETE" }).then(onGone);
+                setBusy(true);
+                const removed = await onAct(() => jsonRequest(`/api/robin/products/${encodeURIComponent(idea.id)}`, "DELETE", undefined));
+                setBusy(false);
+                if (removed) onGone();
               }}
             >
               {copy.delete}
@@ -341,11 +421,15 @@ function StepCard({ idea, step, copy, zh, busy, resources, onSave, onResearch }:
   const shelf = resources
     .filter((item) => step.categories.includes(item.category) && item.status !== "archived")
     .sort((a, b) => Number(b.status === "using") - Number(a.status === "using") || a.name.localeCompare(b.name));
+  const surface = stepSurface(idea.step, idea.parked);
 
   return (
-    <section className="pi-panel flex flex-col gap-3 p-3" style={{ borderLeft: stepSurface(idea.step, idea.parked).spine }}>
+    <section
+      className="pi-panel flex flex-col gap-3 p-3"
+      style={{ borderLeft: surface.spine, background: `linear-gradient(100deg, ${surface.wash}, var(--bg-panel) 38%)` }}
+    >
       <header className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <span className="pi-eyebrow tabular-nums" style={{ color: stepSurface(idea.step, idea.parked).ink }}>
+        <span className="pi-eyebrow tabular-nums" style={{ color: surface.ink }}>
           {PLAYBOOK_STEPS.indexOf(step.id) + 1}/{PLAYBOOK_STEPS.length} · {step.name[lang]}
         </span>
         {idea.parked ? <span className="pi-eyebrow">{copy.parkedNote}</span> : null}
@@ -463,7 +547,7 @@ function Bet({ idea, copy, busy, today, onSave }: {
     void onSave({ bet: { claim: idea.bet?.claim ?? claim, by: idea.bet?.by ?? by, settled: verdict } });
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="pi-panel flex flex-col gap-2 p-3">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <span className="pi-eyebrow">{copy.bet}</span>
         {settled ? (
@@ -475,7 +559,8 @@ function Bet({ idea, copy, busy, today, onSave }: {
         ) : null}
       </div>
 
-      <div className="flex flex-wrap gap-2">
+      <p className="text-xs" style={{ color: "var(--text-muted)" }}>{copy.hypothesisHint}</p>
+      <div className="flex flex-wrap items-end gap-2">
         <input
           value={claim}
           disabled={busy || !!settled}
@@ -485,6 +570,8 @@ function Bet({ idea, copy, busy, today, onSave }: {
           aria-label={copy.bet}
           className="pi-panel min-h-[44px] min-w-0 flex-1 basis-64 px-2 text-sm outline-none disabled:opacity-60"
         />
+        <label className="flex min-w-0 flex-col gap-1">
+          <span className="pi-eyebrow">{copy.betBy}</span>
         <input
           type="date"
           value={by}
@@ -494,14 +581,16 @@ function Bet({ idea, copy, busy, today, onSave }: {
             if (claim.trim()) void onSave({ bet: { claim: claim.trim(), by: event.target.value } });
           }}
           aria-label={copy.betBy}
-          className="pi-panel min-h-[44px] shrink-0 px-2 text-sm outline-none disabled:opacity-60"
+          className="pi-panel min-h-[44px] min-w-0 px-2 text-sm outline-none disabled:opacity-60"
         />
+        </label>
       </div>
 
       {claim.trim() && !settled ? (
         <div className="flex flex-wrap gap-3">
           <button type="button" disabled={busy} onClick={() => settle("held")} className="ui-action pi-bracket min-h-[44px] px-2 text-xs split:min-h-0 split:px-0">{copy.betHeld}</button>
           <button type="button" disabled={busy} onClick={() => settle("broke")} className="ui-action pi-bracket min-h-[44px] px-2 text-xs split:min-h-0 split:px-0" style={{ color: "var(--danger)" }}>{copy.betBroke}</button>
+          <p className="w-full text-xs" style={{ color: "var(--text-muted)" }}>{copy.betBrokeHint}</p>
         </div>
       ) : null}
 
@@ -542,13 +631,16 @@ function IdeaLinks({ idea, copy, busy, onAct, onSave }: {
 
   return (
     <div className="flex flex-col gap-2">
+      <h3 className="pi-eyebrow">{copy.evidence} · {idea.links.length}</h3>
+      {idea.links.length === 0 ? <p className="text-xs" style={{ color: "var(--text-muted)" }}>{copy.noEvidence}</p> : null}
       {idea.links.length > 0 ? (
         <ul className="m-0 flex list-none flex-col gap-1 p-0">
           {idea.links.map((link) => (
-            <li key={link.id} className="flex items-baseline gap-2">
-              <a href={link.url} target="_blank" rel="noopener noreferrer" className="ui-action min-w-0 flex-1 truncate text-sm" style={{ color: "var(--text)" }}>
-                {link.title}
-              </a>
+            <li key={link.id} className="flex items-start gap-2 border-b py-2" style={{ borderColor: "var(--border)" }}>
+              <div className="min-w-0 flex-1" style={{ overflowWrap: "anywhere" }}>
+                <a href={link.url} target="_blank" rel="noopener noreferrer" className="ui-action text-sm" style={{ color: "var(--text)" }}>{link.title}</a>
+                {link.note ? <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>{link.note}</p> : null}
+              </div>
               {/* Where a claim came from stays visible: a link the agent found
                   is not the same as one you chose to keep. */}
               {link.addedBy === "agent" ? <span className="pi-eyebrow shrink-0">{copy.byAgent}</span> : null}
@@ -595,18 +687,19 @@ function IdeaLinks({ idea, copy, busy, onAct, onSave }: {
 }
 
 /**
- * Capture, and the confirmation step between a suggestion and a record.
- *
- * The raw capture is kept whole whatever happens to it: classification only
- * ever proposes, and nothing is written until the proposal is confirmed here.
+ * Direct ideas need no AI. Raw captures are retained before classification;
+ * a suggested destination is only written after the user confirms it.
  */
-function Capture({ captures, ideas, copy, locale, onDone }: {
+function Capture({ captures, ideas, copy, locale, onDone, onCreated }: {
   captures: ProductCapture[];
   ideas: Idea[];
   copy: ProductCopy;
   locale: string;
   onDone: () => Promise<void>;
+  onCreated: (idea: Idea) => void;
 }) {
+  const [mode, setMode] = useState<"idea" | "capture">("idea");
+  const [name, setName] = useState("");
   const [text, setText] = useState("");
   const [images, setImages] = useState<Array<{ data: string; mimeType: string }>>([]);
   const [busy, setBusy] = useState(false);
@@ -631,27 +724,61 @@ function Capture({ captures, ideas, copy, locale, onDone }: {
     setReview({ capture, suggestion });
   });
 
-  const save = () => run(async () => {
-    if (!text.trim() && images.length === 0) return;
-    const { capture } = await jsonRequest<{ capture: ProductCapture }>("/api/robin/products", "POST", { capture: true, text, images });
-    setText("");
-    setImages([]);
-    await onDone();
-    await classify(capture);
-  });
+  const save = () => {
+    if (busy) return;
+    return run(async () => {
+      if (mode === "idea") {
+        if (!name.trim()) return;
+        const { idea } = await jsonRequest<{ idea: Idea }>("/api/robin/products", "POST", { name: name.trim(), note: text });
+        setName("");
+        setText("");
+        await onDone();
+        onCreated(idea);
+        return;
+      }
+      if (!text.trim() && images.length === 0) return;
+      const { capture } = await jsonRequest<{ capture: ProductCapture }>("/api/robin/products", "POST", { capture: true, text, images });
+      setText("");
+      setImages([]);
+      await onDone();
+      try {
+        const { suggestion } = await jsonRequest<{ suggestion: Suggestion }>("/api/robin/product-classify", "POST", { id: capture.id });
+        setReview({ capture, suggestion });
+      } catch (caught) {
+        throw new Error(`${copy.savedCapture} ${caught instanceof Error ? caught.message : String(caught)}`);
+      }
+    });
+  };
 
   return (
-    <section className="pi-card flex flex-col gap-3 p-4">
-      <textarea
-        value={text}
-        onChange={(event) => setText(event.target.value)}
-        placeholder={copy.capturePlaceholder}
-        aria-label={copy.capturePlaceholder}
-        rows={2}
-        className="pi-panel w-full resize-y p-3 text-sm outline-none"
-      />
+    <section className={`${styles.capture} pi-card flex min-w-0 flex-col gap-3 p-4`} aria-labelledby="product-capture-title">
+      <header>
+        <h2 id="product-capture-title" tabIndex={-1} className="pi-label">{copy.captureTitle}</h2>
+        <p className="mt-2 text-xs" style={{ color: "var(--text-muted)" }}>{copy.captureHint}</p>
+      </header>
+      <div className={styles.filters} role="group" aria-label={copy.type}>
+        <button type="button" disabled={busy} aria-pressed={mode === "idea"} data-selected={mode === "idea"} onClick={() => setMode("idea")} className="ui-action min-h-[44px] flex-1 px-2 text-xs">{copy.directIdea}</button>
+        <button type="button" disabled={busy} aria-pressed={mode === "capture"} data-selected={mode === "capture"} onClick={() => setMode("capture")} className="ui-action min-h-[44px] flex-1 px-2 text-xs">{copy.rawCapture}</button>
+      </div>
+      {mode === "idea" ? (
+        <label className="flex flex-col gap-2">
+          <span className="pi-eyebrow">{copy.ideaName}</span>
+          <input value={name} disabled={busy} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); void save(); } }} placeholder={copy.newIdeaName} className="pi-panel min-h-[44px] w-full text-sm" />
+        </label>
+      ) : null}
+      <label className="flex flex-col gap-2">
+        <span className="pi-eyebrow">{mode === "idea" ? copy.note : copy.original}</span>
+        <textarea
+          value={text}
+          disabled={busy}
+          onChange={(event) => setText(event.target.value)}
+          placeholder={mode === "idea" ? copy.notePlaceholder : copy.capturePlaceholder}
+          rows={4}
+          className="pi-panel w-full resize-y p-3 text-sm outline-none"
+        />
+      </label>
 
-      {images.length > 0 ? (
+      {mode === "capture" && images.length > 0 ? (
         <ul className="m-0 flex list-none flex-wrap gap-2 p-0" aria-label={`${images.length} ${copy.images}`}>
           {images.map((image, index) => (
             <li key={`${image.mimeType}:${index}`} className="relative size-16 border" style={{ borderColor: "var(--border)" }}>
@@ -665,6 +792,7 @@ function Capture({ captures, ideas, copy, locale, onDone }: {
               />
               <button
                 type="button"
+                disabled={busy}
                 onClick={() => setImages((current) => current.filter((_, itemIndex) => itemIndex !== index))}
                 aria-label={`${copy.removeImage} ${index + 1}`}
                 className="ui-action ui-action--surface absolute right-0 top-0 flex size-8 items-center justify-center text-sm"
@@ -683,30 +811,34 @@ function Capture({ captures, ideas, copy, locale, onDone }: {
           type="file"
           accept="image/*"
           multiple
+          disabled={busy}
           hidden
           onChange={async (event) => {
             const files = [...(event.target.files ?? [])];
             event.target.value = "";
-            const attached = await Promise.all(files.map((file) => compressImageFile(file).catch(() => null)));
-            setImages((current) => [...current, ...attached.filter((item): item is { data: string; mimeType: string } => !!item)]);
+            await run(async () => {
+              const attached = await Promise.all(files.map((file) => compressImageFile(file)));
+              setImages((current) => [...current, ...attached]);
+            });
           }}
         />
-        <button type="button" onClick={() => fileRef.current?.click()} className="ui-action pi-bracket min-h-[44px] text-xs">
+        {mode === "capture" ? <button type="button" disabled={busy} onClick={() => fileRef.current?.click()} className="ui-action pi-bracket min-h-[44px] text-xs disabled:opacity-40">
           {copy.attach}{images.length > 0 ? ` · ${images.length}` : ""}
-        </button>
+        </button> : null}
         <button
           type="button"
-          disabled={busy || (!text.trim() && images.length === 0)}
+          disabled={busy || (mode === "idea" ? !name.trim() : !text.trim() && images.length === 0)}
           onClick={() => void save()}
           className="ui-action pi-bracket min-h-[44px] text-xs disabled:opacity-40"
           data-state="accent"
         >
-          {busy ? copy.classifying : copy.capture}
+          {busy ? (mode === "idea" ? copy.saving : copy.classifying) : mode === "idea" ? copy.createIdea : copy.capture}
         </button>
       </div>
+      {mode === "capture" ? <p className="text-xs" style={{ color: "var(--text-muted)" }}>{copy.capturePrivacy}</p> : null}
 
       {captures.length > 0 ? (
-        <div className="pi-panel flex flex-col gap-1 p-2">
+        <div className="flex flex-col gap-1 border-t pt-3" style={{ borderColor: "var(--border)" }}>
           <p className="pi-eyebrow px-1">{copy.pendingCaptures} · {captures.length}</p>
           <ul className="m-0 flex list-none flex-col p-0">
             {captures.map((capture) => {
@@ -741,10 +873,11 @@ function Capture({ captures, ideas, copy, locale, onDone }: {
         </div>
       ) : null}
 
-      {error ? <p className="text-xs" style={{ color: "var(--danger)" }}>{error}</p> : null}
+      {error ? <p role="alert" className="text-xs" style={{ color: "var(--danger)" }}>{error}</p> : null}
 
       {review ? (
         <Review
+          key={review.capture.id}
           review={review}
           ideas={ideas}
           copy={copy}
