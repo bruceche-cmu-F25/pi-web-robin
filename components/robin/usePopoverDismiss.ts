@@ -22,7 +22,12 @@ export function usePopoverDismiss() {
       const element = ref.current;
       if (!element?.open) return;
       if (event.type === "keydown") {
-        if ((event as KeyboardEvent).key !== "Escape") return;
+        if ((event as KeyboardEvent).key !== "Escape" || event.defaultPrevented) return;
+        // Let the innermost popover handle Escape before closing its parent.
+        if (element.querySelector("details[open]")) return;
+        if (!element.contains(document.activeElement)) return;
+        event.preventDefault();
+        element.querySelector<HTMLElement>(":scope > summary")?.focus();
       } else if (element.contains(event.target as Node)) {
         return;
       }

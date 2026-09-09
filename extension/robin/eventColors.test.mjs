@@ -6,6 +6,7 @@ import {
   orderSeriesColors,
   seedColorKey,
   seriesSeed,
+  todoSpanColorKey,
 } from "./eventColors.ts";
 
 test("a colour seed is deterministic and in-palette", () => {
@@ -72,6 +73,13 @@ test("the hash spreads evenly over the palette", () => {
       `${key} took ${count} of ${total}, expected about ${expected}`,
     );
   }
+});
+
+test("a todo bar keeps its picked colour, else hashes the title", () => {
+  assert.equal(todoSpanColorKey({ title: "Write report", color: "plum" }), "plum");
+  assert.equal(todoSpanColorKey({ title: "Write report" }), seedColorKey("Write report"));
+  // Untrimmed and trimmed titles are the same task.
+  assert.equal(todoSpanColorKey({ title: "  Write report  " }), seedColorKey("Write report"));
 });
 
 const ev = (title, start, colorSeed) => ({ title, ...(start ? { start } : {}), ...(colorSeed ? { colorSeed } : {}) });

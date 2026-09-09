@@ -47,6 +47,27 @@ test("Todo interface owns listing, completion visibility, and tool formatting", 
   );
 });
 
+test("Todo stores and formats a validated multi-day range", () => {
+  const { todo } = addTodo({
+    title: "Write report",
+    startDate: "2026-08-17",
+    due: "2026-08-21",
+  });
+
+  assert.equal(todo.startDate, "2026-08-17");
+  assert.equal(todo.due, "2026-08-21");
+  assert.match(formatTodo(todo, "2026-08-16"), /2026-08-17 – 2026-08-21/);
+  assert.throws(
+    () => addTodo({ title: "No deadline", startDate: "2026-08-17" }),
+    /due is required/,
+  );
+  assert.throws(
+    () => updateTodo({ id: todo.id }, { due: "2026-08-16" }),
+    /startDate cannot be after due/,
+  );
+  assert.equal(listTodos().todos[0].due, "2026-08-21");
+});
+
 test("Todo references reject ambiguity and prefer an explicit id", () => {
   const rent = addTodo({ title: "Pay rent" }).todo;
   addTodo({ title: "Pay parking" });

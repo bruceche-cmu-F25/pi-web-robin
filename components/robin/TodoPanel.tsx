@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
-import { deadlineBucket, dueBucket, isInstantOnLocalDate, type DeadlineBucket } from "@/extension/robin/dates";
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { deadlineBucket, dueBucket, formatLocalDateRange, isInstantOnLocalDate, type DeadlineBucket } from "@/extension/robin/dates";
 import { EVENT_COLOR_KEYS } from "@/extension/robin/eventColors";
 import type { Todo } from "@/extension/robin/todo-domain";
 import { inferTodoUrl } from "@/extension/robin/todo-links";
@@ -36,17 +37,28 @@ function dueLabel(due: string, today: string, t: (key: string, params?: Record<s
   return due;
 }
 
+function todoDateLabel(
+  todo: Todo,
+  today: string,
+  locale: string,
+  t: (key: string, params?: Record<string, string>) => string,
+): string {
+  if (!todo.startDate) return todo.due ? dueLabel(todo.due, today, t) : "";
+  return formatLocalDateRange(todo.startDate, todo.due ?? todo.startDate, locale, today);
+}
+
 const BUCKET_COLOR: Partial<Record<DeadlineBucket, string>> = {
   overdue: "var(--danger)",
   today: "var(--accent-amber)",
 };
 
 export function TodoPanel() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { data, error, loading, refresh } = usePolledResource<TodosResponse>("/api/robin/todos");
   const [actionError, setActionError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState("");
+  const [startDate, setStartDate] = useState("");
   const [due, setDue] = useState("");
   const [url, setUrl] = useState("");
   const [working, setWorking] = useState(false);
@@ -90,10 +102,12 @@ export function TodoPanel() {
     void run(async () => {
       await mutate("/api/robin/todos", "POST", {
         title,
+        ...(startDate ? { startDate } : {}),
         ...(due ? { due } : {}),
         ...(url.trim() ? { url } : {}),
       });
       setTitle("");
+      setStartDate("");
       setDue("");
       setUrl("");
       setAdding(false);
@@ -137,10 +151,23 @@ export function TodoPanel() {
             />
           </label>
           <label className="flex flex-col gap-1">
+            <span className="pi-eyebrow">{t("robin.todos.startDate")}</span>
+            <input
+              type="date"
+              value={startDate}
+              max={due || undefined}
+              onChange={(event) => setStartDate(event.target.value)}
+              className="rounded px-2 py-1 text-sm outline-none"
+              style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text-muted)" }}
+            />
+          </label>
+          <label className="flex flex-col gap-1">
             <span className="pi-eyebrow">{t("robin.todos.dueDate")}</span>
             <input
               type="date"
               value={due}
+              min={startDate || undefined}
+              required={Boolean(startDate)}
               onChange={(event) => setDue(event.target.value)}
               className="rounded px-2 py-1 text-sm outline-none"
               style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text-muted)" }}
@@ -191,6 +218,7 @@ export function TodoPanel() {
               key={todo.id}
               todo={todo}
               today={today}
+              locale={locale}
               onToggle={() => void run(() => mutate("/api/robin/todos", "PATCH", { id: todo.id, done: !todo.done }))}
               onColor={(color) => void run(() => mutate("/api/robin/todos", "PATCH", { id: todo.id, color }))}
               onLink={(next) => void run(() => mutate("/api/robin/todos", "PATCH", { id: todo.id, url: next }))}
@@ -211,6 +239,7 @@ export function TodoPanel() {
               key={todo.id}
               todo={todo}
               today={today}
+              locale={locale}
               onToggle={() => void run(() => mutate("/api/robin/todos", "PATCH", { id: todo.id, done: false }))}
               onColor={(color) => void run(() => mutate("/api/robin/todos", "PATCH", { id: todo.id, color }))}
               onLink={(next) => void run(() => mutate("/api/robin/todos", "PATCH", { id: todo.id, url: next }))}
@@ -227,6 +256,7 @@ export function TodoPanel() {
 function TodoRow({
   todo,
   today,
+  locale,
   onToggle,
   onColor,
   onLink,
@@ -235,6 +265,7 @@ function TodoRow({
 }: {
   todo: Todo;
   today: string;
+  locale: string;
   onToggle: () => void;
   onColor: (color: string) => void;
   onLink: (url: string) => void;
@@ -242,46 +273,18 @@ function TodoRow({
   t: (key: string, params?: Record<string, string>) => string;
 }) {
   const overdue = !todo.done && dueBucket(todo.due, today) === "overdue";
+  const mobile = useIsMobile();
+  const actionsMenu = usePopoverDismiss();
   const colorPicker = usePopoverDismiss();
-  return (
-    <div
-      className="group flex items-center gap-2 rounded px-2 py-1"
-      style={overdue
-        ? { background: "var(--danger-soft)", borderLeft: "2px solid var(--danger)" }
-        : { background: "var(--bg-subtle)", borderLeft: "2px solid transparent" }}
-    >
-      <input
-        type="checkbox"
-        checked={todo.done}
-        onChange={onToggle}
-        aria-label={todo.done
-          ? t("robin.todos.reopen", { title: todo.title })
-          : t("robin.todos.complete", { title: todo.title })}
-        className="shrink-0 cursor-pointer"
-      />
-      <TodoTitle
-        todo={todo}
-        t={t}
-        className="min-w-0 flex-1 truncate text-sm"
-        style={{
-          color: todo.done
-            ? "var(--text-dim)"
-            : todo.color ? `var(--todo-${todo.color})` : "var(--text)",
-          textDecoration: todo.done ? "line-through" : "none",
-        }}
-      />
-      {todo.due && !todo.done && (
-        <span className="shrink-0 text-xs" style={{ color: overdue ? "var(--danger)" : "var(--text-dim)" }}>
-          {dueLabel(todo.due, today, t)}
-        </span>
-      )}
+  const actions = (
+    <>
       <LinkEditor todo={todo} onLink={onLink} t={t} />
       <details ref={colorPicker} className="relative shrink-0">
         <summary
           aria-label={t("robin.todos.chooseColor", { title: todo.title })}
           title={t("robin.todos.chooseColor", { title: todo.title })}
-          className="ui-action flex h-7 w-7 cursor-pointer list-none items-center justify-center"
-          style={{ color: todo.color ? `var(--todo-${todo.color})` : "var(--text-dim)" }}
+          className="ui-action flex h-[44px] w-[44px] cursor-pointer list-none items-center justify-center desktop:h-[28px] desktop:w-[28px]"
+          style={{ color: todo.color ? `var(--todo-${todo.color})` : "var(--text-muted)" }}
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M12 3a9 9 0 1 0 0 18h1.5a1.5 1.5 0 0 0 0-3H12a2 2 0 0 1 0-4h5a4 4 0 0 0 4-4c0-3.87-4.03-7-9-7Z" />
@@ -291,7 +294,7 @@ function TodoRow({
           </svg>
         </summary>
         <div
-          className="absolute right-0 top-full flex gap-1 p-1.5"
+          className="absolute right-0 top-full grid w-max grid-cols-4 gap-1 p-1.5 desktop:flex"
           style={{
             zIndex: "var(--z-popover)",
             background: "var(--bg-panel)",
@@ -309,7 +312,7 @@ function TodoRow({
             aria-pressed={!todo.color}
             aria-label={t("robin.todos.resetColor", { title: todo.title })}
             title={t("robin.todos.resetColor", { title: todo.title })}
-            className="ui-action flex h-7 w-7 items-center justify-center"
+            className="ui-action flex h-[44px] w-[44px] items-center justify-center desktop:h-[28px] desktop:w-[28px]"
             style={!todo.color ? { outline: "2px solid var(--focus-ring)", outlineOffset: 1 } : undefined}
           >
             ×
@@ -325,7 +328,7 @@ function TodoRow({
               aria-pressed={todo.color === color}
               aria-label={t("robin.todos.colorOption", { title: todo.title, number: String(index + 1) })}
               title={t("robin.todos.colorOption", { title: todo.title, number: String(index + 1) })}
-              className="h-7 w-7"
+              className="ui-action h-[44px] w-[44px] desktop:h-[28px] desktop:w-[28px]"
               style={{
                 background: `var(--todo-${color})`,
                 border: "1px solid var(--border-strong)",
@@ -338,13 +341,70 @@ function TodoRow({
       </details>
       <button
         type="button"
-        onClick={onDelete}
+        onClick={() => {
+          if (window.confirm(t("robin.common.deleteConfirm", { title: todo.title }))) onDelete();
+        }}
         aria-label={t("robin.todos.delete", { title: todo.title })}
-        className="shrink-0 px-1 text-xs opacity-0 transition-opacity group-hover:opacity-100"
-        style={{ color: "var(--text-dim)" }}
+        className="ui-action h-[44px] w-[44px] shrink-0 text-xs desktop:h-[28px] desktop:w-[28px]"
+        style={{ color: "var(--text-muted)" }}
       >
         ✕
       </button>
+    </>
+  );
+
+  return (
+    <div
+      className="group grid grid-cols-[44px_minmax(0,1fr)_44px] items-center gap-x-2 rounded px-2 py-1 desktop:flex desktop:gap-2"
+      style={overdue
+        ? { background: "var(--danger-soft)", borderLeft: "2px solid var(--danger)" }
+        : { background: "var(--bg-subtle)", borderLeft: "2px solid transparent" }}
+    >
+      <label className="col-start-1 row-start-1 flex h-[44px] w-[44px] shrink-0 cursor-pointer items-center justify-center desktop:h-auto desktop:w-auto">
+        <input
+          type="checkbox"
+          checked={todo.done}
+          onChange={onToggle}
+          aria-label={todo.done
+            ? t("robin.todos.reopen", { title: todo.title })
+            : t("robin.todos.complete", { title: todo.title })}
+          className="cursor-pointer"
+        />
+      </label>
+      <TodoTitle
+        todo={todo}
+        t={t}
+        className="col-span-2 col-start-2 row-start-1 min-w-0 whitespace-normal text-sm [overflow-wrap:anywhere] desktop:flex-1 desktop:truncate"
+        style={{
+          color: todo.done
+            ? "var(--text-dim)"
+            : todo.color ? `var(--todo-${todo.color})` : "var(--text)",
+          textDecoration: todo.done ? "line-through" : "none",
+        }}
+      />
+      {(todo.startDate || todo.due) && !todo.done && (
+        <span className="col-start-2 row-start-2 min-w-0 text-xs desktop:shrink-0" style={{ color: overdue ? "var(--danger)" : "var(--text-muted)" }}>
+          {todoDateLabel(todo, today, locale, t)}
+        </span>
+      )}
+      {mobile ? (
+        <details ref={actionsMenu} className="relative col-start-3 row-start-2">
+          <summary
+            className="ui-action flex h-[44px] w-[44px] cursor-pointer list-none items-center justify-center"
+            aria-label={t("robin.todos.actions", { title: todo.title })}
+          >
+            <span aria-hidden="true">···</span>
+          </summary>
+          <div
+            className="absolute right-0 top-full flex flex-row-reverse gap-2 border p-2"
+            style={{ zIndex: "var(--z-popover)", background: "var(--bg-panel)", borderColor: "var(--border-strong)", boxShadow: "var(--popover-shadow)" }}
+          >
+            {actions}
+          </div>
+        </details>
+      ) : (
+        <div className="flex shrink-0 items-center gap-2">{actions}</div>
+      )}
     </div>
   );
 }
@@ -383,8 +443,8 @@ function LinkEditor({
       <summary
         aria-label={t("robin.todos.editLink", { title: todo.title })}
         title={t("robin.todos.editLink", { title: todo.title })}
-        className="ui-action flex h-7 w-7 cursor-pointer list-none items-center justify-center"
-        style={{ color: todo.url ? "var(--accent)" : inferred ? "var(--text-muted)" : "var(--text-dim)" }}
+        className="ui-action flex h-[44px] w-[44px] cursor-pointer list-none items-center justify-center desktop:h-[28px] desktop:w-[28px]"
+        style={{ color: todo.url ? "var(--accent)" : "var(--text-muted)" }}
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M10 13a5 5 0 0 0 7.07 0l2.83-2.83a5 5 0 0 0-7.07-7.07L11.5 4.5" />
@@ -421,7 +481,7 @@ function LinkEditor({
             color: "var(--text)",
           }}
         />
-        <button type="submit" className="ui-action pi-bracket shrink-0 px-2 py-1 text-xs">
+        <button type="submit" className="ui-action pi-bracket min-h-[44px] shrink-0 px-2 py-1 text-xs desktop:min-h-0">
           {t("robin.common.save")}
         </button>
         {todo.url && (
@@ -433,7 +493,7 @@ function LinkEditor({
             }}
             aria-label={t("robin.todos.removeLink", { title: todo.title })}
             title={t("robin.todos.removeLink", { title: todo.title })}
-            className="ui-action shrink-0 px-2 py-1 text-xs"
+            className="ui-action min-h-[44px] min-w-[44px] shrink-0 px-2 py-1 text-xs desktop:min-h-0 desktop:min-w-0"
             style={{ color: "var(--text-dim)" }}
           >
             ×

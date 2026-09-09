@@ -27,13 +27,20 @@ export function registerTodoTools(pi: ExtensionAPI): void {
       "When the user mentions something they intend to do later, record it with todo_add instead of only acknowledging it.",
       "Give a todo a url whenever the task lives somewhere the user will need to open — an assignment page, a job posting, a form, a doc. The dashboard turns the title into that link.",
       "A todo whose link shows as (auto) in todo_list is only guessing from its title (a course number opens Canvas, email talk opens the inbox). Replace it with todo_update when you know the exact page.",
+      "For a task spanning several days, set startDate to its first day and due to its last day. Create one ranged todo, not one copy per day.",
     ],
     parameters: Type.Object({
       title: Type.String({ description: "Short description of the task" }),
+      startDate: Type.Optional(
+        Type.String({
+          description:
+            "First day of a multi-day task as YYYY-MM-DD in the user's local timezone. Use only with due.",
+        }),
+      ),
       due: Type.Optional(
         Type.String({
           description:
-            "Due date as YYYY-MM-DD in the user's local timezone, if they gave one. Resolve relative dates against the local date reported by todo_list, not UTC.",
+            "Due date, or last day of a multi-day task, as YYYY-MM-DD in the user's local timezone. Resolve relative dates against the local date reported by todo_list, not UTC.",
         }),
       ),
       url: Type.Optional(
@@ -77,12 +84,15 @@ export function registerTodoTools(pi: ExtensionAPI): void {
     name: "todo_update",
     label: "Update todo",
     description:
-      "Edit a todo's title, due date or link. Identify it by id (from todo_list) or by a distinctive part of its current title.",
+      "Edit a todo's title, date range or link. Identify it by id (from todo_list) or by a distinctive part of its current title.",
     promptSnippet: "todo_update — edit a todo on the user's todo list",
     parameters: Type.Object({
       id: Type.Optional(Type.String({ description: "Todo id from todo_list" })),
       title: Type.Optional(Type.String({ description: "Part of the current todo title, if the id is unknown" })),
       newTitle: Type.Optional(Type.String({ description: "Replacement title" })),
+      startDate: Type.Optional(
+        Type.String({ description: "Replacement first day as YYYY-MM-DD, or an empty string to remove it" }),
+      ),
       due: Type.Optional(
         Type.String({ description: "Replacement due date as YYYY-MM-DD, or an empty string to remove it" }),
       ),
@@ -94,13 +104,14 @@ export function registerTodoTools(pi: ExtensionAPI): void {
       ),
     }),
     async execute(_toolCallId, params) {
-      if (params.newTitle === undefined && params.due === undefined && params.url === undefined) {
-        return text("Provide a newTitle, due date or url to update.");
+      if (params.newTitle === undefined && params.startDate === undefined && params.due === undefined && params.url === undefined) {
+        return text("Provide a newTitle, start date, due date or url to update.");
       }
 
       try {
         const result = updateTodo(params, {
           ...(params.newTitle !== undefined ? { title: params.newTitle } : {}),
+          ...(params.startDate !== undefined ? { startDate: params.startDate } : {}),
           ...(params.due !== undefined ? { due: params.due } : {}),
           ...(params.url !== undefined ? { url: params.url } : {}),
         });

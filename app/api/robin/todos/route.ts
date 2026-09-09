@@ -38,12 +38,13 @@ export async function POST(req: Request) {
   const blocked = guard(req, true);
   if (blocked) return blocked;
   try {
-    const body = await req.json() as { title?: unknown; due?: unknown; url?: unknown };
+    const body = await req.json() as { title?: unknown; startDate?: unknown; due?: unknown; url?: unknown };
     const title = typeof body.title === "string" ? body.title.trim() : "";
     if (!title) return fail(new Error("title is required"));
 
     const { todo } = addTodo({
       title,
+      ...(typeof body.startDate === "string" ? { startDate: body.startDate } : {}),
       ...(typeof body.due === "string" ? { due: body.due } : {}),
       ...(typeof body.url === "string" ? { url: body.url } : {}),
     });
@@ -61,6 +62,7 @@ export async function PATCH(req: Request) {
       id?: unknown;
       done?: unknown;
       title?: unknown;
+      startDate?: unknown;
       due?: unknown;
       color?: unknown;
       url?: unknown;
@@ -70,6 +72,7 @@ export async function PATCH(req: Request) {
     const result = updateTodo({ id: body.id }, {
       ...(typeof body.done === "boolean" ? { done: body.done } : {}),
       ...(typeof body.title === "string" && body.title.trim() ? { title: body.title } : {}),
+      ...(typeof body.startDate === "string" ? { startDate: body.startDate } : {}),
       ...(typeof body.due === "string" ? { due: body.due } : {}),
       ...(typeof body.color === "string" ? { color: body.color } : {}),
       ...(typeof body.url === "string" ? { url: body.url } : {}),

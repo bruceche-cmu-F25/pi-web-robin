@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
+import { MOBILE_MAX_WIDTH } from "@/lib/panel-layout";
 import {
   addDays,
   parseLocalDate,
@@ -48,7 +49,7 @@ function readStoredView(): CalendarView {
   } catch {
     // Private mode or blocked storage: the default is fine.
   }
-  return "week";
+  return window.matchMedia(`(max-width: ${MOBILE_MAX_WIDTH}px)`).matches ? "agenda" : "week";
 }
 
 
@@ -111,8 +112,10 @@ export function CalendarPanel() {
 
   const visibleTodos = useMemo(
     () => range
-      ? (todosData?.todos ?? []).filter((todo) => !todo.done && todo.due
-        && todo.due >= range.from && todo.due <= range.to)
+      ? (todosData?.todos ?? []).filter((todo) => {
+        if (todo.done || !todo.due) return false;
+        return (todo.startDate ?? todo.due) <= range.to && todo.due >= range.from;
+      })
       : [],
     [todosData, range],
   );
@@ -236,6 +239,7 @@ export function CalendarPanel() {
                 type="button"
                 onClick={() => chooseView(id)}
                 className={`ui-action px-2 py-0.5 text-xs${view === id ? " pi-active-stripe" : ""}`}
+                aria-pressed={view === id}
                 data-active={view === id ? "true" : undefined}
                 data-state={view === id ? undefined : "dim"}
               >

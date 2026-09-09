@@ -12,7 +12,9 @@ export interface Todo {
   id: string;
   title: string;
   done: boolean;
-  /** Local calendar date, YYYY-MM-DD. Never a timestamp. */
+  /** First local calendar date when work is planned, YYYY-MM-DD. */
+  startDate?: string;
+  /** Final local calendar date / deadline, YYYY-MM-DD. Never a timestamp. */
   due?: string;
   /** User-selected title hue keyed to the calendar palette. */
   color?: EventColorKey;
@@ -32,6 +34,9 @@ export interface TodoRef {
 export interface TodoPatch {
   done?: boolean;
   title?: string;
+  /** An empty string removes the start date. */
+  startDate?: string;
+  /** An empty string removes the deadline. */
   due?: string;
   color?: string;
   /** An empty string removes the link. */
@@ -108,9 +113,12 @@ const DUE_LABEL: Record<DueBucket, (due: string) => string> = {
 export function formatTodo(todo: Todo, today: string = localDate()): string {
   const box = todo.done ? "[x]" : "[ ]";
   const bucket = todo.done ? "none" : dueBucket(todo.due, today);
+  const date = todo.startDate && todo.due && todo.startDate !== todo.due
+    ? ` (${todo.startDate} – ${todo.due}${bucket === "overdue" ? ", overdue" : ""})`
+    : DUE_LABEL[bucket](todo.due ?? "");
   const url = todoUrl(todo);
   const link = url ? ` -> ${url}${todo.url ? "" : " (auto)"}` : "";
-  return `${box} ${todo.id}  ${todo.title}${DUE_LABEL[bucket](todo.due ?? "")}${link}`;
+  return `${box} ${todo.id}  ${todo.title}${date}${link}`;
 }
 
 function normalizeTodoColor(value: string): EventColorKey {
@@ -121,16 +129,20 @@ function normalizeTodoColor(value: string): EventColorKey {
   return color as EventColorKey;
 }
 
-export function addTodo(input: { title: string; due?: string; url?: string }): { todo: Todo; open: number } {
+export function addTodo(input: { title: string; startDate?: string; due?: string; url?: string }): { todo: Todo; open: number } {
   const title = input.title.trim();
   if (!title) throw new Error("title is required");
+  const startDate = input.startDate?.trim() ? normalizeDue(input.startDate) : undefined;
   const due = input.due?.trim() ? normalizeDue(input.due) : undefined;
+  if (startDate && !due) throw new Error("due is required when startDate is set");
+  if (startDate && due && startDate > due) throw new Error("startDate cannot be after due");
   const url = input.url?.trim() ? normalizeUrl(input.url) : undefined;
   const todos = readTodos();
   const todo: Todo = {
     id: newId(),
     title,
     done: false,
+    ...(startDate ? { startDate } : {}),
     ...(due ? { due } : {}),
     ...(url ? { url } : {}),
     createdAt: new Date().toISOString(),
@@ -155,8 +167,18 @@ export function updateTodo(ref: TodoRef, patch: TodoPatch): TodoResult<Todo> {
     if (!title) throw new Error("title cannot be empty");
     todo.title = title;
   }
-  if (patch.due !== undefined) {
-    if (patch.due.trim()) todo.due = normalizeDue(patch.due);
+  if (patch.startDate !== undefined || patch.due !== undefined) {
+    const startDate = patch.startDate === undefined
+      ? todo.startDate
+      : patch.startDate.trim() ? normalizeDue(patch.startDate) : undefined;
+    const due = patch.due === undefined
+      ? todo.due
+      : patch.due.trim() ? normalizeDue(patch.due) : undefined;
+    if (startDate && !due) throw new Error("due is required when startDate is set");
+    if (startDate && due && startDate > due) throw new Error("startDate cannot be after due");
+    if (startDate) todo.startDate = startDate;
+    else delete todo.startDate;
+    if (due) todo.due = due;
     else delete todo.due;
   }
   if (patch.url !== undefined) {

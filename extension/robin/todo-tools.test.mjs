@@ -44,6 +44,17 @@ test("todo_update edits a title and due date", async () => {
   assert.equal(updated.done, false);
 });
 
+test("todo_add creates one ranged todo for a multi-day task", async () => {
+  const result = await tools.get("todo_add").execute("call", {
+    title: "Write report",
+    startDate: "2026-08-17",
+    due: "2026-08-21",
+  });
+
+  assert.match(resultText(result), /2026-08-17 – 2026-08-21/);
+  assert.equal(listTodos().todos[0].startDate, "2026-08-17");
+});
+
 test("todo_delete removes only the selected todo", async () => {
   addTodo({ title: "Pay rent" });
   const milk = addTodo({ title: "Buy milk" }).todo;

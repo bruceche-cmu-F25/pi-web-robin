@@ -155,6 +155,23 @@ export function isSameMonth(date: string, other: string): boolean {
   return date.slice(0, 7) === other.slice(0, 7);
 }
 
+/** Locale-aware label for an inclusive range of local calendar dates. */
+export function formatLocalDateRange(startDate: string, endDate: string, locale: string, today: string): string {
+  const withYear = startDate.slice(0, 4) !== today.slice(0, 4) || endDate.slice(0, 4) !== today.slice(0, 4);
+  const formatter = new Intl.DateTimeFormat(locale, {
+    month: "long",
+    day: "numeric",
+    ...(withYear ? { year: "numeric" } : {}),
+  });
+  const start = parseLocalDate(startDate);
+  const end = parseLocalDate(endDate);
+  if (startDate === endDate) return formatter.format(start);
+  if (locale.startsWith("zh") && isSameMonth(startDate, endDate)) {
+    return `${formatter.format(start)}–${end.getDate()}日`;
+  }
+  return formatter.formatRange(start, end);
+}
+
 /** Human label for a due date, relative where that reads better. */
 export function formatDue(due: string, today: string): string {
   const bucket = dueBucket(due, today);

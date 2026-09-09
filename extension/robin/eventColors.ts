@@ -84,6 +84,15 @@ export function eventColorKey(event: { colorSeed?: string; title: string }): Eve
 }
 
 /**
+ * The hue a multi-day todo bar takes. The user's pick wins when there is one;
+ * otherwise the title is hashed, like a local event, so the same task keeps
+ * its colour week to week rather than being re-dealt on every render.
+ */
+export function todoSpanColorKey(todo: { title: string; color?: EventColorKey }): EventColorKey {
+  return todo.color ?? seedColorKey(todo.title.trim());
+}
+
+/**
  * The order colours are handed out in, chosen so that consecutive ones are far
  * apart on the wheel.
  *

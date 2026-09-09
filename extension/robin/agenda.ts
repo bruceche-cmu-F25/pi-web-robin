@@ -11,6 +11,7 @@ export interface AgendaDay<TEvent extends CalendarEvent> {
 export function groupAgendaItems<TEvent extends CalendarEvent>(
   events: TEvent[],
   todos: Todo[],
+  from?: string,
 ): AgendaDay<TEvent>[] {
   const days = new Map<string, AgendaDay<TEvent>>(
     groupEventsByDate(events).map(({ date, events: dayEvents }) => [
@@ -21,9 +22,11 @@ export function groupAgendaItems<TEvent extends CalendarEvent>(
 
   for (const todo of todos) {
     if (todo.done || !todo.due) continue;
-    const day = days.get(todo.due);
+    const starts = todo.startDate && todo.startDate < todo.due ? todo.startDate : todo.due;
+    const date = from && starts < from ? from : starts;
+    const day = days.get(date);
     if (day) day.todos.push(todo);
-    else days.set(todo.due, { date: todo.due, events: [], todos: [todo] });
+    else days.set(date, { date, events: [], todos: [todo] });
   }
 
   return [...days.values()].sort((a, b) => a.date.localeCompare(b.date));

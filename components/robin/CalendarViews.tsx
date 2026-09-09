@@ -2,7 +2,7 @@
 
 import { useI18n } from "@/hooks/useI18n";
 import { groupAgendaItems } from "@/extension/robin/agenda";
-import { parseLocalDate, addDays } from "@/extension/robin/dates";
+import { parseLocalDate, addDays, formatLocalDateRange } from "@/extension/robin/dates";
 import {
   compareEvents,
   eventEndDate,
@@ -12,6 +12,7 @@ import {
   type DashboardEvent,
 } from "@/extension/robin/events";
 import { layoutSpanBars } from "@/extension/robin/layout";
+import { todoSpanColorKey } from "@/extension/robin/eventColors";
 import { useEventSurface } from "./eventSurface";
 import { TodoTitle } from "./TodoTitle";
 import type { Todo } from "@/extension/robin/todo-domain";
@@ -103,7 +104,7 @@ export function AgendaView({
 }: AgendaViewProps) {
   const { t, locale } = useI18n();
   const surface = useEventSurface();
-  const grouped = groupAgendaItems(events, todos);
+  const grouped = groupAgendaItems(events, todos, today);
   // Today always gets a row, even when empty: on a daily dashboard "nothing on
   // today" is itself the answer, and omitting the day reads as a load failure.
   const withToday = grouped.some((group) => group.date === today)
@@ -149,7 +150,9 @@ export function AgendaView({
                 className="pi-eyebrow shrink-0"
                 style={{ color: "var(--accent-amber)", minWidth: "5.5rem" }}
               >
-                {t("robin.todos.deadline")}
+                {t(todo.startDate && todo.due && todo.startDate < todo.due
+                  ? "robin.todos.title"
+                  : "robin.todos.deadline")}
               </span>
               <input
                 type="checkbox"
@@ -164,6 +167,11 @@ export function AgendaView({
                 className="min-w-0 flex-1 truncate text-sm"
                 style={{ color: todo.color ? `var(--todo-${todo.color})` : "var(--text)" }}
               />
+              {todo.startDate && todo.due && todo.startDate < todo.due && (
+                <span className="shrink-0 text-xs" style={{ color: "var(--text-dim)" }}>
+                  {formatLocalDateRange(todo.startDate, todo.due, locale, today)}
+                </span>
+              )}
             </div>
           ))}
           {dayEvents.map((event) => (
@@ -274,7 +282,11 @@ function MonthWeekRow({
 }) {
   const surface = useEventSurface();
   const { bars, lanes } = layoutSpanBars(events, days);
-  const barsHeight = lanes * BAR_HEIGHT;
+  const rangedTodos = todos.flatMap((todo) => todo.startDate && todo.due && todo.startDate < todo.due
+    ? [{ ...todo, date: todo.startDate, endDate: todo.due }]
+    : []);
+  const { bars: todoBars, lanes: todoLanes } = layoutSpanBars(rangedTodos, days);
+  const barsHeight = (lanes + todoLanes) * BAR_HEIGHT;
   // The window always opens on today's week, but when today falls late in it
   // most of the row is already past — marking the row is what makes "this is
   // your current week" readable at a glance.
@@ -295,7 +307,9 @@ function MonthWeekRow({
             .sort(compareEvents);
           const spanning = events.filter((event) => isAllDayBand(event)
             && date >= event.date && date <= eventEndDate(event)).length;
-          const dayTodos = todos.filter((todo) => todo.due === date);
+          const spanningTodos = rangedTodos.filter((todo) => date >= todo.date && date <= todo.endDate).length;
+          const dayTodos = todos.filter((todo) => todo.due === date
+            && (!todo.startDate || todo.startDate === todo.due));
           const shownTodos = dayTodos.slice(0, MONTH_CHIP_LIMIT);
           const shownEvents = chips.slice(0, Math.max(0, MONTH_CHIP_LIMIT - shownTodos.length));
           const hidden = dayTodos.length + chips.length - shownTodos.length - shownEvents.length;
@@ -308,7 +322,7 @@ function MonthWeekRow({
               <button
                 type="button"
                 onClick={() => onSelectDay(date)}
-                aria-label={t("robin.calendar.dayTooltip", { date, count: String(chips.length + spanning + dayTodos.length) })}
+                aria-label={t("robin.calendar.dayTooltip", { date, count: String(chips.length + spanning + spanningTodos + dayTodos.length) })}
                 className="absolute inset-0 w-full text-left"
                 style={{
                   // The one cell in another hue, ringed twice over: the inset
@@ -401,6 +415,40 @@ function MonthWeekRow({
           {bar.continuesAfter && " ›"}
         </button>
       ))}
+
+      {todoBars.map((bar) => {
+        const hue = todoSpanColorKey(bar.event);
+        return (
+          <div
+            key={bar.event.id}
+            className="absolute flex items-center gap-1 overflow-hidden px-1.5"
+            style={{
+              left: `calc(${(bar.startIndex / 7) * 100}% + 2px)`,
+              width: `calc(${((bar.endIndex - bar.startIndex + 1) / 7) * 100}% - 4px)`,
+              top: DAY_NUMBER_HEIGHT + (lanes + bar.lane) * BAR_HEIGHT + 2,
+              height: BAR_HEIGHT - 2,
+              // Same rule as the week grid: hue varies per task, so the
+              // dashed edge is now what marks this as a todo.
+              backgroundImage: `linear-gradient(to right, var(--event-${hue}-soft), var(--event-${hue}-line))`,
+              border: `1px dashed var(--event-${hue}-line)`,
+              color: bar.event.color ? `var(--todo-${bar.event.color})` : "var(--text)",
+              fontSize: TITLE_SIZE_TIGHT,
+            }}
+            title={bar.event.title}
+          >
+            <input
+              type="checkbox"
+              checked={bar.event.done}
+              onChange={() => onCompleteTodo(bar.event)}
+              aria-label={t("robin.todos.complete", { title: bar.event.title })}
+              className="shrink-0 cursor-pointer"
+            />
+            {bar.continuesBefore && <span aria-hidden>‹</span>}
+            <TodoTitle todo={bar.event} t={t} className="min-w-0 truncate" />
+            {bar.continuesAfter && <span aria-hidden>›</span>}
+          </div>
+        );
+      })}
     </div>
   );
 }

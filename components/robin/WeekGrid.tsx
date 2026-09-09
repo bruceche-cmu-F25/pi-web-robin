@@ -15,6 +15,7 @@ import {
   visibleHourRange,
 } from "@/extension/robin/layout";
 import type { Todo } from "@/extension/robin/todo-domain";
+import { todoSpanColorKey } from "@/extension/robin/eventColors";
 import { useEventSurface } from "./eventSurface";
 import { TodoTitle } from "./TodoTitle";
 import { useTodayInView } from "./useTodayInView";
@@ -72,6 +73,11 @@ export function WeekGrid({
   const days = weekDays(anchor);
   const scrollerRef = useTodayInView(anchor, today);
   const { bars, lanes } = layoutSpanBars(events, days);
+  const rangedTodos = todos.flatMap((todo) => todo.startDate && todo.due && todo.startDate < todo.due
+    ? [{ ...todo, date: todo.startDate, endDate: todo.due }]
+    : []);
+  const deadlineTodos = todos.filter((todo) => !todo.startDate || todo.startDate === todo.due);
+  const { bars: todoBars, lanes: todoLanes } = layoutSpanBars(rangedTodos, days);
   const nowMinutes = useNowMinutes();
 
   const weekEvents = eventsInRange(events, days[0] as string, days[days.length - 1] as string);
@@ -174,9 +180,60 @@ export function WeekGrid({
           </div>
         )}
 
+        {/* Multi-day todos occupy one continuous bar rather than being copied
+            into every day they cover. */}
+        {todoLanes > 0 && (
+          <div
+            className="grid gap-px border-b py-1 font-mono"
+            style={{
+              gridTemplateColumns: `${TIME_GUTTER} repeat(7, minmax(0, 1fr))`,
+              borderColor: "var(--border)",
+            }}
+          >
+            <div className="pi-meta pr-1 text-right" style={{ color: "var(--accent-amber)" }}>
+              {t("robin.todos.title")}
+            </div>
+            <div className="relative col-span-7" style={{ height: todoLanes * 22 }}>
+              {todoBars.map((bar) => {
+                const hue = todoSpanColorKey(bar.event);
+                return (
+                  <div
+                    key={bar.event.id}
+                    className="absolute flex items-center gap-1.5 overflow-hidden px-1.5"
+                    style={{
+                      left: `calc(${(bar.startIndex / 7) * 100}% + 1px)`,
+                      width: `calc(${((bar.endIndex - bar.startIndex + 1) / 7) * 100}% - 2px)`,
+                      top: bar.lane * 22,
+                      height: 20,
+                      // A dashed edge keeps the todo/event distinction now
+                      // that hue varies per task: the border, not the
+                      // colour, is what says "todo".
+                      backgroundImage: `linear-gradient(to right, var(--event-${hue}-soft), var(--event-${hue}-line))`,
+                      border: `1px dashed var(--event-${hue}-line)`,
+                      color: bar.event.color ? `var(--todo-${bar.event.color})` : "var(--text)",
+                    }}
+                    title={bar.event.title}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={bar.event.done}
+                      onChange={() => onCompleteTodo(bar.event)}
+                      aria-label={t("robin.todos.complete", { title: bar.event.title })}
+                      className="shrink-0 cursor-pointer"
+                    />
+                    {bar.continuesBefore && <span aria-hidden>‹</span>}
+                    <TodoTitle todo={bar.event} t={t} className="min-w-0 truncate" style={{ fontSize: 11.5 }} />
+                    {bar.continuesAfter && <span aria-hidden>›</span>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Deadlines use their own labelled band, checkbox, dashed edge, and
             amber wash so they never rely on colour alone to differ from events. */}
-        {todos.length > 0 && (
+        {deadlineTodos.length > 0 && (
           <div
             className="grid gap-px border-b py-1 font-mono"
             style={{
@@ -189,7 +246,7 @@ export function WeekGrid({
             </div>
             {days.map((date) => (
               <div key={date} className="flex min-w-0 flex-col gap-1 px-0.5">
-                {todos.filter((todo) => todo.due === date).map((todo) => (
+                {deadlineTodos.filter((todo) => todo.due === date).map((todo) => (
                   <div
                     key={todo.id}
                     className="flex min-h-7 items-center gap-1.5 overflow-hidden px-1.5"
