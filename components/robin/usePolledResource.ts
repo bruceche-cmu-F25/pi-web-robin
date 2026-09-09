@@ -18,10 +18,10 @@ export interface PolledResource<T> {
  * feed driven by `tool_execution_end` would be tighter, but for a personal
  * dashboard the poll is not worth replacing yet.
  *
- * Polling pauses while the tab is hidden, matching how the session sidebar
- * polls /api/agent/running.
+ * A minute is enough for passive dashboard updates. Local actions and returning
+ * to a visible tab still refresh immediately; hidden tabs do not poll.
  */
-export function usePolledResource<T>(url: string, intervalMs = 5000): PolledResource<T> {
+export function usePolledResource<T>(url: string, intervalMs = 60_000): PolledResource<T> {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);

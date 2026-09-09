@@ -388,21 +388,25 @@ export function LinksPanel() {
                 onClick={() => (editingId === link.id ? commitEdit(link.id) : startEdit(link))}
                 aria-label={t("robin.links.edit", { title: link.title })}
                 title={t("robin.links.edit", { title: link.title })}
-                className="shrink-0 px-1 text-xs opacity-40 transition-opacity hover:opacity-100 group-hover:opacity-100"
-                style={{ color: editingId === link.id ? "var(--accent)" : "var(--text-dim)" }}
+                className="ui-action h-[44px] w-[44px] shrink-0 text-xs desktop:h-[28px] desktop:w-[28px]"
+                style={{ color: editingId === link.id ? "var(--accent)" : "var(--text-muted)" }}
               >
                 {editingId === link.id ? "✓" : "✎"}
               </button>
               <button
                 type="button"
-                onClick={() => (editingId === link.id
-                  ? setEditingId(null)
-                  : void run(() => mutate("/api/robin/links", "DELETE", { id: link.id })))}
+                onClick={() => {
+                  if (editingId === link.id) {
+                    setEditingId(null);
+                  } else if (window.confirm(t("robin.common.deleteConfirm", { title: link.title }))) {
+                    void run(() => mutate("/api/robin/links", "DELETE", { id: link.id }));
+                  }
+                }}
                 aria-label={editingId === link.id
                   ? t("robin.common.cancel")
                   : t("robin.links.delete", { title: link.title })}
-                className="shrink-0 px-1 text-xs opacity-40 transition-opacity hover:opacity-100 group-hover:opacity-100"
-                style={{ color: "var(--text-dim)" }}
+                className="ui-action h-[44px] w-[44px] shrink-0 text-xs desktop:h-[28px] desktop:w-[28px]"
+                style={{ color: "var(--text-muted)" }}
               >
                 ✕
               </button>
