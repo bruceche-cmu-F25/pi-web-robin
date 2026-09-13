@@ -94,7 +94,9 @@ export function ProductIncubatorShell({ children }: { children: ReactNode }) {
     <div className="robin-page robin-dashboard flex flex-1 flex-col" style={{ minWidth: 0, minHeight: 0 }}>
       <header
         className="flex flex-wrap items-baseline gap-x-5 gap-y-2 border-b px-4 py-3 desktop:px-6"
-        style={{ borderColor: "var(--border)", background: "var(--nav-panel-background)" }}
+        // No wash: this page is a document on the ruled ground, and the nav
+        // panel colour is the chat shell's chrome. One hairline separates it.
+        style={{ borderColor: "var(--border)" }}
       >
         <div className="flex min-w-0 flex-col gap-1">
           {/* No sub-navigation: the library used to be a second route, and

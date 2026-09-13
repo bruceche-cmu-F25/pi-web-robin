@@ -10,43 +10,95 @@
   scroll-margin-block: 16px;
 }
 
+/* One ruled line of six segments, not six boxed cards: the steps are a
+   sequence to read, and with a handful of ideas most counts are zero. The
+   colour is the segment's edge; the ground stays the page's. */
 .journey {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  border-block-start: 1px solid var(--border);
-  border-inline-start: 1px solid var(--border);
+  column-gap: 12px;
 }
 
 .stage {
   display: flex;
-  flex-direction: column;
+  align-items: baseline;
   gap: 8px;
-  padding: 12px;
   min-width: 0;
+  min-height: 44px;
+  padding: 10px 2px 8px;
   text-align: start;
   color: var(--text);
-  background: linear-gradient(180deg, var(--stage-wash), var(--bg-panel));
-  border-inline-end: 1px solid var(--border);
-  border-block-end: 1px solid var(--border);
-  box-shadow: inset 0 3px var(--stage-color);
+  background: transparent;
+  box-shadow: inset 0 2px var(--stage-color);
 }
 
-.stage > span:first-child {
-  width: 100%;
+.stageIndex {
+  color: var(--stage-color);
+}
+
+.stageName {
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .stageCount {
+  margin-inline-start: auto;
   font-variant-numeric: tabular-nums;
   color: var(--stage-color);
 }
 
-.stage[data-selected="true"] {
-  box-shadow: inset 0 3px var(--stage-color), inset 0 -3px var(--stage-color);
-  background: linear-gradient(180deg, var(--stage-wash), var(--bg-panel) 140%);
+/* A step nothing is in yet still names itself, but steps back. */
+.stage[data-empty="true"] {
+  box-shadow: inset 0 2px color-mix(in srgb, var(--stage-color) 35%, transparent);
 }
 
-.stage[data-selected="true"] > span:last-child {
+.stage[data-empty="true"] .stageName {
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.stage[data-empty="true"] .stageCount {
+  color: var(--text-dim);
+}
+
+.stage[data-selected="true"] {
+  box-shadow: inset 0 2px var(--stage-color), inset 0 -2px var(--stage-color);
+}
+
+.stage[data-selected="true"] .stageName {
   color: var(--stage-color);
+}
+
+/* The name, set as the card's heading, is also where you edit it. Scoped
+   past `.robin-dashboard input:not([type="checkbox"])`, which boxes every
+   field on these pages in mono. */
+.idea input.titleInput:not([type="checkbox"]) {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 0 2px;
+  border: 0;
+  border-bottom: 1px dashed transparent;
+  background: transparent;
+  color: var(--text);
+  /* The closed title's measure (`.robin-dashboard .text-lg`), so opening the
+     card does not change the size of its name. */
+  font-family: var(--font-serif);
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.75rem;
+}
+
+.idea input.titleInput:not([type="checkbox"]):hover {
+  border-bottom-color: var(--border);
+}
+
+.idea input.titleInput:not([type="checkbox"]):focus-visible {
+  outline: none;
+  border-bottom: 1px solid var(--accent);
 }
 
 .workbench {
@@ -86,15 +138,11 @@
 .capture {
   align-self: start;
   border-block-start: 3px solid var(--accent);
-  background: linear-gradient(145deg, var(--accent-subtle), var(--bg-panel) 42%);
 }
 
 @container (min-width: 640px) {
   .journey {
     grid-template-columns: repeat(6, minmax(0, 1fr));
-  }
-  .stage {
-    padding: 16px;
   }
 }
 

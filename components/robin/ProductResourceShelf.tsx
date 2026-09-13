@@ -95,7 +95,6 @@ export function ProductResourceShelf({ locale, resources, onRefresh }: {
               style={{
                 ...(expanded ? { columnSpan: "all" } : {}),
                 borderTop: `3px solid ${chip.color}`,
-                background: `linear-gradient(145deg, ${chip.background}, var(--bg-panel) 34%)`,
               }}
             >
               <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">

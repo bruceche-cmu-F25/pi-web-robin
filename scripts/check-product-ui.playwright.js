@@ -71,11 +71,16 @@ async (page) => {
   await page.getByRole("button", { name: /^搁置/ }).click();
   await page.getByRole("button", { name: /^孵化中/ }).click();
   check(await notebook.getByRole("textbox", { name: "笔记", exact: true }).inputValue() === "Unsaved draft", "Filtering must preserve drafts");
-  await notebook.getByRole("button", { name: "保存", exact: false }).click();
+  // No Save button: leaving the field (or a one-second pause) saves it.
   await notebook.getByRole("status").filter({ hasText: "已保存" }).waitFor();
-  check(ideas[0].note === "Unsaved draft", "Save must persist the intended draft");
+  check(ideas[0].note === "Unsaved draft", "Autosave must persist the intended draft");
+  const title = rows.first().getByRole("textbox", { name: "名称", exact: true });
+  await title.fill("Alpha renamed");
+  await title.press("Enter");
+  await notebook.getByRole("status").filter({ hasText: "已保存" }).waitFor();
+  check(ideas[0].name === "Alpha renamed" && ideas[0].note === "Unsaved draft", "Renaming must save only the name");
   await page.evaluate(() => { window.confirm = () => true; });
-  await notebook.getByRole("button", { name: "删除产品" }).click();
+  await notebook.getByRole("button", { name: "删除想法" }).click();
   await page.getByRole("alert").filter({ hasText: "Test delete failed" }).waitFor();
   check(await notebook.isVisible(), "Failed deletion must not close the notebook");
 
@@ -112,5 +117,5 @@ async (page) => {
   await page.reload();
   await page.getByRole("heading", { name: "你的下一个产品，从一个念头开始。" }).waitFor();
   check(errors.length === 0, `Browser exceptions: ${errors.join(", ")}`);
-  return "PASS: filters, draft preservation/save, failed deletion, direct creation, AI failure/retry, review reset, library refresh, empty state, 375/768/1440px layouts";
+  return "PASS: filters, draft preservation/autosave, rename, failed deletion, direct creation, AI failure/retry, review reset, library refresh, empty state, 375/768/1440px layouts";
 }

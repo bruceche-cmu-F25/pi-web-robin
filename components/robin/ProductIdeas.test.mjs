@@ -28,11 +28,38 @@ test("the brief asks for the discouraging answer", () => {
   }
 });
 
-test("saving another field never clears an unsaved name or note", () => {
-  assert.match(source, /if \(saved && clearsDraft\) setDraft\(null\)/);
-  assert.match(source, /save\(\{ name: name\.trim\(\), note \}, true\)/);
-  assert.doesNotMatch(source, /if \(saved\) setDraft\(null\)/);
-  assert.match(source, /const \{ name, note \} = draft \?\? idea/);
+test("name and note save themselves without losing keystrokes", () => {
+  // Every other field on the card already saved on its own; a Save button for
+  // two of them was a second rule to remember.
+  assert.doesNotMatch(source, /copy\.save\b/);
+  // Separate drafts, so saving one never sends or clears the other.
+  assert.match(source, /const name = nameDraft \?\? idea\.name/);
+  assert.match(source, /const note = noteDraft \?\? idea\.note/);
+  assert.match(source, /writeText\(\{ name: sent \}\)/);
+  assert.match(source, /writeText\(\{ note: sent \}\)/);
+  // A draft is dropped only if it is still exactly what was sent.
+  assert.match(source, /setNoteDraft\(\(current\) => \(current === sent \? null : current\)\)/);
+  assert.match(source, /setNameDraft\(\(current\) => \(current\?\.trim\(\) === sent \? null : current\)\)/);
+  // The note waits for a pause, and a blur flushes it.
+  assert.match(source, /setTimeout\(\(\) => void saveNote\(\), NOTE_AUTOSAVE_MS\)/);
+  assert.match(source, /onBlur=\{\(\) => void saveNote\(\)\}/);
+  // Step, bet, link and park writes leave text drafts alone.
+  assert.match(source, /const save = async \(patch: Record<string, unknown>\) => \{\s*setBusy\(true\);\s*await patchIdea\(patch\);\s*setBusy\(false\);\s*\};/);
+});
+
+test("an open card names the idea once, as its editable heading", () => {
+  assert.match(source, /\{open \? \(\s*\/\/[^\n]*\n[\s\S]*?className=\{styles\.titleInput\}/);
+  // Exactly one field edits an existing idea's name.
+  assert.equal(source.match(/setNameDraft\(event\.target\.value\)/g)?.length, 1);
+});
+
+test("the page sits on the document ground, with filters only when they filter", () => {
+  // The nav wash is the chat shell's material, not a document's.
+  assert.doesNotMatch(shell, /nav-panel-background/);
+  // The status views appear only when there is something to decide or parked.
+  assert.match(source, /const showViews = !!data && \(needsAttention > 0 \|\| parked > 0/);
+  assert.match(copy, /删除想法/);
+  assert.doesNotMatch(copy, /删除产品|Delete product/);
 });
 
 test("an idea can be wrong, and says so on the row", () => {

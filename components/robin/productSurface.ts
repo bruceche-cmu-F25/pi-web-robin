@@ -21,20 +21,21 @@ import type { EventColorKey } from "@/extension/robin/eventColors";
  *
  * The palette is the calendar's, and the keys have to hold in both themes,
  * which is a check the calendar never makes: it deals its colours in a fixed
- * order and so never picks one by name. The teal slot is unusable here —
- * light #5c8a83 but dark #9488cc, because today already owns teal on the dark
- * canvas — and it is the one key that moves.
+ * order and so never picks one by name. Two slots change hue between themes
+ * and are unusable here — teal (light #5c8a83, dark #9488cc, because today
+ * already owns teal on the dark canvas) and iris (light blue-violet #8578a6,
+ * dark orchid #c98dce). The other seven are one hue, lighter at night.
  *
  * The order walks the wheel rather than the funnel, so two adjacent steps are
- * never a near-miss: slate → iris → honey → plum → rose → fern. Fern last is
+ * never a near-miss: slate → honey → plum → sage → rose → fern. Fern last is
  * meant; it sits beside `--success`, and a thing that reached distribution is
  * a thing that went well.
  */
 const STEP_COLORS: Record<StepId, EventColorKey> = {
   spot: "slate",
-  research: "iris",
-  validate: "honey",
-  build: "plum",
+  research: "honey",
+  validate: "plum",
+  build: "sage",
   improve: "rose",
   launch: "fern",
 };
@@ -45,8 +46,6 @@ const SPINE_WIDTH = 4;
 export interface StepSurface {
   /** The row's left spine. */
   spine: string;
-  /** A whisper of the hue, for a row's ground. */
-  wash: string;
   /** The hue at strength, for a label or a count. */
   ink: string;
 }
@@ -59,12 +58,11 @@ export interface StepSurface {
  */
 export function stepSurface(step: StepId, parked?: boolean): StepSurface {
   if (parked) {
-    return { spine: `${SPINE_WIDTH}px solid var(--border)`, wash: "transparent", ink: "var(--text-dim)" };
+    return { spine: `${SPINE_WIDTH}px solid var(--border)`, ink: "var(--text-dim)" };
   }
   const key = STEP_COLORS[step];
   return {
     spine: `${SPINE_WIDTH}px solid var(--event-${key})`,
-    wash: `var(--event-${key}-faint)`,
     ink: `var(--event-${key})`,
   };
 }
@@ -87,7 +85,8 @@ const CATEGORY_COLORS: Record<LibraryCategory, EventColorKey> = {
   test: "honey",
   stack: "plum",
   distribution: "fern",
-  tool: "iris",
+  // Not iris: it changes hue between themes (see STEP_COLORS).
+  tool: "rose",
 };
 
 export interface CategoryChip {

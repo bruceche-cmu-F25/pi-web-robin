@@ -21,6 +21,9 @@ interface IdeasResponse {
   captures: ProductCapture[];
 }
 
+/** How long the note waits after the last keystroke before saving itself. */
+const NOTE_AUTOSAVE_MS = 1_000;
+
 interface Suggestion {
   kind: "idea" | "resource" | "link" | "note";
   title: string;
@@ -75,6 +78,7 @@ export function ProductIdeas() {
   );
 
   const selectedStep = PLAYBOOK.find((step) => step.id === filter);
+  const showViews = !!data && (needsAttention > 0 || parked > 0 || filter === "attention" || filter === "parked");
   const visibleIds = new Set(ideas.filter((idea) => {
     if (filter === "parked") return !!idea.parked;
     if (filter === "attention") return ideaAttention(idea, today) !== null;
@@ -112,13 +116,12 @@ export function ProductIdeas() {
                   onClick={() => setFilter(filter === step.id ? "active" : step.id)}
                   className={`ui-action ${styles.stage}`}
                   data-selected={filter === step.id}
-                  style={{ "--stage-color": surface.ink, "--stage-wash": surface.wash } as CSSProperties}
+                  data-empty={data ? n === 0 : undefined}
+                  style={{ "--stage-color": surface.ink } as CSSProperties}
                 >
-                  <span className="pi-eyebrow flex items-center justify-between gap-2">
-                    <span aria-hidden="true">0{index + 1}</span>
-                    <span className={styles.stageCount}>{data ? n : "—"}</span>
-                  </span>
-                  <span className="text-sm font-semibold">{step.name[zh ? "zh" : "en"]}</span>
+                  <span className={`pi-eyebrow ${styles.stageIndex}`} aria-hidden="true">0{index + 1}</span>
+                  <span className={styles.stageName}>{step.name[zh ? "zh" : "en"]}</span>
+                  <span className={`pi-eyebrow ${styles.stageCount}`}>{data ? n : "—"}</span>
                 </button>
               );
             })}
@@ -141,18 +144,23 @@ export function ProductIdeas() {
               </div>
               <a href="#product-capture-title" className={`ui-action pi-bracket min-h-[44px] content-center text-xs ${styles.captureShortcut}`}>{copy.directIdea}</a>
             </header>
-            <div className={styles.filters} role="group" aria-label={copy.ideas}>
-              {([
-                ["active", copy.active, ideas.length - parked],
-                ["attention", copy.attention, needsAttention],
-                ["parked", copy.parked, parked],
-              ] as const).map(([value, label, count]) => (
-                <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)} className="ui-action min-h-[44px] px-3 text-xs" data-selected={filter === value}>
-                  {label} <span className="ml-1 tabular-nums">{data ? count : "—"}</span>
-                </button>
-              ))}
-              {selectedStep ? <span className="pi-eyebrow px-3">{selectedStep.name[zh ? "zh" : "en"]}</span> : null}
-            </div>
+            {/* The step row above already filters by step and counts what is in
+                progress. These views only earn a row when there is something to
+                decide or something set aside — otherwise it is a lone tab
+                repeating the count beside the heading. */}
+            {showViews ? (
+              <div className={styles.filters} role="group" aria-label={copy.ideas}>
+                {([
+                  ["active", copy.active, ideas.length - parked],
+                  ["attention", copy.attention, needsAttention],
+                  ["parked", copy.parked, parked],
+                ] as const).filter(([value, , count]) => value === "active" || count > 0 || filter === value).map(([value, label, count]) => (
+                  <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)} className="ui-action min-h-[44px] px-3 text-xs" data-selected={filter === value}>
+                    {label} <span className="ml-1 tabular-nums">{count}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
 
             {!data ? <p role="status" className="pi-panel p-6 text-sm">{error ? copy.error : copy.loading}</p> : null}
             {data && visibleIds.size === 0 ? (
@@ -232,9 +240,16 @@ function IdeaRow({ idea, hidden, copy, locale, today, resources, open, onToggle,
   onAct: <T,>(run: () => Promise<T>) => Promise<T | null>;
   onGone: () => void;
 }) {
-  const [draft, setDraft] = useState<{ name: string; note: string } | null>(null);
-  const { name, note } = draft ?? idea;
-  const dirty = draft !== null;
+  // Name and note save themselves, like every other field on the card. Each
+  // keeps its own draft so that saving one never sends — or clears — the other.
+  const [nameDraft, setNameDraft] = useState<string | null>(null);
+  const [noteDraft, setNoteDraft] = useState<string | null>(null);
+  const name = nameDraft ?? idea.name;
+  const note = noteDraft ?? idea.note;
+  const pendingNote = useRef<string | null>(null);
+  const noteTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const [writing, setWriting] = useState(0);
+  const dirty = nameDraft !== null || noteDraft !== null;
   const [busy, setBusy] = useState(false);
   const surface = stepSurface(idea.step, idea.parked);
   const step = playbookStep(idea.step);
@@ -242,13 +257,48 @@ function IdeaRow({ idea, hidden, copy, locale, today, resources, open, onToggle,
   const agent = useProductAgent();
   const attention = ideaAttention(idea, today);
 
-  const save = async (patch: Record<string, unknown>, clearsDraft = false) => {
+  const patchIdea = (patch: Record<string, unknown>) =>
+    onAct(() => jsonRequest(`/api/robin/products/${encodeURIComponent(idea.id)}`, "PATCH", patch));
+
+  // Step, bet, link, and parked-state writes lock the controls they belong to.
+  const save = async (patch: Record<string, unknown>) => {
     setBusy(true);
-    const saved = await onAct(() => jsonRequest(`/api/robin/products/${encodeURIComponent(idea.id)}`, "PATCH", patch));
+    await patchIdea(patch);
     setBusy(false);
-    // Stage, bet, link, and parked-state writes must not claim that a separate
-    // name/note draft was saved. Only the button that sends that draft clears it.
-    if (saved && clearsDraft) setDraft(null);
+  };
+
+  // Text writes never disable the field being typed in, and a draft is only
+  // dropped if it is still exactly what was sent: keystrokes that arrive while
+  // the request is in flight are a newer draft, not something to overwrite.
+  const writeText = async (patch: { name: string } | { note: string }) => {
+    setWriting((count) => count + 1);
+    const saved = await patchIdea(patch);
+    setWriting((count) => count - 1);
+    return saved;
+  };
+
+  const saveName = async () => {
+    const sent = nameDraft?.trim();
+    // An empty name stays a draft (and says unsaved): the server refuses it.
+    if (nameDraft === null || !sent) return;
+    if (sent === idea.name) { setNameDraft(null); return; }
+    if (await writeText({ name: sent })) setNameDraft((current) => (current?.trim() === sent ? null : current));
+  };
+
+  const saveNote = async () => {
+    clearTimeout(noteTimer.current);
+    const sent = pendingNote.current;
+    if (sent === null) return;
+    pendingNote.current = null;
+    if (await writeText({ note: sent })) setNoteDraft((current) => (current === sent ? null : current));
+    else pendingNote.current ??= sent;
+  };
+
+  const editNote = (value: string) => {
+    pendingNote.current = value;
+    setNoteDraft(value);
+    clearTimeout(noteTimer.current);
+    noteTimer.current = setTimeout(() => void saveNote(), NOTE_AUTOSAVE_MS);
   };
 
   const firstLine = idea.note.split("\n").find((line) => line.trim()) ?? "";
@@ -257,19 +307,38 @@ function IdeaRow({ idea, hidden, copy, locale, today, resources, open, onToggle,
     <li
       hidden={hidden}
       className={`pi-card ${styles.idea}`}
-      style={{ borderLeft: surface.spine, background: `linear-gradient(100deg, ${surface.wash}, var(--bg-panel) 34%)` }}
+      style={{ borderLeft: surface.spine }}
     >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 p-4">
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-expanded={open}
-          aria-controls={`product-notebook-${idea.id}`}
-          className="ui-action flex min-h-[44px] min-w-0 basis-full flex-col items-start gap-2 text-left split:basis-auto split:flex-1"
-        >
-          <span className="text-lg font-semibold" style={{ color: "var(--text)", overflowWrap: "anywhere" }}>{idea.name}</span>
-          {!open && firstLine ? <span className="line-clamp-2 text-sm" style={{ color: "var(--text-muted)" }}>{firstLine}</span> : null}
-        </button>
+        {open ? (
+          // Open, the heading is the name field — one name on the card, not a
+          // title with an input repeating it underneath.
+          <div className="min-w-0 basis-full split:basis-auto split:flex-1">
+            <input
+              value={name}
+              onChange={(event) => setNameDraft(event.target.value)}
+              onBlur={() => void saveName()}
+              onKeyDown={(event) => {
+                if (event.nativeEvent.isComposing) return;
+                if (event.key === "Enter") event.currentTarget.blur();
+                if (event.key === "Escape") setNameDraft(null);
+              }}
+              aria-label={copy.ideaName}
+              className={styles.titleInput}
+            />
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-expanded={open}
+            aria-controls={`product-notebook-${idea.id}`}
+            className="ui-action flex min-h-[44px] min-w-0 basis-full flex-col items-start gap-2 text-left split:basis-auto split:flex-1"
+          >
+            <span className="text-lg font-semibold" style={{ color: "var(--text)", overflowWrap: "anywhere" }}>{name.trim() || idea.name}</span>
+            {firstLine ? <span className="line-clamp-2 text-sm" style={{ color: "var(--text-muted)" }}>{firstLine}</span> : null}
+          </button>
+        )}
 
         {attention ? (
           <span className="pi-eyebrow shrink-0 whitespace-nowrap" style={{ color: "var(--warning)" }}>
@@ -278,7 +347,8 @@ function IdeaRow({ idea, hidden, copy, locale, today, resources, open, onToggle,
         ) : null}
 
         {idea.parked ? <span className="pi-eyebrow">{copy.parked}</span> : null}
-        {dirty ? <span className="pi-eyebrow" style={{ color: "var(--warning)" }}>{copy.unsaved}</span> : null}
+        {/* Only worth saying on a closed card: open, the status sits under the notes. */}
+        {dirty && !open ? <span className="pi-eyebrow" style={{ color: "var(--warning)" }}>{copy.unsaved}</span> : null}
 
         <select
           value={idea.step}
@@ -313,17 +383,6 @@ function IdeaRow({ idea, hidden, copy, locale, today, resources, open, onToggle,
 
       {open ? (
         <div id={`product-notebook-${idea.id}`} className="flex flex-col gap-4 border-t p-4" style={{ borderColor: "var(--border)" }}>
-          <label className="flex flex-col gap-2">
-            <span className="pi-eyebrow">{copy.ideaName}</span>
-          <input
-            value={name}
-            disabled={busy}
-            onChange={(event) => setDraft({ name: event.target.value, note })}
-            aria-label={copy.ideaName}
-            className="pi-panel min-h-[44px] w-full px-2 text-sm outline-none disabled:opacity-60"
-          />
-          </label>
-
           <StepCard
             idea={idea}
             step={step}
@@ -338,20 +397,17 @@ function IdeaRow({ idea, hidden, copy, locale, today, resources, open, onToggle,
             <span className="pi-eyebrow">{copy.notebook}</span>
           <textarea
             value={note}
-            disabled={busy}
-            onChange={(event) => setDraft({ name, note: event.target.value })}
+            onChange={(event) => editNote(event.target.value)}
+            onBlur={() => void saveNote()}
             aria-label={copy.note}
             placeholder={copy.notePlaceholder}
             rows={6}
-            className="pi-panel w-full resize-y p-2 text-sm outline-none disabled:opacity-60"
+            className="pi-panel w-full resize-y p-2 text-sm outline-none"
           />
           </label>
-          <div className="flex items-center gap-3">
-            <button type="button" disabled={busy || !dirty || !name.trim()} onClick={() => void save({ name: name.trim(), note }, true)} className="ui-action pi-bracket min-h-[44px] text-xs disabled:opacity-40" data-state="accent">
-              {busy ? copy.saving : copy.save}
-            </button>
-            <span role="status" className="pi-eyebrow">{dirty ? copy.unsaved : copy.saved}</span>
-          </div>
+          <span role="status" className="pi-eyebrow -mt-2">
+            {writing ? copy.saving : dirty ? copy.unsaved : copy.saved}
+          </span>
 
           <Bet idea={idea} copy={copy} busy={busy} today={today} onSave={save} />
 
@@ -374,6 +430,9 @@ function IdeaRow({ idea, hidden, copy, locale, today, resources, open, onToggle,
               style={{ color: "var(--danger)" }}
               onClick={async () => {
                 if (!window.confirm(copy.deleteConfirm)) return;
+                // A note still waiting to save would otherwise land on a deleted idea.
+                clearTimeout(noteTimer.current);
+                pendingNote.current = null;
                 setBusy(true);
                 const removed = await onAct(() => jsonRequest(`/api/robin/products/${encodeURIComponent(idea.id)}`, "DELETE", undefined));
                 setBusy(false);
@@ -426,7 +485,7 @@ function StepCard({ idea, step, copy, zh, busy, resources, onSave, onResearch }:
   return (
     <section
       className="pi-panel flex flex-col gap-3 p-3"
-      style={{ borderLeft: surface.spine, background: `linear-gradient(100deg, ${surface.wash}, var(--bg-panel) 38%)` }}
+      style={{ borderLeft: surface.spine }}
     >
       <header className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <span className="pi-eyebrow tabular-nums" style={{ color: surface.ink }}>
