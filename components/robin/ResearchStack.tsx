@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
-import { toTraditionalChinese } from "@/lib/i18n/zh-traditional";
 import { iconFallback } from "@/extension/robin/links";
 import {
   CATEGORY_TONE,
@@ -49,15 +48,9 @@ export function ResearchStack() {
   const [filter, setFilter] = useState<Filter>({ kind: "all" });
   const [query, setQuery] = useState("");
 
-  /**
-   * Prose is authored in English and Simplified Chinese; Traditional is a
-   * character substitution over the Simplified copy, the same deal the
-   * curriculum gets. Doing it at render time rather than in the data keeps one
-   * source of truth per language.
-   */
+  /** Prose is authored in English and Simplified Chinese, one source per language. */
   const say = useMemo(() => {
     if (locale === "en") return (value: Bilingual) => value.en;
-    if (locale === "zh-TW") return (value: Bilingual) => toTraditionalChinese(value.zh);
     return (value: Bilingual) => value.zh;
   }, [locale]);
 
@@ -103,7 +96,7 @@ export function ResearchStack() {
         </header>
 
         <ProjectResources />
-        <WeeklyObjective />
+        <ResearchNotebook />
         <ResearchReadings />
 
         {/* Five documents, not five sections of one. This page answers
@@ -268,15 +261,18 @@ function ProjectResources() {
 }
 
 const LEGACY_WEEKLY_OBJECTIVE_KEY = "pi-research-weekly-objective";
-type ObjectiveSaveState = "loading" | "saving" | "saved" | "error";
+type ResearchSaveState = "loading" | "saving" | "saved" | "error";
 
-function WeeklyObjective() {
+function ResearchNotebook() {
   const { t } = useI18n();
   const [objective, setObjective] = useState("");
+  const [note, setNote] = useState("");
   const [loaded, setLoaded] = useState(false);
-  const [saveState, setSaveState] = useState<ObjectiveSaveState>("loading");
+  const [saveState, setSaveState] = useState<ResearchSaveState>("loading");
   const objectiveRef = useRef("");
-  const savedRef = useRef("");
+  const noteRef = useRef("");
+  const savedObjectiveRef = useRef("");
+  const savedNoteRef = useRef("");
   const saveInFlight = useRef<Promise<void> | null>(null);
   const migratingLegacyValue = useRef(false);
   const mounted = useRef(true);
@@ -292,10 +288,11 @@ function WeeklyObjective() {
       .then(async (response) => {
         const body = await response.json().catch(() => null) as {
           objective?: unknown;
+          note?: unknown;
           updatedAt?: unknown;
           error?: string;
         } | null;
-        if (!response.ok || typeof body?.objective !== "string") {
+        if (!response.ok || typeof body?.objective !== "string" || typeof body.note !== "string") {
           throw new Error(body?.error ?? `Request failed (${response.status})`);
         }
         if (cancelled) return;
@@ -314,8 +311,11 @@ function WeeklyObjective() {
         }
 
         objectiveRef.current = value;
-        savedRef.current = body.objective;
+        noteRef.current = body.note;
+        savedObjectiveRef.current = body.objective;
+        savedNoteRef.current = body.note;
         setObjective(value);
+        setNote(body.note);
         setLoaded(true);
         setSaveState("saved");
       })
@@ -328,21 +328,23 @@ function WeeklyObjective() {
   // Serialize writes and keep draining until the server has the newest edit.
   // This avoids a slow older request overwriting a newer value.
   const saveLatest = useCallback(async () => {
-    if (!loaded || saveInFlight.current || savedRef.current === objectiveRef.current) return;
+    if (!loaded || saveInFlight.current || (savedObjectiveRef.current === objectiveRef.current && savedNoteRef.current === noteRef.current)) return;
 
     const save = (async () => {
       try {
-        while (savedRef.current !== objectiveRef.current) {
-          const value = objectiveRef.current;
+        while (savedObjectiveRef.current !== objectiveRef.current || savedNoteRef.current !== noteRef.current) {
+          const nextObjective = objectiveRef.current;
+          const nextNote = noteRef.current;
           if (mounted.current) setSaveState("saving");
           const response = await fetch("/api/research/objective", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ objective: value }),
+            body: JSON.stringify({ objective: nextObjective, note: nextNote }),
           });
           const body = await response.json().catch(() => null) as { error?: string } | null;
           if (!response.ok) throw new Error(body?.error ?? `Request failed (${response.status})`);
-          savedRef.current = value;
+          savedObjectiveRef.current = nextObjective;
+          savedNoteRef.current = nextNote;
           if (migratingLegacyValue.current) {
             try {
               window.localStorage.removeItem(LEGACY_WEEKLY_OBJECTIVE_KEY);
@@ -364,22 +366,23 @@ function WeeklyObjective() {
   }, [loaded]);
 
   useEffect(() => {
-    if (!loaded || objective === savedRef.current) return;
+    if (!loaded || (objective === savedObjectiveRef.current && note === savedNoteRef.current)) return;
     setSaveState("saving");
     const timer = window.setTimeout(() => { void saveLatest(); }, 500);
     return () => window.clearTimeout(timer);
-  }, [loaded, objective, saveLatest]);
+  }, [loaded, note, objective, saveLatest]);
 
   return (
     <section className="pi-card flex flex-col gap-3 p-4">
       <header className="flex flex-wrap items-baseline justify-between gap-2">
-        <label htmlFor="research-weekly-objective" className="pi-label" style={{ fontSize: 12 }}>
-          {t("research.objective.title")}
-        </label>
+        <h2 className="pi-label" style={{ fontSize: 12 }}>{t("research.notebook.title")}</h2>
         <span className="pi-eyebrow" aria-live="polite" style={{ fontSize: 9 }}>
           {t(`research.objective.${saveState}`)}
         </span>
       </header>
+      <label htmlFor="research-weekly-objective" className="pi-eyebrow" style={{ fontSize: 9 }}>
+        {t("research.objective.title")}
+      </label>
       <textarea
         id="research-weekly-objective"
         value={objective}
@@ -389,9 +392,27 @@ function WeeklyObjective() {
           setObjective(event.target.value);
         }}
         onBlur={() => { void saveLatest(); }}
-        rows={4}
+        rows={3}
         maxLength={10_000}
         placeholder={t("research.objective.placeholder")}
+        className="w-full resize-y"
+      />
+      <div style={{ borderTop: "1px solid var(--border)" }} />
+      <label htmlFor="research-note" className="pi-eyebrow" style={{ fontSize: 9 }}>
+        {t("research.note.title")}
+      </label>
+      <textarea
+        id="research-note"
+        value={note}
+        disabled={!loaded}
+        onChange={(event) => {
+          noteRef.current = event.target.value;
+          setNote(event.target.value);
+        }}
+        onBlur={() => { void saveLatest(); }}
+        rows={10}
+        maxLength={100_000}
+        placeholder={t("research.note.placeholder")}
         className="w-full resize-y"
       />
     </section>

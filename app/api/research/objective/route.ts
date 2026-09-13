@@ -6,9 +6,11 @@ export const dynamic = "force-dynamic";
 
 const FILE = "research-objective.json";
 const MAX_OBJECTIVE_LENGTH = 10_000;
+const MAX_NOTE_LENGTH = 100_000;
 
 type StoredObjective = {
   objective: string;
+  note?: string;
   updatedAt: string;
 };
 
@@ -32,10 +34,10 @@ export async function GET(req: Request) {
 
   try {
     const stored = readJsonObject<StoredObjective>(FILE);
-    if (stored && typeof stored.objective !== "string") {
-      throw new Error("Stored research objective is invalid");
+    if (stored && (typeof stored.objective !== "string" || (stored.note !== undefined && typeof stored.note !== "string"))) {
+      throw new Error("Stored research notes are invalid");
     }
-    return NextResponse.json({ objective: stored?.objective ?? "", updatedAt: stored?.updatedAt ?? null });
+    return NextResponse.json({ objective: stored?.objective ?? "", note: stored?.note ?? "", updatedAt: stored?.updatedAt ?? null });
   } catch (error) {
     return fail(error, 500);
   }
@@ -46,14 +48,20 @@ export async function PUT(req: Request) {
   if (blocked) return blocked;
 
   try {
-    const body = await req.json() as { objective?: unknown };
+    const body = await req.json() as { objective?: unknown; note?: unknown };
     if (typeof body.objective !== "string") return fail(new Error("objective must be a string"));
     if (body.objective.length > MAX_OBJECTIVE_LENGTH) {
       return fail(new Error(`objective must be at most ${MAX_OBJECTIVE_LENGTH} characters`), 413);
     }
+    if (body.note !== undefined && typeof body.note !== "string") return fail(new Error("note must be a string"));
+    if (typeof body.note === "string" && body.note.length > MAX_NOTE_LENGTH) {
+      return fail(new Error(`note must be at most ${MAX_NOTE_LENGTH} characters`), 413);
+    }
 
+    const previous = readJsonObject<StoredObjective>(FILE);
     const stored: StoredObjective = {
       objective: body.objective,
+      note: typeof body.note === "string" ? body.note : previous?.note ?? "",
       updatedAt: new Date().toISOString(),
     };
     writeJsonObject(FILE, stored);
