@@ -371,24 +371,26 @@ function TodoRow({
           className="cursor-pointer"
         />
       </label>
-      <TodoTitle
-        todo={todo}
-        t={t}
-        className="col-span-2 col-start-2 row-start-1 min-w-0 whitespace-normal text-sm [overflow-wrap:anywhere] desktop:flex-1 desktop:truncate"
-        style={{
-          color: todo.done
-            ? "var(--text-dim)"
-            : todo.color ? `var(--todo-${todo.color})` : "var(--text)",
-          textDecoration: todo.done ? "line-through" : "none",
-        }}
-      />
-      {(todo.startDate || todo.due) && !todo.done && (
-        <span className="col-start-2 row-start-2 min-w-0 text-xs desktop:shrink-0" style={{ color: overdue ? "var(--danger)" : "var(--text-muted)" }}>
-          {todoDateLabel(todo, today, locale, t)}
-        </span>
-      )}
+      <div className="col-start-2 min-w-0 self-center desktop:flex desktop:flex-1 desktop:items-center desktop:gap-2">
+        <TodoTitle
+          todo={todo}
+          t={t}
+          className="block min-w-0 whitespace-normal text-sm [overflow-wrap:anywhere] desktop:flex-1 desktop:truncate"
+          style={{
+            color: todo.done
+              ? "var(--text-dim)"
+              : todo.color ? `var(--todo-${todo.color})` : "var(--text)",
+            textDecoration: todo.done ? "line-through" : "none",
+          }}
+        />
+        {(todo.startDate || todo.due) && !todo.done && (
+          <span className="block min-w-0 text-xs desktop:shrink-0" style={{ color: overdue ? "var(--danger)" : "var(--text-muted)" }}>
+            {todoDateLabel(todo, today, locale, t)}
+          </span>
+        )}
+      </div>
       {mobile ? (
-        <details ref={actionsMenu} className="relative col-start-3 row-start-2">
+        <details ref={actionsMenu} className="relative col-start-3">
           <summary
             className="ui-action flex h-[44px] w-[44px] cursor-pointer list-none items-center justify-center"
             aria-label={t("robin.todos.actions", { title: todo.title })}

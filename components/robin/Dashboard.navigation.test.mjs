@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const read = (path) => readFile(new URL(path, import.meta.url), "utf8");
-const sidebarSource = await read("../SessionSidebar.tsx");
+const appShellSource = await read("../AppShell.tsx");
 const marginSource = await read("./RobinMargin.tsx");
 const shellSource = await read("./RobinShell.tsx");
 const dashboardLayout = await read("../../app/dashboard/layout.tsx");
@@ -24,14 +24,15 @@ test("Robin routes share one persistent compact navigation", () => {
 });
 
 test("dashboard and chat round trips preserve the active workspace", () => {
+  // Chat reaches the dashboard through the masthead, handing it the session
+  // and project that are open even when the URL is a bare "/".
   assert.match(
-    sidebarSource,
-    /pathname: "\/dashboard",\s*query: selectedSessionId\s*\? \{ session: selectedSessionId \}\s*: selectedCwd\s*\? \{ cwd: selectedCwd \}/,
+    appShellSource,
+    /<RobinMargin[\s\S]*?chatContext=\{\{\s*sessionId: selectedSession\?\.id \?\? null,\s*cwd: selectedSession\?\.cwd \?\? newSessionCwd \?\? null,/,
   );
-  assert.match(
-    marginSource,
-    /const \{ sessionId, requestedCwd: cwd \} = getInitialNavigation\(searchParams\)/,
-  );
+  assert.match(marginSource, /const fromUrl = getInitialNavigation\(searchParams\)/);
+  assert.match(marginSource, /const sessionId = chatContext \? chatContext\.sessionId : fromUrl\.sessionId/);
+  assert.match(marginSource, /const cwd = chatContext \? chatContext\.cwd : fromUrl\.requestedCwd/);
   assert.match(
     marginSource,
     /sessionId\s*\? `\$\{path\}\?session=\$\{encodeURIComponent\(sessionId\)\}`\s*: cwd\s*\? `\$\{path\}\?cwd=\$\{encodeURIComponent\(cwd\)\}`/,

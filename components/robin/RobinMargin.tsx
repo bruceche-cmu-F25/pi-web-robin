@@ -1,8 +1,9 @@
 "use client";
 
 import { usePathname, useSearchParams } from "next/navigation";
-import type { ComponentType, SVGProps } from "react";
+import { Fragment, type ComponentType, type SVGProps } from "react";
 import { useI18n } from "@/hooks/useI18n";
+import { FocusTimer } from "./FocusTimer";
 import { getInitialNavigation } from "@/lib/initial-navigation";
 import type { MailReview } from "@/extension/robin/mail";
 import type { Job } from "@/extension/robin/jobs";
@@ -34,7 +35,7 @@ interface TechEventsResponse {
 }
 
 type Icon = ComponentType<SVGProps<SVGSVGElement>>;
-type NavTone = "clay" | "sage" | "teal" | "slate" | "plum" | "honey" | "fern";
+type NavTone = "clay" | "sage" | "teal" | "slate" | "plum" | "honey" | "fern" | "rose";
 
 interface NavStatus {
   count?: number;
@@ -113,15 +114,23 @@ function NavEntry({ item, pathname, onNavigate }: {
   );
 }
 
-export function RobinMargin({ drawer, onClose, onNavigate }: {
+export function RobinMargin({ drawer, onClose, onNavigate, chatContext }: {
   drawer: boolean;
   onClose: () => void;
   onNavigate?: () => void;
+  /**
+   * The chat page passes the session and project it has open, which the URL
+   * does not always say: a new-session draft leaves it at a bare "/". The
+   * Robin pages leave this out and hand on whatever they arrived with.
+   */
+  chatContext?: { sessionId: string | null; cwd: string | null };
 }) {
   const { t } = useI18n();
   const pathname = usePathname() ?? "";
   const searchParams = useSearchParams();
-  const { sessionId, requestedCwd: cwd } = getInitialNavigation(searchParams);
+  const fromUrl = getInitialNavigation(searchParams);
+  const sessionId = chatContext ? chatContext.sessionId : fromUrl.sessionId;
+  const cwd = chatContext ? chatContext.cwd : fromUrl.requestedCwd;
   const withChatContext = (path: string) => sessionId
     ? `${path}?session=${encodeURIComponent(sessionId)}`
     : cwd
@@ -216,9 +225,14 @@ export function RobinMargin({ drawer, onClose, onNavigate }: {
       path: "/product",
       label: t("robin.nav.product"),
       icon: ProductIcon,
-      // Fern is Product's own growth tone; Dashboard keeps clay, so the two
-      // workspaces no longer begin and end the main navigation in the same hue.
       tone: "fern",
+    },
+    {
+      href: withChatContext("/podcasts"),
+      path: "/podcasts",
+      label: t("robin.nav.podcasts"),
+      icon: PodcastIcon,
+      tone: "rose",
     },
   ];
 
@@ -263,8 +277,12 @@ export function RobinMargin({ drawer, onClose, onNavigate }: {
       </nav>
 
       <nav className="robin-nav-utility" aria-label={t("robin.nav.utilityNavigation")}>
-        {utilityItems.map((item) => (
-          <NavEntry key={item.path} item={item} pathname={pathname} onNavigate={onNavigate} />
+        {utilityItems.map((item, index) => (
+          <Fragment key={item.path}>
+            {/* The focus timer lives between chat and settings, not after them. */}
+            {index === 1 && <FocusTimer />}
+            <NavEntry item={item} pathname={pathname} onNavigate={onNavigate} />
+          </Fragment>
         ))}
       </nav>
     </div>
@@ -289,6 +307,10 @@ function EventsIcon(props: SVGProps<SVGSVGElement>) {
 
 function LearningIcon(props: SVGProps<SVGSVGElement>) {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" {...props}><path d="M4 4.5h6a3 3 0 0 1 3 3V21a3 3 0 0 0-3-3H4z" /><path d="M20 4.5h-4a3 3 0 0 0-3 3V21a3 3 0 0 1 3-3h4z" /></svg>;
+}
+
+function PodcastIcon(props: SVGProps<SVGSVGElement>) {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}><rect x="8" y="3" width="8" height="12" rx="4" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6" /></svg>;
 }
 
 function ResearchIcon(props: SVGProps<SVGSVGElement>) {

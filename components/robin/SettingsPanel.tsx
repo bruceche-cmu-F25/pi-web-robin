@@ -10,6 +10,7 @@ import type {
   TranscriptionSettings,
 } from "@/extension/robin/settings";
 import { useI18n } from "@/hooks/useI18n";
+import { ThemePicker } from "../ThemePicker";
 
 interface SecretStatus {
   set: boolean;
@@ -264,6 +265,21 @@ export function SettingsPanel() {
       >
         <p>{t("robin.settings.storedAt", { path: data?.storedAt ?? "~/.pi/robin/secrets.json" })}</p>
         <p style={{ color: "var(--text-dim)" }}>{t("robin.settings.privacyNote")}</p>
+      </section>
+
+      <section
+        className="flex flex-col gap-2 rounded-lg p-4"
+        style={{ background: "var(--bg-panel)", border: "1px solid var(--border)" }}
+      >
+        <div>
+          <h2 className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+            {t("settings.appearance")}
+          </h2>
+          <p className="text-xs" style={{ color: "var(--text-dim)" }}>
+            {t("settings.appearanceDescription")}
+          </p>
+        </div>
+        <ThemePicker />
       </section>
 
       <section

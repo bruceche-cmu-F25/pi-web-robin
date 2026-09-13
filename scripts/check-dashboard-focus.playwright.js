@@ -61,7 +61,7 @@ async (page) => {
   check(aiCalls === 0, "Empty search results cannot fall through to AI");
   await input.fill("daily");
   check(await bar.locator("a").first().getAttribute("href") === "/dashboard?session=audit-session", "Search commands preserve workspace context");
-  await bar.getByRole("button", { name: "让 Pi 执行", exact: true }).click();
+  await bar.getByRole("button", { name: "Act", exact: true }).click();
   check(await input.getAttribute("aria-describedby"), "Instruction has a mode-specific hint");
   check(await input.getAttribute("name") === "instruction", "Execution is an explicit input mode");
   await input.evaluate((el) => el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true, cancelable: true })));
@@ -70,15 +70,15 @@ async (page) => {
   await bar.getByRole("alert").filter({ hasText: "Test assistant unavailable" }).waitFor();
   check(await input.inputValue() === "daily" && aiCalls === 1, "Failed execution retains text for retry");
   failAI = false;
-  await bar.getByRole("button", { name: "执行", exact: true }).click();
+  await bar.locator("form").getByRole("button", { name: /执行/ }).click();
   await bar.getByRole("status").filter({ hasText: "处理中" }).waitFor();
   check(await input.isDisabled(), "Executing state disables editing");
   await input.evaluate((el) => el.form.requestSubmit());
   check(aiCalls === 2, "Concurrent submits are ignored");
   releaseAI();
   await bar.getByText("Mock reply", { exact: true }).waitFor();
-  check(await input.evaluate((el) => document.activeElement === el), "Reply restores input focus");
-  await bar.getByRole("button", { name: "搜索", exact: true }).click();
+  await page.waitForFunction((el) => document.activeElement === el, await input.elementHandle());
+  await bar.getByRole("button", { name: "Search", exact: true }).click();
 
   const learning = page.locator("#fullstack-open");
   const course = learning.locator("article").filter({ hasText: "Full Stack Open" });
@@ -119,12 +119,12 @@ async (page) => {
   snapshot.fullstack.upcoming = [];
   snapshot.fullstack.currentPart = null;
   await page.reload();
-  await practice.getByText("今天安排的练习已经完成。", { exact: true }).waitFor();
+  await practice.getByText(/今日安排已完成/).first().waitFor();
   check(await course.getByRole("link", { name: /继续当前课程/ }).count() === 0, "Completed course has no stale primary action");
   await page.keyboard.press("Control+k");
   const palette = page.locator("dialog.robin-command-dialog");
   await palette.waitFor();
-  check(await palette.getByRole("button", { name: "搜索", exact: true }).first().getAttribute("aria-pressed") === "true", "Command palette also defaults to safe search");
+  check(await palette.getByRole("button", { name: "Search", exact: true }).first().getAttribute("aria-pressed") === "true", "Command palette also defaults to safe search");
   await page.keyboard.press("Escape");
   check(writes.length === 2, "Only two explicitly requested, mocked AI attempts occurred");
   return "PASS: read-only search/Enter/no-results, command context, explicit execution, IME, duplicate guard, failure/retry/status/focus, daily new/review/clear states, course CTA/completion, collapsed details, palette default, light/dark 320–1440px; all writes mocked";

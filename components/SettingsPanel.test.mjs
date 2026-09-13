@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const panelSource = await readFile(new URL("./SettingsPanel.tsx", import.meta.url), "utf8");
+const themePickerSource = await readFile(new URL("./ThemePicker.tsx", import.meta.url), "utf8");
 const cssSource = await readFile(new URL("../app/settings.css", import.meta.url), "utf8");
 const shellSource = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
 const sidebarSource = await readFile(new URL("./SessionSidebar.tsx", import.meta.url), "utf8");
@@ -52,10 +53,11 @@ test("keeps visited settings sections mounted and contains nested Escape handlin
 });
 
 test("offers direct light, dark, and system theme selection", () => {
+  assert.match(panelSource, /<ThemePicker \/>/);
   for (const preference of ["light", "dark", "auto"]) {
-    assert.match(panelSource, new RegExp(`id: "${preference}"`));
+    assert.match(themePickerSource, new RegExp(`id: "${preference}"`));
   }
-  assert.match(panelSource, /setThemePreference\(option\.id\)/);
+  assert.match(themePickerSource, /setThemePreference\(option\.id\)/);
   assert.match(themeSource, /const setThemePreference = useCallback/);
 });
 

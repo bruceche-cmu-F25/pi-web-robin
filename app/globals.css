@@ -721,6 +721,16 @@ body {
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
+/* Beside the masthead the toolbar drops its cell dividers: two stacked bars
+   that are both ruled into boxes read as one thick bar. Phones keep them,
+   where they are what tells the toolbar's icons from the masthead's. The
+   dividers are inline on each button, hence the override. */
+@media (min-width: 641px) {
+  .pi-topbar button:not(.pi-topbar-panel *) {
+    border-left-color: transparent !important;
+    border-right-color: transparent !important;
+  }
+}
 
 /* Square hairlined surface over the grid. pi keeps panels translucent so the
    ruling stays faintly visible through them. */
@@ -1029,6 +1039,14 @@ body {
 .robin-mobile-nav-trigger,
 .robin-navigation-scrim { display: none; }
 
+/* Chat wears the Robin masthead at every width, and the masthead takes the
+   safe-area inset. Only the panels that slide over it need the inset back:
+   the sidebar on phones, the file panel below the split breakpoint. */
+.chat-shell {
+  --chat-sidebar-safe-top: 0px;
+  --chat-panel-safe-top: 0px;
+}
+
 @media (max-width: 959px) {
   .robin-shell {
     position: relative;
@@ -1038,6 +1056,38 @@ body {
      Other pages still reserve the button's row below. */
   .robin-shell-content { padding-top: 52px; }
   .robin-shell-content.is-dashboard { padding-top: 0; }
+  /* Narrow chat already has its session-sidebar button in the corner the
+     Robin menu button would take, so the masthead stays a bar instead of
+     becoming a drawer: icons only, scrolling sideways when it runs out. */
+  .chat-shell { --chat-panel-safe-top: env(safe-area-inset-top); }
+  .chat-shell > .robin-navigation-container {
+    position: static;
+    width: auto;
+    height: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    transform: none;
+    transition: none;
+  }
+  .chat-shell .robin-nav.is-horizontal {
+    padding-inline: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .chat-shell .robin-nav.is-horizontal::-webkit-scrollbar { display: none; }
+  .chat-shell .robin-nav-main,
+  .chat-shell .robin-nav-utility,
+  .chat-shell .robin-nav-entry { flex-shrink: 0; }
+  .chat-shell .robin-nav-entry { padding: 0 10px; }
+  .chat-shell .robin-nav-icon { margin-right: 0; }
+  .chat-shell .robin-nav-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
   .robin-shell-content.is-dashboard .robin-dashboard-header > div {
     padding: 4px 14px 4px 58px;
   }
@@ -1173,18 +1223,79 @@ body {
    controls are stated once here instead of per panel — every field in the
    dashboard is the same field.
 --------------------------------------------------------------------------- */
-.robin-dashboard {
+/* Shared reading typography, independent of dashboard cards and surfaces. */
+.robin-dashboard,
+.robin-typography {
   font-family: var(--font-serif);
   font-size: 15px;
+}
+
+.robin-dashboard {
   /* Translucent, so the page ruling still reads through the wash. */
   background: var(--dashboard-ground);
 }
 
-/* Keep dashboard search available while the document scrolls. Only the search
-   card is painted, so the sticky surface stays as narrow and light as the
-   control itself. */
+/* Search stays available while scrolling without competing with content cards. */
 .robin-dashboard .robin-dashboard-header .robin-assistant-bar {
   padding: 0;
+  border: 1px solid var(--border);
+  box-shadow: none;
+}
+/* The line owns the focus ring, so the field inside it draws none of its own. */
+.robin-dashboard .robin-dashboard-header .robin-assistant-bar:focus-within {
+  border-color: var(--accent-line-strong);
+}
+
+/* Search and Act, set like the calendar's Agenda / Week / Month switch: serif
+   words, the current one marked by the vertical stripe. The stripe is held to
+   the text's height because the buttons stay 44px tall on touch screens. */
+.robin-assistant-row { min-height: 44px; }
+.robin-assistant-bar[data-mode="execute"] .robin-assistant-row {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.robin-assistant-modes {
+  padding: 0 10px 0 8px;
+  border-right: 1px solid var(--border);
+}
+.robin-assistant-modes .ui-action {
+  font-family: var(--font-serif);
+  font-size: 13px;
+  line-height: 1;
+}
+.robin-assistant-modes .pi-active-stripe::before {
+  top: 50%;
+  bottom: auto;
+  height: 18px;
+  translate: 0 -50%;
+}
+.robin-assistant-form { padding: 0 8px 0 14px; }
+.robin-assistant-glyph {
+  display: flex;
+  flex: 0 0 14px;
+  justify-content: center;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 15px;
+  line-height: 1;
+}
+.robin-assistant-bar[data-mode="execute"] .robin-assistant-glyph { color: var(--accent); }
+.robin-assistant-bar input:not([type="checkbox"]),
+.robin-dashboard .robin-assistant-bar input:not([type="checkbox"]) {
+  padding-inline: 0;
+  border-color: transparent;
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.robin-assistant-bar input:focus-visible,
+.robin-dashboard .robin-assistant-bar input:focus-visible {
+  border-color: transparent;
+  outline: none;
+}
+/* Everything that opens under the line — the command jump, results, the
+   reply — sits inset from the bar's edges. */
+.robin-assistant-bar > :not(.robin-assistant-row) {
+  margin: 0 12px 10px;
 }
 
 .robin-command-dialog {
@@ -1208,7 +1319,9 @@ body {
   box-shadow: var(--overlay-shadow);
 }
 .robin-command-dialog .robin-command-dialog__content .robin-assistant-bar {
-  padding: 16px 56px 10px 16px;
+  /* The mode switch brings its own inset, which lines its stripe up with the
+     command hint below. */
+  padding: 16px 56px 10px 8px;
   border: 0;
   box-shadow: none;
 }
@@ -1255,6 +1368,12 @@ body {
   line-height: 1.25;
 }
 
+.robin-typography :is(input, select, textarea) {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.25;
+}
+
 .robin-dashboard input::placeholder,
 .robin-dashboard textarea::placeholder {
   color: var(--text-dim);
@@ -1275,15 +1394,18 @@ body {
   font-size: 11px;
   letter-spacing: 0.06em;
 }
-.robin-dashboard .text-xs {
+.robin-dashboard .text-xs,
+.robin-typography .text-xs {
   font-size: 13px;
   line-height: 1.125rem;
 }
-.robin-dashboard .text-sm {
+.robin-dashboard .text-sm,
+.robin-typography .text-sm {
   font-size: 15px;
   line-height: 1.375rem;
 }
-.robin-dashboard .text-lg {
+.robin-dashboard .text-lg,
+.robin-typography .text-lg {
   font-size: 22px;
   line-height: 1.75rem;
 }
@@ -2814,6 +2936,8 @@ span.token.table {
 
 /* Mobile sidebar: slide in/out as overlay */
 @media (max-width: 640px) {
+  /* It covers the masthead from the top edge, so it takes the inset. */
+  .chat-shell { --chat-sidebar-safe-top: env(safe-area-inset-top); }
   .chat-stats-center {
     display: none !important;
   }

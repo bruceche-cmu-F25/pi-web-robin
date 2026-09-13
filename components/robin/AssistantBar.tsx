@@ -177,7 +177,8 @@ export function AssistantBar({
     } finally {
       inFlight.current = false;
       setBusy(false);
-      inputRef.current?.focus();
+      // The input is disabled while busy; focus lands after React re-enables it.
+      requestAnimationFrame(() => inputRef.current?.focus());
     }
   };
 
@@ -202,60 +203,76 @@ export function AssistantBar({
   const actions = reply ? describeTools(reply.usedTools, t) : null;
 
   return (
+    // One ruled line in the calendar card's vocabulary: the mode switch marks
+    // its current entry with the same stripe as the calendar's view switch, and
+    // the action is a bracket button. Act writes to the stores, so it says so
+    // on the line itself (accent rule, prompt glyph, accent action) rather
+    // than with a hint row that would push the page down when it appears.
     <section
-      className="robin-assistant-bar pi-card flex flex-col gap-2 p-4"
+      className="robin-assistant-bar pi-card flex flex-col"
+      data-mode={mode}
     >
-      <div role="group" aria-label={t("robin.assistant.mode")} className="flex flex-wrap gap-1">
-        {(["search", "execute"] as const).map((value) => (
-          <button
-            key={value}
-            type="button"
-            aria-pressed={mode === value}
-            disabled={busy}
-            data-active={mode === value ? "true" : undefined}
-            className="ui-action min-h-[44px] px-3 text-xs disabled:opacity-40"
-            onClick={() => {
-              setMode(value);
-              setError(null);
-              setReply(null);
-              inputRef.current?.focus();
-            }}
-          >
-            {t(`robin.assistant.${value}Mode`)}
-          </button>
-        ))}
-      </div>
-      <form
-        onSubmit={submit}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && event.nativeEvent.isComposing) event.preventDefault();
-        }}
-        className="flex gap-2"
-      >
-        <label htmlFor={fieldId} className="sr-only">{t(`robin.assistant.${mode}Label`)}</label>
-        <input
-          id={fieldId}
-          name={mode === "search" ? "query" : "instruction"}
-          aria-describedby={hintId}
-          autoComplete="off"
-          ref={inputRef}
-          value={message}
-          onChange={(event) => setMessage(event.target.value)}
-          onPaste={handlePaste}
-          disabled={busy}
-          placeholder={t(`robin.assistant.${mode}Placeholder`)}
-          className="min-w-0 flex-1 rounded px-3 py-2 text-sm outline-none disabled:opacity-60"
-        />
-        <button
-          type="submit"
-          disabled={busy || !message.trim()}
-          className="ui-action ui-action--outline pi-bracket min-h-[44px] shrink-0 px-3 text-xs disabled:opacity-40"
-          data-state="accent"
+      <div className="robin-assistant-row flex min-w-0 items-stretch">
+        <div role="group" aria-label={t("robin.assistant.mode")} className="robin-assistant-modes flex shrink-0 items-center gap-0.5">
+          {(["search", "execute"] as const).map((value) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={mode === value}
+              disabled={busy}
+              data-active={mode === value ? "true" : undefined}
+              title={t(`robin.assistant.${value}Mode`)}
+              className={`ui-action min-h-[44px] min-w-[44px] px-2.5 desktop:min-h-7 desktop:min-w-0 disabled:opacity-40${mode === value ? " pi-active-stripe" : ""}`}
+              onClick={() => {
+                setMode(value);
+                setError(null);
+                setReply(null);
+                inputRef.current?.focus();
+              }}
+            >
+              {t(`robin.assistant.${value}Short`)}
+            </button>
+          ))}
+        </div>
+        <form
+          onSubmit={submit}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && event.nativeEvent.isComposing) event.preventDefault();
+          }}
+          className="robin-assistant-form flex min-w-0 flex-1 items-center gap-2.5"
         >
-          {busy ? t("robin.assistant.working") : t(mode === "execute" ? "robin.assistant.execute" : commandHref ? "robin.assistant.open" : "robin.assistant.searchMode")}
-        </button>
-      </form>
-      <p id={hintId} className="text-xs" style={{ color: "var(--text-muted)" }}>
+          <span className="robin-assistant-glyph" aria-hidden="true">
+            {mode === "search" ? (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" />
+              </svg>
+            ) : "›"}
+          </span>
+          <label htmlFor={fieldId} className="sr-only">{t(`robin.assistant.${mode}Label`)}</label>
+          <input
+            id={fieldId}
+            name={mode === "search" ? "query" : "instruction"}
+            aria-describedby={hintId}
+            autoComplete="off"
+            ref={inputRef}
+            value={message}
+            onChange={(event) => setMessage(event.target.value)}
+            onPaste={handlePaste}
+            disabled={busy}
+            placeholder={t(`robin.assistant.${mode}Placeholder`)}
+            className="min-w-0 flex-1 py-2 text-sm disabled:opacity-60"
+          />
+          <button
+            type="submit"
+            disabled={busy || !message.trim()}
+            className="ui-action pi-bracket min-h-[44px] shrink-0 px-2 desktop:min-h-7 disabled:opacity-40"
+            data-state={mode === "execute" ? "accent" : undefined}
+          >
+            {busy ? t("robin.assistant.working") : t(mode === "execute" ? "robin.assistant.execute" : commandHref ? "robin.assistant.open" : "robin.assistant.searchMode")}
+          </button>
+        </form>
+      </div>
+      <p id={hintId} className="sr-only">
         {t(`robin.assistant.${mode}Hint`)}
       </p>
 
@@ -277,7 +294,7 @@ export function AssistantBar({
         <SearchResults results={searchResults} containerRef={searchResultsRef} t={t} />
       )}
 
-      <div role="status" aria-live="polite" aria-atomic="true" className="text-xs" style={{ color: "var(--text-muted)" }}>
+      <div role="status" aria-live="polite" aria-atomic="true" className="text-xs empty:hidden" style={{ color: "var(--text-muted)" }}>
         {busy ? t("robin.assistant.working") : reply ? t("robin.assistant.finished") :
           mode === "search" && message.trim() && !commandHref && !searchError ? (
             !searchData ? t("robin.assistant.searching") :

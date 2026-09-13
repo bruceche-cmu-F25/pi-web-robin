@@ -18,12 +18,15 @@ test("configures iOS standalone mode to use the full screen", () => {
 
 test("tracks the visual viewport while the software keyboard is open", () => {
   assert.match(appShellSource, /useViewportHeight\(\)/);
-  assert.match(appShellSource, /paddingTop: "env\(safe-area-inset-top\)"/);
+  // The Robin masthead owns the top inset; only the panels that slide over it
+  // from the top edge take it back.
+  assert.match(cssSource, /@media \(max-width: 959px\) \{[\s\S]*?\.chat-shell \{ --chat-panel-safe-top: env\(safe-area-inset-top\); \}/);
+  assert.match(cssSource, /@media \(max-width: 640px\) \{[\s\S]*?\.chat-shell \{ --chat-sidebar-safe-top: env\(safe-area-inset-top\); \}/);
+  assert.match(appShellSource, /paddingTop: "var\(--chat-sidebar-safe-top\)"/);
   assert.match(appShellSource, /paddingBottom: "env\(safe-area-inset-bottom\)"/);
   assert.match(appShellSource, /paddingLeft: "env\(safe-area-inset-left\)"/);
   assert.match(appShellSource, /paddingRight: "env\(safe-area-inset-right\)"/);
-  assert.match(appShellSource, /height: "calc\(36px \+ env\(safe-area-inset-top\)\)"/);
-  assert.match(appShellSource, /\/\* Right panel tab bar \*\/[\s\S]*?height: "calc\(36px \+ env\(safe-area-inset-top\)\)"/);
+  assert.match(appShellSource, /\/\* Right panel tab bar \*\/[\s\S]*?height: "calc\(36px \+ var\(--chat-panel-safe-top\)\)"/);
   assert.match(appShellSource, /height: "var\(--app-viewport-height, 100dvh\)"/);
   assert.match(appShellSource, /data-mobile-toolbar-file=\{mobile \? "true" : undefined\}/);
   assert.match(viewportHookSource, /window\.visualViewport/);

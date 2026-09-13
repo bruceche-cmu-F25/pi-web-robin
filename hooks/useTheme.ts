@@ -13,7 +13,6 @@ type ThemeState = {
 type ToggleOrigin = { x: number; y: number };
 
 const STORAGE_KEY = "pi-theme";
-const PREFERENCE_CYCLE: ThemePreference[] = ["light", "dark", "auto"];
 const SERVER_SNAPSHOT: ThemeState = { preference: "auto", theme: "light" };
 
 const listeners = new Set<() => void>();
@@ -111,11 +110,6 @@ function getServerSnapshot(): ThemeState {
   return SERVER_SNAPSHOT;
 }
 
-function nextPreference(preference: ThemePreference): ThemePreference {
-  const index = PREFERENCE_CYCLE.indexOf(preference);
-  return PREFERENCE_CYCLE[(index + 1) % PREFERENCE_CYCLE.length];
-}
-
 export function useTheme() {
   const snapshot = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
@@ -165,16 +159,10 @@ export function useTheme() {
       });
   }, []);
 
-  const toggleTheme = useCallback((origin?: ToggleOrigin) => {
-    const current = ensureState();
-    setThemePreference(nextPreference(current.preference), origin);
-  }, [setThemePreference]);
-
   return {
     theme: snapshot.theme,
     preference: snapshot.preference,
     setThemePreference,
-    toggleTheme,
     isDark: snapshot.theme === "dark",
   };
 }
