@@ -1,0 +1,623 @@
+.page {
+  container-type: inline-size;
+}
+
+.page h2[id] {
+  scroll-margin-top: 16px;
+}
+
+.page :is(a, button):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+/* ---- masthead ---------------------------------------------------------- */
+
+.masthead > :first-child {
+  flex: 1 1 32rem;
+}
+
+.masthead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px 32px;
+}
+
+.status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.jump {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 20px;
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.jump a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  color: var(--text-muted);
+}
+
+.jump a:hover {
+  color: var(--accent);
+}
+
+/* ---- people: the person sits in the page margin, like a marginal note --- */
+
+.people {
+  display: flex;
+  flex-direction: column;
+}
+
+.person {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  padding: 20px 0;
+  border-top: 1px solid var(--border);
+}
+
+.person:last-child {
+  border-bottom: 1px solid var(--border);
+}
+
+@container (min-width: 820px) {
+  .person {
+    grid-template-columns: 11rem minmax(0, 1fr);
+    gap: 28px;
+  }
+  .personHead {
+    position: sticky;
+    top: 12px;
+    align-self: start;
+  }
+}
+
+.personName {
+  font-family: var(--font-serif);
+  font-size: 22px;
+  font-style: italic;
+  font-weight: 400;
+  line-height: 1.25;
+  color: var(--text);
+}
+
+.personRole {
+  margin-top: 6px;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+/* ---- episode card ------------------------------------------------------- */
+
+/* Each card is its own container, so the thumbnail sizes to the card, not
+   the page: the same card sits full-width under a person and half-width in
+   the latest grid. */
+.episode {
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  box-shadow: var(--card-shadow);
+  overflow-wrap: anywhere;
+}
+
+/* Phone: a small thumbnail beside the title, the text full width below it.
+   Wider: the thumbnail holds the left column and everything else stacks
+   beside it. */
+.episodeGrid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr);
+  grid-template-rows: auto 1fr;
+  grid-template-areas:
+    "thumb head"
+    "rest rest";
+  gap: 10px 12px;
+}
+
+@container (min-width: 380px) {
+  .episodeGrid {
+    grid-template-columns: 120px minmax(0, 1fr);
+    grid-template-areas:
+      "thumb head"
+      "thumb rest";
+    gap: 6px 14px;
+  }
+}
+
+@container (min-width: 600px) {
+  .episodeGrid { grid-template-columns: 176px minmax(0, 1fr); column-gap: 16px; }
+}
+
+.latest,
+.personEpisodes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 26rem), 1fr));
+  gap: 12px;
+  min-width: 0;
+}
+
+/* An opened card takes the whole row: chapters and key points are reading,
+   and half a row is too narrow to read them in. It also means rows can keep
+   stretching to equal height — nothing grows beside a closed neighbour. */
+.latest > [data-expanded],
+.personEpisodes > [data-expanded] {
+  grid-column: 1 / -1;
+}
+
+.thumb {
+  grid-area: thumb;
+  position: relative;
+  display: block;
+  align-self: start;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--bg-hover);
+}
+
+.thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.episode:hover .thumb img {
+  transform: scale(1.03);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thumb img { transition: none; }
+  .episode:hover .thumb img { transform: none; }
+}
+
+.length {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  padding: 1px 5px 2px;
+  background: rgb(0 0 0 / 0.78);
+  color: #fff;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+}
+
+.head {
+  grid-area: head;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.rest {
+  grid-area: rest;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 6px;
+}
+
+.meta span:first-child {
+  color: var(--accent);
+}
+
+.episodeTitle {
+  font-family: var(--font-serif);
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 1.35;
+  text-wrap: pretty;
+}
+
+.episodeTitle a {
+  color: var(--text);
+}
+
+.episodeTitle a:hover {
+  text-decoration: underline;
+  text-decoration-color: var(--accent);
+  text-underline-offset: 3px;
+}
+
+.note {
+  color: var(--text);
+  font-size: 14px;
+  font-style: italic;
+  line-height: 1.5;
+}
+
+/* Han has no italic; the browser would slant it synthetically. */
+.note:lang(zh) {
+  font-style: normal;
+}
+
+.lead {
+  color: var(--text-muted);
+  font-size: 13.5px;
+  line-height: 1.55;
+  white-space: pre-line;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}
+
+/* Under a curated note the creator's text is the second read, so it gets less room. */
+.note + .lead {
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.lead[data-open] {
+  display: block;
+  -webkit-line-clamp: unset;
+  line-clamp: none;
+}
+
+.tldr {
+  padding: 8px 10px 10px;
+  border-left: 2px solid var(--accent);
+  background: var(--accent-faint);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.tldrHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.tldrHead :global(.pi-eyebrow) {
+  color: var(--accent);
+}
+
+/* Bilingual lines: the lead language at full voice, the other one quieter
+   beneath it, so the two read as one statement rather than two. */
+.primary,
+.secondary {
+  display: block;
+}
+
+.secondary {
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 0.93em;
+}
+
+.pointText {
+  min-width: 0;
+}
+
+.langSwitch {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+.langSwitch button {
+  min-width: 34px;
+  min-height: 26px;
+  padding: 0 7px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.langSwitch button + button {
+  border-left: 1px solid var(--border);
+}
+
+.langSwitch button[data-active] {
+  background: var(--accent-faint);
+  color: var(--accent);
+}
+
+@media (pointer: coarse) {
+  .langSwitch button { min-height: 36px; min-width: 40px; }
+}
+
+/* Timestamped lists: chapters from the description, points from a summary. */
+.chapters,
+.points {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px dashed var(--border);
+}
+
+.chapters {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  column-gap: 20px;
+  padding-top: 6px;
+}
+
+.chapters a {
+  display: flex;
+  gap: 10px;
+  min-height: 28px;
+  align-items: baseline;
+  padding: 3px 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.chapters a:hover span {
+  color: var(--text);
+}
+
+.chapters time,
+.points time {
+  flex: 0 0 auto;
+  min-width: 5ch;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.points li {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 6px 0;
+  border-bottom: 1px dotted var(--border);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.points li:last-child {
+  border-bottom: 0;
+}
+
+.points a {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: baseline;
+}
+
+.pointNote {
+  color: var(--text-dim) !important;
+  font-size: 12px !important;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 18px;
+  margin-top: auto;
+  padding-top: 4px;
+}
+
+.actions button {
+  min-height: 32px;
+}
+
+@media (pointer: coarse) {
+  .actions button { min-height: 44px; }
+}
+
+.actions button:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+.error {
+  color: var(--danger);
+  font-size: 13px;
+}
+
+/* ---- latest filters ------------------------------------------------------ */
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.filters button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--text-muted);
+}
+
+.filters button[data-active] {
+  border-color: var(--accent-line-strong);
+  color: var(--text);
+  box-shadow: inset 0 -2px var(--accent);
+}
+
+.count {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.empty {
+  padding: 16px;
+  border: 1px dashed var(--border);
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+/* ---- channel directory: four columns of dotted-leader rows -------------- */
+
+.directory {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 24px 32px;
+}
+
+@container (min-width: 640px) {
+  .directory { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@container (min-width: 1040px) {
+  .directory { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+}
+
+.shelf h3 {
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--accent);
+}
+
+.shelf ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.shelf li {
+  padding: 10px 0;
+  border-bottom: 1px dotted var(--border);
+}
+
+.channelLine {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 15px;
+}
+
+.channelLine a {
+  color: var(--text);
+}
+
+.channelLine a:hover {
+  color: var(--accent);
+}
+
+.leader {
+  flex: 1;
+  min-width: 12px;
+  border-bottom: 1px dotted var(--text-dim);
+  transform: translateY(-4px);
+  opacity: 0.6;
+}
+
+.channelDate {
+  flex: 0 0 auto;
+  color: var(--text-dim);
+}
+
+.channelHost {
+  margin-top: 2px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.channelWhy {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+/* ---- footnotes ----------------------------------------------------------- */
+
+.footnotes {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 24px 40px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+@container (min-width: 820px) {
+  .footnotes { grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); }
+}
+
+.footnotes h2 {
+  margin-bottom: 6px;
+}
+
+.inlineLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+
+.inlineLinks a,
+.tools a {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  color: var(--text);
+}
+
+.inlineLinks a:hover,
+.tools a:hover {
+  color: var(--accent);
+}
+
+.tools {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tools li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 12px;
+  align-items: baseline;
+  padding: 2px 0;
+  font-size: 13px;
+}
+
+.tools a {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.tools span {
+  color: var(--text-muted);
+}
