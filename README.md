@@ -15,8 +15,9 @@ calls, per-turn token and cost accounting, the file explorer, and the model pick
 
 What this fork adds is **Robin** — a personal workspace that lives beside the chat window and
 is driven by the same pi agent, but through a **fixed tool allow-list instead of a shell**.
-Todos and a calendar, read-only mail, a job hunt, a coding curriculum with a coach, a research
-desk, and a Telegram bridge so the same assistant answers when you are away from the machine.
+Todos and a calendar, read-only mail, a job hunt, coding practice with a coach, Full Stack
+Open with a mentor, a podcast shelf, a research desk, and a Telegram bridge so the same
+assistant answers when you are away from the machine.
 
 ![The Robin dashboard: agenda, todos, job hunt, and saved links on one page](./docs/robin-dashboard.png)
 
@@ -73,8 +74,8 @@ should come back sooner than one that needed none. Every seam resizes and rememb
 - **The pages are documents, not an admin panel.** Italic serif titles, tracked mono chrome,
   square hairlined panels and bracket buttons on the engineering-pad ground — a page margin
   beside the text rather than an app sidebar. See [docs/pi-visual-language.md](./docs/pi-visual-language.md).
-- **English, Simplified Chinese, and Traditional Chinese**, including date formatting; the
-  switcher in the top bar drives Robin's pages too.
+- **English and Simplified Chinese**, including date formatting; the switcher in the top bar
+  drives Robin's pages too.
 
 Beyond Robin's own pages, the fork also adds a **subscription usage panel** to the Models
 config — the OpenAI Codex and Anthropic quota windows already managed by pi, as percentages and
@@ -233,8 +234,9 @@ docs/              Focused user and contributor guides
 extension/robin/   Robin's pi extension: agent tools, domains, and stores
 components/robin/  Robin's UI
 app/dashboard/     Dashboard, email, jobs, events, settings
-app/learn/         Learning Hub and the capability atlas
-app/coding/        Practice and curriculum workspaces
+app/learn/         Learning Hub, Full Stack Open, watch list, capability atlas
+app/coding/        Problem practice workspace
+app/podcasts/      Podcast shelf
 app/research/      HEAT research desk
 app/api/robin/     Robin API routes
 scripts/telegram/  Telegram bridge

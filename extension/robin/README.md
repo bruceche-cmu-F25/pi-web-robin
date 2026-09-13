@@ -12,11 +12,10 @@ a fixed allow-list — no shell, no filesystem.
 - **Gmail** read-only: `/dashboard/gmail` shows the inbox, and a daily email digest goes to Telegram.
 - **Learning Hub** at `/learn` — the front door: a way into each track, where you
   already are in it, and the study links. Nothing else.
-- **Coding workspace** at `/coding` — two tracks. **Problems** embeds the NeetCode
-  roadmap next to a coach that hints instead of answering; **Curriculum** opens a
-  syllabus that runs from JavaScript to system design next to a mentor that
-  explains and ties every answer back to what the module is for. Both keep your
-  own record.
+- **Coding workspace** at `/coding` — embeds the NeetCode roadmap next to a coach
+  that hints instead of answering, and keeps your own record.
+- **Full Stack Open** at `/learn/fso` — the course as a roadmap; each chapter
+  framed beside your notes and a mentor that knows which chapter is open.
 - **Telegram bridge** so the same assistant works when you are away from the machine —
   commands, inline buttons, voice notes, and four kinds of push.
 
@@ -96,8 +95,8 @@ The tool allow-list is in `tools.ts`; registrations are split by domain in
 | `practice_status` | "mark Valid Anagram as done" |
 | `practice_note` | "remember: sort, then compare" |
 | `practice_due` | "what should I review today?" |
-| `study_current` | "what is this page for?" |
-| `study_outline` | "how does the architecture track fit together?" |
+| `fso_current` | "what is this chapter asking me to build?" |
+| `fso_notes` | "quiz me on what I wrote for Part 3" |
 
 Details worth knowing:
 
@@ -153,27 +152,20 @@ formatting.
 
 ## The coding workspace
 
-`/learn` is the way in — two entries, the shelf of study links, and the place a
-third entry would go. Only the practice entry carries a number, because it is
-the only side that keeps one. Each entry lands on a track
-directly (`/coding?track=curriculum`), which also becomes the remembered
-default.
+`/learn` is the way in — today's two tracks (NeetCode and Full Stack Open),
+the other ways in, and the shelf of study links. Only the practice entry
+carries a spaced-repetition number; the course carries its ticks.
 
-**The shelf is the same resources, arranged the other way.** The syllabus
-orders them for teaching: what has to be understood before what. The shelf
-keeps the groups the reading list was collected in, which is how you find
-something again when you already know what you are looking for. It holds item
-ids rather than URLs, so the two can never disagree about where a link points.
-The dashboard's saved links are a different shelf for a different part of the
-day and stay where they are.
+**The shelf is a reading list, not a course.** `learning-shelf.ts` keeps the
+groups the links were collected in, which is how you find something again when
+you already know what you are looking for. Every link opens in its own tab —
+most of these sites (freeCodeCamp among them) refuse to be framed. The
+dashboard's saved links are a different shelf for a different part of the day
+and stay where they are.
 
-`/coding` is two tracks. **Problems** is three panes — the roadmap rail,
-NeetCode itself in a frame, and the coach. **Curriculum** is two — the syllabus
-and the mentor — because there is nothing worth framing: two thirds of the
-catalog is either a milestone or a site that refuses to be embedded, and a
-tutorial reads better in a real tab than in a letterbox. Its resources open in
-one. Which track you are on is a browser preference; what is open in each is
-server state, because the agents read it.
+`/coding` is problem practice: the roadmap, NeetCode itself in a frame, and
+the coach. Which problem is open is server state, because the coach reads it.
+The old `/coding?track=curriculum` links redirect to `/learn/fso`.
 
 **What the user is looking at is a black box.** A cross-origin frame reports
 nothing back — not its URL, not what you solved — and a tab we opened reports
@@ -211,48 +203,38 @@ same records through its tools.
 
 ---
 
-### The curriculum track
+### Full Stack Open
 
-The second track swaps the roadmap for a syllabus and the coach for a mentor,
-and drops the middle pane: the syllabus is the page, and every resource on it
-opens in a tab. Same habits, one column fewer.
+`/learn/fso` opens on a roadmap in the shape roadmap.sh uses: parts on one
+spine, each chapter off its left, and that chapter's exercises off its right.
+Clicking a chapter frames fullstackopen.com in the middle, with the notes and
+the mentor beside it and a contents rail that starts closed. Parts 8–14 moved
+to courses.mooc.fi, which refuses to be framed; they open in a tab.
 
-**It is a curriculum, not a bookmark folder.** `curriculum.ts` is hand-written
-rather than generated, because the ordering is the content: six tracks —
-language foundations, the web end to end, Python engineering, architecture and
-system design, a project gym, and craft — each module stating the capability it
-is for and ending in a milestone you have to build.
+**Ticks are the dashboard's course progress.** `fso.ts` builds parts and
+chapters from the same generated catalog and step ids as
+`fullstack-open-progress.json`, so ticking an exercise here moves "continue"
+on the dashboard.
 
-**Nothing on this side is tracked.** No status, no counts, no review queue, and
-no tool that could write one — the mentor cannot mark a chapter read because
-there is nowhere to write it. The practice side counts because a review
-schedule is only as good as its record of what you solved; reading does not
-work that way, and a progress bar over someone's reading measures the one
-thing that does not matter. The roadmap says what exists and what each module
-is for; what you took from it is yours.
+**Notes are one per chapter**, saved as you type, collected in course order in
+the notebook. A mentor reply can be kept in the note with one click, and the
+note can be sent to the mentor to check.
 
-**Every entry is a way out.** Clicking one opens it in a tab, so the catalog no
-longer records which hosts permit framing — that stopped mattering when the
-frame went.
+**The mentor explains, where the coach withholds.** They are opposite jobs, so
+they run in separate sessions with separate tools. `fso_current` tells it which
+chapter is open, the user's own ticks on its exercises, and their note;
+`fso_notes` reads the notebook across chapters. It can write neither.
 
-**The mentor explains, where the coach withholds.** They are opposite jobs —
-a problem someone else solves teaches nothing, but a concept nobody explains
-stays a word — so they run in separate sessions with separate tools. The mentor
-anchors answers to the module's outcome, reaches for the system-level framing
-whenever it is honest to, and cannot mark anything done that you did not say
-you finished.
-
-**Storage** is one file, `~/.pi/robin/study-state.json`, holding two ids: the
-resource opened last and the track the syllabus is showing. The first exists
-for a mechanical reason — the tab it opened in is not ours to see into, so the
-mentor could not otherwise answer a question about "this page".
+**Storage** is one file, `~/.pi/robin/fso.json`: the chapter opened last (the
+frame is cross-origin, so the click is the only way the mentor knows what
+"this page" is) and the notes.
 
 ### Panes
 
 Every seam resizes: drag it, double-click it to put it back, or focus it and
-use the arrow keys. Widths are per browser and shared by both tracks — one
-workspace, one layout — so the agent panel you widened while reading is that
-wide when you go back to solving. The pane between the seams keeps a floor of
+use the arrow keys. Widths are per browser and shared by the practice
+workspace and Full Stack Open, so the agent panel you widened while reading is
+that wide when you go back to solving. The pane between the seams keeps a floor of
 320px no matter what the sides ask for, because on the problems track it holds
 a whole third-party application and a 90px editor is not a smaller version of
 the feature.

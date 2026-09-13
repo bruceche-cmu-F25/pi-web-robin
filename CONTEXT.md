@@ -37,30 +37,38 @@ _Avoid_: Question, exercise, card
 One recorded sitting with a Practice Problem, including the outcome, the hint level reached, and the self-rated confidence that schedules the next review. Practice behavior belongs to the Practice domain module; HTTP and Pi tools are adapters.
 _Avoid_: Submission, try, session
 
-**Curriculum Item**:
-One entry in the hand-curated study syllabus, identified by a stable id: a course, docs, video, book, repo, gallery, or a Milestone. Read-only reference data; the user's history on it is a Study Record.
-_Avoid_: Link, bookmark, lesson
+**Course Step**:
+One completable step of Full Stack Open — a chapter's reading or one of its exercises — identified by its catalog path. The user ticks it, on the dashboard or in the Full Stack Open workspace; both write the same progress file, so a tick in one is a tick in the other.
+_Avoid_: Lesson, task, card
 
-**Milestone**:
-A Curriculum Item that is built rather than read. It closes a module by naming what reaching the outcome would look like. Nothing counts or checks it — it is a statement of the target, not a task.
-_Avoid_: Exercise, assignment, project
+**Chapter**:
+One Full Stack Open section, named by part and letter (3b), holding a reading Course Step and its exercises. The workspace frames it beside the user's notes; a chapter that moved to courses.mooc.fi is external and opens in a tab.
+_Avoid_: Page, module, lesson
 
-**Study State**:
-The only thing the curriculum side stores: which Curriculum Item was opened last and which track the syllabus is showing. It exists because that item opened in a tab of the user's own, which reports nothing back, so the mentor would otherwise have no way to answer "this page". Deliberately not a record of what was read — the curriculum keeps no status, counts, or progress of any kind. Study behavior belongs to the Study domain module; HTTP and Pi tools are adapters.
-_Avoid_: Study record, progress, reading history
+**Chapter Note**:
+The user's own notes on one Chapter, in their words. The mentor reads them and never writes them. Full Stack Open behavior belongs to the FSO domain module; HTTP and Pi tools are adapters.
+_Avoid_: Summary, annotation
+
+**Open Chapter**:
+Which Chapter the workspace opened last. Written on every open because the frame is cross-origin and reports nothing back, so the mentor would otherwise have no way to answer "this page".
+_Avoid_: Current page, reading position
+
+**Lecture**:
+One row of the watch list at `/learn/watch`: a video, or a whole series where one row stands for many short episodes. Ticked by hand — opening a video never marks it watched.
+_Avoid_: Episode, video
 
 **Track**:
-Overloaded by position, and deliberately kept apart. A *coding track* is which half of the `/coding` workspace is showing — problems or curriculum — and is a browser preference. A *curriculum track* is one of the six top-level groupings of the syllabus and is stored, because both the page and the mentor read it.
+One of the two daily lines of learning the Learning Hub and dashboard put side by side: problem practice and Full Stack Open.
 _Avoid_: Tab, section, path
 
 **Learning Hub**:
-The page at `/learn`: the entries into each learning surface, the progress in each, and the Learning Shelf. A front door, not a second dashboard — calendar, todos, and jobs stay on the dashboard.
+The page at `/learn`: today's two Tracks, the other ways in (Full Stack Open, the capability map, the GPT-2 walkthrough, the watch list), and the Learning Shelf. A front door, not a second dashboard — calendar, todos, and jobs stay on the dashboard.
 _Avoid_: Home, landing page, portal
 
 **Learning Shelf**:
-The study links on the Learning Hub, grouped the way the reading list was collected rather than the way the curriculum teaches. A second arrangement of the Curriculum Items, holding their ids rather than their URLs. Distinct from a Saved Link, which is a bookmark for the rest of the day.
+The fixed reading links on the Learning Hub, in the groups the list was collected in; every link opens in its own tab. Nothing on it is marked read. Distinct from a Saved Link, which is a bookmark for the rest of the day.
 _Avoid_: Links panel, bookmarks, resource list
 
 **Metrics**:
-Counting, scoring, or scheduling someone's work: statuses, progress totals, review dates. They belong to the practice side, where a review schedule depends on them, and are deliberately absent from the curriculum side.
+Counting, scoring, or scheduling someone's work: statuses, progress totals, review dates. They belong to the practice side, where a review schedule depends on them. Course Steps and Lectures carry only the ticks the user set; nothing scores or schedules them.
 _Avoid_: Stats, tracking, gamification
