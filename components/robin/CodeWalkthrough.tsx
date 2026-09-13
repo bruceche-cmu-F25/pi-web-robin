@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
-import { toTraditionalChinese } from "@/lib/i18n/zh-traditional";
 import { CodeProse } from "./CodeProse";
 import { PythonSource } from "./PythonSource";
 import type { Bilingual } from "@/extension/robin/research";
@@ -44,7 +43,6 @@ export function CodeWalkthrough() {
 
   const say = useMemo(() => {
     if (locale === "en") return (value: Bilingual) => value.en;
-    if (locale === "zh-TW") return (value: Bilingual) => toTraditionalChinese(value.zh);
     return (value: Bilingual) => value.zh;
   }, [locale]);
 

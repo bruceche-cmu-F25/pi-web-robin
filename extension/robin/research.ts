@@ -21,8 +21,7 @@
  * Prose is authored in English and Simplified Chinese side by side rather than
  * routed through lib/i18n/messages: these are paragraphs about a research
  * method, not UI chrome, and they change when the research changes, not when
- * the interface does. Traditional Chinese is derived (see research-locales
- * usage in the component).
+ * the interface does.
  */
 
 export const RESEARCH_CATEGORIES = [

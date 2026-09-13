@@ -2,7 +2,6 @@
 
 import { useMemo } from "react";
 import { useI18n } from "@/hooks/useI18n";
-import { toTraditionalChinese } from "@/lib/i18n/zh-traditional";
 import type { Bilingual } from "@/extension/robin/research";
 import {
   ARCH_META,
@@ -51,7 +50,6 @@ export function UrRagArchitecture() {
 
   const say = useMemo(() => {
     if (locale === "en") return (value: Bilingual) => value.en;
-    if (locale === "zh-TW") return (value: Bilingual) => toTraditionalChinese(value.zh);
     return (value: Bilingual) => value.zh;
   }, [locale]);
 

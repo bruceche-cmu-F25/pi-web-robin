@@ -150,7 +150,7 @@ async (page) => {
   delayLoad = false;
   releaseLoad();
   await links.first().waitFor();
-  for (const locale of ["en", "zh-TW"]) {
+  for (const locale of ["en", "zh-CN"]) {
     await page.evaluate((value) => localStorage.setItem("pi-locale", value), locale);
     await page.reload();
     await links.first().waitFor();

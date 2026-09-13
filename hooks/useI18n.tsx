@@ -27,7 +27,9 @@ function getMessages(): Record<string, Record<string, string>> {
 function readInitialLocale(): Locale {
   try {
     const stored = window.localStorage.getItem(LOCALE_STORAGE_KEY);
-    if (stored === "en" || stored === "zh-CN" || stored === "zh-TW") return stored;
+    if (stored === "en" || stored === "zh-CN") return stored;
+    // Traditional Chinese was removed; someone who chose it still wants Chinese.
+    if (stored === "zh-TW") return "zh-CN";
   } catch {
     // 隐私模式或存储不可用时继续使用浏览器语言。
   }

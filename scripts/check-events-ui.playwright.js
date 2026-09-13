@@ -123,7 +123,7 @@ async (page) => {
   await cards.first().waitFor();
 
   events = [...initialEvents, event("long", { title: "LongTitle".repeat(24), host: "LongHost".repeat(24), score: 1, topics: ["data"], matched: [] })];
-  for (const locale of ["en", "zh-CN", "zh-TW"]) {
+  for (const locale of ["en", "zh-CN"]) {
     for (const theme of ["light", "dark"]) {
       await page.evaluate(({ locale, theme }) => { localStorage.setItem("pi-locale", locale); localStorage.setItem("pi-theme", theme); }, { locale, theme });
       await page.reload();
