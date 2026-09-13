@@ -7,24 +7,16 @@ const source = await read("LearningHub.tsx");
 const navigationSource = await read("RobinMargin.tsx");
 const learnLayoutSource = await read("../../app/learn/layout.tsx");
 
-/**
- * The track list, read out of the source rather than imported.
- *
- * Node's type stripping cannot load a .tsx file, so component modules are read
- * as text here — which still ties the assertion to the real list instead of a
- * copy of it that could quietly fall behind.
- */
-const CODING_TRACKS = [...(await read("WorkspaceHeader.tsx"))
-  .match(/CODING_TRACKS = \[([^\]]*)\]/)[1]
-  .matchAll(/"([a-z]+)"/g)].map((match) => match[1]);
-
-test("the hub links to every track of the workspace", async () => {
-  assert.ok(CODING_TRACKS.length >= 2, "expected to find the track list");
+test("the hub links to both daily tracks", async () => {
   // The hub is the front door. A track with no entry here is a track nobody
   // finds, which is the whole failure mode a landing page exists to prevent.
-  for (const track of CODING_TRACKS) {
-    assert.match(source, new RegExp(`href: "/coding\\?track=${track}"`), `no entry for ${track}`);
-  }
+  // Problems is reached through today's NeetCode track, which the hub renders,
+  // rather than through a second card repeating the same count.
+  const panel = await read("LearningPanel.tsx");
+  assert.match(source, /<LearningPanel showCourseOutline \/>/);
+  assert.match(source, /href: "\/learn\/fso"/);
+  assert.match(panel, /href=\{`\/coding\?list=/);
+  assert.match(panel, /\/learn\/fso\?step=/);
 });
 
 test("hub navigation lives in the shared shell and can challenge Basic Auth", () => {
@@ -62,22 +54,21 @@ test("the GPT-2 page keeps the official video and companion repository links", a
   assert.match(page, /https:\/\/github\.com\/karpathy\/nn-zero-to-hero/);
 });
 
-test("only the practice entry carries a number", async () => {
-  // The curriculum side keeps no progress, so the hub has nothing to fetch for
-  // it and nothing to say about how far along it is. A poll appearing here
+test("the hub's numbers all come from today's panel", async () => {
+  // The panel's learning snapshot already carries the practice count, so a
+  // poll of the hub's own would fetch the same number twice. The curriculum
+  // entry says what it is rather than how far along it is; a study poll here
   // would mean the tracking came back somewhere.
-  assert.match(source, /usePolledResource<PracticeResponse>\("\/api\/robin\/practice"/);
-  assert.doesNotMatch(source, /usePolledResource<\w+>\("\/api\/robin\/study"/);
+  assert.doesNotMatch(source, /usePolledResource/);
+  assert.doesNotMatch(source, /\/api\/robin\/study/);
 
   const shelf = await read("LearningShelf.tsx");
   assert.doesNotMatch(shelf, /STATUS_MARK|records/, "the shelf must not mark rows read");
 });
 
-test("the workspace understands the track the hub sends it to", async () => {
+test("the workspace opens the problem the hub sends it to, and old curriculum links land on the course", async () => {
   const board = await read("CodingBoard.tsx");
-
-  assert.match(board, /searchParams\.get\("track"\)/);
-  // Read during render, not in an effect: the parameter is in the request, so
-  // the first paint can already be the right track instead of flipping to it.
-  assert.match(board, /useState<CodingTrack>\(\s*isCodingTrack\(requestedTrack\)/);
+  assert.match(board, /initialProblem=\{searchParams\.get\("problem"\)\}/);
+  const page = await read("../../app/coding/page.tsx");
+  assert.match(page, /track === "curriculum"\) redirect\("\/learn\/fso"\)/);
 });

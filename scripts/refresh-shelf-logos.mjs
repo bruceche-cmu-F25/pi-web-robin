@@ -21,7 +21,7 @@ import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { STARTER_PRODUCT_LIBRARY } from "../extension/robin/product-domain.ts";
-import { learningShelf } from "../extension/robin/study.ts";
+import { LEARNING_SHELF } from "../extension/robin/learning-shelf.ts";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const LOGO_DIR = join(ROOT, "public", "robin", "logos");
@@ -129,7 +129,7 @@ async function logoFor(host) {
 }
 
 const urls = [
-  ...learningShelf().flatMap((group) => group.entries.map((entry) => entry.url)),
+  ...LEARNING_SHELF.flatMap((group) => group.links.map((link) => link.url)),
   ...STARTER_PRODUCT_LIBRARY.flatMap((resource) => resource.url ? [resource.url] : []),
 ];
 const hosts = [...new Set(urls.map((url) => canonicalHost(new URL(url).host)))].sort();

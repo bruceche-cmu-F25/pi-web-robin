@@ -76,9 +76,9 @@ function usePane(storageKey: string, limits: PaneLimits): Pane {
 }
 
 /**
- * The two side pane widths, shared by both tracks of the workspace.
+ * The two side pane widths, shared by problem practice and Full Stack Open.
  *
- * Shared deliberately: problems and curriculum are one workspace and one habit,
+ * Shared deliberately: problems and the course are one habit,
  * so a rail you widened while reading should still be that wide when you go
  * back to solving. They are a browser preference like the open/closed rail, and
  * stay in localStorage rather than the store — a second machine has no business

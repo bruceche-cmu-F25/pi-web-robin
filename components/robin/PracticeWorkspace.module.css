@@ -1,0 +1,67 @@
+/* Positioned so sr-only absolutes stay inside this scroller. Escaping to the
+ * root, they make <html> scrollable and scrollIntoView pushes the nav away. */
+.workspace {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+}
+.workspace > div > header {
+  align-items: center;
+  gap: 12px 20px;
+  padding: 12px 24px;
+  background: var(--bg-panel);
+}
+.workspace [hidden] { display: none; }
+.workspace :global(.min-h-11),
+.workspace :global(button.pi-chrome-label) { min-height: 44px; }
+.workspace :is(button, a, summary, input, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.error { position: sticky; top: 0; z-index: 25; padding: 12px 24px; color: var(--danger); background: var(--bg-panel); border-bottom: 1px solid var(--danger); }
+
+.stage {
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - 48px);
+  min-height: 560px;
+  border-block: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+.deskHeader { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 24px; padding: 16px 24px; border-bottom: 1px solid var(--border); }
+.identity { display: flex; align-items: baseline; flex: 1; flex-wrap: wrap; gap: 6px 12px; min-width: 180px; }
+.identity > p { flex-basis: 100%; }
+.identity h2 { font-size: 22px; line-height: 1.3; overflow-wrap: anywhere; }
+.deskActions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; }
+.deskActions > a { display: inline-flex; align-items: center; }
+.desk { display: flex; flex: 1; min-width: 0; min-height: 0; }
+.difficulty { display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; min-width: 24px; min-height: 24px; padding: 2px 6px; font: 600 11px/1.35 var(--font-mono); letter-spacing: normal; border: 1px solid color-mix(in srgb, currentColor 45%, transparent); background: var(--bg-panel); }
+.resources { position: relative; }
+.resources summary { align-content: center; }
+.resources nav { position: absolute; top: 100%; right: 0; z-index: 20; display: flex; flex-direction: column; min-width: 170px; padding: 8px; border: 1px solid var(--border); background: var(--bg-panel); box-shadow: var(--card-shadow); }
+.resources a { display: flex; align-items: center; min-height: 44px; padding: 0 8px; font-size: 13px; }
+.workspace .primary { color: var(--accent); border: 1px solid var(--accent-line-strong); background: var(--accent-soft); font-weight: 600; }
+.coach { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg-panel); overflow: hidden; }
+.coach > section > header, .coach > section > div { padding: 20px; }
+
+.record { max-width: 1200px; margin: 0 auto; padding: 40px 32px 64px; }
+.record > p { margin-bottom: 16px; }
+/* Hide, never reparent: iframe state and drafts survive focus changes. */
+:global(.robin-shell):has(.workspace[data-practice-focus="true"]) :global(.robin-navigation-container),
+:global(.robin-shell):has(.workspace[data-practice-focus="true"]) :global(.robin-mobile-nav-trigger),
+:global(.robin-shell):has(.workspace[data-practice-focus="true"]) :global(.robin-navigation-scrim) { display: none; }
+:global(.robin-shell-content):has(.workspace[data-practice-focus="true"]) { padding-top: 0; }
+.workspace[data-practice-focus="true"] .stage { height: 100%; min-height: 0; }
+
+@media (max-width: 640px) {
+  .workspace > div > header { gap: 8px; padding: 10px 16px; }
+  .deskHeader { padding: 12px 16px; }
+  .deskActions { gap: 4px 12px; }
+  .identity { flex-basis: 100%; }
+  .stage { height: calc(100dvh - 52px); min-height: 620px; }
+  .record { padding: 28px 16px 40px; }
+  .workspace :is(input, textarea) { font-size: 16px !important; }
+}

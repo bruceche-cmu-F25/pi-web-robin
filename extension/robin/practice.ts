@@ -135,6 +135,43 @@ export function reviewDateFor(confidence: number, from: string = localDate(), st
   return addDays(from, REVIEW_INTERVAL_DAYS[index]);
 }
 
+/**
+ * A confidence to schedule by when the user did not give one.
+ *
+ * Hints count against it: solving a problem after being walked most of the way
+ * there is not the same recall as solving it cold, and scheduling it as though
+ * it were is how a review queue quietly stops being useful.
+ */
+function outcomeConfidence(outcome: AttemptOutcome, hintLevel: number | undefined): number {
+  const base = outcome === "solved" ? 4 : outcome === "partial" ? 2 : 1;
+  return Math.min(Math.max(base - Math.floor((hintLevel ?? 0) / 2), 1), 5);
+}
+
+/**
+ * Fold one sitting into a record, in place: kind, status, confidence, review.
+ *
+ * Pure so the browser can run it on a copy — the record form previews the
+ * review date a save will produce with this same function the write path uses,
+ * so the date it promises is the date that gets stored.
+ */
+export function applyAttempt(record: PracticeRecord, attempt: Attempt): void {
+  attempt.kind = record.status === "todo" && record.attempts.length === 0 ? "new" : "review";
+  // Keep the complete log: truncation made cumulative counts shrink at 20.
+  record.attempts.push(attempt);
+  // "Attempted" is never a downgrade from "solved": having once solved a
+  // problem is a fact about the past that a later bad sitting does not undo.
+  // What a bad sitting does change is when it comes back — see below.
+  if (attempt.outcome === "solved") record.status = "solved";
+  else if (record.status !== "solved") record.status = "attempted";
+  const confidence = Number.isFinite(attempt.confidence)
+    ? Math.min(Math.max(Math.round(attempt.confidence as number), 1), 5)
+    : outcomeConfidence(attempt.outcome, attempt.hintLevel);
+  attempt.confidence = confidence;
+  record.confidence = confidence;
+  record.scheduleVersion = 2;
+  record.nextReviewOn = reviewDateFor(confidence, attemptDay(attempt), practiceProgress(record).stage);
+}
+
 /** Adapt old long/absent schedules without inventing attempts or writing on GET. */
 export function normalizePracticeRecord(record: PracticeRecord): PracticeRecord {
   if (record.scheduleVersion === 2 || record.status === "todo") return record;
@@ -248,6 +285,19 @@ export function groupByPattern(
       attempted: group.filter((problem) => records.get(problem.link)?.status === "attempted").length,
     };
   });
+}
+
+/** Easy → Medium → Hard; within each difficulty, take one problem per topic per round. */
+export function interleavedPracticeOrder(problems: readonly CatalogProblem[]): CatalogProblem[] {
+  const groups = groupByPattern(problems, new Map());
+  const ordered: CatalogProblem[] = [];
+  for (const difficulty of ["Easy", "Medium", "Hard"] as const) {
+    const queues = groups.map((group) => group.problems.filter((problem) => problem.difficulty === difficulty));
+    for (let round = 0; queues.some((queue) => round < queue.length); round += 1) {
+      for (const queue of queues) if (queue[round]) ordered.push(queue[round]);
+    }
+  }
+  return ordered;
 }
 
 export function recordMap(records: readonly PracticeRecord[]): Map<string, PracticeRecord> {

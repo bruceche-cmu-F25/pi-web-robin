@@ -1,0 +1,361 @@
+/* The watch list. Each course carries one calendar hue, set as --hue-* on the
+   course (and on the resume card) so every rule below can say "this course's
+   colour" without knowing which one it is: the spine, the progress fill, the
+   next-lecture wash, the chips and the tick. */
+
+.page {
+  container-type: inline-size;
+}
+
+/* ---- Header stats ------------------------------------------------------ */
+
+.stats {
+  display: flex;
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 96px;
+  padding: 8px 12px;
+  background: var(--bg-panel);
+}
+
+.statValue {
+  font-size: 20px;
+  font-style: italic;
+  line-height: 1.1;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.statValue small {
+  font-size: 12px;
+  font-style: normal;
+  color: var(--text-dim);
+}
+
+/* ---- Resume card ------------------------------------------------------- */
+
+.resume {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--hue-line);
+  background:
+    linear-gradient(100deg, var(--hue-faint), transparent 70%),
+    var(--bg-panel);
+  text-decoration: none;
+  color: inherit;
+}
+
+@container (min-width: 560px) {
+  .resume {
+    grid-template-columns: 300px minmax(0, 1fr);
+    align-items: center;
+    gap: 20px;
+  }
+}
+
+.resumeBody {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.resumeTitle {
+  font-size: 22px;
+  font-style: italic;
+  line-height: 1.25;
+  color: var(--text);
+}
+
+.playButton {
+  align-self: flex-start;
+  margin-top: 6px;
+  padding: 6px 14px;
+  background: var(--hue-ink);
+  color: var(--bg-panel);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transition: filter 0.15s ease;
+}
+
+.resume:hover .playButton {
+  filter: brightness(1.1);
+}
+
+/* ---- Thumbnails -------------------------------------------------------- */
+
+.thumb {
+  position: relative;
+  display: block;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background: var(--hue-soft);
+  border: 1px solid var(--border);
+}
+
+.thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1), filter 0.2s ease, opacity 0.2s ease;
+}
+
+.resume:hover .thumb img,
+.row:hover .thumb img {
+  transform: scale(1.04);
+}
+
+/* The round play mark only on the big card: on a 96px still it would cover
+   the face that makes the lecture recognisable. */
+.play {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.62);
+  color: #fff;
+  font-size: 18px;
+  padding-left: 3px;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.resume:hover .play {
+  background: var(--hue-ink);
+  transform: scale(1.06);
+}
+
+.badge {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  padding: 1px 5px 2px;
+  background: rgb(0 0 0 / 0.78);
+  color: #fff;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+}
+
+.watchedMark {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 0.35);
+  color: #fff;
+  font-size: 18px;
+}
+
+/* ---- Course ------------------------------------------------------------ */
+
+.course {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--hue-line);
+  background: var(--bg-panel);
+}
+
+.courseHead {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px 12px;
+  background: linear-gradient(180deg, var(--hue-faint), transparent);
+}
+
+.courseTitle {
+  font-size: 19px;
+  font-style: italic;
+  color: var(--hue-ink);
+}
+
+.count {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.count strong {
+  color: var(--hue-ink);
+  font-weight: 500;
+}
+
+.bar {
+  height: 4px;
+  background: var(--hue-soft);
+  overflow: hidden;
+}
+
+.barFill {
+  height: 100%;
+  background: var(--hue-line);
+  transition: width 0.3s ease;
+}
+
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.links a {
+  color: var(--hue-ink);
+}
+
+/* ---- Lecture rows ------------------------------------------------------ */
+
+.rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: auto 80px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px 8px 13px;
+  border-top: 1px solid var(--border);
+  border-left: 3px solid transparent;
+  transition: background 0.15s ease;
+}
+
+@container (min-width: 560px) {
+  .row { grid-template-columns: auto 112px minmax(0, 1fr); }
+}
+
+.row:hover {
+  background: var(--hue-faint);
+}
+
+.row[data-next] {
+  border-left-color: var(--hue-line);
+  background: var(--hue-faint);
+}
+
+.row[data-watched] .thumb img {
+  filter: grayscale(1);
+  opacity: 0.55;
+}
+
+.row[data-optional]:not([data-watched]) {
+  opacity: 0.75;
+}
+
+.check {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--hue-ink);
+  cursor: pointer;
+}
+
+.rowBody {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.rowTitle {
+  font-size: 14px;
+  line-height: 1.35;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.row[data-watched] .rowTitle {
+  color: var(--text-dim);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.chip {
+  padding: 1px 6px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 1.5;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+}
+
+.chipNext {
+  color: var(--bg-panel);
+  background: var(--hue-ink);
+  border-color: var(--hue-ink);
+}
+
+.chipFso {
+  color: var(--hue-ink);
+  background: var(--hue-soft);
+  border-color: transparent;
+}
+
+.chipOptional {
+  border-style: dashed;
+}
+
+.index {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+/* ---- Channels ---------------------------------------------------------- */
+
+.channels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.channel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--hue-line);
+  background: var(--bg-panel);
+  text-decoration: none;
+  transition: background 0.15s ease;
+}
+
+.channel:hover {
+  background: var(--hue-faint);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thumb img,
+  .play,
+  .barFill { transition: none; }
+  .resume:hover .thumb img,
+  .row:hover .thumb img,
+  .resume:hover .play { transform: none; }
+}

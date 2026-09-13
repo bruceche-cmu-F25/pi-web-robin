@@ -13,9 +13,20 @@ test("the hub adds course history without making the existing curriculum trackab
   const panel = read("./LearningPanel.tsx");
   assert.match(panel, /\/api\/robin\/learning/);
   assert.doesNotMatch(panel, /\/api\/robin\/study/);
-  assert.match(panel, /target="_blank" rel="noopener noreferrer"/);
+  // Course steps open in the Full Stack Open workspace, not the companion curriculum.
+  assert.match(panel, /\/learn\/fso\?step=/);
+  assert.doesNotMatch(panel, /\/coding\?track=curriculum/);
   assert.match(panel, /role="alert"/);
   assert.match(panel, /aria-current=.*"step"/);
+});
+
+test("the hub's course outline is one ruler of parts, closed until a part is picked", () => {
+  const panel = read("./LearningPanel.tsx");
+  assert.match(panel, /showCourseOutline && <CourseMap /);
+  assert.match(panel, /useState<number \| null>\(null\)/);
+  assert.match(panel, /aria-expanded=\{open === part\}/);
+  // The per-part <details> stack it replaced took ~600px above the fold.
+  assert.doesNotMatch(panel, /PARTS\.map\(\(part\) => \{\s*const steps/);
 });
 
 test("the practice deep link selects the named problem through the existing server write", () => {

@@ -3,6 +3,7 @@ import { localDate } from "./dates.ts";
 import {
   ATTEMPT_OUTCOMES,
   PRACTICE_STATUSES,
+  applyAttempt,
   emptyRecord,
   findProblemMatches,
   isDue,
@@ -82,27 +83,15 @@ export function logAttempt(input: {
   };
 
   const record = upsert(found.link, (draft) => {
-    attempt.kind = draft.status === "todo" && draft.attempts.length === 0 ? "new" : "review";
-    // Keep the complete log: truncation made cumulative counts shrink at 20.
-    draft.attempts.push(attempt);
-    // "Attempted" is never a downgrade from "solved": having once solved a
-    // problem is a fact about the past that a later bad sitting does not undo.
-    // What a bad sitting does change is when it comes back — see below.
-    if (input.outcome === "solved") draft.status = "solved";
-    else if (draft.status !== "solved") draft.status = "attempted";
-
     if (input.note !== undefined) {
       const note = input.note.trim();
       if (note) draft.note = note;
       else delete draft.note;
     }
-
-    const confidence = Number.isFinite(input.confidence)
-      ? Math.min(Math.max(Math.round(input.confidence as number), 1), 5)
-      : outcomeConfidence(input.outcome, attempt.hintLevel);
-    attempt.confidence = confidence;
-    draft.confidence = confidence;
-    schedule(draft, attempt.on);
+    applyAttempt(draft, {
+      ...attempt,
+      ...(Number.isFinite(input.confidence) ? { confidence: input.confidence } : {}),
+    });
   });
 
   return { problem: found, record };
@@ -113,18 +102,6 @@ function schedule(record: PracticeRecord, from = localDate()): void {
   record.scheduleVersion = 2;
   record.nextReviewOn = record.status === "todo" ? undefined
     : reviewDateFor(record.confidence ?? 3, from, practiceProgress(record).stage);
-}
-
-/**
- * A confidence to schedule by when the user did not give one.
- *
- * Hints count against it: solving a problem after being walked most of the way
- * there is not the same recall as solving it cold, and scheduling it as though
- * it were is how a review queue quietly stops being useful.
- */
-function outcomeConfidence(outcome: AttemptOutcome, hintLevel: number | undefined): number {
-  const base = outcome === "solved" ? 4 : outcome === "partial" ? 2 : 1;
-  return Math.min(Math.max(base - Math.floor((hintLevel ?? 0) / 2), 1), 5);
 }
 
 export function setStatus(

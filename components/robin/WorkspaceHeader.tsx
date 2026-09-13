@@ -3,19 +3,6 @@
 import type { ReactNode } from "react";
 import { useI18n } from "@/hooks/useI18n";
 
-export const CODING_TRACKS = ["problems", "curriculum"] as const;
-export type CodingTrack = (typeof CODING_TRACKS)[number];
-
-export function isCodingTrack(value: unknown): value is CodingTrack {
-  return typeof value === "string" && (CODING_TRACKS as readonly string[]).includes(value);
-}
-
-/** What the shell hands each workspace so it can draw the shared chrome. */
-export interface WorkspaceChrome {
-  track: CodingTrack;
-  onTrackChange: (track: CodingTrack) => void;
-}
-
 /**
  * One pane of a workspace, on a phone where the columns become a stack of one.
  *
@@ -87,20 +74,11 @@ export function WorkspacePaneSwitch<Pane extends string>({
 }
 
 /**
- * The one header both workspaces render.
- *
- * The alternative was for the shell to own the header and each workspace to
- * hand its controls up, which reads fine until you notice that the rail
- * toggle, the next-item link, and the error line are all per-workspace and
- * would have to travel through the shell to get here. So the workspace renders
- * this and puts its own controls in as children — the shared parts stay in one
- * file, and the specific parts stay where they are used.
+ * The coding workspace's header: its title, then whatever controls the
+ * workspace puts in as children. `compact` drops the title to a line of text
+ * so the practice roadmap below gets the height.
  */
-export function WorkspaceHeader({
-  track,
-  onTrackChange,
-  children,
-}: WorkspaceChrome & { children?: ReactNode }) {
+export function WorkspaceHeader({ children, compact = false }: { children?: ReactNode; compact?: boolean }) {
   const { t } = useI18n();
 
   return (
@@ -108,24 +86,9 @@ export function WorkspaceHeader({
       className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b px-3 py-2"
       style={{ borderColor: "var(--border)" }}
     >
-      <h1 className="pi-label">{t("coding.title")}</h1>
-
-      <div className="flex flex-wrap items-baseline gap-2">
-        {CODING_TRACKS.map((candidate) => (
-          <button
-            key={candidate}
-            type="button"
-            onClick={() => onTrackChange(candidate)}
-            className="ui-action pi-chrome-label pi-bracket"
-            data-state={candidate === track ? "accent" : undefined}
-            style={{ fontSize: 10 }}
-            aria-current={candidate === track ? "true" : undefined}
-          >
-            {t(`coding.track.${candidate}`)}
-          </button>
-        ))}
-      </div>
-
+      {compact
+        ? <h1 className="pi-eyebrow flex min-h-11 items-center">{t("coding.title")}</h1>
+        : <h1 className="pi-label">{t("coding.title")}</h1>}
       {children}
     </header>
   );

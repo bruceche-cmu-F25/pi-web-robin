@@ -7,6 +7,7 @@ import {
   embedUrl,
   findProblem,
   groupByPattern,
+  interleavedPracticeOrder,
   isDue,
   leetcodeUrl,
   problemsInList,
@@ -74,6 +75,24 @@ test("groupByPattern counts progress per pattern in roadmap order", () => {
   assert.equal(groups[0].solved, 1);
   const patterns = groups.map((group) => group.pattern);
   assert.deepEqual(patterns, PATTERN_ORDER.filter((pattern) => patterns.includes(pattern)));
+});
+
+test("practice order finishes easier tiers first and rotates topics within each tier", () => {
+  const problem = (link, pattern, difficulty) => ({ problem: link, link, pattern, difficulty });
+  const ordered = interleavedPracticeOrder([
+    problem("arrays-1", "Arrays & Hashing", "Easy"),
+    problem("arrays-2", "Arrays & Hashing", "Easy"),
+    problem("arrays-3", "Arrays & Hashing", "Medium"),
+    problem("pointers-1", "Two Pointers", "Easy"),
+    problem("pointers-2", "Two Pointers", "Medium"),
+    problem("graphs-1", "Graphs", "Hard"),
+  ]);
+
+  assert.deepEqual(ordered.map((entry) => entry.link), [
+    "arrays-1", "pointers-1", "arrays-2",
+    "arrays-3", "pointers-2",
+    "graphs-1",
+  ]);
 });
 
 test("review intervals expand with recall history, not first-solve confidence", () => {

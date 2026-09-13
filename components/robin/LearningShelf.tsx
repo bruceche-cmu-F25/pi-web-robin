@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
-import { learningShelf } from "@/extension/robin/study";
+import { LEARNING_SHELF } from "@/extension/robin/learning-shelf";
 import { shelfLogo } from "@/extension/robin/shelf-logos";
 import { iconFallback } from "@/extension/robin/links";
 import { EVENT_COLOR_KEYS } from "@/extension/robin/eventColors";
@@ -10,11 +10,8 @@ import { EVENT_COLOR_KEYS } from "@/extension/robin/eventColors";
 /**
  * The reading list, in the groups it was collected in.
  *
- * Every row is a curriculum item, so the shelf and the roadmap can never
- * disagree about where a link points — but the arrangement is the original
- * one, because the two answer different questions. The rail answers "where
- * does this sit"; this answers "where was that thing", which is what you want
- * when you already know what you are looking for.
+ * It answers "where was that thing", which is what you want when you already
+ * know what you are looking for. Every link opens in its own tab.
  *
  * Nothing here is marked read. It is a shelf: what is on it, and where it
  * points.
@@ -30,14 +27,13 @@ import { EVENT_COLOR_KEYS } from "@/extension/robin/eventColors";
  */
 export function LearningShelf() {
   const { t } = useI18n();
-  const groups = useMemo(() => learningShelf(), []);
 
   return (
     <section
       style={{ columns: "300px", columnGap: "1rem" }}
       aria-label={t("learn.shelf.title")}
     >
-      {groups.map((group, groupIndex) => {
+      {LEARNING_SHELF.map((group, groupIndex) => {
         // --todo-* for the type, --event-* for the rule: the event hues are
         // washes tuned to sit behind a chip, and the todo set is the same six
         // families held at the contrast that reads as text.
@@ -54,25 +50,25 @@ export function LearningShelf() {
               {t(`learn.shelf.${group.id}`)}
             </h2>
             <ul className="flex flex-col">
-              {group.entries.map((entry, index) => {
+              {group.links.map((entry, index) => {
                 return (
                   // Keyed by position as well as id: a resource can earn a place
                   // twice on the shelf, once whole and once at a section anchor.
-                  <li key={`${entry.item.id}-${index}`}>
+                  <li key={`${entry.url}-${index}`}>
                     <a
                       href={entry.url}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="ui-action flex items-baseline gap-2 py-1"
                       style={{ textDecoration: "none", color: "var(--text)" }}
-                      title={entry.item.hint ?? entry.url}
+                      title={entry.hint ?? entry.url}
                     >
                       <SiteMark url={entry.url} />
                       {/* Wraps rather than truncates. These titles are long and
                           the columns are narrow, and a shelf whose labels end in
                           an ellipsis is one you have to hover to read. */}
                       <span className="min-w-0 flex-1" style={{ fontSize: 12.5, lineHeight: 1.35 }}>
-                        {entry.item.title}
+                        {entry.title}
                       </span>
                       {/* The host, the way the list was written: it is how you
                           recognise a link you have opened a hundred times. */}

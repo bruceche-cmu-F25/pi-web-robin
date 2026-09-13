@@ -1,11 +1,6 @@
-import type { Metadata } from "next";
-import { FullstackLearningPrototype } from "@/components/robin/FullstackLearningPrototype";
+import { redirect } from "next/navigation";
 
-export const metadata: Metadata = {
-  title: "Full Stack Learning Prototype — Learning Hub",
-  description: "An interactive request map with book-style chapters and a contextual mentor.",
-};
-
-export default function FullstackLearningPrototypePage() {
-  return <FullstackLearningPrototype />;
+/** The earlier full-stack map prototype; Full Stack Open now lives at /learn/fso. */
+export default function FullstackRedirect() {
+  redirect("/learn/fso");
 }

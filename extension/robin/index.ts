@@ -17,7 +17,7 @@ import { registerJobTools } from "./job-tools.ts";
 import { registerLinkTools } from "./link-tools.ts";
 import { registerPracticeTools } from "./practice-tools.ts";
 import { registerProductTools } from "./product-tools.ts";
-import { registerStudyTools } from "./study-tools.ts";
+import { registerFsoTools } from "./fso-tools.ts";
 import { dataPath } from "./paths.ts";
 import { registerProviderTools } from "./provider-tools.ts";
 import { listTodos } from "./todo-domain.ts";
@@ -32,7 +32,7 @@ const robin = (pi: ExtensionAPI) => {
   registerJobTools(pi);
   registerPracticeTools(pi);
   registerProductTools(pi);
-  registerStudyTools(pi);
+  registerFsoTools(pi);
 
   // Confirms the extension actually loaded, and where its data went.
   pi.registerCommand("robin-status", {

@@ -1,0 +1,125 @@
+.tracks {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  align-items: start;
+}
+
+.track {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--bg-subtle);
+  /* The course map below sizes its ruler to the track, not the viewport. */
+  container-type: inline-size;
+}
+
+.trackHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 12px;
+}
+
+.panel .trackName {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.current {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+/* Both tracks keep a 22px reading headline, including their empty states.
+   Italic, not heavy weight, distinguishes it from labels and supporting copy. */
+.panel .title {
+  color: var(--text);
+  font-weight: 400;
+  font-style: italic;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+
+.panel .description {
+  max-width: 52ch;
+  color: var(--text-muted);
+  line-height: 1.55;
+}
+
+.panel .primary {
+  align-self: flex-start;
+  gap: 6px;
+  max-width: 100%;
+  font-family: var(--font-mono);
+  line-height: 1.4;
+  text-align: left;
+  border-color: var(--accent-line-strong);
+  background: var(--accent-soft);
+}
+
+.secondary,
+.track > details > summary {
+  font-family: var(--font-mono);
+}
+
+.track > details > summary {
+  min-height: 44px;
+  line-height: 1.5;
+}
+
+/* The course map: one hairlined ruler of parts. Eight to a row on a narrow
+   track so a cell stays a finger wide; the whole course on one line once the
+   track can hold it. The hue arrives as --ink/--wash/--line from the track. */
+.parts {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  border-top: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+}
+
+@container (min-width: 400px) {
+  .parts { grid-template-columns: repeat(var(--parts), minmax(0, 1fr)); }
+  .parts .part { min-height: 36px; }
+}
+
+.part {
+  position: relative;
+  min-height: 44px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.part::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: var(--fill);
+  height: 3px;
+  background: var(--ink);
+}
+
+.part:hover { background: var(--bg-hover); color: var(--text); }
+.part[data-current] { background: var(--wash); color: var(--ink); }
+.part[aria-expanded="true"] { color: var(--text); box-shadow: inset 0 0 0 1px var(--line); }
+.part:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+
+@media (max-width: 640px) {
+  .track { padding: 12px; }
+}

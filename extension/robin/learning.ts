@@ -74,7 +74,7 @@ export function practicePlan(records: PracticeRecord[], list: PracticeList, toda
 }
 
 export function practiceHref(slug: string, list: PracticeList): string {
-  return `/coding?track=problems&problem=${encodeURIComponent(slug)}&list=${list}`;
+  return `/coding?problem=${encodeURIComponent(slug)}&list=${list}`;
 }
 
 export interface LearningSnapshot {

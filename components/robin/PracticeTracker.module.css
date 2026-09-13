@@ -1,0 +1,100 @@
+.tracker { margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--border); }
+.header { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px 20px; }
+.stats { display: flex; flex-wrap: wrap; gap: 4px 16px; font: 12px/1.4 var(--font-mono); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.stats span[data-live="true"] { color: var(--success); }
+.empty { margin-top: 12px; font-size: 13px; line-height: 1.6; color: var(--text-muted); }
+
+.panels { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 32px; margin-top: 16px; align-items: start; }
+.heatmap, .forecast { margin: 0; min-width: 0; }
+.heatmap > figcaption, .forecast > figcaption { margin-bottom: 10px; font-size: 12px; color: var(--text); }
+
+/* ── activity grid ──────────────────────────────────────── */
+.months, .grid { display: grid; grid-auto-flow: column; grid-auto-columns: 13px; gap: 3px; }
+.months { height: 14px; margin-bottom: 2px; font: 10px/14px var(--font-mono); color: var(--text-dim); white-space: nowrap; }
+.months > span { overflow: visible; }
+.week { display: grid; grid-template-rows: repeat(7, 13px); gap: 3px; }
+.cell {
+  display: block;
+  width: 13px;
+  height: 13px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  background: var(--bg-panel);
+}
+.cell[data-level="1"] { border-color: transparent; background: color-mix(in srgb, var(--success) 30%, var(--bg-panel)); }
+.cell[data-level="2"] { border-color: transparent; background: color-mix(in srgb, var(--success) 52%, var(--bg-panel)); }
+.cell[data-level="3"] { border-color: transparent; background: color-mix(in srgb, var(--success) 74%, var(--bg-panel)); }
+.cell[data-level="4"] { border-color: transparent; background: var(--success); }
+.cell[data-future] { border-style: dashed; border-color: color-mix(in srgb, var(--border) 45%, transparent); background: transparent; }
+.cell[data-today] { outline: 1px solid var(--accent); outline-offset: 1px; }
+button.cell { cursor: pointer; transition: transform 0.12s; }
+button.cell:hover { transform: scale(1.25); }
+button.cell[aria-pressed="true"] { outline: 2px solid var(--text); outline-offset: 1px; }
+.scale { display: flex; align-items: center; gap: 3px; margin-top: 8px; font-size: 10px; color: var(--text-dim); }
+.scale > .cell:first-of-type { margin-left: 4px; }
+.scale > .cell:last-of-type { margin-right: 4px; }
+
+/* ── review forecast ────────────────────────────────────── */
+.bars { display: grid; grid-template-columns: repeat(14, minmax(0, 1fr)); gap: 4px; height: 124px; }
+.bar {
+  display: grid;
+  grid-template-rows: 16px minmax(0, 1fr) 18px;
+  align-items: end;
+  justify-items: center;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.bar::before { content: ""; grid-row: 2; grid-column: 1; align-self: stretch; width: 100%; border-bottom: 1px solid var(--border); }
+button.bar { cursor: pointer; }
+button.bar:hover .barStack, button.bar[aria-pressed="true"] .barStack { filter: brightness(0.9); box-shadow: 0 0 0 2px var(--accent-soft); }
+.barCount { grid-row: 1; font: 11px/16px var(--font-mono); color: var(--text-muted); }
+.barStack {
+  grid-row: 2;
+  grid-column: 1;
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 22px);
+  min-height: 0;
+  transition: height 0.3s ease;
+}
+.barStack > span { min-height: 3px; background: color-mix(in srgb, var(--accent) 70%, var(--bg-panel)); }
+.barStack > span[data-overdue] { background: var(--warning); }
+.barDay { grid-row: 3; font: 10px/18px var(--font-mono); color: var(--text-muted); white-space: nowrap; }
+.barDay[data-weekend="true"] { color: var(--text-dim); }
+.bar:first-child .barDay { color: var(--accent); font-weight: 600; }
+.bar:first-child .barCount { color: var(--text); }
+
+/* ── one day, opened ───────────────────────────────────── */
+.dayList { margin-top: 16px; padding: 12px 14px; border: 1px solid var(--border); background: var(--bg-panel); }
+.dayList header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+.dayList h3 { font: 12px/1.4 var(--font-mono); color: var(--text); }
+.dayList ul { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); gap: 2px 16px; list-style: none; }
+.dayList li button {
+  --tone: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  padding: 4px 6px;
+  text-align: left;
+  font-size: 13px;
+  color: var(--text);
+}
+.dayList li button:hover { background: var(--bg-hover); }
+.dayList li button > span { flex-shrink: 0; width: 8px; height: 8px; border-radius: 50%; background: var(--tone); }
+.dayList li button > small { margin-left: auto; font: 11px var(--font-mono); color: var(--tone); white-space: nowrap; }
+.dayList [data-result="independent"] { --tone: var(--success); }
+.dayList [data-result="assisted"], .dayList [data-result="due"] { --tone: var(--accent); }
+.dayList [data-result="partial"], .dayList [data-result="overdue"] { --tone: var(--warning); }
+.dayList [data-result="stuck"] { --tone: var(--danger); }
+
+@media (prefers-reduced-motion: reduce) {
+  .tracker * { transition: none !important; }
+}
+@media (max-width: 900px) {
+  .panels { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .heatmap { overflow-x: auto; }
+}

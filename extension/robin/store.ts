@@ -104,7 +104,6 @@ const MAIL_REVIEW_FILE = "mail-review.json";
 const REMINDER_STATE_FILE = "reminder-state.json";
 const PRACTICE_FILE = "practice.json";
 const PRACTICE_STATE_FILE = "practice-state.json";
-const STUDY_STATE_FILE = "study-state.json";
 
 /**
  * Which chats have already received which run, per feed.
@@ -528,36 +527,4 @@ export function updatePracticeState(patch: Partial<PracticeState>): void {
     value: { ...(current ?? {}), ...patch, updatedAt: new Date().toISOString() },
     changed: true,
   }));
-}
-
-/* ──────────────────────────── study ──────────────────────────── */
-
-/**
- * What the curriculum track currently has open — and the only thing it stores.
- *
- * Same reason the practice state exists: the frame is cross-origin and reports
- * nothing about itself, so the mentor can only answer "what am I reading" if
- * the click that opened it was written down on the way past. Note what is
- * absent: no records file, because nothing on this side is scored, counted, or
- * marked read.
- */
-export interface StudyState {
-  /** Curriculum item id the workspace currently has open. */
-  currentItemId?: string;
-  /** Which track the syllabus is showing. */
-  track?: string;
-  /** UTC instant, ISO 8601. */
-  updatedAt?: string;
-}
-
-export function readStudyState(): StudyState {
-  return readJsonObject<StudyState>(STUDY_STATE_FILE) ?? {};
-}
-
-export function writeStudyState(patch: Partial<StudyState>): void {
-  writeJsonObject(STUDY_STATE_FILE, {
-    ...readStudyState(),
-    ...patch,
-    updatedAt: new Date().toISOString(),
-  });
 }

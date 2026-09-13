@@ -19,6 +19,6 @@ test("logo lookup treats www and the bare host as the same site", () => {
 test("the snapshot script includes both shelves and preserves a cached mark on a transient failure", async () => {
   const source = await readFile(new URL("../../scripts/refresh-shelf-logos.mjs", import.meta.url), "utf8");
   assert.match(source, /STARTER_PRODUCT_LIBRARY/);
-  assert.match(source, /learningShelf\(\)/);
+  assert.match(source, /LEARNING_SHELF\.flatMap/);
   assert.match(source, /found\.set\(host, previous\)/);
 });
