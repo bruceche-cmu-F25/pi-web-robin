@@ -19,8 +19,13 @@ export interface PiWebContext {
 export const AGENT_TIMEOUT_MS = 120_000;
 /** Must outlast the assistant route's own scoring budget so the route reports first. */
 export const SCORING_TIMEOUT_MS = 330_000;
-/** A mail-review turn reads a day of mail and writes todos/events. */
-export const MAIL_TIMEOUT_MS = 180_000;
+/**
+ * A mail-review turn reads a day of mail and writes todos/events, and the
+ * route gives it 180s. A scheduled digest can also queue behind a dashboard
+ * check that is already running, so wait out two turns before giving up —
+ * giving up early would mark the digest failed and schedule a second run.
+ */
+export const MAIL_TIMEOUT_MS = 390_000;
 
 function authHeaders(ctx: PiWebContext): Record<string, string> {
   return {

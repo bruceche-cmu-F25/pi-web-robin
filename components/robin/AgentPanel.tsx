@@ -6,7 +6,8 @@ import { useI18n } from "@/hooks/useI18n";
 import { requestRefresh } from "./refreshBus";
 
 interface Turn {
-  role: "you" | "agent";
+  /** "reset" marks where the server started a new session under the panel. */
+  role: "you" | "agent" | "reset";
   text: string;
   tools?: string[];
 }
@@ -23,6 +24,7 @@ interface Props {
   restartHintKey: string;
   /** Tool name → i18n key, for the line under a reply saying what it touched. */
   toolKeys: Record<string, string>;
+  emptyHintKey?: string;
   /** Product agents use their own scoped-session route but keep this panel's UX. */
   endpoint?: string;
   requestBody?: Record<string, string>;
@@ -34,6 +36,8 @@ interface Props {
    * and the id is what tells a repeat from a re-render.
    */
   pending?: { id: string; text: string };
+  /** A per-reply action the page offers, e.g. keeping a mentor answer in your notes. */
+  replyAction?: { labelKey: string; onReply: (text: string) => void };
   onClose?: () => void;
 }
 
@@ -48,10 +52,15 @@ interface Props {
  * exactly the kind of subtlety that gets fixed in one copy only.
  *
  * The transcript is client-side only: the conversation itself lives in a pi
- * session on the server and survives a reload, but re-rendering weeks of it in
- * a side panel would bury the exchange the user is actually in. Reloading the
- * page therefore gives a clean panel and an agent that still remembers — which
- * is the behaviour you want from someone sitting beside you.
+ * session on the server and survives a reload, but re-rendering it in a side
+ * panel would bury the exchange the user is actually in. Reloading the page
+ * therefore gives a clean panel and an agent that still remembers.
+ *
+ * The server starts a new session after 30 idle minutes or a date change. The
+ * panel cannot see that coming, so it watches the session id each reply
+ * carries and draws a line where it changed: the turns above it are still on
+ * screen but no longer in the agent's memory, and a follow-up that leans on
+ * them would otherwise get an answer with no context and no explanation.
  */
 export function AgentPanel({
   mode,
@@ -59,9 +68,11 @@ export function AgentPanel({
   placeholderKey,
   restartHintKey,
   toolKeys,
+  emptyHintKey,
   endpoint = "/api/robin/assistant",
   requestBody = {},
   pending,
+  replyAction,
   onClose,
 }: Props) {
   const { t } = useI18n();
@@ -73,6 +84,7 @@ export function AgentPanel({
   const composingRef = useRef(false);
   const lastCompositionEndAtRef = useRef(0);
   const dispatchedRef = useRef<string | null>(null);
+  const sessionRef = useRef<string | null>(null);
 
   useEffect(() => {
     const node = transcriptRef.current;
@@ -93,13 +105,17 @@ export function AgentPanel({
         body: JSON.stringify({ mode, ...requestBody, message: trimmed }),
       });
       const body = await response.json().catch(() => null) as
-        { reply?: string; usedTools?: string[]; error?: string } | null;
+        { reply?: string; usedTools?: string[]; sessionId?: string; error?: string } | null;
       if (!response.ok || !body) throw new Error(body?.error ?? `Request failed (${response.status})`);
-      setTurns((previous) => [...previous, {
-        role: "agent",
-        text: body.reply ?? "",
-        tools: body.usedTools ?? [],
-      }]);
+      const rotated = !!body.sessionId && !!sessionRef.current && body.sessionId !== sessionRef.current;
+      if (body.sessionId) sessionRef.current = body.sessionId;
+      setTurns((previous) => {
+        const reply: Turn = { role: "agent", text: body.reply ?? "", tools: body.usedTools ?? [] };
+        if (!rotated) return [...previous, reply];
+        // The message just sent opened the new session, so the line goes above it.
+        const reset: Turn = { role: "reset", text: "" };
+        return [...previous.slice(0, -1), reset, ...previous.slice(-1), reply];
+      });
       // Both personas write records through their tools; the rail is polling,
       // but the user is watching right now.
       if ((body.usedTools ?? []).length > 0) requestRefresh();
@@ -137,6 +153,7 @@ export function AgentPanel({
         throw new Error(body?.error ?? `Request failed (${response.status})`);
       }
       setTurns([]);
+      sessionRef.current = null;
       setError(null);
     } catch (caught) {
       // Clearing the panel on a failed restart would be a lie: the session on
@@ -178,13 +195,30 @@ export function AgentPanel({
 
       <div ref={transcriptRef} className="flex-1 overflow-y-auto p-3" style={{ minHeight: 0 }}>
         <div className="flex flex-col gap-3">
-          {turns.map((turn, index) => (
-            <article key={index} className="flex flex-col gap-1">
-              <span className="pi-eyebrow" style={{ fontSize: 9 }}>
+          {turns.length === 0 && emptyHintKey && (
+            <p className="text-sm leading-relaxed" style={{ color: "var(--text-muted)" }}>{t(emptyHintKey)}</p>
+          )}
+          {turns.map((turn, index) => turn.role === "reset" ? (
+            <p key={index} role="note" className="border-t pt-2 text-xs" style={{ borderColor: "var(--border)", color: "var(--text-dim)" }}>
+              {t("coding.agent.newSession")}
+            </p>
+          ) : (
+            <article
+              key={index}
+              className={`flex flex-col gap-1${turn.role === "you" ? " border-l-2 px-3 py-2" : ""}`}
+              style={turn.role === "you" ? {
+                borderColor: "var(--accent)",
+                background: "var(--accent-soft)",
+              } : undefined}
+            >
+              <span
+                className="pi-eyebrow"
+                style={{ fontSize: 10, color: turn.role === "you" ? "var(--accent)" : undefined }}
+              >
                 {turn.role === "you" ? t("coding.agent.you") : t(titleKey)}
               </span>
               {turn.role === "you" ? (
-                <p style={{ fontSize: 13, whiteSpace: "pre-wrap", color: "var(--text-muted)" }}>
+                <p style={{ fontSize: 16, lineHeight: 1.55, fontWeight: 500, whiteSpace: "pre-wrap", color: "var(--text)" }}>
                   {turn.text}
                 </p>
               ) : (
@@ -196,6 +230,16 @@ export function AgentPanel({
                     .map((name) => (toolKeys[name] ? t(toolKeys[name]) : name))
                     .join(" · ")}
                 </span>
+              ) : null}
+              {replyAction && turn.role === "agent" && turn.text.trim() ? (
+                <button
+                  type="button"
+                  className="ui-action pi-chrome-label pi-bracket self-start"
+                  style={{ fontSize: 9 }}
+                  onClick={() => replyAction.onReply(turn.text)}
+                >
+                  {t(replyAction.labelKey)}
+                </button>
               ) : null}
             </article>
           ))}
@@ -248,6 +292,7 @@ export function AgentPanel({
           // mid-word tears down an in-flight IME composition, which is how
           // half-typed pinyin ends up committed as raw letters. `send` already
           // refuses to fire while busy, so nothing is lost by staying typable.
+          aria-label={t(placeholderKey)}
           placeholder={t(placeholderKey)}
           className="pi-panel w-full resize-none p-2"
           style={{ fontSize: 13, background: "var(--bg-deep)", color: "var(--text)" }}

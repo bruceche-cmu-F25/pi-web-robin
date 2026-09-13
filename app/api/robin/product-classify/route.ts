@@ -61,6 +61,7 @@ export async function POST(req: Request) {
     const result = await runScopedAssistantTurn({
       remembered: null,
       remember: () => {},
+      oneShot: true,
       toolNames: [],
       preamble: PREAMBLE,
       message: text || "Classify the attached image capture.",

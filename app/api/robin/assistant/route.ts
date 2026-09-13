@@ -59,10 +59,9 @@ export async function POST(req: Request) {
  * session file stays where it is — this is "new conversation", not "delete the
  * transcript", and the old one is still worth being able to read.
  *
- * Exists because the assistant session is long-lived by design: it is the same
- * conversation from the dashboard and from Telegram, for weeks. That is what
- * makes it useful and also what makes a way out of a drifted or expensive
- * context necessary.
+ * Dashboard and Telegram share a conversation until 30 minutes of inactivity
+ * or a local date change. This remains the explicit way to reset it sooner;
+ * the monthly retention sweep handles old Robin transcripts separately.
  */
 export async function DELETE(req: Request) {
   if (!isApiRequestAllowed(req)) {

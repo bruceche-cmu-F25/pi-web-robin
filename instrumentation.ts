@@ -3,4 +3,7 @@ export async function register(): Promise<void> {
 
   const { configureHttpDispatcher } = await import("@/lib/http-dispatcher");
   configureHttpDispatcher();
+
+  const { startRobinSessionCleanup } = await import("@/lib/robin-session-lifecycle");
+  startRobinSessionCleanup();
 }

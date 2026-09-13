@@ -12,6 +12,13 @@ function readState(): ProductAgentState {
   return readJsonObject<ProductAgentState>(FILE) ?? {};
 }
 
+/** Current pointers are protected from transcript retention. */
+export function readProductAgentSessionIds(): string[] {
+  const state = readState();
+  return [state.incubatorSessionId, ...Object.values(state.productSessionIds ?? {})]
+    .filter((id): id is string => typeof id === "string" && id.length > 0);
+}
+
 export function readProductAgentSessionId(productId?: string): string | null {
   const state = readState();
   return productId ? state.productSessionIds?.[productId] ?? null : state.incubatorSessionId ?? null;

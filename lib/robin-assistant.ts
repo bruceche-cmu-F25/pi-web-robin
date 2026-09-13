@@ -5,7 +5,8 @@
  * instead of making pi-web call its own HTTP endpoint — which would have to
  * get past the same basic auth that protects it from everyone else.
  */
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import {
   dataDir,
   readJobProfile,
@@ -33,6 +34,10 @@ import {
 import { getRpcSession, startRpcSession, type AgentSessionWrapper } from "@/lib/rpc-manager";
 import { resolveSessionPath } from "@/lib/session-reader";
 import { prepareJobScoringSession } from "./job-scoring-runtime.ts";
+import {
+  recordRobinSessionActivity, robinSessionShouldRotate, startRobinSessionCleanup,
+  withRobinTimeContext, withRobinTurnLock,
+} from "./robin-session-lifecycle";
 
 /** A dashboard command is a sentence, not a coding task; well under a minute. */
 const TURN_TIMEOUT_MS = 90_000;
@@ -58,9 +63,9 @@ const TOOL_NAMES = [...ROBIN_TOOL_NAMES];
 /**
  * Who the coach is, sent once when its session is created.
  *
- * Once, not every turn: the session is long-lived, so re-sending this would
- * pay for it on every message forever. The tools carry the operational rules
- * (the hint ladder lives in `practice_current`'s guidelines, which pi injects
+ * Once per conversation, not every turn: continuous follow-ups share a
+ * session until it is idle for 30 minutes or the local date changes. The tools
+ * carry the operational rules (the hint ladder lives in `practice_current`'s guidelines, which pi injects
  * whenever the tool is active); this preamble carries only what a tool
  * description has no place to say — who is being talked to and what the point
  * of the whole conversation is.
@@ -84,11 +89,11 @@ const COACH_PREAMBLE = [
  * makes in a real system.
  */
 const MENTOR_PREAMBLE = [
-  "You are this user's engineering mentor: a staff engineer who has designed and operated real systems, sitting next to them while they work through a curriculum that runs from JavaScript fundamentals to architecture and system design.",
+  "You are this user's engineering mentor: a staff engineer who has designed and operated real systems, sitting next to them while they work through Full Stack Open (University of Helsinki) — React, Node and Express, MongoDB, testing, state management, and then GraphQL, TypeScript, CI/CD, containers, SQL and Next.js.",
   "",
-  "Three jobs, in this order. First, the thing in front of them — explain it properly, with a concrete example, and check it landed by asking them to apply it once. Second, the shape of the whole: every answer gets anchored to the outcome its module names, so they are building a capability rather than finishing pages. Third, the transfer — take the idea up a level to where it decides something in a real system: what breaks at scale, where a boundary belongs, what a trade-off costs. That last part is what reading alone never produces, and it is why this track exists.",
+  "Three jobs, in this order. First, the thing in front of them — explain it properly, with a concrete example, and check it landed by asking them to apply it once. Second, the shape of the whole: say where the chapter sits in the course and what the part is building toward, so they are building a capability rather than finishing pages. Third, the transfer — take the idea up a level to where it decides something in a real system: what breaks at scale, where a boundary belongs, what a trade-off costs. That last part is what reading alone never produces.",
   "",
-  "Use their own codebase as the example wherever a concept appears in it; Robin and Pi Web are better material than an invented shop-and-orders domain. Nothing on this side is tracked — no progress, no status, no counts — so never claim to have recorded anything and never tell them how far along they are. You cannot know, and a guess dressed as a number is worse than silence.",
+  "Use their own codebase as the example wherever a concept appears in it; Robin and Pi Web are better material than an invented shop-and-orders domain. The ticks and notes you can read are theirs; you can write neither, so never claim to have recorded anything.",
   "",
   "Reply in the language they write in. Keep answers short — this is a side panel next to what they are reading, not an article.",
 ].join("\n");
@@ -107,12 +112,15 @@ export const MODES = {
     read: readAssistantSessionId,
     write: writeAssistantSessionId,
     timeoutMs: TURN_TIMEOUT_MS,
+    timeContext: true,
   },
   readOnly: {
     toolNames: [...ROBIN_READ_ONLY_TOOL_NAMES],
     read: readDailyAgendaSessionId,
     write: writeDailyAgendaSessionId,
     timeoutMs: TURN_TIMEOUT_MS,
+    stateless: true,
+    timeContext: true,
   },
   scoring: {
     toolNames: [...ROBIN_SCORING_TOOL_NAMES],
@@ -133,6 +141,7 @@ export const MODES = {
      * The last session id is still recorded, so a bad batch can be traced.
      */
     stateless: true,
+    timeContext: true,
   },
   coach: {
     toolNames: [...ROBIN_COACH_TOOL_NAMES],
@@ -153,6 +162,8 @@ export const MODES = {
     read: readMailReviewSessionId,
     write: writeMailReviewSessionId,
     timeoutMs: MAIL_TIMEOUT_MS,
+    stateless: true,
+    timeContext: true,
   },
 } as const;
 
@@ -183,6 +194,8 @@ async function acquireSession(
   remember: (sessionId: string) => void,
   model?: { provider: string; modelId: string } | null,
 ): Promise<{ session: AgentSessionWrapper; sessionId: string; fresh: boolean }> {
+  // Also initialize lazily when this module is hot-reloaded into an existing server.
+  startRobinSessionCleanup();
   /**
    * Re-sent on every acquisition, like the tool list and for the same reason:
    * a session restored from its file comes back on whatever pi defaults to, so
@@ -204,13 +217,20 @@ async function acquireSession(
 
   if (remembered) {
     const live = getRpcSession(remembered);
-    if (live?.isAlive()) {
+    // A timed-out HTTP request can still have a working agent behind it.
+    // Never rotate/retune that session or attach a second reply listener to it.
+    if (live?.isRunning()) {
+      throw new Error("Robin is still working on the previous message. Please wait for it to finish.");
+    }
+    const filePath = live?.sessionFile || await resolveSessionPath(remembered);
+    const expired = !filePath || robinSessionShouldRotate(remembered, filePath);
+    if (expired) {
+      if (live?.isAlive()) await live.shutdown();
+    } else if (live?.isAlive()) {
       await live.send({ type: "set_tools", toolNames, exact: true });
       await applyModel(live);
       return { session: live, sessionId: remembered, fresh: false };
-    }
-    const filePath = await resolveSessionPath(remembered);
-    if (filePath) {
+    } else if (filePath && existsSync(filePath)) {
       const { session, realSessionId } = await startRpcSession(remembered, filePath, undefined, {
         toolNames,
         exactTools: true,
@@ -219,18 +239,18 @@ async function acquireSession(
       await applyModel(session);
       return { session, sessionId: realSessionId, fresh: false };
     }
-    // Remembered id no longer resolves (session deleted, agent dir moved): fall
-    // through and start a fresh one rather than failing the request.
+    // Expired, or deleted even if the path cache still knows its name: start fresh.
   }
 
   const cwd = dataDir();
   mkdirSync(cwd, { recursive: true });
   const { session, realSessionId } = await startRpcSession(
-    `__robin_assistant__${Date.now()}`,
+    `__robin_assistant__${randomUUID()}`,
     "",
     cwd,
     { toolNames, exactTools: true, ...(model ? { initialModel: model } : {}) },
   );
+  recordRobinSessionActivity(realSessionId, session.sessionFile);
   remember(realSessionId);
   return { session, sessionId: realSessionId, fresh: true };
 }
@@ -262,9 +282,11 @@ async function runTurn(
   message: string,
   images: Array<{ type: "image"; data: string; mimeType: string }> = [],
   timeoutMs: number = TURN_TIMEOUT_MS,
+  includeTimeContext = false,
 ): Promise<{ reply: string; usedTools: string[] }> {
   const chunks: string[] = [];
   const usedTools: string[] = [];
+  recordRobinSessionActivity(session.sessionId, session.sessionFile);
 
   return await new Promise<{ reply: string; usedTools: string[] }>((resolve, reject) => {
     let settled = false;
@@ -300,12 +322,12 @@ async function runTurn(
 
     session.send({
       type: "prompt",
-      message,
+      message: includeTimeContext ? withRobinTimeContext(message) : message,
       ...(images.length > 0 ? { images } : {}),
     }).catch((error: unknown) => {
       finish(() => reject(error instanceof Error ? error : new Error(String(error))));
     });
-  });
+  }).finally(() => recordRobinSessionActivity(session.sessionId, session.sessionFile));
 }
 
 
@@ -314,6 +336,16 @@ export async function runAssistantTurn(
   modeName: AssistantMode,
   message: string,
   images: Array<{ type: "image"; data: string; mimeType: string }> = [],
+): Promise<{ reply: string; usedTools: string[]; sessionId: string }> {
+  const mode = MODES[modeName];
+  const oneShot = "stateless" in mode && mode.stateless === true;
+  return withRobinTurnLock(modeName, () => runModeTurn(modeName, message, images), { queue: oneShot });
+}
+
+async function runModeTurn(
+  modeName: AssistantMode,
+  message: string,
+  images: Array<{ type: "image"; data: string; mimeType: string }>,
 ): Promise<{ reply: string; usedTools: string[]; sessionId: string }> {
   const mode = MODES[modeName];
   const stateless = "stateless" in mode && mode.stateless === true;
@@ -333,15 +365,23 @@ export async function runAssistantTurn(
   const prompt = preamble ? `${preamble}\n\n---\n\n${message}` : message;
   try {
     if (modeName === "scoring") await prepareJobScoringSession(session);
-    const { reply, usedTools } = await runTurn(session, prompt, images, mode.timeoutMs);
+    const { reply, usedTools } = await runTurn(
+      session,
+      prompt,
+      images,
+      mode.timeoutMs,
+      "timeContext" in mode && mode.timeContext === true,
+    );
     return { reply, usedTools, sessionId };
   } finally {
-    // Stateless scorers must not keep running (and writing) after a timeout.
-    if (stateless) {
-      try { await session.send({ type: "abort" }); }
-      finally { session.destroy(); }
-    }
+    if (stateless) await endOneShot(session);
   }
+}
+
+/** One-shot jobs must not keep running (and writing, and spending) after a timeout. */
+async function endOneShot(session: AgentSessionWrapper): Promise<void> {
+  try { await session.send({ type: "abort" }); }
+  finally { session.destroy(); }
 }
 
 /**
@@ -349,6 +389,10 @@ export async function runAssistantTurn(
  * fixed dashboard personas above (for example, one product-agent session per
  * product). The caller still supplies an exact allow-list; this helper never
  * falls back to coding tools.
+ *
+ * `oneShot` is for callers with nothing to remember between turns (a
+ * classification, a summary): the session is aborted and destroyed when the
+ * turn ends, so a timed-out request does not leave a model running behind it.
  */
 export async function runScopedAssistantTurn(options: {
   remembered: string | null;
@@ -358,13 +402,18 @@ export async function runScopedAssistantTurn(options: {
   preamble: string;
   images?: Array<{ type: "image"; data: string; mimeType: string }>;
   timeoutMs?: number;
+  oneShot?: boolean;
 }): Promise<{ reply: string; usedTools: string[]; sessionId: string }> {
   const { session, sessionId, fresh } = await acquireSession(
     options.toolNames,
-    options.remembered,
+    options.oneShot ? null : options.remembered,
     options.remember,
   );
   const prompt = fresh ? `${options.preamble}\n\n---\n\n${options.message}` : options.message;
-  const result = await runTurn(session, prompt, options.images ?? [], options.timeoutMs ?? TURN_TIMEOUT_MS);
-  return { ...result, sessionId };
+  try {
+    const result = await runTurn(session, prompt, options.images ?? [], options.timeoutMs ?? TURN_TIMEOUT_MS);
+    return { ...result, sessionId };
+  } finally {
+    if (options.oneShot) await endOneShot(session);
+  }
 }
