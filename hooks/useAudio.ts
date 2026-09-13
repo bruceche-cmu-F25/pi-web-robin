@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 
-function playTone(ctx: AudioContext) {
+export function playTone(ctx: AudioContext) {
   const now = ctx.currentTime;
   const freqs = [523.25, 659.25];
   freqs.forEach((freq, i) => {
