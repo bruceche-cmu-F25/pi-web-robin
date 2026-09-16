@@ -8,6 +8,7 @@ import { getInitialNavigation } from "@/lib/initial-navigation";
 import type { MailReview } from "@/extension/robin/mail";
 import type { Job } from "@/extension/robin/jobs";
 import type { PracticeRecord } from "@/extension/robin/practice";
+import { pressingAssessments, type Round } from "@/extension/robin/rounds";
 import type { TechEvent } from "@/extension/robin/tech-events";
 import type { Todo } from "@/extension/robin/todo-domain";
 import { usePolledResource } from "./usePolledResource";
@@ -30,12 +31,16 @@ interface PracticeResponse {
   today: string;
 }
 
+interface RoundsResponse {
+  rounds: Round[];
+}
+
 interface TechEventsResponse {
   events: TechEvent[];
 }
 
 type Icon = ComponentType<SVGProps<SVGSVGElement>>;
-type NavTone = "clay" | "sage" | "teal" | "slate" | "plum" | "honey" | "fern" | "rose";
+type NavTone = "clay" | "sage" | "teal" | "slate" | "plum" | "honey" | "fern" | "iris" | "rose";
 
 interface NavStatus {
   count?: number;
@@ -143,6 +148,9 @@ export function RobinMargin({ drawer, onClose, onNavigate, chatContext }: {
   const jobs = usePolledResource<JobsResponse>("/api/robin/jobs", 60_000).data;
   const practice = usePolledResource<PracticeResponse>("/api/robin/practice", 60_000).data;
   const techEvents = usePolledResource<TechEventsResponse>("/api/robin/tech-events", 60_000).data;
+  const rounds = usePolledResource<RoundsResponse>("/api/robin/rounds", 60_000).data;
+  // Faster than the rest: this is the one that finishes while you are elsewhere.
+  const noteFinals = usePolledResource<{ finals?: Record<string, { status: string }> }>("/api/robin/notes-agent", 30_000).data;
 
   const dashboardActions = (todos?.todos ?? []).filter(
     (todo) => !todo.done && todo.due && todo.due <= todos!.today,
@@ -152,12 +160,15 @@ export function RobinMargin({ drawer, onClose, onNavigate, chatContext }: {
   const jobItems = jobs?.jobs ?? [];
   const jobsActions = jobItems.filter((job) => job.status === "shortlist").length;
   const jobsNew = jobItems.some((job) => job.status === "new");
+  // OAs due within two days or already overdue — the ones to do something about now.
+  const roundActions = pressingAssessments(rounds?.rounds ?? []);
   // The badge counts what you decided to go to, not what exists: a city feed
   // always has something on, so a count of "upcoming" would sit at a
   // permanent 40 and stop meaning anything.
   const eventItems = (techEvents?.events ?? []).filter((event) => !event.hidden);
   const savedEvents = eventItems.filter((event) => event.saved).length;
   const upcomingEvents = eventItems.length;
+  const notesReady = Object.values(noteFinals?.finals ?? {}).filter((final) => final.status === "ready").length;
   const learningActions = (practice?.records ?? []).filter(
     (record) => record.status === "solved"
       && record.nextReviewOn
@@ -188,7 +199,9 @@ export function RobinMargin({ drawer, onClose, onNavigate, chatContext }: {
       label: t("robin.nav.jobs"),
       icon: JobsIcon,
       tone: "teal",
-      status: { count: jobsActions, hasNew: jobsNew && pathname !== "/dashboard/jobs" },
+      // Shortlisted postings plus pressing OAs: the jobs page holds both, and
+      // the badge counts what is waiting on you there either way.
+      status: { count: jobsActions + roundActions, hasNew: jobsNew && pathname !== "/dashboard/jobs" },
     },
     {
       href: withChatContext("/dashboard/events"),
@@ -210,6 +223,15 @@ export function RobinMargin({ drawer, onClose, onNavigate, chatContext }: {
       tone: "slate",
       status: { count: learningActions },
       covers: ["/coding"],
+    },
+    {
+      href: withChatContext("/notes"),
+      path: "/notes",
+      label: t("robin.nav.notes"),
+      icon: NotesIcon,
+      tone: "iris",
+      // Notes prepared for Notion and waiting for you to confirm the filing.
+      status: { count: notesReady },
     },
     {
       href: withChatContext("/research"),
@@ -311,6 +333,10 @@ function LearningIcon(props: SVGProps<SVGSVGElement>) {
 
 function PodcastIcon(props: SVGProps<SVGSVGElement>) {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}><rect x="8" y="3" width="8" height="12" rx="4" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6" /></svg>;
+}
+
+function NotesIcon(props: SVGProps<SVGSVGElement>) {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M5 3h11l3 3v15H5z" /><path d="M16 3v4h4M8 11h8M8 15h8M8 19h5" /></svg>;
 }
 
 function ResearchIcon(props: SVGProps<SVGSVGElement>) {

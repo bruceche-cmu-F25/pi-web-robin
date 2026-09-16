@@ -1,0 +1,169 @@
+/* The whole thing is one card in the jobs page's list column, so it brings its
+   own paddings rather than the page's. */
+.card {
+  --copy: color-mix(in srgb, var(--text) 86%, var(--bg-panel));
+  --text-muted: color-mix(in srgb, var(--text) 78%, var(--bg-panel));
+  display: flex;
+  flex-direction: column;
+  color: var(--text);
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 14px 24px;
+}
+
+.meta, .when, .detail, .none, .empty {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.meta { margin-top: 4px; color: var(--text-dim); }
+
+.notice { border-left: 3px solid var(--accent); padding: 12px 24px; background: var(--accent-faint); color: var(--text-muted); }
+.error { margin: 0 24px 12px; padding: 12px 16px; color: var(--danger); border: 1px solid var(--danger); overflow-wrap: anywhere; }
+
+.empty { padding: 0 24px 18px; max-width: 70ch; }
+
+/* ── The two open lists ─────────────────────────────────────────────── */
+/* Kind is the second colour: iris for OAs, slate for interviews — the same
+   pair the email page gives those two categories. */
+.group[data-kind="oa"] { --kind: var(--todo-iris); }
+.group[data-kind="interview"] { --kind: var(--todo-slate); }
+/* `h3` is a .pi-label chip, which brings its own border and padding: it only
+   needs the kind's hue and room around it. */
+.group > h3 { margin: 14px 24px 8px; border-left-color: var(--kind); color: var(--kind); }
+.group > h3 > span { margin-left: 6px; font-variant-numeric: tabular-nums; }
+.group ul { list-style: none; margin: 0; padding: 0; }
+.none { padding: 0 24px 18px; }
+
+/* The countdown is the column you read down; everything else is detail. */
+.row, .editing {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 20px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--border);
+}
+.editing { display: block; }
+
+.clock {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-family: var(--font-mono);
+}
+.clock strong {
+  color: var(--text);
+  font-size: 22px;
+  font-weight: 400;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+.clock span {
+  color: var(--text-dim);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* Urgency is a temperature: red past due, amber inside a day, honey inside
+   three, fern when there is time. Amber is the warning token rather than the
+   clay todo hue because clay sits too close to red on the dark ground. The
+   rest are todo hues, tuned to read as text on both grounds. Each row carries its tone as one
+   variable, and the stripe, tint, countdown and due line all draw from it. */
+.row { --tone: var(--text-dim); box-shadow: inset 3px 0 var(--tone); }
+.row[data-urgency="overdue"] { --tone: var(--danger); }
+.row[data-urgency="soon"] { --tone: var(--warning); }
+.row[data-urgency="near"] { --tone: var(--todo-honey); }
+.row[data-urgency="later"] { --tone: var(--todo-fern); }
+.row[data-urgency="overdue"],
+.row[data-urgency="soon"],
+.row[data-urgency="near"] { background: color-mix(in srgb, var(--tone) 8%, transparent); }
+.row .clock strong { color: var(--tone); }
+.row[data-urgency="none"] .clock strong { color: var(--text-dim); }
+
+/* The two that need you today stop being text and become a filled mark. */
+.row[data-urgency="overdue"] .clock strong,
+.row[data-urgency="soon"] .clock strong {
+  align-self: flex-start;
+  padding: 1px 8px 2px;
+  background: var(--tone);
+  color: var(--bg-panel);
+}
+.row[data-urgency="overdue"] .clock strong { font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; }
+.row[data-urgency="overdue"] .when,
+.row[data-urgency="soon"] .when { color: var(--tone); font-weight: 600; }
+
+.body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.body h3 { font-size: 18px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
+.role { color: var(--text-muted); font-weight: 400; }
+.when { color: var(--text); }
+.detail { color: var(--copy); }
+.actions { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin-top: 6px; }
+
+/* ── History ─────────────────────────────────────────────────────────── */
+.history summary,
+.report summary {
+  padding: 14px 24px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  cursor: pointer;
+}
+.history summary span { margin-left: 6px; font-variant-numeric: tabular-nums; }
+.history ul { list-style: none; margin: 0; padding: 0; }
+.history li {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr) auto auto;
+  align-items: baseline;
+  gap: 20px;
+  padding: 10px 24px;
+  border-top: 1px solid var(--border);
+  font-size: 14px;
+}
+.tag { color: var(--text-dim); font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+.history li[data-status="done"] .tag { color: var(--todo-fern); }
+.history li[data-status="missed"] .tag { color: var(--danger); }
+.history li[data-status="past"] .tag { color: var(--todo-slate); }
+.history li[data-kind="oa"] .pastWhat > .kindTag { color: var(--todo-iris); }
+.history li[data-kind="interview"] .pastWhat > .kindTag { color: var(--todo-slate); }
+.pastWhat { display: flex; align-items: baseline; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
+/* The kind is two words at most and reads as a label; the company beside it is
+   what gets to wrap. */
+.pastWhat > .kindTag { white-space: nowrap; }
+.pastWhen { color: var(--text-muted); font-family: var(--font-mono); font-size: 12px; white-space: nowrap; }
+.pastActions { display: flex; gap: 14px; }
+
+.reportBody { padding: 0 24px 18px; font-size: 14px; overflow-wrap: anywhere; }
+
+/* ── Form ────────────────────────────────────────────────────────────── */
+.form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+  padding: 16px 24px;
+}
+.form label { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.form input { width: 100%; min-width: 0; }
+.wide, .kinds { grid-column: 1 / -1; }
+.kinds { display: flex; gap: 8px; }
+.formActions { display: flex; align-items: center; gap: 16px; }
+
+@media (max-width: 600px) {
+  .row { grid-template-columns: 64px minmax(0, 1fr); gap: 14px; padding: 14px 16px; }
+  .editing, .form, .head, .history summary, .report summary { padding-inline: 16px; }
+  .none, .empty, .notice { padding-inline: 16px; }
+  .group > h3 { margin-inline: 16px; }
+  .error { margin-inline: 16px; }
+  .history li { grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 10px 16px; }
+  .history li .tag { grid-column: 1 / -1; }
+  .pastWhen { grid-column: 1; }
+  .pastActions { grid-column: 2; grid-row: 2 / span 2; align-self: center; }
+}

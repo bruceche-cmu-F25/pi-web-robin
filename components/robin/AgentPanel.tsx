@@ -1,8 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type ReactNode } from "react";
 import { MarkdownBody } from "@/components/MarkdownBody";
 import { useI18n } from "@/hooks/useI18n";
+import {
+  MAX_AGENT_DOCUMENTS,
+  MAX_AGENT_IMAGES,
+  isAttachableFile,
+  readAgentAttachment,
+  type AgentAttachment,
+} from "./agent-attachments";
 import { requestRefresh } from "./refreshBus";
 
 interface Turn {
@@ -10,7 +17,14 @@ interface Turn {
   role: "you" | "agent" | "reset";
   text: string;
   tools?: string[];
+  /** Names of what was attached — never the data, which would overrun localStorage. */
+  attachments?: string[];
 }
+
+/** What the model is told when files arrive with no words. */
+const ATTACHMENT_ONLY_MESSAGE = "Please look at the attached files.";
+
+const imageCount = (items: AgentAttachment[]) => items.reduce((total, item) => total + item.images.length, 0);
 
 /** Matches ChatInput: some IMEs end composition just before the Enter lands. */
 const COMPOSITION_END_ENTER_GRACE_MS = 100;
@@ -39,6 +53,19 @@ interface Props {
   /** A per-reply action the page offers, e.g. keeping a mentor answer in your notes. */
   replyAction?: { labelKey: string; onReply: (text: string) => void };
   onClose?: () => void;
+  /** Preserve the transcript/draft but do not dispatch against unconfirmed workspace context. */
+  disabled?: boolean;
+  /** Optional controls below the composer, such as a mode-specific model selector. */
+  footer?: ReactNode;
+  /** Keeps each data-driven conversation's visible transcript separate in this browser. */
+  transcriptKey?: string;
+  /** Compact workspaces may collapse the panel to its composer. */
+  collapsed?: boolean;
+  onCollapsedChange?: (collapsed: boolean) => void;
+  /** Hears whether the visible transcript has any turns, including a restored one. */
+  onConversationChange?: (hasTurns: boolean) => void;
+  /** Let the user attach images and PDFs; only for endpoints that accept `images` and `documents`. */
+  attachments?: boolean;
 }
 
 /**
@@ -74,35 +101,163 @@ export function AgentPanel({
   pending,
   replyAction,
   onClose,
+  disabled = false,
+  footer,
+  transcriptKey,
+  collapsed = false,
+  onCollapsedChange,
+  onConversationChange,
+  attachments = false,
 }: Props) {
   const { t } = useI18n();
   const [turns, setTurns] = useState<Turn[]>([]);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [attached, setAttached] = useState<AgentAttachment[]>([]);
+  const [attaching, setAttaching] = useState(0);
+  const [attachNotice, setAttachNotice] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const attachedRef = useRef<AgentAttachment[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const composingRef = useRef(false);
   const lastCompositionEndAtRef = useRef(0);
   const dispatchedRef = useRef<string | null>(null);
   const sessionRef = useRef<string | null>(null);
+  const activeTranscriptKeyRef = useRef<string | undefined>(undefined);
+  const loadingTranscriptRef = useRef(false);
+
+  useEffect(() => {
+    if (activeTranscriptKeyRef.current === transcriptKey) return;
+    activeTranscriptKeyRef.current = transcriptKey;
+    loadingTranscriptRef.current = true;
+    try {
+      const raw = transcriptKey ? window.localStorage.getItem(`pi-robin-agent-transcript:${transcriptKey}`) : null;
+      setTurns(raw ? JSON.parse(raw) as Turn[] : []);
+    } catch {
+      setTurns([]);
+    }
+    setMessage("");
+    sessionRef.current = null;
+  }, [transcriptKey]);
+
+  useEffect(() => {
+    if (!activeTranscriptKeyRef.current) return;
+    if (loadingTranscriptRef.current) {
+      loadingTranscriptRef.current = false;
+      return;
+    }
+    try {
+      window.localStorage.setItem(`pi-robin-agent-transcript:${activeTranscriptKeyRef.current}`, JSON.stringify(turns));
+    } catch {
+      // The server conversation still works when browser storage is unavailable.
+    }
+  }, [transcriptKey, turns]);
 
   useEffect(() => {
     const node = transcriptRef.current;
     if (node) node.scrollTop = node.scrollHeight;
   }, [turns, busy]);
 
+  const hasTurns = turns.length > 0;
+  const onConversationChangeRef = useRef(onConversationChange);
+  useEffect(() => { onConversationChangeRef.current = onConversationChange; });
+  useEffect(() => { onConversationChangeRef.current?.(hasTurns); }, [hasTurns, transcriptKey]);
+
+  const replaceAttached = (next: AgentAttachment[]) => {
+    attachedRef.current = next;
+    setAttached(next);
+  };
+
+  const attachmentLabel = (item: AgentAttachment) => item.kind === "pdf" && item.pages
+    ? `${item.name} · ${t(item.text ? "robin.agent.pdfPages" : "robin.agent.pdfScanned", { count: item.text ? item.pages : item.images.length })}`
+    : item.name;
+
+  /** Read files one at a time, so each sees how many image slots the earlier ones left. */
+  const addFiles = async (files: File[]) => {
+    if (!attachments || disabled) return;
+    const accepted = files.filter(isAttachableFile);
+    if (accepted.length === 0) return;
+    // Attaching starts a conversation; the chips need the open panel to show.
+    onCollapsedChange?.(false);
+    setAttachNotice(null);
+    setAttaching((count) => count + accepted.length);
+    for (const file of accepted) {
+      try {
+        const current = attachedRef.current;
+        const isPdf = !file.type.startsWith("image/");
+        if (isPdf && current.filter((item) => item.kind === "pdf").length >= MAX_AGENT_DOCUMENTS) {
+          throw new Error(t("robin.agent.documentLimit", { count: MAX_AGENT_DOCUMENTS }));
+        }
+        const item = await readAgentAttachment(file, MAX_AGENT_IMAGES - imageCount(current));
+        replaceAttached([...attachedRef.current, item]);
+        if (item.truncated) setAttachNotice(t("robin.agent.truncated", { name: item.name }));
+      } catch (caught) {
+        const reason = caught instanceof Error ? caught.message : String(caught);
+        setAttachNotice(reason === "image-limit" ? t("robin.agent.imageLimit", { count: MAX_AGENT_IMAGES }) : reason);
+      } finally {
+        setAttaching((count) => count - 1);
+      }
+    }
+  };
+
+  const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = Array.from(event.clipboardData.files ?? []).filter(isAttachableFile);
+    if (!attachments || files.length === 0) return;
+    event.preventDefault();
+    void addFiles(files);
+  };
+
+  const dropProps = attachments ? {
+    onDragOver: (event: DragEvent<HTMLElement>) => {
+      if (!Array.from(event.dataTransfer.types).includes("Files")) return;
+      event.preventDefault();
+      setDragging(true);
+    },
+    onDragLeave: (event: DragEvent<HTMLElement>) => {
+      if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false);
+    },
+    onDrop: (event: DragEvent<HTMLElement>) => {
+      event.preventDefault();
+      setDragging(false);
+      void addFiles(Array.from(event.dataTransfer.files));
+    },
+  } : {};
+
   const send = async (text: string) => {
     const trimmed = text.trim();
-    if (!trimmed || busy) return;
-    setTurns((previous) => [...previous, { role: "you", text: trimmed }]);
+    const files = attachments ? attachedRef.current : [];
+    if ((!trimmed && files.length === 0) || busy || disabled || attaching > 0) return;
+    setTurns((previous) => [...previous, {
+      role: "you",
+      text: trimmed,
+      ...(files.length > 0 ? { attachments: files.map(attachmentLabel) } : {}),
+    }]);
+    onCollapsedChange?.(false);
     setMessage("");
+    replaceAttached([]);
+    setAttachNotice(null);
     setBusy(true);
     setError(null);
     try {
       const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode, ...requestBody, message: trimmed }),
+        body: JSON.stringify({
+          mode,
+          ...requestBody,
+          message: trimmed || ATTACHMENT_ONLY_MESSAGE,
+          ...(files.length > 0 ? {
+            images: files.flatMap((file) => file.images.map((image) => ({ type: "image", ...image }))),
+            documents: files.filter((file) => file.text).map((file) => ({
+              name: file.name,
+              text: file.text,
+              pages: file.pages,
+              truncated: Boolean(file.truncated),
+            })),
+          } : {}),
+        }),
       });
       const body = await response.json().catch(() => null) as
         { reply?: string; usedTools?: string[]; sessionId?: string; error?: string } | null;
@@ -135,10 +290,10 @@ export function AgentPanel({
   // free: `send` refuses while a turn is in flight, so marking it dispatched
   // before that would swallow it silently.
   useEffect(() => {
-    if (!pending || busy || dispatchedRef.current === pending.id) return;
+    if (!pending || busy || disabled || dispatchedRef.current === pending.id) return;
     dispatchedRef.current = pending.id;
     void sendRef.current(pending.text);
-  }, [busy, pending]);
+  }, [busy, disabled, pending]);
 
   const restart = async () => {
     setBusy(true);
@@ -153,6 +308,10 @@ export function AgentPanel({
         throw new Error(body?.error ?? `Request failed (${response.status})`);
       }
       setTurns([]);
+      if (activeTranscriptKeyRef.current) {
+        try { window.localStorage.removeItem(`pi-robin-agent-transcript:${activeTranscriptKeyRef.current}`); }
+        catch { /* The server session was still cleared. */ }
+      }
       sessionRef.current = null;
       setError(null);
     } catch (caught) {
@@ -165,12 +324,28 @@ export function AgentPanel({
   };
 
   return (
-    <section className="flex flex-1 flex-col" style={{ minHeight: 0 }}>
-      <header
+    <section
+      className="flex flex-1 flex-col"
+      style={{ minHeight: 0, outline: dragging ? "2px dashed var(--accent)" : undefined, outlineOffset: -4 }}
+      {...dropProps}
+    >
+      {!collapsed ? <header
         className="flex items-baseline gap-3 border-b px-3 py-2"
         style={{ borderColor: "var(--border)" }}
       >
         <h2 className="pi-label">{t(titleKey)}</h2>
+        {onCollapsedChange ? (
+          <button
+            type="button"
+            onClick={() => onCollapsedChange(true)}
+            className="ui-action pi-chrome-label pi-bracket ml-auto"
+            style={{ fontSize: 10 }}
+            aria-label="Collapse agent"
+            title="Collapse agent"
+          >
+            −
+          </button>
+        ) : null}
         {onClose ? (
           <button
             type="button"
@@ -184,16 +359,16 @@ export function AgentPanel({
         <button
           type="button"
           onClick={() => void restart()}
-          disabled={busy}
-          className={`ui-action pi-chrome-label pi-bracket${onClose ? "" : " ml-auto"}`}
+          disabled={busy || disabled}
+          className={`ui-action pi-chrome-label pi-bracket${onClose || onCollapsedChange ? "" : " ml-auto"}`}
           style={{ fontSize: 10 }}
           title={t(restartHintKey)}
         >
           {t("coding.agent.restart")}
         </button>
-      </header>
+      </header> : null}
 
-      <div ref={transcriptRef} className="flex-1 overflow-y-auto p-3" style={{ minHeight: 0 }}>
+      {!collapsed ? <div ref={transcriptRef} className="flex-1 overflow-y-auto p-3" style={{ minHeight: 0 }}>
         <div className="flex flex-col gap-3">
           {turns.length === 0 && emptyHintKey && (
             <p className="text-sm leading-relaxed" style={{ color: "var(--text-muted)" }}>{t(emptyHintKey)}</p>
@@ -218,9 +393,18 @@ export function AgentPanel({
                 {turn.role === "you" ? t("coding.agent.you") : t(titleKey)}
               </span>
               {turn.role === "you" ? (
-                <p style={{ fontSize: 16, lineHeight: 1.55, fontWeight: 500, whiteSpace: "pre-wrap", color: "var(--text)" }}>
-                  {turn.text}
-                </p>
+                <>
+                  {turn.text ? (
+                    <p style={{ fontSize: 16, lineHeight: 1.55, fontWeight: 500, whiteSpace: "pre-wrap", color: "var(--text)" }}>
+                      {turn.text}
+                    </p>
+                  ) : null}
+                  {turn.attachments?.length ? (
+                    <span className="pi-eyebrow" style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "none", letterSpacing: 0 }}>
+                      {turn.attachments.map((name) => `📎 ${name}`).join("   ")}
+                    </span>
+                  ) : null}
+                </>
               ) : (
                 <MarkdownBody className="pi-prose" >{turn.text}</MarkdownBody>
               )}
@@ -250,9 +434,72 @@ export function AgentPanel({
         {error ? (
           <p className="mt-3" style={{ fontSize: 12, color: "var(--danger)" }}>{error}</p>
         ) : null}
-      </div>
+      </div> : null}
 
-      <div className="border-t p-3" style={{ borderColor: "var(--border)" }}>
+      <div
+        className={`border-t p-3${collapsed ? " flex items-center gap-2" : ""}`}
+        style={{ borderColor: "var(--border)" }}
+      >
+        {attachments ? (
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*,application/pdf,.pdf"
+            multiple
+            hidden
+            onChange={(event) => {
+              const files = Array.from(event.target.files ?? []);
+              event.target.value = "";
+              void addFiles(files);
+            }}
+          />
+        ) : null}
+        {!collapsed && attached.length > 0 ? (
+          <ul className="mb-2 flex flex-wrap gap-2" aria-label={t("robin.agent.attached")}>
+            {attached.map((item) => (
+              <li
+                key={item.id}
+                className="flex items-center gap-2 border py-1 pl-1 pr-2"
+                style={{ maxWidth: 260, borderColor: "var(--border-strong)", background: "var(--bg-panel)", fontSize: 12 }}
+              >
+                {item.previewUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- a local data: URL preview, not a remote asset.
+                  <img src={item.previewUrl} alt="" style={{ width: 28, height: 28, objectFit: "cover" }} />
+                ) : (
+                  <span
+                    aria-hidden="true"
+                    className="grid shrink-0 place-items-center"
+                    style={{ width: 28, height: 28, border: "1px solid var(--border)", fontFamily: "var(--font-mono)", fontSize: 9, color: "var(--accent)" }}
+                  >
+                    PDF
+                  </span>
+                )}
+                <span className="min-w-0 truncate" title={item.name}>{attachmentLabel(item)}</span>
+                <button
+                  type="button"
+                  onClick={() => replaceAttached(attachedRef.current.filter((other) => other.id !== item.id))}
+                  aria-label={t("robin.agent.remove", { name: item.name })}
+                  title={t("robin.agent.remove", { name: item.name })}
+                  className="ui-action shrink-0"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {collapsed ? (
+          <button
+            type="button"
+            onClick={() => onCollapsedChange?.(false)}
+            className="ui-action pi-label shrink-0"
+            aria-label="Expand agent"
+            title="Expand agent"
+          >
+            {t(titleKey)}
+          </button>
+        ) : null}
         <textarea
           value={message}
           onChange={(event) => setMessage(event.target.value)}
@@ -263,6 +510,7 @@ export function AgentPanel({
             composingRef.current = false;
             lastCompositionEndAtRef.current = Date.now();
           }}
+          onPaste={onPaste}
           onKeyDown={(event) => {
             // Enter sends; Shift+Enter is a newline. A coding question is
             // usually one line, and reaching for a button breaks the rhythm.
@@ -286,7 +534,7 @@ export function AgentPanel({
             event.preventDefault();
             void send(message);
           }}
-          rows={3}
+          rows={collapsed ? 1 : 3}
           // Never disabled, even while the agent is thinking — a turn can take
           // half a minute, and yanking `disabled` onto a focused textarea
           // mid-word tears down an in-flight IME composition, which is how
@@ -297,6 +545,48 @@ export function AgentPanel({
           className="pi-panel w-full resize-none p-2"
           style={{ fontSize: 13, background: "var(--bg-deep)", color: "var(--text)" }}
         />
+        {!collapsed && attachments ? (
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={disabled || attaching > 0}
+              className="ui-action pi-chrome-label pi-bracket"
+              style={{ fontSize: 10 }}
+              title={t("robin.agent.attachHint")}
+            >
+              {attaching > 0 ? t("robin.agent.attaching") : t("robin.agent.attach")}
+            </button>
+            <span style={{ fontSize: 11, color: attachNotice ? "var(--warning)" : "var(--text-dim)" }} role={attachNotice ? "status" : undefined}>
+              {attachNotice ?? t("robin.agent.attachHint")}
+            </span>
+          </div>
+        ) : null}
+        {!collapsed && footer ? <div className="mt-2">{footer}</div> : null}
+        {collapsed && attachments ? (
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={disabled || attaching > 0}
+            className="ui-action pi-chrome-label pi-bracket shrink-0"
+            style={{ fontSize: 10 }}
+            aria-label={t("robin.agent.attach")}
+            title={t("robin.agent.attachHint")}
+          >
+            {t("robin.agent.attach")}
+          </button>
+        ) : null}
+        {collapsed ? (
+          <button
+            type="button"
+            onClick={() => onCollapsedChange?.(false)}
+            className="ui-action pi-chrome-label pi-bracket shrink-0"
+            aria-label="Expand agent"
+            title="Expand agent"
+          >
+            ↑
+          </button>
+        ) : null}
       </div>
     </section>
   );

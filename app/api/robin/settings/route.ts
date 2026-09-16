@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import {
   clearGoogleCredentials,
+  clearNotion,
   clearTelegram,
   describeGoogle,
+  describeNotion,
   describeTelegram,
   googleCalendarSources,
   parseChatIds,
@@ -13,6 +15,7 @@ import {
   setGoogleCalendarSources,
   setGoogleCredentials,
   setJobDigest,
+  setNotionToken,
   setReminders,
   setTelegramChatIds,
   setTelegramToken,
@@ -40,7 +43,7 @@ function fail(error: unknown, status = 400): NextResponse {
 /**
  * Report configuration state — never the secrets themselves.
  *
- * `describeGoogle` / `describeTelegram` return presence, origin and a
+ * The `describe*` helpers return presence, origin and a
  * four-character tail. A secret that is never sent cannot leak through the
  * browser's memory, devtools, or a saved HAR.
  */
@@ -50,6 +53,7 @@ export async function GET(req: Request) {
   try {
     return NextResponse.json({
       google: describeGoogle(),
+      notion: describeNotion(),
       telegram: describeTelegram(),
       storedAt: secretsPath(),
       googleRedirectUri: new URL("/api/robin/google/callback", new URL(req.url).origin).toString(),
@@ -67,6 +71,7 @@ export async function POST(req: Request) {
       section?: unknown;
       clientId?: unknown;
       clientSecret?: unknown;
+      apiToken?: unknown;
       botToken?: unknown;
       chatIds?: unknown;
       dailyAgenda?: unknown;
@@ -119,6 +124,12 @@ export async function POST(req: Request) {
         return fail(new Error('action must be "add", "toggle", or "remove"'));
       }
       return NextResponse.json({ google: describeGoogle() });
+    }
+
+    if (body.section === "notion") {
+      const apiToken = typeof body.apiToken === "string" ? body.apiToken : "";
+      setNotionToken(apiToken);
+      return NextResponse.json({ notion: describeNotion() });
     }
 
     if (body.section === "telegram") {
@@ -198,7 +209,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ telegram: describeTelegram() });
     }
 
-    return fail(new Error('section must be "google", "googleCalendars", or "telegram"'));
+    return fail(new Error('section must be "google", "googleCalendars", "notion", or "telegram"'));
   } catch (error) {
     return fail(error);
   }
@@ -213,11 +224,15 @@ export async function DELETE(req: Request) {
       clearGoogleCredentials();
       return NextResponse.json({ google: describeGoogle() });
     }
+    if (body.section === "notion") {
+      clearNotion();
+      return NextResponse.json({ notion: describeNotion() });
+    }
     if (body.section === "telegram") {
       clearTelegram();
       return NextResponse.json({ telegram: describeTelegram() });
     }
-    return fail(new Error('section must be "google" or "telegram"'));
+    return fail(new Error('section must be "google", "notion", or "telegram"'));
   } catch (error) {
     return fail(error);
   }

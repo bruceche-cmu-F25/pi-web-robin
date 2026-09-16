@@ -39,17 +39,21 @@ export function JobRow({
   const { t } = useI18n();
   const [editingNote, setEditingNote] = useState(false);
   const [draftNote, setDraftNote] = useState("");
+  // Date first: on the title line the tail is what gets truncated.
   const meta = [
-    job.location,
     job.postedAt ? t("robin.jobs.posted", { date: job.postedAt }) : "",
+    job.location,
     job.source,
   ].filter(Boolean).join(" · ");
+  const flags = job.flags && job.flags.length > 0
+    ? <p className="text-xs" style={{ color: "var(--danger)" }}>{job.flags.join(" · ")}</p>
+    : null;
 
+  // Two shapes, chosen by the width of the list rather than the viewport: a
+  // tinted block in a narrow panel, and a ruled row with the meta on the title
+  // line once an @container ancestor (the jobs page) is 640px or wider.
   return (
-    <div
-      className="group flex flex-col gap-1 rounded px-2 py-1.5"
-      style={{ background: "var(--bg-subtle)" }}
-    >
+    <div className="group flex flex-col gap-1 rounded bg-[var(--bg-subtle)] px-2 py-1.5 @min-[640px]:rounded-none @min-[640px]:border-b @min-[640px]:border-[color:var(--border)] @min-[640px]:bg-transparent @min-[640px]:px-3 @min-[640px]:py-2.5">
       <div className="flex items-baseline gap-2">
         <span
           className="shrink-0 px-1.5 py-0.5 text-xs tabular-nums"
@@ -71,6 +75,9 @@ export function JobRow({
           {" — "}
           {job.title}
         </a>
+        {meta && (
+          <span className="pi-eyebrow hidden max-w-[40%] shrink-0 truncate @min-[640px]:block" title={meta}>{meta}</span>
+        )}
         {job.status !== "new" && (
           <span className="pi-eyebrow shrink-0">
             {job.appliedAt && job.status === "applied"
@@ -81,101 +88,104 @@ export function JobRow({
       </div>
 
       {(meta || job.reason) && (
-        <div className="flex flex-col gap-0.5 pl-9">
+        <div className="flex max-w-[88ch] flex-col gap-0.5 pl-9">
           {job.reason && (
             <p className="text-xs" style={{ color: "var(--copy)" }}>{job.reason}</p>
           )}
-          {meta && <p className="pi-eyebrow truncate" title={meta}>{meta}</p>}
+          {meta && <p className="pi-eyebrow truncate @min-[640px]:hidden" title={meta}>{meta}</p>}
           {job.note && !editingNote && (
             <p className="text-xs" style={{ color: "var(--text-muted)", fontStyle: "italic" }}>{job.note}</p>
           )}
-          {job.flags && job.flags.length > 0 && (
-            <p className="text-xs" style={{ color: "var(--danger)" }}>{job.flags.join(" · ")}</p>
-          )}
+          {!onStatus && flags}
         </div>
       )}
 
       {onStatus && (
         // Dimmed rather than hover-revealed: a hover-only control cannot be
         // reached on a phone, and this dashboard is used on one.
-        <div className="flex flex-wrap gap-x-4 gap-y-1 pl-9 opacity-60 transition-opacity group-hover:opacity-100">
-          {job.status !== "shortlist" && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => onStatus("shortlist")}
-              className="ui-action pi-eyebrow disabled:opacity-40"
-              data-state="accent"
-            >
-              {t("robin.jobs.action.shortlist")}
-            </button>
-          )}
-          {job.status !== "applied" && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => onStatus("applied")}
-              className="ui-action pi-eyebrow disabled:opacity-40"
-            >
-              {t("robin.jobs.action.applied")}
-            </button>
-          )}
-          {job.status !== "dropped" && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => onStatus("dropped")}
-              className="ui-action pi-eyebrow disabled:opacity-40"
-            >
-              {t("robin.jobs.action.drop")}
-            </button>
-          )}
-          {job.status !== "new" && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => onStatus("new")}
-              className="ui-action pi-eyebrow disabled:opacity-40"
-            >
-              {t("robin.jobs.action.reopen")}
-            </button>
-          )}
-          {onNote && (editingNote ? (
-            <input
-              value={draftNote}
-              onChange={(event) => setDraftNote(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") { onNote(draftNote); setEditingNote(false); }
-                if (event.key === "Escape") setEditingNote(false);
-              }}
-              onBlur={() => { onNote(draftNote); setEditingNote(false); }}
-              placeholder={t("robin.jobs.notePlaceholder")}
-              aria-label={t("robin.jobs.note")}
-              autoFocus
-              className="min-w-0 flex-1 rounded px-1 py-0.5 text-xs outline-none"
-              style={{ background: "var(--bg)", border: "1px solid var(--accent)", color: "var(--text)" }}
-            />
-          ) : (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => { setDraftNote(job.note ?? ""); setEditingNote(true); }}
-              className="ui-action pi-eyebrow disabled:opacity-40"
-            >
-              {job.note ? t("robin.jobs.editNote") : t("robin.jobs.addNote")}
-            </button>
-          ))}
-          {onDelete && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={onDelete}
-              className="ui-action pi-eyebrow ml-auto disabled:opacity-40"
-              data-hover="danger"
-            >
-              {t("robin.jobs.action.delete")}
-            </button>
-          )}
+        <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 pl-9">
+          {/* Flags share the action line rather than taking one of their own,
+              and stay at full strength while the actions are dimmed. */}
+          {flags}
+          <div className="flex flex-1 flex-wrap gap-x-4 gap-y-1 opacity-60 transition-opacity group-hover:opacity-100">
+            {job.status !== "shortlist" && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => onStatus("shortlist")}
+                className="ui-action pi-eyebrow disabled:opacity-40"
+                data-state="accent"
+              >
+                {t("robin.jobs.action.shortlist")}
+              </button>
+            )}
+            {job.status !== "applied" && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => onStatus("applied")}
+                className="ui-action pi-eyebrow disabled:opacity-40"
+              >
+                {t("robin.jobs.action.applied")}
+              </button>
+            )}
+            {job.status !== "dropped" && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => onStatus("dropped")}
+                className="ui-action pi-eyebrow disabled:opacity-40"
+              >
+                {t("robin.jobs.action.drop")}
+              </button>
+            )}
+            {job.status !== "new" && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => onStatus("new")}
+                className="ui-action pi-eyebrow disabled:opacity-40"
+              >
+                {t("robin.jobs.action.reopen")}
+              </button>
+            )}
+            {onNote && (editingNote ? (
+              <input
+                value={draftNote}
+                onChange={(event) => setDraftNote(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") { onNote(draftNote); setEditingNote(false); }
+                  if (event.key === "Escape") setEditingNote(false);
+                }}
+                onBlur={() => { onNote(draftNote); setEditingNote(false); }}
+                placeholder={t("robin.jobs.notePlaceholder")}
+                aria-label={t("robin.jobs.note")}
+                autoFocus
+                className="min-w-0 flex-1 rounded px-1 py-0.5 text-xs outline-none"
+                style={{ background: "var(--bg)", border: "1px solid var(--accent)", color: "var(--text)" }}
+              />
+            ) : (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => { setDraftNote(job.note ?? ""); setEditingNote(true); }}
+                className="ui-action pi-eyebrow disabled:opacity-40"
+              >
+                {job.note ? t("robin.jobs.editNote") : t("robin.jobs.addNote")}
+              </button>
+            ))}
+            {onDelete && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={onDelete}
+                className="ui-action pi-eyebrow ml-auto disabled:opacity-40"
+                data-hover="danger"
+              >
+                {t("robin.jobs.action.delete")}
+              </button>
+            )}
+          </div>
         </div>
       )}
     </div>

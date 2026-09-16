@@ -10,12 +10,15 @@ process.env.ROBIN_DATA_DIR = dir;
 
 const {
   clearGoogleCredentials,
+  clearNotion,
   clearTelegram,
   describeGoogle,
+  describeNotion,
   describeSecret,
   describeTelegram,
   googleCalendarSources,
   googleCredentials,
+  notionSettings,
   parseChatIds,
   parseGoogleCalendarId,
   secretsPath,
@@ -23,6 +26,7 @@ const {
   setGmailDigest,
   setGoogleCalendarSources,
   setGoogleCredentials,
+  setNotionToken,
   setTelegramChatIds,
   setTelegramToken,
   telegramSettings,
@@ -38,9 +42,11 @@ after(() => rmSync(dir, { recursive: true, force: true }));
 
 beforeEach(() => {
   clearGoogleCredentials();
+  clearNotion();
   clearTelegram();
   delete process.env.ROBIN_GOOGLE_CLIENT_ID;
   delete process.env.ROBIN_GOOGLE_CLIENT_SECRET;
+  delete process.env.NOTION_API_TOKEN;
   delete process.env.TELEGRAM_BOT_TOKEN;
   delete process.env.TELEGRAM_ALLOWED_CHAT_IDS;
 });
@@ -104,6 +110,25 @@ test("saving Google credentials preserves configured calendars", () => {
   setGoogleCalendarSources([{ id: "shared@example.com", enabled: true }]);
   setGoogleCredentials("file-id", "file-secret");
   assert.deepEqual(googleCalendarSources(), [{ id: "shared@example.com", enabled: true }]);
+});
+
+test("Notion token is stored without being exposed", () => {
+  setNotionToken("  ntn_secret-tail  ");
+  assert.deepEqual(notionSettings(), { apiToken: "ntn_secret-tail" });
+  const described = describeNotion();
+  assert.equal(described.apiToken.source, "file");
+  assert.equal(described.apiToken.hint, "tail");
+  assert.ok(!JSON.stringify(described).includes("secret"));
+  assert.throws(() => setNotionToken("  "), /token is required/);
+});
+
+test("clearing a Notion token falls back to the environment", () => {
+  process.env.NOTION_API_TOKEN = "ntn_from-env";
+  setNotionToken("ntn_from-file");
+  assert.equal(describeNotion().apiToken.source, "file");
+  clearNotion();
+  assert.equal(notionSettings().apiToken, "ntn_from-env");
+  assert.equal(describeNotion().apiToken.source, "env");
 });
 
 test("telegram token and chat ids are stored independently", () => {

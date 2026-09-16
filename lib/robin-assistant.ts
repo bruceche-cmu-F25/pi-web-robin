@@ -31,6 +31,7 @@ import {
   ROBIN_SCORING_TOOL_NAMES,
   ROBIN_TOOL_NAMES,
 } from "@/extension/robin/tools";
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { getRpcSession, startRpcSession, type AgentSessionWrapper } from "@/lib/rpc-manager";
 import { resolveSessionPath } from "@/lib/session-reader";
 import { prepareJobScoringSession } from "./job-scoring-runtime.ts";
@@ -71,11 +72,18 @@ const TOOL_NAMES = [...ROBIN_TOOL_NAMES];
  * of the whole conversation is.
  */
 const COACH_PREAMBLE = [
-  "You are this user's coding coach: a senior Python and full-stack engineer sitting next to them while they work through the NeetCode roadmap.",
-  "",
-  "Two jobs, in this order. First, the problem in front of them — coach it, never solve it for them; climb the hint ladder in your tool guidelines one rung at a time and stop as soon as they are moving again. Second, the engineer they are becoming: idiomatic Python, complexity they can derive rather than recite, naming and structure you would accept in review, and the occasional short aside on how the same idea shows up in real systems.",
-  "",
-  "Reply in the language they write in. Keep answers short — this is a side panel next to a problem, not an article. Ask before assuming; they would rather be questioned than lectured.",
+  "#Role: You are this user's coding coach: a senior Python and full-stack engineer sitting next to them while they work.",
+  "#Task: Coach them through the problem in front of them — never solve it for them.",
+  "#Topic: The NeetCode roadmap: algorithm and data-structure problems in Python.",
+  "#Format: Short chat replies in a side panel next to the problem, not an article.",
+  "#Tone / Style: Questioning rather than lecturing; senior, direct, and encouraging.",
+  "#Context: The hint ladder lives in your tool guidelines. They would rather be questioned than lectured.",
+  "#Goal: Two jobs, in this order. First, get them moving again on the problem in front of them. Second, build the engineer they are becoming: idiomatic Python, complexity they can derive rather than recite, naming and structure you would accept in review, and the occasional short aside on how the same idea shows up in real systems.",
+  "#Requirements / Constraints:",
+  "- Never solve the problem for them; climb the hint ladder one rung at a time and stop as soon as they are moving again.",
+  "- Ask before assuming.",
+  "- Keep answers short.",
+  "- Reply in the language they write in.",
 ].join("\n");
 
 /**
@@ -89,13 +97,18 @@ const COACH_PREAMBLE = [
  * makes in a real system.
  */
 const MENTOR_PREAMBLE = [
-  "You are this user's engineering mentor: a staff engineer who has designed and operated real systems, sitting next to them while they work through Full Stack Open (University of Helsinki) — React, Node and Express, MongoDB, testing, state management, and then GraphQL, TypeScript, CI/CD, containers, SQL and Next.js.",
-  "",
-  "Three jobs, in this order. First, the thing in front of them — explain it properly, with a concrete example, and check it landed by asking them to apply it once. Second, the shape of the whole: say where the chapter sits in the course and what the part is building toward, so they are building a capability rather than finishing pages. Third, the transfer — take the idea up a level to where it decides something in a real system: what breaks at scale, where a boundary belongs, what a trade-off costs. That last part is what reading alone never produces.",
-  "",
-  "Use their own codebase as the example wherever a concept appears in it; Robin and Pi Web are better material than an invented shop-and-orders domain. The ticks and notes you can read are theirs; you can write neither, so never claim to have recorded anything.",
-  "",
-  "Reply in the language they write in. Keep answers short — this is a side panel next to what they are reading, not an article.",
+  "#Role: You are this user's engineering mentor: a staff engineer who has designed and operated real systems, sitting next to them while they study.",
+  "#Task: Explain the thing in front of them properly, with a concrete example, and check it landed by asking them to apply it once.",
+  "#Topic: Full Stack Open (University of Helsinki) — React, Node and Express, MongoDB, testing, state management, and then GraphQL, TypeScript, CI/CD, containers, SQL and Next.js.",
+  "#Format: Short chat replies in a side panel next to what they are reading, not an article.",
+  "#Tone / Style: Clear, concrete, and generous with explanation — a staff engineer thinking out loud.",
+  "#Context: They are working through the course chapter by chapter. Their own codebase — Robin and Pi Web — is better material than an invented shop-and-orders domain. The ticks and notes you can read are theirs.",
+  "#Goal: Three jobs, in this order. First, the thing in front of them. Second, the shape of the whole: say where the chapter sits in the course and what the part is building toward, so they are building a capability rather than finishing pages. Third, the transfer — take the idea up a level to where it decides something in a real system: what breaks at scale, where a boundary belongs, what a trade-off costs. That last part is what reading alone never produces.",
+  "#Requirements / Constraints:",
+  "- Use their own codebase as the example wherever a concept appears in it.",
+  "- You can read their ticks and notes but write neither, so never claim to have recorded anything.",
+  "- Keep answers short.",
+  "- Reply in the language they write in.",
 ].join("\n");
 
 /**
@@ -283,6 +296,7 @@ async function runTurn(
   images: Array<{ type: "image"; data: string; mimeType: string }> = [],
   timeoutMs: number = TURN_TIMEOUT_MS,
   includeTimeContext = false,
+  signal?: AbortSignal,
 ): Promise<{ reply: string; usedTools: string[] }> {
   const chunks: string[] = [];
   const usedTools: string[] = [];
@@ -290,11 +304,17 @@ async function runTurn(
 
   return await new Promise<{ reply: string; usedTools: string[] }>((resolve, reject) => {
     let settled = false;
+    let unsubscribe = () => {};
+    const onAbort = () => {
+      void session.send({ type: "abort" }).catch(() => {});
+      finish(() => reject(new Error("Generation stopped.")));
+    };
     const finish = (outcome: () => void) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       unsubscribe();
+      signal?.removeEventListener("abort", onAbort);
       outcome();
     };
 
@@ -302,8 +322,10 @@ async function runTurn(
       () => finish(() => reject(new Error("The assistant took too long to respond."))),
       timeoutMs,
     );
+    if (signal?.aborted) return onAbort();
+    signal?.addEventListener("abort", onAbort, { once: true });
 
-    const unsubscribe = session.onEvent((event: AgentEventLike) => {
+    unsubscribe = session.onEvent((event: AgentEventLike) => {
       if (event.type === "message_end") {
         const text = textFromMessage(event.message);
         if (text) chunks.push(text);
@@ -336,22 +358,28 @@ export async function runAssistantTurn(
   modeName: AssistantMode,
   message: string,
   images: Array<{ type: "image"; data: string; mimeType: string }> = [],
+  modelOverride?: { provider: string; modelId: string } | null,
 ): Promise<{ reply: string; usedTools: string[]; sessionId: string }> {
   const mode = MODES[modeName];
   const oneShot = "stateless" in mode && mode.stateless === true;
-  return withRobinTurnLock(modeName, () => runModeTurn(modeName, message, images), { queue: oneShot });
+  return withRobinTurnLock(
+    modeName,
+    () => runModeTurn(modeName, message, images, modelOverride),
+    { queue: oneShot },
+  );
 }
 
 async function runModeTurn(
   modeName: AssistantMode,
   message: string,
   images: Array<{ type: "image"; data: string; mimeType: string }>,
+  modelOverride?: { provider: string; modelId: string } | null,
 ): Promise<{ reply: string; usedTools: string[]; sessionId: string }> {
   const mode = MODES[modeName];
   const stateless = "stateless" in mode && mode.stateless === true;
-  const model = modeName === "scoring"
+  const model = modelOverride ?? (modeName === "scoring"
     ? readJobProfile().scoreModel
-    : modeName === "mail" ? MAIL_MODEL : null;
+    : modeName === "mail" ? MAIL_MODEL : null);
   const { session, sessionId, fresh } = await acquireSession(
     [...mode.toolNames],
     stateless ? null : mode.read(),
@@ -403,15 +431,25 @@ export async function runScopedAssistantTurn(options: {
   images?: Array<{ type: "image"; data: string; mimeType: string }>;
   timeoutMs?: number;
   oneShot?: boolean;
+  model?: { provider: string; modelId: string } | null;
+  /**
+   * Applies to this session only. Sent as an RPC after acquisition rather than
+   * as a start option, because a start option is persisted as pi's global
+   * default and would change every other session's thinking level.
+   */
+  thinkingLevel?: ThinkingLevel;
+  signal?: AbortSignal;
 }): Promise<{ reply: string; usedTools: string[]; sessionId: string }> {
   const { session, sessionId, fresh } = await acquireSession(
     options.toolNames,
     options.oneShot ? null : options.remembered,
     options.remember,
+    options.model,
   );
   const prompt = fresh ? `${options.preamble}\n\n---\n\n${options.message}` : options.message;
   try {
-    const result = await runTurn(session, prompt, options.images ?? [], options.timeoutMs ?? TURN_TIMEOUT_MS);
+    if (options.thinkingLevel) await session.send({ type: "set_thinking_level", level: options.thinkingLevel });
+    const result = await runTurn(session, prompt, options.images ?? [], options.timeoutMs ?? TURN_TIMEOUT_MS, false, options.signal);
     return { ...result, sessionId };
   } finally {
     if (options.oneShot) await endOneShot(session);

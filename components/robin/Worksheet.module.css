@@ -1,0 +1,89 @@
+/* A work page's two columns: a page margin (context, filters, status) beside
+   the list you came for. Shared by Email and Jobs.
+
+   Robin's pages are documents, so the margin is a margin, not an app sidebar:
+   no surface of its own, the graph paper runs through it, and one hairline
+   separates it from the list. Below the split breakpoint everything stacks
+   in DOM order — margin, list, then the foot. */
+.sheet {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+
+.margin,
+.foot {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.list {
+  min-width: 0;
+}
+
+/* Blocks in the margin are separated by hairlines. Panels that are cards
+   elsewhere (JobLinks, the jobs Section) shed the card here; `.sheet` in the
+   selector is what beats `.robin-dashboard .pi-card`. */
+.sheet .margin > *,
+.sheet .foot > * {
+  padding: 14px 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.sheet .margin > * + *,
+.sheet .foot > * + * {
+  border-top: 1px solid var(--border);
+}
+.sheet .margin > :first-child {
+  padding-top: 0;
+}
+
+/* A margin overview as dotted-leader rows: label, leader, figure. Markup is
+   a <dl> of <div><dt/><span class=leader/><dd/></div>. */
+.leaders { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.leaders > div { display: flex; align-items: baseline; gap: 8px; color: var(--text-muted); font-family: var(--font-mono); font-size: 12px; }
+.leaders dd { color: var(--text); font-variant-numeric: tabular-nums; }
+.leaders > div[data-accent="true"] dd { color: var(--accent); }
+.leader { flex: 1; min-width: 12px; border-bottom: 1px dotted var(--text-dim); transform: translateY(-4px); opacity: 0.6; }
+
+@media (min-width: 960px) {
+  .sheet {
+    grid-template-columns: 288px minmax(0, 1fr);
+    /* The list spans both rows; the 1fr row takes its extra height, so the
+       foot sits directly under the margin instead of at the list's end. */
+    grid-template-rows: auto 1fr;
+    column-gap: 28px;
+    row-gap: 0;
+    align-items: start;
+  }
+  .margin,
+  .foot {
+    grid-column: 1;
+    padding-right: 24px;
+    border-right: 1px solid var(--border);
+  }
+  .margin { grid-row: 1; }
+  .foot { grid-row: 2; }
+  /* On the block, not the column, so it stops where the margin's other
+     separators do instead of running into the rule. */
+  .sheet .margin ~ .foot > :first-child { border-top: 1px solid var(--border); }
+  .list {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+
+  /* A long list scrolls under a margin that stays put. A grid item's
+     containing block is its grid area, so a sticky margin has to span the
+     list's rows or it has nowhere to travel. Capped at the viewport so its
+     own last block is never stranded below the fold. */
+  .sticky {
+    position: sticky;
+    top: 12px;
+    grid-row: 1 / span 2;
+    max-height: calc(100dvh - 72px);
+    overflow-y: auto;
+    scrollbar-width: thin;
+  }
+}

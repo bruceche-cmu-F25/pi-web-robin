@@ -25,6 +25,17 @@ test("Daily settings includes the app language switch", () => {
   assert.match(source, /aria-checked=\{selected\}/);
 });
 
+test("Daily settings includes a write-only Notion connection entry", () => {
+  assert.match(source, /section: "notion"/);
+  assert.match(source, /type="password"[\s\S]*?value=\{notionToken\}/);
+  assert.doesNotMatch(source, /notionPage/);
+  assert.match(source, /https:\/\/www\.notion\.so\/my-integrations/);
+  for (const messages of [en, zhCN]) {
+    assert.match(messages, /"robin\.settings\.notionTitle":/);
+    assert.match(messages, /"robin\.settings\.notionShareHint":/);
+  }
+});
+
 test("Daily appearance and language copy exists in every built-in locale", () => {
   for (const messages of [en, zhCN]) {
     assert.match(messages, /"settings\.appearance":/);

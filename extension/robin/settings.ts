@@ -1,5 +1,5 @@
 /**
- * Credential and Telegram preference storage for the dashboard settings screen.
+ * Credential and integration preference storage for the dashboard settings screen.
  *
  * Server-only. Nothing here may be imported by a client component, and the
  * values themselves must never be sent to the browser — the API returns
@@ -165,6 +165,9 @@ export interface RobinSecrets {
     clientSecret?: string;
     calendars?: GoogleCalendarSource[];
   };
+  notion?: {
+    apiToken?: string;
+  };
   telegram?: {
     botToken?: string;
     allowedChatIds?: number[];
@@ -194,7 +197,7 @@ function read(): RobinSecrets {
 
 function write(secrets: RobinSecrets): void {
   writeJsonObject(SECRETS_FILE, secrets);
-  // Standing credentials for the user's calendar and messaging account; do not
+  // Standing credentials for the user's integrations; do not
   // leave them group- or world-readable.
   try {
     chmodSync(dataPath(SECRETS_FILE), 0o600);
@@ -303,6 +306,35 @@ export function setGoogleCredentials(clientId: string, clientSecret: string): vo
 export function clearGoogleCredentials(): void {
   const secrets = read();
   const { google: _dropped, ...rest } = secrets;
+  void _dropped;
+  write(rest);
+}
+
+/* ---------- Notion ---------- */
+
+export function notionSettings(): { apiToken?: string } {
+  const secrets = read();
+  return {
+    apiToken: pick(secrets.notion?.apiToken, process.env.NOTION_API_TOKEN).value,
+  };
+}
+
+export function describeNotion(): { apiToken: SecretStatus } {
+  const secrets = read();
+  const token = pick(secrets.notion?.apiToken, process.env.NOTION_API_TOKEN);
+  return { apiToken: describeSecret(token.value, token.source) };
+}
+
+export function setNotionToken(apiToken: string): void {
+  const token = apiToken.trim();
+  if (!token) throw new Error("Notion integration token is required");
+  const secrets = read();
+  write({ ...secrets, notion: { apiToken: token } });
+}
+
+export function clearNotion(): void {
+  const secrets = read();
+  const { notion: _dropped, ...rest } = secrets;
   void _dropped;
   write(rest);
 }

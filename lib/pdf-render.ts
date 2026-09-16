@@ -59,3 +59,41 @@ export async function renderPdfPages(data: Uint8Array, maxPages: number): Promis
     await fs.rm(directory, { recursive: true, force: true });
   }
 }
+
+export interface ExtractedPdfText {
+  text: string;
+  pages: number;
+  truncated: boolean;
+}
+
+/**
+ * A PDF's own text, all pages, via Poppler's pdftotext. Cheaper and more exact
+ * for a model than page images, and not bound by the image cap, so a 40-slide
+ * deck arrives whole. A scan comes back (nearly) empty; callers fall back to
+ * renderPdfPages for those.
+ */
+export async function extractPdfText(data: Uint8Array, maxChars: number): Promise<ExtractedPdfText> {
+  if (!hasPdfHeader(data)) throw new Error("The selected file is not a valid PDF");
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "pi-web-pdf-"));
+  const inputPath = path.join(directory, "input.pdf");
+  try {
+    await fs.writeFile(inputPath, data);
+    const { stdout } = await execFileAsync("pdftotext", ["-layout", "-enc", "UTF-8", "-q", inputPath, "-"], {
+      timeout: PDF_RENDER_TIMEOUT_MS,
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    // pdftotext ends every page with a form feed.
+    const pageTexts = stdout.split("\f");
+    if (pageTexts.at(-1)?.trim() === "") pageTexts.pop();
+    const text = pageTexts
+      .map((page, index) => `--- page ${index + 1} ---\n${page.replace(/[ \t]+$/gm, "").replace(/\n{3,}/g, "\n\n").trim()}`)
+      .join("\n\n");
+    return {
+      text: text.length > maxChars ? text.slice(0, maxChars) : text,
+      pages: pageTexts.length,
+      truncated: text.length > maxChars,
+    };
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+}

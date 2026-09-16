@@ -20,6 +20,10 @@ export const ROBIN_TOOL_NAMES = [
   "calendar_list_events",
   "link_add",
   "link_list",
+  "notion_search",
+  "notion_read",
+  "notion_append",
+  "notion_create_page",
   "gmail_list",
   "gmail_get",
   "provider_usage",
@@ -29,6 +33,9 @@ export const ROBIN_TOOL_NAMES = [
   "job_score",
   "job_status",
   "job_scan",
+  "round_add",
+  "round_list",
+  "round_update",
 ] as const;
 
 /**
@@ -69,6 +76,7 @@ export const ROBIN_READ_ONLY_TOOL_NAMES = [
   "todo_list",
   "calendar_list_events",
   "job_list",
+  "round_list",
   "gmail_list",
   "gmail_get",
 ] as const;
@@ -78,8 +86,8 @@ export const ROBIN_READ_ONLY_TOOL_NAMES = [
  *
  * Reads mail, writes the categorised review, and — for confirmations,
  * appointments, and deadlines — creates the todo or calendar event the user
- * asked to have surfaced. Nothing else: no shell, no filesystem, no links, no
- * job tools. Email is untrusted text, so this turn holds the narrowest set
+ * asked to have surfaced — and records OAs and interviews. Nothing else: no
+ * shell, no filesystem, no links, no job tools. Email is untrusted text, so this turn holds the narrowest set
  * that can still do the job it exists for.
  */
 export const ROBIN_MAIL_TOOL_NAMES = [
@@ -90,6 +98,9 @@ export const ROBIN_MAIL_TOOL_NAMES = [
   "todo_list",
   "calendar_create_event",
   "calendar_list_events",
+  "round_add",
+  "round_list",
+  "round_update",
 ] as const;
 
 /**

@@ -14,7 +14,9 @@ import { JobFilterDialog, type FilterCatalogue } from "./JobFilterDialog";
 import { JobLinks } from "./JobLinks";
 import { JobRow } from "./JobRow";
 import type { JobsResponse } from "./JobsPanel";
+import { RoundsSection } from "./RoundsSection";
 import { mutate, usePolledResource } from "./usePolledResource";
+import sheet from "./Worksheet.module.css";
 
 interface SweepState {
   running: boolean;
@@ -45,6 +47,9 @@ interface ProfileResponse extends FilterCatalogue {
 }
 
 type Filter = JobStatus | "all";
+
+/** Rows rendered per step. "New" alone runs to hundreds, and all of them at once is a slow page. */
+const PAGE_SIZE = 50;
 
 function Section({ title, children, actions }: { title: string; children: React.ReactNode; actions?: React.ReactNode }) {
   return (
@@ -86,6 +91,7 @@ export function JobsBoard() {
   const [notice, setNotice] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("new");
+  const [shown, setShown] = useState(PAGE_SIZE);
   const [preview, setPreview] = useState<string | null>(null);
   const [sweeping, setSweeping] = useState(false);
 
@@ -278,7 +284,8 @@ export function JobsBoard() {
 
   return (
     <div className="robin-page robin-dashboard flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
-      <main className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-4 desktop:p-6">
+      {/* Stated in pixels: the root font size is 13px, so max-w-5xl is 832px. */}
+      <main className="mx-auto flex w-full max-w-[1240px] flex-col gap-4 p-4 desktop:p-6">
         <header className="flex flex-wrap items-baseline justify-between gap-4">
           <div className="flex flex-col gap-1">
             <h1 className="text-3xl" style={{ fontStyle: "italic", fontWeight: 400, color: "var(--text)" }}>
@@ -322,218 +329,245 @@ export function JobsBoard() {
         )}
         {notice && <p className="text-sm" style={{ color: "var(--accent)" }}>{notice}</p>}
 
-        <JobLinks group={profile?.linkGroup || DEFAULT_JOB_PROFILE.linkGroup} />
+        {/* The margin holds what you set up once and glance at; the list is
+            what you came for, so it starts at the top of the page. */}
+        <div className={sheet.sheet}>
+          <div className={`${sheet.margin} ${sheet.sticky}`}>
+            <JobLinks group={profile?.linkGroup || DEFAULT_JOB_PROFILE.linkGroup} />
 
-        {/* ── Filter summary ──────────────────────────────────────────── */}
-        {profile && (
-          <Section
-            title={t("robin.jobs.filterTitle")}
-            actions={(
-              <button
-                type="button"
-                onClick={() => setEditing(true)}
-                className="ui-action pi-chrome-label pi-bracket text-xs"
-                data-state="accent"
+            {/* ── Filter summary ──────────────────────────────────────────── */}
+            {profile && (
+              <Section
+                title={t("robin.jobs.filterTitle")}
+                actions={(
+                  <button
+                    type="button"
+                    onClick={() => setEditing(true)}
+                    className="ui-action pi-chrome-label pi-bracket text-xs"
+                    data-state="accent"
+                  >
+                    {t("robin.jobs.filterEdit")}
+                  </button>
+                )}
               >
-                {t("robin.jobs.filterEdit")}
-              </button>
-            )}
-          >
-            <dl className="grid gap-x-6 gap-y-2 split:grid-cols-2">
-              {[
-                { key: "roles", value: summarise(profile.titles, 4) },
-                {
-                  key: "locations",
-                  value: profile.locationAllow.length === 0
-                    ? t("robin.jobs.summaryAnywhere")
-                    : summarise(profile.locationAllow, 4),
-                },
-                {
-                  key: "sources",
-                  value: t("robin.jobs.summarySources", {
-                    companies: String(enabledCompanies),
-                    feeds: String(profile.boards.length),
-                  }),
-                },
-                {
-                  key: "delivery",
-                  // A gate that silently drops postings belongs next to the
-                  // other delivery rules, not only inside the dialog.
-                  value: t(
-                    profile.maxYears > 0 ? "robin.jobs.summaryDeliveryYears" : "robin.jobs.summaryDelivery",
+                <dl className="grid gap-y-2">
+                  {[
+                    { key: "roles", value: summarise(profile.titles, 4) },
                     {
-                      days: String(profile.sinceDays),
-                      score: profile.minScore.toFixed(1),
-                      count: String(profile.digestSize),
-                      years: String(profile.maxYears),
+                      key: "locations",
+                      value: profile.locationAllow.length === 0
+                        ? t("robin.jobs.summaryAnywhere")
+                        : summarise(profile.locationAllow, 4),
                     },
-                  ),
-                },
-              ].map(({ key, value }) => (
-                <div key={key} className="flex min-w-0 gap-3">
-                  <dt className="pi-eyebrow shrink-0" style={{ width: "5.5rem" }}>
-                    {t(`robin.jobs.summary.${key}`)}
-                  </dt>
-                  <dd className="min-w-0 flex-1 truncate text-sm" style={{ color: "var(--copy)" }} title={value}>
-                    {value}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-            {profile.excludeTitles.length > 0 && (
-              <p className="text-xs" style={{ color: "var(--text-dim)" }}>
-                {t("robin.jobs.summaryExcluding", { list: summarise(profile.excludeTitles, 6) })}
-              </p>
+                    {
+                      key: "sources",
+                      value: t("robin.jobs.summarySources", {
+                        companies: String(enabledCompanies),
+                        feeds: String(profile.boards.length),
+                      }),
+                    },
+                    {
+                      key: "delivery",
+                      // A gate that silently drops postings belongs next to the
+                      // other delivery rules, not only inside the dialog.
+                      value: t(
+                        profile.maxYears > 0 ? "robin.jobs.summaryDeliveryYears" : "robin.jobs.summaryDelivery",
+                        {
+                          days: String(profile.sinceDays),
+                          score: profile.minScore.toFixed(1),
+                          count: String(profile.digestSize),
+                          years: String(profile.maxYears),
+                        },
+                      ),
+                    },
+                  ].map(({ key, value }) => (
+                    <div key={key} className="flex min-w-0 gap-3">
+                      <dt className="pi-eyebrow shrink-0" style={{ width: "5.5rem" }}>
+                        {t(`robin.jobs.summary.${key}`)}
+                      </dt>
+                      <dd className="line-clamp-3 min-w-0 flex-1 text-sm" style={{ color: "var(--copy)" }} title={value}>
+                        {value}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+                {profile.excludeTitles.length > 0 && (
+                  <p className="text-xs" style={{ color: "var(--text-dim)" }}>
+                    {t("robin.jobs.summaryExcluding", { list: summarise(profile.excludeTitles, 6) })}
+                  </p>
+                )}
+              </Section>
             )}
-          </Section>
-        )}
 
-        {/* ── Scoring progress ────────────────────────────────────────── */}
-        {scoringState && (scoringState.running || scoringState.startedWith > 0) && (
-          <Section title={t("robin.jobs.scoringTitle")}>
-            <div className="flex flex-col gap-2">
-              <div
-                className="h-1.5 w-full overflow-hidden"
-                role="progressbar"
-                aria-valuemin={0}
-                aria-valuemax={scoringState.startedWith || 1}
-                aria-valuenow={scoringState.startedWith - scoringState.remaining}
-                aria-label={t("robin.jobs.scoringTitle")}
-                style={{ background: "var(--bg-subtle)", border: "1px solid var(--border)" }}
-              >
-                <div
-                  style={{
-                    width: `${Math.min(100, ((scoringState.startedWith - scoringState.remaining)
-                      / Math.max(scoringState.startedWith, 1)) * 100)}%`,
-                    height: "100%",
-                    background: "var(--accent)",
-                    transition: "width 0.4s linear",
-                  }}
-                />
-              </div>
-              <p className="pi-eyebrow tabular-nums">
-                {t(scoringState.running ? "robin.jobs.scoringProgress" : "robin.jobs.scoringFinished", {
-                  done: String(scoringState.startedWith - scoringState.remaining),
-                  total: String(scoringState.startedWith),
-                  round: String(scoringState.round),
-                  rounds: String(scoringState.totalRounds),
-                  model: scoringState.model ?? t("robin.jobs.scoreModelDefault"),
-                })}
-              </p>
-              {scoringState.error && (
-                <p className="text-xs" style={{ color: "var(--danger)" }}>{scoringState.error}</p>
-              )}
-            </div>
-          </Section>
-        )}
+            {/* ── Scoring progress ────────────────────────────────────────── */}
+            {scoringState && (scoringState.running || scoringState.startedWith > 0) && (
+              <Section title={t("robin.jobs.scoringTitle")}>
+                <div className="flex flex-col gap-2">
+                  <div
+                    className="h-1.5 w-full overflow-hidden"
+                    role="progressbar"
+                    aria-valuemin={0}
+                    aria-valuemax={scoringState.startedWith || 1}
+                    aria-valuenow={scoringState.startedWith - scoringState.remaining}
+                    aria-label={t("robin.jobs.scoringTitle")}
+                    style={{ background: "var(--bg-subtle)", border: "1px solid var(--border)" }}
+                  >
+                    <div
+                      style={{
+                        width: `${Math.min(100, ((scoringState.startedWith - scoringState.remaining)
+                          / Math.max(scoringState.startedWith, 1)) * 100)}%`,
+                        height: "100%",
+                        background: "var(--accent)",
+                        transition: "width 0.4s linear",
+                      }}
+                    />
+                  </div>
+                  <p className="pi-eyebrow tabular-nums">
+                    {t(scoringState.running ? "robin.jobs.scoringProgress" : "robin.jobs.scoringFinished", {
+                      done: String(scoringState.startedWith - scoringState.remaining),
+                      total: String(scoringState.startedWith),
+                      round: String(scoringState.round),
+                      rounds: String(scoringState.totalRounds),
+                      model: scoringState.model ?? t("robin.jobs.scoreModelDefault"),
+                    })}
+                  </p>
+                  {scoringState.error && (
+                    <p className="text-xs" style={{ color: "var(--danger)" }}>{scoringState.error}</p>
+                  )}
+                </div>
+              </Section>
+            )}
 
-        {/* ── Sweep progress ──────────────────────────────────────────── */}
-        {sweepState && (sweepState.running || sweepState.boardsDone > 0) && (
-          <Section title={t("robin.jobs.sweepTitle")}>
-            <div className="flex flex-col gap-2">
-              <div
-                className="h-1.5 w-full overflow-hidden"
-                role="progressbar"
-                aria-valuemin={0}
-                aria-valuemax={sweepState.boardsTotal || 1}
-                aria-valuenow={sweepState.boardsDone}
-                aria-label={t("robin.jobs.sweepTitle")}
-                style={{ background: "var(--bg-subtle)", border: "1px solid var(--border)" }}
-              >
-                <div
-                  style={{
-                    width: `${Math.min(100, (sweepState.boardsDone / Math.max(sweepState.boardsTotal, 1)) * 100)}%`,
-                    height: "100%",
-                    background: "var(--accent)",
-                    transition: "width 0.4s linear",
-                  }}
-                />
-              </div>
-              <p className="pi-eyebrow tabular-nums">
-                {t(sweepState.running ? "robin.jobs.sweepProgress" : "robin.jobs.sweepFinished", {
-                  done: String(sweepState.boardsDone),
-                  total: String(sweepState.boardsTotal),
-                  scanned: String(sweepState.scanned),
-                  matched: String(sweepState.matched),
-                  dead: String(sweepState.unreachable),
-                })}
-              </p>
-              {sweepState.error && (
-                <p className="text-xs" style={{ color: "var(--danger)" }}>{sweepState.error}</p>
-              )}
-              {sweepState.directories.some((entry) => entry.status === "stale") && (
-                <p className="text-xs" style={{ color: "var(--text-dim)" }}>{t("robin.jobs.sweepStale")}</p>
-              )}
-            </div>
-          </Section>
-        )}
-
-        {/* ── Discoveries ─────────────────────────────────────────────── */}
-        <Section
-          title={t("robin.jobs.listTitle")}
-          actions={(
-            <button
-              type="button"
-              onClick={() => void previewDigest()}
-              className="ui-action pi-chrome-label pi-bracket text-xs"
-            >
-              {t("robin.jobs.previewDigest")}
-            </button>
-          )}
-        >
-          <div className="flex flex-wrap gap-2">
-            {(["new", "shortlist", "applied", "dropped", "all"] as Filter[]).map((option) => (
-              <button
-                key={option}
-                type="button"
-                onClick={() => setFilter(option)}
-                className="ui-action ui-action--chip pi-eyebrow px-2 py-1"
-                data-state={filter === option ? "accent" : "muted"}
-                aria-pressed={filter === option}
-              >
-                {t(`robin.jobs.filter.${option}`)} {counts.get(option) ?? 0}
-              </button>
-            ))}
+            {/* ── Sweep progress ──────────────────────────────────────────── */}
+            {sweepState && (sweepState.running || sweepState.boardsDone > 0) && (
+              <Section title={t("robin.jobs.sweepTitle")}>
+                <div className="flex flex-col gap-2">
+                  <div
+                    className="h-1.5 w-full overflow-hidden"
+                    role="progressbar"
+                    aria-valuemin={0}
+                    aria-valuemax={sweepState.boardsTotal || 1}
+                    aria-valuenow={sweepState.boardsDone}
+                    aria-label={t("robin.jobs.sweepTitle")}
+                    style={{ background: "var(--bg-subtle)", border: "1px solid var(--border)" }}
+                  >
+                    <div
+                      style={{
+                        width: `${Math.min(100, (sweepState.boardsDone / Math.max(sweepState.boardsTotal, 1)) * 100)}%`,
+                        height: "100%",
+                        background: "var(--accent)",
+                        transition: "width 0.4s linear",
+                      }}
+                    />
+                  </div>
+                  <p className="pi-eyebrow tabular-nums">
+                    {t(sweepState.running ? "robin.jobs.sweepProgress" : "robin.jobs.sweepFinished", {
+                      done: String(sweepState.boardsDone),
+                      total: String(sweepState.boardsTotal),
+                      scanned: String(sweepState.scanned),
+                      matched: String(sweepState.matched),
+                      dead: String(sweepState.unreachable),
+                    })}
+                  </p>
+                  {sweepState.error && (
+                    <p className="text-xs" style={{ color: "var(--danger)" }}>{sweepState.error}</p>
+                  )}
+                  {sweepState.directories.some((entry) => entry.status === "stale") && (
+                    <p className="text-xs" style={{ color: "var(--text-dim)" }}>{t("robin.jobs.sweepStale")}</p>
+                  )}
+                </div>
+              </Section>
+            )}
           </div>
 
-          {preview !== null && (
-            <div className="flex flex-col gap-1">
-              <span className="pi-eyebrow">{t("robin.jobs.previewDigest")}</span>
-              <pre
-                className="overflow-x-auto p-3 text-xs"
-                style={{ background: "var(--bg-deep)", border: "1px solid var(--border)", color: "var(--copy)" }}
-              >{preview || t("robin.jobs.emptyToday")}</pre>
-              <button
-                type="button"
-                onClick={() => setPreview(null)}
-                className="ui-action pi-eyebrow self-start"
-              >
-                {t("robin.common.cancel")}
-              </button>
-            </div>
-          )}
+          {/* ── What you owe, then what is on offer ─────────────────────── */}
+          <div className={`${sheet.list} flex flex-col gap-4`}>
+            {/* Above the discoveries: an OA has a deadline and a posting does not. */}
+            <RoundsSection />
 
-          {visible.length === 0
-            ? <p className="py-2 text-sm" style={{ color: "var(--text-dim)" }}>{t("robin.jobs.emptyList")}</p>
-            : (
-              <div className="flex flex-col gap-1">
-                {visible.map((job: Job) => (
-                  <JobRow
-                    key={job.id}
-                    job={job}
-                    minScore={data?.minScore ?? DEFAULT_JOB_PROFILE.minScore}
-                    busy={busyJob === job.id}
-                    onStatus={(status) => void act(job.id, () =>
-                      mutate("/api/robin/jobs", "PATCH", { id: job.id, status }))}
-                    onNote={(note) => void act(job.id, () =>
-                      mutate("/api/robin/jobs", "PATCH", { id: job.id, note }))}
-                    onDelete={() => void act(job.id, () =>
-                      mutate("/api/robin/jobs", "DELETE", { id: job.id }))}
-                  />
+            <Section
+              title={t("robin.jobs.listTitle")}
+              actions={(
+                <button
+                  type="button"
+                  onClick={() => void previewDigest()}
+                  className="ui-action pi-chrome-label pi-bracket text-xs"
+                >
+                  {t("robin.jobs.previewDigest")}
+                </button>
+              )}
+            >
+              <div className="flex flex-wrap gap-2">
+                {(["new", "shortlist", "applied", "dropped", "all"] as Filter[]).map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => { setFilter(option); setShown(PAGE_SIZE); }}
+                    className="ui-action ui-action--chip pi-eyebrow px-2 py-1"
+                    data-state={filter === option ? "accent" : "muted"}
+                    aria-pressed={filter === option}
+                  >
+                    {t(`robin.jobs.filter.${option}`)} {counts.get(option) ?? 0}
+                  </button>
                 ))}
               </div>
-            )}
-        </Section>
+
+              {preview !== null && (
+                <div className="flex flex-col gap-1">
+                  <span className="pi-eyebrow">{t("robin.jobs.previewDigest")}</span>
+                  <pre
+                    className="overflow-x-auto p-3 text-xs"
+                    style={{ background: "var(--bg-deep)", border: "1px solid var(--border)", color: "var(--copy)" }}
+                  >{preview || t("robin.jobs.emptyToday")}</pre>
+                  <button
+                    type="button"
+                    onClick={() => setPreview(null)}
+                    className="ui-action pi-eyebrow self-start"
+                  >
+                    {t("robin.common.cancel")}
+                  </button>
+                </div>
+              )}
+
+              {visible.length === 0
+                ? <p className="py-2 text-sm" style={{ color: "var(--text-dim)" }}>{t("robin.jobs.emptyList")}</p>
+                : (
+                  // A container, so JobRow can switch to ruled one-line-meta rows
+                  // when it has the width. The dashboard panel is not one.
+                  <div className="@container flex flex-col gap-3">
+                    <div className="flex flex-col gap-1 @min-[640px]:gap-0">
+                      {visible.slice(0, shown).map((job: Job) => (
+                        <JobRow
+                          key={job.id}
+                          job={job}
+                          minScore={data?.minScore ?? DEFAULT_JOB_PROFILE.minScore}
+                          busy={busyJob === job.id}
+                          onStatus={(status) => void act(job.id, () =>
+                            mutate("/api/robin/jobs", "PATCH", { id: job.id, status }))}
+                          onNote={(note) => void act(job.id, () =>
+                            mutate("/api/robin/jobs", "PATCH", { id: job.id, note }))}
+                          onDelete={() => void act(job.id, () =>
+                            mutate("/api/robin/jobs", "DELETE", { id: job.id }))}
+                        />
+                      ))}
+                    </div>
+                    {visible.length > shown && (
+                      <button
+                        type="button"
+                        onClick={() => setShown((current) => current + PAGE_SIZE)}
+                        className="ui-action pi-chrome-label pi-bracket self-start text-xs"
+                      >
+                        {t("robin.jobs.showMore", {
+                          count: String(Math.min(PAGE_SIZE, visible.length - shown)),
+                          remaining: String(visible.length - shown),
+                        })}
+                      </button>
+                    )}
+                  </div>
+                )}
+            </Section>
+          </div>
+        </div>
       </main>
 
       {editing && profile && catalogue && (

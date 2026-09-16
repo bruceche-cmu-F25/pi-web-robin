@@ -52,7 +52,7 @@ header, next to **+ New**.
 
 ### 3. Credentials (optional)
 
-Google and Telegram are configured at **/dashboard/settings**, not in `.env.local`.
+Google, Notion, and Telegram are configured at **/dashboard/settings**, not in `.env.local`.
 Values are stored in `~/.pi/robin/secrets.json` with mode `0600` and are read per
 request, so a change takes effect without restarting the server. An environment
 variable of the same name still works as a fallback, and the settings page says
@@ -79,6 +79,8 @@ The tool allow-list is in `tools.ts`; registrations are split by domain in
 | `calendar_list_events` | "what's on today?" |
 | `link_add` | paste a bare URL |
 | `link_list` | "what did I save?" |
+| `notion_search` / `notion_read` | "find and read my Notion page called Weekly Review" |
+| `notion_append` / `notion_create_page` | "draft a weekly note, then write it to Notion after I confirm" |
 | `gmail_list` | "any important email today?" |
 | `gmail_get` | "read me that interview email" |
 | `gmail_review` | used by the mail-review turn to persist categories |
@@ -423,7 +425,7 @@ Everything is in `~/.pi/robin` (override with `ROBIN_DATA_DIR`):
 | `links.json` | saved links |
 | `assistant.json` | pi session ids for the interactive and read-only briefing assistants |
 | `telegram-state.json` | successful daily-briefing deliveries for the current date |
-| `secrets.json` | Google, Telegram and transcription credentials plus Telegram settings — **mode 0600** |
+| `secrets.json` | Google, Notion, Telegram and transcription credentials plus Telegram settings — **mode 0600** |
 | `google.json` | Google refresh token — **a long-lived credential, mode 0600** |
 | `gmail-digest-state.json` | which chats got the email digest on which day |
 | `mail-review.json` | today's categorised email review |
@@ -433,7 +435,7 @@ The first five are plain JSON on purpose: `grep` them, put them in git, back the
 up like any other file.
 
 `secrets.json` and `google.json` are the exception — they hold standing
-credentials for your calendar and your messaging account. Keep them out of any
+credentials for your calendar, notes, and messaging accounts. Keep them out of any
 repository or sync folder you would not put a password in.
 
 ---

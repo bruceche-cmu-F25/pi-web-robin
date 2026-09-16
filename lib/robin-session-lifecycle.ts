@@ -6,6 +6,7 @@ import {
   readJobScorerSessionId, readMailReviewSessionId, readMentorSessionId,
 } from "@/extension/robin/store";
 import { readProductAgentSessionIds } from "@/extension/robin/product-agent-state";
+import { readNotesAgentSessionIds } from "@/extension/robin/notes-agent-state";
 import { getRpcSession } from "@/lib/rpc-manager";
 import {
   invalidateSessionListCache, invalidateSessionPathCache, readSessionHeader, resolveSessionPath,
@@ -102,7 +103,7 @@ function currentSessionIds(): Set<string> {
   return new Set([
     readAssistantSessionId(), readCoachSessionId(), readDailyAgendaSessionId(),
     readJobScorerSessionId(), readMailReviewSessionId(), readMentorSessionId(),
-    ...readProductAgentSessionIds(),
+    ...readNotesAgentSessionIds(), ...readProductAgentSessionIds(),
   ].filter((id): id is string => Boolean(id)));
 }
 

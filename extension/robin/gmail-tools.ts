@@ -9,6 +9,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { getEmail as getGmailMessage, listRecentEmails as listGmailMessages } from "./gmail.ts";
 import { normalizeAction, normalizeCategory, type MailReviewItem } from "./mail.ts";
+import { recordRound } from "./round-domain.ts";
+import { ROUND_FIELD_HINTS } from "./round-tools.ts";
 import { localDate, writeMailReview } from "./store.ts";
 import { text } from "./toolkit.ts";
 
@@ -92,6 +94,7 @@ export function registerGmailTools(pi: ExtensionAPI): void {
     promptSnippet: "gmail_review — save the categorised email review",
     promptGuidelines: [
       "Only categorise emails you actually read. Never invent an email that gmail_list did not return.",
+      "For every oa or interview item, fill in company and due (and role and detail when the email says), so it lands on the OA & interviews page.",
     ],
     parameters: Type.Object({
       items: Type.Array(Type.Object({
@@ -105,6 +108,10 @@ export function registerGmailTools(pi: ExtensionAPI): void {
         action: Type.String({
           description: 'What was auto-created: "none", "todo", "event", or "both"',
         }),
+        company: Type.Optional(Type.String({ description: `oa and interview items only. ${ROUND_FIELD_HINTS.company}` })),
+        role: Type.Optional(Type.String({ description: `oa and interview items only. ${ROUND_FIELD_HINTS.role}` })),
+        due: Type.Optional(Type.String({ description: `oa and interview items only. ${ROUND_FIELD_HINTS.due}` })),
+        detail: Type.Optional(Type.String({ description: `oa and interview items only. ${ROUND_FIELD_HINTS.detail}` })),
       })),
     }),
     async execute(_toolCallId, params) {
@@ -146,7 +153,27 @@ export function registerGmailTools(pi: ExtensionAPI): void {
       });
 
       writeMailReview({ day: localDate(), reviewedAt: new Date().toISOString(), items });
-      return text(`Saved today's email review: ${items.length} categorised.`);
+
+      // The review is overwritten tomorrow; the rounds it names are not.
+      let rounds = 0;
+      for (const [index, item] of items.entries()) {
+        if (item.category !== "oa" && item.category !== "interview") continue;
+        const entry = (params.items ?? [])[index];
+        const company = entry.company?.trim() || "";
+        if (!company) continue;
+        const round = { kind: item.category, company, role: entry.role, detail: entry.detail, threadId: item.threadId };
+        try {
+          recordRound({ ...round, due: entry.due });
+        } catch {
+          // An unreadable due should not cost the round itself.
+          try { recordRound(round); } catch { continue; }
+        }
+        rounds += 1;
+      }
+      return text(
+        `Saved today's email review: ${items.length} categorised.`
+        + (rounds ? ` ${rounds} recorded on the OA & interviews page.` : ""),
+      );
     },
   });
 }

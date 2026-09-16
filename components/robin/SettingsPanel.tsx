@@ -25,6 +25,9 @@ interface SettingsResponse {
     clientSecret: SecretStatus;
     calendars: GoogleCalendarSource[];
   };
+  notion: {
+    apiToken: SecretStatus;
+  };
   telegram: {
     botToken: SecretStatus;
     allowedChatIds: number[];
@@ -40,7 +43,7 @@ interface SettingsResponse {
 
 type Translate = (key: string, params?: Record<string, string>) => string;
 type SaveAction =
-  | "google" | "token" | "chatIds" | "dailyAgenda" | "jobDigest" | "gmailDigest"
+  | "google" | "notion" | "token" | "chatIds" | "dailyAgenda" | "jobDigest" | "gmailDigest"
   | "reminders" | "transcription";
 type SavePhase = "saving" | "saved";
 
@@ -140,6 +143,7 @@ export function SettingsPanel() {
   const [clientSecret, setClientSecret] = useState("");
   const [calendarInput, setCalendarInput] = useState("");
   const [calendarLabel, setCalendarLabel] = useState("");
+  const [notionToken, setNotionToken] = useState("");
   const [botToken, setBotToken] = useState("");
   const [chatIds, setChatIds] = useState("");
   const [jobChatIds, setJobChatIds] = useState("");
@@ -486,6 +490,81 @@ export function SettingsPanel() {
               ))}
             </div>
           )}
+        </div>
+      </section>
+
+      {/* ---------- Notion ---------- */}
+      <section
+        className="flex flex-col gap-3 rounded-lg p-4"
+        style={{ background: "var(--bg-panel)", border: "1px solid var(--border)" }}
+      >
+        <div>
+          <h2 className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+            {t("robin.settings.notionTitle")}
+          </h2>
+          <p className="text-xs" style={{ color: "var(--text-dim)" }}>
+            {t("robin.settings.notionHint")}
+          </p>
+        </div>
+
+        <a
+          href="https://www.notion.so/my-integrations"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="ui-action self-start text-xs"
+          style={{ color: "var(--accent)" }}
+        >
+          {t("robin.settings.notionCreateIntegration")} ↗
+        </a>
+
+        <StatusLine
+          label={t("robin.settings.notionToken")}
+          status={data?.notion.apiToken ?? { set: false }}
+          t={t}
+        />
+
+        <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-muted)" }}>
+          {t("robin.settings.notionToken")}
+          <input
+            type="password"
+            value={notionToken}
+            onChange={(event) => setNotionToken(event.target.value)}
+            placeholder={t("robin.settings.notionTokenPlaceholder")}
+            autoComplete="new-password"
+            spellCheck={false}
+            className="min-h-11 rounded px-2 text-sm outline-none"
+            style={inputStyle}
+          />
+        </label>
+
+        <p className="text-xs" style={{ color: "var(--text-dim)" }}>
+          {t("robin.settings.notionShareHint")}
+        </p>
+
+        <div className="flex flex-wrap gap-2">
+          <SaveButton
+            label={t("robin.settings.saveNotion")}
+            phase={saveFeedback?.action === "notion" ? saveFeedback.phase : undefined}
+            disabled={busy || !notionToken.trim()}
+            onClick={() => void send(
+              "POST",
+              { section: "notion", apiToken: notionToken },
+              t("robin.settings.notionSaved"),
+              "notion",
+            ).then((saved) => {
+              if (saved) setNotionToken("");
+            })}
+            t={t}
+          />
+          <button
+            type="button"
+            disabled={busy || !data?.notion.apiToken.set}
+            onClick={() => void send("DELETE", { section: "notion" }, t("robin.settings.notionCleared"))}
+            className="inline-flex min-h-11 items-center rounded px-3 py-1 text-sm disabled:opacity-40"
+            style={{ border: "1px solid var(--border)", color: "var(--text-muted)" }}
+          >
+            {t("robin.common.clear")}
+          </button>
         </div>
       </section>
 

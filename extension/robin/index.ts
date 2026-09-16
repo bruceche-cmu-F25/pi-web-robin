@@ -15,21 +15,25 @@ import { registerCalendarTools } from "./calendar-tools.ts";
 import { registerGmailTools } from "./gmail-tools.ts";
 import { registerJobTools } from "./job-tools.ts";
 import { registerLinkTools } from "./link-tools.ts";
+import { registerNotionTools } from "./notion-tools.ts";
 import { registerPracticeTools } from "./practice-tools.ts";
 import { registerProductTools } from "./product-tools.ts";
 import { registerFsoTools } from "./fso-tools.ts";
 import { dataPath } from "./paths.ts";
 import { registerProviderTools } from "./provider-tools.ts";
+import { registerRoundTools } from "./round-tools.ts";
 import { listTodos } from "./todo-domain.ts";
 import { registerTodoTools } from "./todo-tools.ts";
 
 const robin = (pi: ExtensionAPI) => {
   registerTodoTools(pi);
   registerLinkTools(pi);
+  registerNotionTools(pi);
   registerCalendarTools(pi);
   registerGmailTools(pi);
   registerProviderTools(pi);
   registerJobTools(pi);
+  registerRoundTools(pi);
   registerPracticeTools(pi);
   registerProductTools(pi);
   registerFsoTools(pi);

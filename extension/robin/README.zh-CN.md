@@ -48,7 +48,7 @@ npm run dev
 
 ### 3. 凭据（可选）
 
-Google 和 Telegram 在 **/dashboard/settings** 里配置，不放 `.env.local`。值存在
+Google、Notion 和 Telegram 在 **/dashboard/settings** 里配置，不放 `.env.local`。值存在
 `~/.pi/robin/secrets.json`，权限 `0600`，每次请求时读取，所以改完立即生效、不用
 重启服务器。同名环境变量仍作为回退，设置页会标注某个值是否来自环境变量。
 
@@ -71,6 +71,8 @@ Google 和 Telegram 在 **/dashboard/settings** 里配置，不放 `.env.local`�
 | `calendar_list_events` | 「今天有什么安排」 |
 | `link_add` | 直接粘一个网址 |
 | `link_list` | 「我存过哪些链接」 |
+| `notion_search` / `notion_read` | 「找到并读取我 Notion 里的周记」 |
+| `notion_append` / `notion_create_page` | 「先起草周记，我确认后写进 Notion」 |
 | `gmail_list` | 「今天有什么重要邮件」 |
 | `gmail_get` | 「读一下那封面试邮件」 |
 | `gmail_review` | 邮件检查回合用它保存分类结果 |
@@ -362,7 +364,7 @@ scripts/telegram/launchd/install.sh
 | `assistant.json` | 各 Robin 助手当前使用的 pi 会话 id |
 | `assistant-session-history.json` | Robin 会话文件登记、各自最后活动时间及上次清理月份 |
 | `telegram-state.json` | 当天已成功发送每日简报的 chat |
-| `secrets.json` | Google、Telegram、转写凭据和 Telegram 设置 —— **权限 0600** |
+| `secrets.json` | Google、Notion、Telegram、转写凭据和 Telegram 设置 —— **权限 0600** |
 | `google.json` | Google refresh token —— **长期有效的凭据，权限 0600** |
 | `gmail-digest-state.json` | 邮件简报每天向哪些 chat 发过 |
 | `mail-review.json` | 今天邮件的分类检查结果 |
@@ -370,7 +372,7 @@ scripts/telegram/launchd/install.sh
 
 前五个刻意用普通 JSON：可以 grep、可以进 git、可以像普通文件一样备份。
 
-`secrets.json` 和 `google.json` 是例外——它们存的是你日历和消息账号的长期凭据。
+`secrets.json` 和 `google.json` 是例外——它们存的是你日历、笔记和消息账号的长期凭据。
 不要放进任何你不会放密码的仓库或同步目录。
 
 ---

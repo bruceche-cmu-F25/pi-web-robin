@@ -90,6 +90,11 @@ export const LEARNING_SHELF: readonly ShelfGroup[] = [
         url: "https://cs50.harvard.edu/web/",
         hint: "The written side of the lectures on the watch list (/learn/watch). Read a lecture's notes only when the video left a gap; the projects are optional next to Full Stack Open's exercises.",
       },
+      {
+        title: "Week 1–6/7 — Full-stack notes",
+        url: "https://app.notion.com/p/Week-1-till-6-7-374a5189545c80bf8e1bf848a1ecf11c?source=copy_link",
+        hint: "Your weekly review of the full-stack architecture, each layer's role, API contracts, databases, deployment, and operations.",
+      },
     ],
   },
   {
