@@ -21,6 +21,34 @@ export function playTone(ctx: AudioContext) {
   });
 }
 
+/** A longer, bell-like chime reserved for the focus timer. */
+export function playFocusAlarm(ctx: AudioContext) {
+  const now = ctx.currentTime + 0.02;
+  const notes = [[0, 659.25], [0.22, 783.99], [0.48, 987.77], [1.05, 783.99], [1.28, 987.77]];
+  for (const [delay, frequency] of notes) {
+    const tone = ctx.createOscillator();
+    const overtone = ctx.createOscillator();
+    const overtoneLevel = ctx.createGain();
+    const envelope = ctx.createGain();
+    const start = now + delay;
+    tone.type = "sine";
+    tone.frequency.value = frequency;
+    overtone.type = "sine";
+    overtone.frequency.value = frequency * 2.01;
+    overtoneLevel.gain.value = 0.2;
+    tone.connect(envelope);
+    overtone.connect(overtoneLevel).connect(envelope);
+    envelope.connect(ctx.destination);
+    envelope.gain.setValueAtTime(0.0001, start);
+    envelope.gain.exponentialRampToValueAtTime(0.14, start + 0.015);
+    envelope.gain.exponentialRampToValueAtTime(0.0001, start + 0.85);
+    tone.start(start);
+    overtone.start(start);
+    tone.stop(start + 0.86);
+    overtone.stop(start + 0.86);
+  }
+}
+
 export function useAudio() {
   const [enabled, setEnabled] = useState<boolean>(() => {
     if (typeof window === "undefined") return true;

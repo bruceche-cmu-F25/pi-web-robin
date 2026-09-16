@@ -24,6 +24,7 @@ import { useResizablePanel } from "@/hooks/useResizablePanel";
 import { useAudio } from "@/hooks/useAudio";
 import { copyText } from "@/lib/clipboard";
 import { getFileName } from "@/lib/file-paths";
+import { holdTitle } from "@/lib/tab-title";
 import { buildAtMentionText, buildFileAtMentionsText, buildFileLineMentionText } from "@/lib/file-fuzzy";
 import {
   claimExtensionAttentionNotification,
@@ -1116,16 +1117,8 @@ export function AppShell() {
   const activeCwdName = activeCwd ? getFileName(activeCwd) || activeCwd : null;
   const windowTitle = activeCwdName ? `${activeCwdName} - Pi Web` : "Pi Web";
 
-  useEffect(() => {
-    const syncWindowTitle = () => {
-      if (document.title !== windowTitle) document.title = windowTitle;
-    };
-
-    syncWindowTitle();
-    const observer = new MutationObserver(syncWindowTitle);
-    observer.observe(document.head, { childList: true, subtree: true, characterData: true });
-    return () => observer.disconnect();
-  }, [windowTitle]);
+  // Keeps the focus timer's countdown in front instead of fighting it.
+  useEffect(() => holdTitle(windowTitle), [windowTitle]);
 
   const sidebarContent = (
     <>
@@ -2391,15 +2384,16 @@ export function AppShell() {
           display: "flex",
           alignItems: "center",
           flexShrink: 0,
-          height: "calc(36px + var(--chat-panel-safe-top))",
+          height: `calc(${isMobile ? 44 : 36}px + var(--chat-panel-safe-top))`,
           paddingTop: "var(--chat-panel-safe-top)",
           background: "var(--bg-panel)",
           borderBottom: "1px solid var(--border)",
         }}>
-          <div style={{ flex: 1, overflow: "hidden" }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
             <TabBar
               tabs={fileTabs}
               activeTabId={activeFileTabId ?? ""}
+              mobile={isMobile}
               onSelectTab={setActiveFileTabId}
               onCloseTab={handleCloseFileTab}
             />
@@ -2416,7 +2410,7 @@ export function AppShell() {
             data-active="true"
             style={{
               display: "flex", alignItems: "center", justifyContent: "center",
-              width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
+              width: isMobile ? 44 : TOP_BAR_ICON_BUTTON_SIZE, height: isMobile ? 44 : TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
               border: "none", borderLeft: "1px solid var(--border)",
               flexShrink: 0,
             }}

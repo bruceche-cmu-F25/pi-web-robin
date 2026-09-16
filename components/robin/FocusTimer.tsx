@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "@/hooks/useI18n";
 import { useFocusTimer } from "@/hooks/useFocusTimer";
@@ -8,26 +8,8 @@ import { showBrowserNotification, shouldShowBrowserNotification } from "@/lib/br
 import {
   focusRemaining, FOCUS_PRESETS, formatFocusTime, MAX_BREAK_MINUTES, MAX_FOCUS_MINUTES, todayFocus, validMinutes,
 } from "@/lib/focus-timer";
+import { applyTitlePrefix } from "@/lib/tab-title";
 import styles from "./FocusTimer.module.css";
-
-// The tab title carries the countdown, because the tab strip is what you can
-// see while working in another tab. Route changes replace the title, so the
-// prefix is re-applied whenever <head> changes.
-let titlePrefix = "";
-let titleObserver: MutationObserver | null = null;
-function applyTitlePrefix(prefix: string) {
-  const base = titlePrefix && document.title.startsWith(titlePrefix)
-    ? document.title.slice(titlePrefix.length) : document.title;
-  titlePrefix = prefix;
-  if (document.title !== prefix + base) document.title = prefix + base;
-  if (prefix && !titleObserver) {
-    titleObserver = new MutationObserver(() => applyTitlePrefix(titlePrefix));
-    titleObserver.observe(document.head, { childList: true, subtree: true, characterData: true });
-  } else if (!prefix) {
-    titleObserver?.disconnect();
-    titleObserver = null;
-  }
-}
 
 function MinutesInput({ label, value, max, onChange }: {
   label: string; value: number; max: number; onChange: (value: number) => void;
@@ -87,6 +69,7 @@ export function FocusTimer({ compact = false }: { compact?: boolean } = {}) {
   const active = state.status !== "idle";
   const phase = t(`focus.${state.phase}`);
   const remaining = focusRemaining(state, now);
+  const progress = state.status === "idle" ? 1 : Math.max(0, Math.min(1, remaining / state.phaseMs));
   const time = formatFocusTime(remaining);
   const status = complete ? t(`focus.${state.phase}Complete`)
     : state.status === "paused" ? t("focus.paused") : phase;
@@ -182,11 +165,16 @@ export function FocusTimer({ compact = false }: { compact?: boolean } = {}) {
         <div ref={panel} id="focus-timer-panel" role="dialog" aria-labelledby="focus-timer-title"
           className={styles.panel} style={{ top: position.top, left: position.left }}>
           <header className={styles.header}>
-            <h2 id="focus-timer-title" className="pi-chrome-label">{complete ? t("focus.title") : phase}</h2>
+            <h2 id="focus-timer-title">{complete ? t("focus.title") : phase}</h2>
             <button type="button" className={styles.close} onClick={close} aria-label={t("chat.close")}>×</button>
           </header>
           {complete ? (
             <div className={styles.completion}>
+              <div className={styles.completionMark} aria-hidden="true">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" />
+                </svg>
+              </div>
               <p className={styles.heading}>{t(state.phase === "focus" ? "focus.doneHeading" : "focus.restedHeading")}</p>
               <p className={styles.copy}>{state.phase === "focus"
                 ? t("focus.doneBody", { minutes: state.breakMinutes }) : t("focus.restedBody")}</p>
@@ -205,8 +193,14 @@ export function FocusTimer({ compact = false }: { compact?: boolean } = {}) {
             </div>
           ) : (
             <>
-              <div className={styles.countdown} role="timer" aria-label={phase} aria-live="off">{time}</div>
-              {state.status === "paused" && <p className={styles.paused}>{t("focus.paused")}</p>}
+              <div className={styles.dial} data-paused={state.status === "paused" || undefined}
+                style={{ "--timer-progress": `${progress * 100}%` } as CSSProperties}
+                role="timer" aria-label={`${status} ${time}`} aria-live="off">
+                <div className={styles.dialFace}>
+                  <span className={styles.phase}>{status}</span>
+                  <span className={styles.countdown}>{time}</span>
+                </div>
+              </div>
               <div className={styles.actions}>
                 <button type="button" className="ui-action pi-bracket" data-state="accent" data-primary
                   aria-label={t(state.status === "idle" ? "focus.startFocus" : state.status === "running" ? "focus.pause" : "focus.resume")}
@@ -241,10 +235,18 @@ export function FocusTimer({ compact = false }: { compact?: boolean } = {}) {
             <MinutesInput label={t("focus.focus")} value={state.focusMinutes} max={MAX_FOCUS_MINUTES} onChange={(focusMinutes) => act({ type: "settings", focusMinutes })} />
             <MinutesInput label={t("focus.break")} value={state.breakMinutes} max={MAX_BREAK_MINUTES} onChange={(breakMinutes) => act({ type: "settings", breakMinutes })} />
             {(state.status === "running" || state.status === "paused") && <p className={styles.hint}>{t("focus.nextPhase")}</p>}
-            <label className={styles.sound}>
-              <span>{t("focus.sound")}</span>
-              <input type="checkbox" checked={state.sound} onChange={(event) => act({ type: "settings", sound: event.target.checked })} />
-            </label>
+            <div className={styles.sound}>
+              <label>
+                <span>{t("focus.sound")}</span>
+                <input type="checkbox" checked={state.sound} onChange={(event) => act({ type: "settings", sound: event.target.checked })} />
+              </label>
+              <button type="button" className={styles.preview} disabled={!state.sound} onClick={timer.previewSound}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+                  <path d="M11 5 6 9H3v6h3l5 4V5Zm4.5 3.5a5 5 0 0 1 0 7M18 6a8 8 0 0 1 0 12" />
+                </svg>
+                {t("focus.previewSound")}
+              </button>
+            </div>
             <p className={styles.hint}>{t(timer.storageAvailable ? "focus.localHint" : "focus.storageUnavailable")}</p>
           </div>}
         </div>, document.body,

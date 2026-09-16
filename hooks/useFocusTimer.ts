@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { playTone } from "./useAudio";
+import { playFocusAlarm } from "./useAudio";
 import {
   changeFocusTimer, DEFAULT_FOCUS_TIMER, FOCUS_TIMER_KEY, parseFocusTimer,
   type FocusTimerAction, type FocusTimerState,
@@ -14,6 +14,13 @@ function unlockSound() {
     audio ??= new AudioContext();
     if (audio.state === "suspended") void audio.resume().catch(() => {});
   } catch { /* Sound is optional (autoplay policy / unsupported browser). */ }
+}
+
+function ring() {
+  if (!audio) return;
+  const play = () => { try { playFocusAlarm(audio!); } catch { /* Visual reminder remains available. */ } };
+  if (audio.state === "suspended") void audio.resume().then(play).catch(() => {});
+  else if (audio.state === "running") play();
 }
 
 /** Ask once, from the click that starts a round — never on page load. */
@@ -75,9 +82,7 @@ export function useFocusTimer(onComplete?: (state: FocusTimerState) => void) {
       setNow(time);
       if (before.status === "running" && next.status === "complete") {
         setNotice(true);
-        if (next.sound && audio?.state === "running") {
-          try { playTone(audio); } catch { /* Visual reminder remains available. */ }
-        }
+        if (next.sound) ring();
         completed.current?.(next);
       } else if (next.status !== "complete") {
         setNotice(false);
@@ -145,6 +150,7 @@ export function useFocusTimer(onComplete?: (state: FocusTimerState) => void) {
   };
 
   return { state, now, ready, storageAvailable, notice, dismissNotice: () => setNotice(false), act,
+    previewSound: () => { unlockSound(); ring(); },
     // Opening the panel is a user gesture (sound) and may be the first render
     // of a new day (today's record), so it refreshes the clock too.
     unlock: () => { if (current.current.sound) unlockSound(); setNow(Date.now()); } };
