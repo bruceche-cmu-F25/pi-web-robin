@@ -4,7 +4,17 @@ import { useEffect } from "react";
 
 export function PwaRegistration() {
   useEffect(() => {
-    if (process.env.NODE_ENV !== "production" || !("serviceWorker" in navigator)) {
+    if (!("serviceWorker" in navigator)) return;
+
+    if (process.env.NODE_ENV !== "production") {
+      // A worker left behind by an earlier production run on this origin keeps
+      // serving /_next/static cache-first, so the browser runs stale chunks
+      // against the dev server. Dev never registers one; remove any that exist.
+      void navigator.serviceWorker.getRegistrations()
+        .then((registrations) => Promise.all(registrations.map((registration) => registration.unregister())))
+        .then(() => ("caches" in window ? caches.keys() : []))
+        .then((keys) => Promise.all(keys.filter((key) => key.startsWith("pi-web-")).map((key) => caches.delete(key))))
+        .catch(() => {});
       return;
     }
 
