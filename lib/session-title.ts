@@ -9,14 +9,17 @@ import type { AgentSession } from "@earendil-works/pi-coding-agent";
 const TITLE_TIMEOUT_MS = 90_000;
 const MAX_TITLE_LENGTH = 80;
 
-const TITLE_PROMPT = `Create a concise title for this session based on the conversation above.
-
-Requirements:
+const TITLE_PROMPT = `#Role: You name chat sessions.
+#Task: Create a concise title for this session.
+#Topic: The conversation above.
+#Format: Only the title as plain text, with no quotes, label, markdown, or explanation.
+#Tone / Style: Specific and neutral.
+#Context: The title appears in the session sidebar, where the user finds conversations again.
+#Goal: Describe the user's concrete goal or the outcome, not the act of chatting.
+#Requirements / Constraints:
 - Match the primary language used by the user.
-- Describe the user's concrete goal or the outcome, not the act of chatting.
 - Use 4-12 words for space-separated languages, or 8-24 characters for CJK text when practical.
-- Do not call any tools.
-- Return only the title as plain text, with no quotes, label, markdown, or explanation.`;
+- Do not call any tools.`;
 
 export interface GeneratedSessionTitle {
   title: string;

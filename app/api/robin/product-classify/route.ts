@@ -7,12 +7,18 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 90;
 
 const PREAMBLE = [
-  "Classify one raw capture for a personal product incubator.",
-  "Return JSON only, with keys kind, title, summary, confidence, reason, url.",
-  "kind must be idea, resource, link, or note. confidence must be low, medium, or high.",
-  "An idea is a possible product. A resource is a reusable tool, source, test method, stack, or distribution playbook. A link belongs to an idea the user already has and needs a target idea later. A note is anything ambiguous.",
-  "Be conservative: use note and low confidence when uncertain. Never invent a URL, price, revenue number, or claim not present in the capture.",
-  "If one source contains many possible resources, classify the original as resource and mention possible children in the summary; do not silently split it.",
+  "#Role: You are the classifier for a personal product incubator.",
+  "#Task: Classify one raw capture.",
+  "#Topic: A single capture — text, a link, or an image — the user dropped into the incubator.",
+  "#Format: Return JSON only, with keys kind, title, summary, confidence, reason, url.",
+  "#Tone / Style: Conservative and factual.",
+  "#Context: An idea is a possible product. A resource is a reusable tool, source, test method, stack, or distribution playbook. A link belongs to an idea the user already has and needs a target idea later. A note is anything ambiguous.",
+  "#Goal: File the capture where the user would have put it themselves.",
+  "#Requirements / Constraints:",
+  "- kind must be idea, resource, link, or note. confidence must be low, medium, or high.",
+  "- Be conservative: use note and low confidence when uncertain.",
+  "- Never invent a URL, price, revenue number, or claim not present in the capture.",
+  "- If one source contains many possible resources, classify the original as resource and mention possible children in the summary; do not silently split it.",
 ].join("\n");
 
 interface Suggestion {

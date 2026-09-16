@@ -183,17 +183,33 @@ export function scoringRubric(locale: RubricLocale = "en"): string {
 export function scoringPrompt(batch: number, locale: RubricLocale = "en"): string {
   if (locale === "zh") {
     return [
-      `给还没打分的岗位评分。先调用一次 job_profile 读取评分规则、目标画像和简历，`,
-      `再调用 job_pending（limit ${batch}），然后对它返回的**每一个**岗位调用一次 job_score。`,
-      `漏掉的岗位永远不会出现在推送里，所以一个都不要跳过 —— 包括那些明显不合适的，`,
-      `它们就该得低分。高分前用 job_pending(id) 阅读完整 JD 并提交 review；缺少证据不要抬分。全部打完只回一句总结。`,
-    ].join("");
+      "#Role: 你是候选人的求职评分员。",
+      "#Task: 给还没打分的岗位评分。",
+      "#Topic: 待评分队列里的岗位。",
+      "#Format: 对每个岗位调用一次 job_score；全部打完只回一句总结。",
+      "#Tone / Style: 严格、基于证据。",
+      "#Context: 评分规则、目标画像和简历都由 job_profile 提供。漏掉的岗位永远不会出现在推送里。",
+      "#Goal: 让推送里只出现真正值得申请的岗位。",
+      "#Requirements / Constraints:",
+      "- 先调用一次 job_profile 读取评分规则、目标画像和简历。",
+      `- 再调用 job_pending（limit ${batch}），然后对它返回的**每一个**岗位调用一次 job_score。`,
+      "- 一个都不要跳过 —— 包括那些明显不合适的，它们就该得低分。",
+      "- 高分前用 job_pending(id) 阅读完整 JD 并提交 review；缺少证据不要抬分。",
+    ].join("\n");
   }
   return [
-    "Score the jobs that have no score yet. Call job_profile once to read the rubric, ",
-    "the target profile and the CV, then job_pending (limit ", String(batch), "), then call ",
-    "job_score once for EVERY job it returned. A job you skip is never shown to the ",
-    "candidate at all, so skip none — including the obviously wrong ones, which simply ",
-    "score low. Before scoring >=4, call job_pending with id for the full JD and submit review evidence. Do not inflate missing evidence. Reply with one line of summary when the batch is done.",
-  ].join("");
+    "#Role: You are the candidate's job scorer.",
+    "#Task: Score the jobs that have no score yet.",
+    "#Topic: The postings in the unscored queue.",
+    "#Format: One job_score call per job; reply with one line of summary when the batch is done.",
+    "#Tone / Style: Strict and evidence-based.",
+    "#Context: job_profile holds the rubric, the target profile and the CV. A job you skip is never shown to the candidate at all.",
+    "#Goal: Only postings genuinely worth applying to reach the candidate's digest.",
+    "#Requirements / Constraints:",
+    "- Call job_profile once to read the rubric, the target profile and the CV.",
+    `- Then call job_pending (limit ${batch}), then call job_score once for EVERY job it returned.`,
+    "- Skip none — including the obviously wrong ones, which simply score low.",
+    "- Before scoring >=4, call job_pending with id for the full JD and submit review evidence.",
+    "- Do not inflate missing evidence.",
+  ].join("\n");
 }

@@ -250,8 +250,30 @@ export async function sendDailyAgenda(
   chatIds = config.allowlist,
 ): Promise<void> {
   const prompt = config.dailyAgenda.locale === "zh"
-    ? `生成 ${date} 的 Telegram 每日简报。必须调用 todo_list 和 calendar_list_events，简洁列出今天的日程和未完成待办。不要新增或修改任何内容，只返回可直接发送的简报。`
-    : `Create my Telegram daily briefing for ${date}. You must call todo_list and calendar_list_events. Concisely list today's agenda and unfinished todos. Do not add or change anything; return only the ready-to-send briefing.`;
+    ? [
+        "#Role: 你是我的个人助理。",
+        `#Task: 生成 ${date} 的 Telegram 每日简报。`,
+        "#Topic: 今天的日程和未完成待办。",
+        "#Format: 只返回可直接发送的简报，简洁列出今天的日程和未完成待办。",
+        "#Tone / Style: 简洁、清晰。",
+        "#Context: 这条简报会在早上自动推送到 Telegram。",
+        "#Goal: 让我一早就知道今天要做什么。",
+        "#Requirements / Constraints:",
+        "- 必须调用 todo_list 和 calendar_list_events。",
+        "- 不要新增或修改任何内容。",
+      ].join("\n")
+    : [
+        "#Role: You are my personal assistant.",
+        `#Task: Create my Telegram daily briefing for ${date}.`,
+        "#Topic: Today's agenda and unfinished todos.",
+        "#Format: Return only the ready-to-send briefing, concisely listing today's agenda and unfinished todos.",
+        "#Tone / Style: Concise and clear.",
+        "#Context: This briefing is pushed to Telegram automatically in the morning.",
+        "#Goal: Let me know first thing what today holds.",
+        "#Requirements / Constraints:",
+        "- You must call todo_list and calendar_list_events.",
+        "- Do not add or change anything.",
+      ].join("\n");
   const reply = await askAssistant(config, deps, prompt, config.dailyAgenda.locale, "readOnly");
 
   // A briefing that cannot offer buttons is still a briefing; a briefing that
