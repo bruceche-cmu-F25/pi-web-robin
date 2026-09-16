@@ -8,9 +8,39 @@
  * tick the same steps.
  */
 import { findChapter, type FsoChapter } from "./fso.ts";
+import { FULLSTACK_STEPS, fullstackPlan } from "./learning.ts";
 import { readJsonObject, updateJsonObject } from "./paths.ts";
 
 const FILE = "fso.json";
+const PROGRESS_FILE = "fullstack-open-progress.json";
+interface FullstackProgress { completedIds: string[] }
+
+function completedIds(state: FullstackProgress | null): string[] {
+  if (state === null) return [];
+  if (!Array.isArray(state.completedIds) || state.completedIds.some((id) => typeof id !== "string")) {
+    throw new Error("Invalid Full Stack Open progress file");
+  }
+  return state.completedIds;
+}
+
+/** Course reads never depend on the other Learning Hub track. */
+export function fullstackSnapshot(): ReturnType<typeof fullstackPlan> {
+  return fullstackPlan(completedIds(readJsonObject<FullstackProgress>(PROGRESS_FILE)));
+}
+
+/** Explicit, idempotent ticks; return the committed course plan, not a mixed-track refresh. */
+export function setFullstackCompleted(id: string, completed: boolean): ReturnType<typeof fullstackPlan> {
+  if (!FULLSTACK_STEPS.some((step) => step.id === id)) throw new Error("Unknown course step");
+  if (typeof completed !== "boolean") throw new Error("completed must be a boolean");
+  return updateJsonObject<FullstackProgress, ReturnType<typeof fullstackPlan>>(PROGRESS_FILE, (state) => {
+    const ids = new Set(completedIds(state));
+    const changed = ids.has(id) !== completed;
+    if (completed) ids.add(id);
+    else ids.delete(id);
+    const value = { ...state, completedIds: [...ids] };
+    return { value, result: fullstackPlan(value.completedIds), changed };
+  });
+}
 
 /** Long enough for a real chapter's notes; short enough that a runaway paste cannot bloat every mentor turn. */
 export const NOTE_MAX_LENGTH = 20_000;
@@ -28,6 +58,7 @@ interface FsoState {
 }
 
 export interface FsoSnapshot {
+  fullstack: ReturnType<typeof fullstackPlan>;
   openChapterId: string | null;
   openedAt: string | null;
   notes: Record<string, FsoNote>;
@@ -43,6 +74,7 @@ export function fsoSnapshot(): FsoSnapshot {
     openChapterId: findChapter(state.openChapterId) ? state.openChapterId! : null,
     openedAt: state.openedAt ?? null,
     notes: state.notes ?? {},
+    fullstack: fullstackSnapshot(),
   };
 }
 

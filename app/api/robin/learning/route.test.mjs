@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
@@ -44,7 +44,25 @@ test("completion and undo return the same persisted plan that Daily reads", asyn
   const completed = await result.json();
   assert.notEqual(completed.fullstack.next.id, step);
   assert.equal(completed.fullstack.completed, 1);
-  assert.deepEqual(await (await GET(request())).json(), completed);
+  assert.deepEqual((await (await GET(request())).json()).fullstack, completed.fullstack);
+  assert.equal("practice" in completed, false, "course writes return only the course plan");
   await PATCH(request("PATCH", { step, completed: false }));
   assert.equal((await (await GET(request())).json()).fullstack.next.id, step);
+});
+
+test("course completion succeeds independently of corrupt practice data", async () => {
+  const step = "/en/part0/general_info";
+  for (const file of ["practice.json", "practice-state.json"]) {
+    writeFileSync(join(directory, file), "{");
+    try {
+      for (const completed of [true, true, false]) {
+        const response = await PATCH(request("PATCH", { step, completed }));
+        assert.equal(response.status, 200, file);
+        assert.equal((await response.json()).fullstack.completedIds.includes(step), completed);
+        assert.equal(JSON.parse(readFileSync(join(directory, "fullstack-open-progress.json"))).completedIds.includes(step), completed);
+      }
+      assert.equal((await GET(request())).status, 500, "the mixed dashboard must still report corrupt practice data");
+      assert.equal(readFileSync(join(directory, file), "utf8"), "{");
+    } finally { rmSync(join(directory, file), { force: true }); }
+  }
 });

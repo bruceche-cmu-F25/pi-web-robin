@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { learningSnapshot, setFullstackCompleted } from "@/extension/robin/learning-domain";
+import { learningSnapshot } from "@/extension/robin/learning-domain";
+import { setFullstackCompleted } from "@/extension/robin/fso-domain";
 import { FULLSTACK_STEPS } from "@/extension/robin/learning";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 
@@ -30,8 +31,8 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "Unknown course step" }, { status: 404 });
   }
   try {
-    setFullstackCompleted(body.step, body.completed);
-    return NextResponse.json(learningSnapshot());
+    const fullstack = setFullstackCompleted(body.step, body.completed);
+    return NextResponse.json({ fullstack });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }

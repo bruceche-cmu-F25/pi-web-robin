@@ -12,7 +12,6 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { FSO_PARTS, findChapter, nextChapter, type FsoChapter } from "./fso.ts";
 import { fsoSnapshot, type FsoNote } from "./fso-domain.ts";
-import { learningSnapshot } from "./learning-domain.ts";
 import { text } from "./toolkit.ts";
 
 function chapterLabel(chapter: FsoChapter): string {
@@ -51,7 +50,7 @@ export function describeOpenFsoChapter(): string | null {
   const snapshot = fsoSnapshot();
   const chapter = findChapter(snapshot.openChapterId);
   if (!chapter) return null;
-  const completed = new Set(learningSnapshot().fullstack.completedIds);
+  const completed = new Set(snapshot.fullstack.completedIds);
   return describeChapter(chapter, snapshot.notes[chapter.id], completed);
 }
 

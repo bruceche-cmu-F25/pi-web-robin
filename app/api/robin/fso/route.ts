@@ -41,8 +41,8 @@ export async function PATCH(req: Request) {
   const body = await readBody(req);
   if (typeof body?.chapter !== "string") return fail(new Error("chapter is required"));
   try {
-    openChapter(body.chapter);
-    return NextResponse.json(fsoSnapshot());
+    const chapter = openChapter(body.chapter);
+    return NextResponse.json({ openChapterId: chapter.id });
   } catch (error) {
     return fail(error, 404);
   }

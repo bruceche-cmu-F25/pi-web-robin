@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, beforeEach, test } from "node:test";
 import { FULLSTACK_STEPS, fullstackPlan, practicePlan, practiceHref } from "./learning.ts";
-import { learningSnapshot, setFullstackCompleted } from "./learning-domain.ts";
+import { learningSnapshot } from "./learning-domain.ts";
+import { setFullstackCompleted } from "./fso-domain.ts";
 import { logAttempt } from "./practice-domain.ts";
 import { writePracticeRecords } from "./store.ts";
 

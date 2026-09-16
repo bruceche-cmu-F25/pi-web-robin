@@ -9,7 +9,7 @@ import {
 } from "./fso.ts";
 import { fsoSnapshot, openChapter, saveNote, NOTE_MAX_LENGTH } from "./fso-domain.ts";
 import { describeOpenFsoChapter } from "./fso-tools.ts";
-import { setFullstackCompleted } from "./learning-domain.ts";
+import { setFullstackCompleted } from "./fso-domain.ts";
 
 const previous = process.env.ROBIN_DATA_DIR;
 let directory;
