@@ -148,8 +148,8 @@ export function readEvents(): CalendarEvent[] {
   return readJsonArray<CalendarEvent>(EVENTS_FILE);
 }
 
-export function writeEvents(events: CalendarEvent[]): void {
-  writeJsonArray(EVENTS_FILE, events);
+export function updateEvents<R>(updater: (events: CalendarEvent[]) => { value: R; changed: boolean }): R {
+  return updateJsonArray(EVENTS_FILE, updater);
 }
 
 /**

@@ -2,15 +2,8 @@ import { NextResponse } from "next/server";
 import { addDays } from "@/extension/robin/dates";
 import type { DashboardEvent } from "@/extension/robin/events";
 import { fetchEventsWithWarnings, isConnected } from "@/extension/robin/google-calendar";
-import {
-  localDate,
-  newId,
-  normalizeDue,
-  normalizeTime,
-  readEvents,
-  writeEvents,
-  type CalendarEvent,
-} from "@/extension/robin/store";
+import { localDate, readEvents } from "@/extension/robin/store";
+import { createCalendarEvent, deleteCalendarEvent, type CalendarEventInput } from "@/extension/robin/calendar-domain";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 
 export const dynamic = "force-dynamic";
@@ -77,52 +70,8 @@ export async function POST(req: Request) {
   const blocked = guard(req, true);
   if (blocked) return blocked;
   try {
-    const body = await req.json() as {
-      title?: unknown;
-      date?: unknown;
-      endDate?: unknown;
-      start?: unknown;
-      end?: unknown;
-      location?: unknown;
-    };
-    const title = typeof body.title === "string" ? body.title.trim() : "";
-    if (!title) return fail(new Error("title is required"));
-    if (typeof body.date !== "string" || !body.date.trim()) return fail(new Error("date is required"));
-
-    const date = normalizeDue(body.date);
-    const endDate = typeof body.endDate === "string" && body.endDate.trim()
-      ? normalizeDue(body.endDate)
-      : undefined;
-    if (endDate && endDate < date) return fail(new Error(`endDate ${endDate} is before ${date}`));
-
-    const start = typeof body.start === "string" && body.start.trim()
-      ? normalizeTime(body.start)
-      : undefined;
-    const end = typeof body.end === "string" && body.end.trim() ? normalizeTime(body.end) : undefined;
-    if (end && !start) return fail(new Error("An end time needs a start time too"));
-    // Times only have to be ordered within a single day; on a multi-day event
-    // the end time belongs to the last day and may legitimately be earlier.
-    if (start && end && !endDate && end < start) {
-      return fail(new Error(`End ${end} is before start ${start}`));
-    }
-
-    const location = typeof body.location === "string" && body.location.trim()
-      ? body.location.trim()
-      : undefined;
-
-    const events = readEvents();
-    const event: CalendarEvent = {
-      id: newId(),
-      title,
-      date,
-      ...(endDate && endDate > date ? { endDate } : {}),
-      ...(start ? { start } : {}),
-      ...(end ? { end } : {}),
-      ...(location ? { location } : {}),
-      createdAt: new Date().toISOString(),
-    };
-    events.push(event);
-    writeEvents(events);
+    const body = await req.json() as CalendarEventInput;
+    const event = createCalendarEvent(body);
     return NextResponse.json({ event, today: localDate() });
   } catch (error) {
     return fail(error);
@@ -136,12 +85,9 @@ export async function DELETE(req: Request) {
     const body = await req.json() as { id?: unknown };
     if (typeof body.id !== "string") return fail(new Error("id is required"));
 
-    const events = readEvents();
-    const remaining = events.filter((event) => event.id !== body.id);
-    if (remaining.length === events.length) {
+    if (!deleteCalendarEvent(body.id)) {
       return NextResponse.json({ error: `No event with id "${body.id}"` }, { status: 404 });
     }
-    writeEvents(remaining);
     return NextResponse.json({ success: true });
   } catch (error) {
     return fail(error);

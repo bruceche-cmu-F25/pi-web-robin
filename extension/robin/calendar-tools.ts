@@ -7,6 +7,7 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { createCalendarEvent } from "./calendar-domain.ts";
 import { fetchEvents as fetchGoogleEvents, isConnected as googleConnected } from "./google-calendar.ts";
 import {
   addDays,
@@ -14,11 +15,7 @@ import {
   eventsInRange,
   formatEventTime,
   localDate,
-  newId,
-  normalizeDue,
-  normalizeTime,
   readEvents,
-  writeEvents,
   type CalendarEvent,
 } from "./store.ts";
 import { text } from "./toolkit.ts";
@@ -49,40 +46,14 @@ export function registerCalendarTools(pi: ExtensionAPI): void {
       location: Type.Optional(Type.String({ description: "Where it happens" })),
     }),
     async execute(_toolCallId, params) {
-      let date: string;
-      let endDate: string | undefined;
-      let start: string | undefined;
-      let end: string | undefined;
+      let event: CalendarEvent;
       try {
-        date = normalizeDue(params.date);
-        if (params.endDate) endDate = normalizeDue(params.endDate);
-        if (params.start) start = normalizeTime(params.start);
-        if (params.end) end = normalizeTime(params.end);
+        event = createCalendarEvent(params);
       } catch (error) {
         return text(error instanceof Error ? error.message : String(error));
       }
-      if (endDate && endDate < date) return text(`endDate ${endDate} is before ${date}.`);
-      if (end && !start) return text("An end time needs a start time too.");
-      // Times only have to be ordered within a single day.
-      if (start && end && !endDate && end < start) {
-        return text(`End ${end} is before start ${start}.`);
-      }
-
-      const events = readEvents();
-      const event: CalendarEvent = {
-        id: newId(),
-        title: params.title,
-        date,
-        ...(endDate && endDate > date ? { endDate } : {}),
-        ...(start ? { start } : {}),
-        ...(end ? { end } : {}),
-        ...(params.location?.trim() ? { location: params.location.trim() } : {}),
-        createdAt: new Date().toISOString(),
-      };
-      events.push(event);
-      writeEvents(events);
-
-      const sameDay = events.filter((e) => e.date === date).sort(compareEvents);
+      const { date } = event;
+      const sameDay = readEvents().filter((e) => e.date === date).sort(compareEvents);
       return text(
         event.endDate
           ? `Added "${event.title}" from ${date} to ${event.endDate} (${formatEventTime(event)}).`
