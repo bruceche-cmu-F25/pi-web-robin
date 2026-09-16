@@ -89,6 +89,14 @@ test("manual and lifecycle refreshes bypass the server session-list cache", () =
   assert.match(source, /loadSessions\(false, true\);[\s\S]*?onBackgroundTaskDone/);
 });
 
+test("an older session-list response cannot overwrite a newer refresh", () => {
+  assert.match(source, /const sessionLoadRequestIdRef = useRef\(0\)/);
+  assert.match(source, /const requestId = \+\+sessionLoadRequestIdRef\.current/);
+  assert.match(source, /if \(requestId !== sessionLoadRequestIdRef\.current\) return;/);
+  assert.match(source, /if \(requestId === sessionLoadRequestIdRef\.current\) setError/);
+  assert.match(source, /if \(requestId === sessionLoadRequestIdRef\.current\) setLoading\(false\)/);
+});
+
 test("does not expose disk-backed actions for transient sessions", () => {
   assert.match(sessionItemSource, /if \(session\.transient\) return;/);
   assert.match(sessionItemSource, /\{hovered && !session\.transient && \(/);

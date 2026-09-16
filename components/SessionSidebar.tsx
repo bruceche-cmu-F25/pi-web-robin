@@ -318,9 +318,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSes
   const runningPollAuthoritativeRef = useRef(false);
   const sessionRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const explorerRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sessionLoadRequestIdRef = useRef(0);
   const fileExplorerRef = useRef<FileExplorerHandle>(null);
 
   const loadSessions = useCallback(async (showLoading = false, force = false) => {
+    const requestId = ++sessionLoadRequestIdRef.current;
     try {
       if (showLoading) setLoading(true);
       const res = await fetch(force ? "/api/sessions?force=1" : "/api/sessions", {
@@ -332,6 +334,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSes
         runningSessionIds?: string[];
         completionNotificationSuppressedSessionIds?: string[];
       };
+      if (requestId !== sessionLoadRequestIdRef.current) return;
       setAllSessions(data.sessions);
       // Treat the fetched running set as an initial fallback only. Once the
       // lightweight poll is live, a slow session-list fetch cannot overwrite it.
@@ -360,9 +363,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSes
         sessionRefreshTimerRef.current = setTimeout(() => setSessionRefreshDone(false), 2000);
       }
     } catch (e) {
-      setError(String(e));
+      if (requestId === sessionLoadRequestIdRef.current) setError(String(e));
     } finally {
-      if (showLoading) setLoading(false);
+      if (requestId === sessionLoadRequestIdRef.current) setLoading(false);
     }
   }, []);
 

@@ -20,34 +20,47 @@ export interface PolledResource<T> {
  *
  * A minute is enough for passive dashboard updates. Local actions and returning
  * to a visible tab still refresh immediately; hidden tabs do not poll.
+ *
+ * One request is in flight per mount: starting a new refresh aborts the old one
+ * and a monotonically increasing sequence drops anything that still settles
+ * later. Without both, a slow response can land after a faster newer one and
+ * silently roll the panel back to stale data.
  */
 export function usePolledResource<T>(url: string, intervalMs = 60_000): PolledResource<T> {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const mounted = useRef(true);
-
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
+  const sequenceRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
 
   const refresh = useCallback(async () => {
+    const sequence = ++sequenceRef.current;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
-      const response = await fetch(url);
+      const response = await fetch(url, { signal: controller.signal });
       const body = await response.json().catch(() => null) as { error?: string } | null;
       if (!response.ok) throw new Error(body?.error ?? `Request failed (${response.status})`);
-      if (!mounted.current) return;
+      if (sequence !== sequenceRef.current) return;
       setData(body as T);
       setError(null);
     } catch (caught) {
-      if (!mounted.current) return;
+      if (sequence !== sequenceRef.current || controller.signal.aborted) return;
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
-      if (mounted.current) setLoading(false);
+      if (sequence === sequenceRef.current && !controller.signal.aborted) setLoading(false);
     }
+  }, [url]);
+
+  // A different URL is a different resource: drop the previous payload and
+  // any in-flight response so the old one cannot flash or overwrite the new.
+  useEffect(() => {
+    abortRef.current?.abort();
+    sequenceRef.current += 1;
+    setData(null);
+    setError(null);
+    setLoading(true);
   }, [url]);
 
   useEffect(() => {
@@ -78,6 +91,7 @@ export function usePolledResource<T>(url: string, intervalMs = 60_000): PolledRe
       stop();
       unsubscribe();
       document.removeEventListener("visibilitychange", onVisibilityChange);
+      abortRef.current?.abort();
     };
   }, [refresh, intervalMs]);
 
