@@ -188,17 +188,22 @@ export function LearningPanel({ showCourseOutline = false }: { showCourseOutline
   const currentProblem = practice?.daily.newProblems[0] ?? practice?.daily.reviews[0];
 
   return (
-    <section id="fullstack-open" className={`pi-card flex scroll-mt-24 flex-col gap-3 p-4 ${styles.panel}`} aria-label={t("learn.title")}>
+    <section id="fullstack-open" tabIndex={-1} className={`pi-card flex scroll-mt-24 flex-col gap-3 p-4 ${styles.panel}`} aria-label={t("learn.title")}>
       <header className="flex flex-wrap items-baseline justify-between gap-2">
         <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-2">
           <h2 className="pi-label">{t(showCourseOutline ? "learn.daily.continue" : "learn.title")}</h2>
           <span className="text-xs" style={{ color: "var(--text-muted)" }}>{t("learn.daily.focusHint")}</span>
         </div>
-        {!showCourseOutline && (
-          <a href="/learn" className="ui-action pi-chrome-label pi-bracket text-xs" data-state="accent">
-            {t("learn.daily.hub")}
+        <div className="flex items-center gap-2">
+          <a href="https://www.notion.so/" target="_blank" rel="noopener noreferrer" className="ui-action pi-chrome-label pi-bracket text-xs">
+            Notion ↗
           </a>
-        )}
+          {!showCourseOutline && (
+            <a href="/learn" className="ui-action pi-chrome-label pi-bracket text-xs" data-state="accent">
+              {t("learn.daily.hub")}
+            </a>
+          )}
+        </div>
       </header>
 
       {loading && !data && <p role="status" className="py-2 text-sm" style={{ color: "var(--text-dim)" }}>{t("learn.daily.loading")}</p>}

@@ -10,6 +10,13 @@ import { LearningPanel } from "./LearningPanel";
 import { LinksPanel } from "./LinksPanel";
 import { TodoPanel } from "./TodoPanel";
 
+const SHORTCUTS = [
+  { href: "#dashboard-todos", key: "robin.dashboard.todo" },
+  { href: "#dashboard-jobs", key: "robin.dashboard.apply" },
+  { href: "#fullstack-open", key: "robin.dashboard.practice" },
+  { href: "#dashboard-links", key: "robin.dashboard.links" },
+];
+
 /**
  * Rendered on the client so the heading follows the viewer's clock. The panels
  * still bucket todos against the server's local date, which is where `due` was
@@ -73,7 +80,7 @@ export function Dashboard() {
     // globals.css locks html/body to the viewport height with
     // overflow:hidden for the chat shell. This page is a document, so it
     // supplies its own scroll container rather than changing that shared rule.
-    <div className="robin-page robin-page--sticky-top robin-dashboard flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
+    <div className="robin-page robin-page--sticky-top robin-dashboard flex-1 overflow-y-auto scroll-smooth motion-reduce:scroll-auto" style={{ minHeight: 0 }}>
       <header className="robin-dashboard-header sticky top-0" style={{ zIndex: "var(--z-sticky)" }}>
         <div className="mx-auto w-full max-w-7xl px-4 py-2 desktop:px-6">
           <AssistantBar />
@@ -96,6 +103,16 @@ export function Dashboard() {
             </div>
           </div>
         </div>
+
+        <nav aria-label={t("sidebar.dashboard")} className="flex flex-wrap items-center gap-2">
+          {SHORTCUTS.map(({ href, key }) => (
+            <a key={href} href={href}
+              className="ui-action pi-bracket inline-flex min-h-[28px] items-center gap-1.5 px-2 text-xs [@media(pointer:coarse)]:min-h-[44px]"
+              style={{ color: "var(--text-muted)" }}>
+              {t(key)} <span aria-hidden="true">↓</span>
+            </a>
+          ))}
+        </nav>
 
         {/* Full width: the week and month grids need the whole page to stay legible. */}
         <CalendarPanel />

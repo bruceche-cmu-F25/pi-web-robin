@@ -84,7 +84,7 @@ async (page) => {
       await more.click();
       const linkEditor = panel.locator(`summary[aria-label="设置 ${title} 的链接"]`);
       await linkEditor.click();
-      const form = panel.locator("details[open] form");
+      const form = panel.locator("details[open] > form");
       check(await form.evaluate((el) => { const r = el.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth; }), "Link editor stays in viewport");
       await form.locator("input").focus();
       await page.keyboard.press("Escape");
@@ -103,14 +103,16 @@ async (page) => {
 
   const confirm = async (button, accept) => {
     const before = writes.length;
-    page.once("dialog", async (dialog) => {
-      check(dialog.type() === "confirm" && dialog.message().includes("无法撤销"), "Deletion explains permanence");
-      if (accept) await dialog.accept(); else await dialog.dismiss();
-    });
+    // Stub the native confirm so the CLI's modal handler cannot pause this run.
+    await page.evaluate((answer) => {
+      window.__dashboardConfirm = null;
+      window.confirm = (message) => { window.__dashboardConfirm = message; return answer; };
+    }, accept);
     // Keyboard activation also exercises focusability (and avoids the dev-only
     // Next.js badge that can cover the last row at the bottom of the viewport).
     await button.focus();
     await button.press("Enter");
+    check(await page.evaluate(() => window.__dashboardConfirm?.includes("无法撤销")), "Deletion explains permanence");
     if (!accept) check(writes.length === before, "Cancel never writes");
   };
   await more.click();
@@ -143,6 +145,8 @@ async (page) => {
   await desktopDelete.waitFor();
   check(await calendar.getByRole("button", { name: "周", exact: true }).getAttribute("aria-pressed") === "true", "Desktop still defaults to week");
   await desktopDelete.focus();
+  await page.keyboard.press("Shift+Tab");
+  await page.keyboard.press("Tab");
   check(await desktopDelete.evaluate((el) => getComputedStyle(el).opacity === "1" && getComputedStyle(el).outlineStyle !== "none" && el.getBoundingClientRect().width >= 24), "Desktop delete has a visible keyboard focus and usable target");
   const headings = await page.locator(".robin-dashboard main section.pi-card > header h2").allTextContents();
   check(headings.join(",") === "日历,待办,求职,学习中心,链接", "Homepage order is unchanged");

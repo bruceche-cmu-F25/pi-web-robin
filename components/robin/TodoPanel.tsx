@@ -116,7 +116,9 @@ export function TodoPanel() {
 
   return (
     <section
-      className="pi-card flex flex-col gap-3 p-4"
+      id="dashboard-todos"
+      tabIndex={-1}
+      className="pi-card flex scroll-mt-24 flex-col gap-3 p-4"
     >
       <header className="flex items-baseline justify-between gap-3">
         <div className="flex items-baseline gap-3">
@@ -206,48 +208,56 @@ export function TodoPanel() {
       )}
 
       {sections.map((section) => (
-        <div key={section.bucket} className="flex flex-col gap-1">
-          <h3
-            className="pi-eyebrow"
-            style={{ color: BUCKET_COLOR[section.bucket] ?? "var(--text-dim)" }}
-          >
-            {t(section.key)}
-          </h3>
-          {section.items.map((todo) => (
-            <TodoRow
-              key={todo.id}
-              todo={todo}
-              today={today}
-              locale={locale}
-              onToggle={() => void run(() => mutate("/api/robin/todos", "PATCH", { id: todo.id, done: !todo.done }))}
-              onColor={(color) => void run(() => mutate("/api/robin/todos", "PATCH", { id: todo.id, color }))}
-              onLink={(next) => void run(() => mutate("/api/robin/todos", "PATCH", { id: todo.id, url: next }))}
-              onDelete={() => void run(() => mutate("/api/robin/todos", "DELETE", { id: todo.id }))}
-              t={t}
-            />
-          ))}
-        </div>
+        <details
+          key={section.bucket}
+          open
+          className="border-t"
+          style={{ borderColor: "var(--border)" }}
+        >
+          <summary className="ui-action min-h-[28px] cursor-pointer py-1 text-xs marker:text-[8px] [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:py-3" style={{ color: BUCKET_COLOR[section.bucket] ?? "var(--text-dim)" }}>
+            <h3 className="pi-eyebrow inline">{t(section.key)} · {section.items.length}</h3>
+          </summary>
+          <div className="flex flex-col gap-1 pb-2">
+            {section.items.map((todo) => (
+              <TodoRow
+                key={todo.id}
+                todo={todo}
+                today={today}
+                locale={locale}
+                onToggle={() => void run(() => mutate("/api/robin/todos", "PATCH", { id: todo.id, done: !todo.done }))}
+                onColor={(color) => void run(() => mutate("/api/robin/todos", "PATCH", { id: todo.id, color }))}
+                onLink={(next) => void run(() => mutate("/api/robin/todos", "PATCH", { id: todo.id, url: next }))}
+                onDelete={() => void run(() => mutate("/api/robin/todos", "DELETE", { id: todo.id }))}
+                t={t}
+              />
+            ))}
+          </div>
+        </details>
       ))}
 
       {doneToday.length > 0 && (
-        <div className="flex flex-col gap-1">
-          <h3 className="pi-eyebrow">
-            {t("robin.todos.completed", { count: String(doneToday.length) })}
-          </h3>
-          {doneToday.map((todo) => (
-            <TodoRow
-              key={todo.id}
-              todo={todo}
-              today={today}
-              locale={locale}
-              onToggle={() => void run(() => mutate("/api/robin/todos", "PATCH", { id: todo.id, done: false }))}
-              onColor={(color) => void run(() => mutate("/api/robin/todos", "PATCH", { id: todo.id, color }))}
-              onLink={(next) => void run(() => mutate("/api/robin/todos", "PATCH", { id: todo.id, url: next }))}
-              onDelete={() => void run(() => mutate("/api/robin/todos", "DELETE", { id: todo.id }))}
-              t={t}
-            />
-          ))}
-        </div>
+        <details open className="border-t" style={{ borderColor: "var(--border)" }}>
+          <summary className="ui-action min-h-[28px] cursor-pointer py-1 text-xs marker:text-[8px] [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:py-3" style={{ color: "var(--text-dim)" }}>
+            <h3 className="pi-eyebrow inline">
+              {t("robin.todos.completed", { count: String(doneToday.length) })}
+            </h3>
+          </summary>
+          <div className="flex flex-col gap-1 pb-2">
+            {doneToday.map((todo) => (
+              <TodoRow
+                key={todo.id}
+                todo={todo}
+                today={today}
+                locale={locale}
+                onToggle={() => void run(() => mutate("/api/robin/todos", "PATCH", { id: todo.id, done: false }))}
+                onColor={(color) => void run(() => mutate("/api/robin/todos", "PATCH", { id: todo.id, color }))}
+                onLink={(next) => void run(() => mutate("/api/robin/todos", "PATCH", { id: todo.id, url: next }))}
+                onDelete={() => void run(() => mutate("/api/robin/todos", "DELETE", { id: todo.id }))}
+                t={t}
+              />
+            ))}
+          </div>
+        </details>
       )}
     </section>
   );

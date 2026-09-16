@@ -6,7 +6,7 @@
   min-width: 0;
   min-height: 0;
   overflow: auto;
-  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  background-color: color-mix(in srgb, var(--bg) 88%, transparent);
 }
 .workspace > div > header {
   align-items: center;

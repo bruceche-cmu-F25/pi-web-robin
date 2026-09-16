@@ -184,7 +184,7 @@ export function PracticeWorkspace({ initialProblem, initialList }: {
   };
 
   return (
-    <div className={`robin-page robin-typography ${styles.workspace}`} data-practice-focus={focusMode}>
+    <div className={`robin-page robin-typography pi-grid-surface ${styles.workspace}`} data-practice-focus={focusMode}>
       <div hidden={focusMode}>
         <WorkspaceHeader compact>
           <span className="text-sm">{t("coding.map.practice")}</span>

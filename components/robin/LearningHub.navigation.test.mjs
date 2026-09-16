@@ -20,7 +20,7 @@ test("the hub links to both daily tracks", async () => {
 });
 
 test("hub navigation lives in the shared shell and can challenge Basic Auth", () => {
-  assert.match(learnLayoutSource, /<RobinShell>\{children\}<\/RobinShell>/);
+  assert.match(learnLayoutSource, /<RobinShell>[\s\S]*?\{children\}[\s\S]*?<\/RobinShell>/);
   assert.doesNotMatch(navigationSource, /from ["']next\/link["']/);
   assert.match(navigationSource, /path: "\/dashboard"/);
   assert.match(navigationSource, /href: chatHref/);

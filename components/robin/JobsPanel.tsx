@@ -57,7 +57,7 @@ export function JobsPanel() {
   };
 
   return (
-    <section className="pi-card flex flex-col gap-3 p-4">
+    <section id="dashboard-jobs" tabIndex={-1} className="pi-card flex scroll-mt-24 flex-col gap-3 p-4">
       <header className="flex flex-wrap items-baseline justify-between gap-2">
         <div className="flex items-baseline gap-3">
           <h2 className="pi-label">{t("robin.jobs.title")}</h2>

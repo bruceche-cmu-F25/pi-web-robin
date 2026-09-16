@@ -202,17 +202,24 @@ export function LinksPanel() {
 
   return (
     <section
-      className="pi-card flex flex-col gap-3 p-4"
+      id="dashboard-links"
+      tabIndex={-1}
+      className="pi-card flex scroll-mt-24 flex-col gap-3 p-4"
     >
-      <header className="flex items-baseline justify-between">
+      <header className="flex items-baseline justify-between gap-2">
         <h2 className="pi-label">{t("robin.links.title")}</h2>
-        <button
-          type="button"
-          onClick={() => toggleAdd("")}
-          className="ui-action pi-chrome-label pi-bracket text-xs"
-        >
-          {addingGroup === "" ? t("robin.common.cancel") : t("robin.common.add")}
-        </button>
+        <div className="flex items-center gap-2">
+          <a href="https://www.notion.so/" target="_blank" rel="noopener noreferrer" className="ui-action pi-chrome-label pi-bracket text-xs">
+            Notion ↗
+          </a>
+          <button
+            type="button"
+            onClick={() => toggleAdd("")}
+            className="ui-action pi-chrome-label pi-bracket text-xs"
+          >
+            {addingGroup === "" ? t("robin.common.cancel") : t("robin.common.add")}
+          </button>
+        </div>
       </header>
 
       {addingGroup === "" && renderAddForm(true)}

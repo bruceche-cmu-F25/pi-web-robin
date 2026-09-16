@@ -605,9 +605,11 @@ html, body {
 
    It lives on `html` rather than a pseudo-element because the app shell is a
    full-height flex container: a fixed overlay would have to be punched back
-   through by every panel. Instead the shell is transparent and each panel
-   paints its own surface over the grid, which is how pi.dev layers too. */
-html {
+   through by every panel. `.pi-grid-surface` reuses the same paper inside
+   intentionally ruled work areas where an intervening panel hides the page. */
+html,
+.pi-grid-surface,
+.robin-dashboard .pi-grid-surface {
   --grid-gap: 4px;
   background-color: var(--bg);
   background-image:
@@ -630,8 +632,10 @@ html {
     0 0, 0 0, 0 0, 0 0,
     calc(var(--grid-gap) * -2.5) calc(var(--grid-gap) * -2.5),
     0 0, 0 0;
-  background-attachment: fixed;
 }
+
+html { background-attachment: fixed; }
+.pi-grid-surface { background-attachment: local; }
 
 body {
   background: transparent;

@@ -12,7 +12,7 @@ const css = await read("../../app/globals.css");
 
 test("Robin routes share one persistent compact navigation", () => {
   assert.match(dashboardLayout, /<RobinShell>\{children\}<\/RobinShell>/);
-  assert.match(learnLayout, /<RobinShell>\{children\}<\/RobinShell>/);
+  assert.match(learnLayout, /<RobinShell>[\s\S]*?\{children\}[\s\S]*?<\/RobinShell>/);
   assert.match(marginSource, /drawer \? " is-drawer" : " is-horizontal"/);
   assert.match(css, /\.robin-nav\.is-horizontal/);
   assert.match(marginSource, /<IconComponent aria-hidden="true"/);
