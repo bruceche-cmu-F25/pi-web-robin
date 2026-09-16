@@ -9,7 +9,7 @@ import {
   type FsoChapter,
 } from "@/extension/robin/fso";
 import type { FsoNote, FsoSnapshot } from "@/extension/robin/fso-domain";
-import { FULLSTACK_STEPS, type LearningSnapshot } from "@/extension/robin/learning";
+import { FULLSTACK_STEPS } from "@/extension/robin/learning";
 import { AgentPanel } from "./AgentPanel";
 import { FsoNoteEditor, FsoNotebook, type FsoNoteEditorHandle } from "./FsoNotes";
 import { FsoRail } from "./FsoRail";
@@ -58,12 +58,21 @@ export function FsoWorkspace() {
   const searchParams = useSearchParams();
   const isMobile = useIsMobile();
   const panes = usePaneWidths(true);
-  const learning = usePolledResource<LearningSnapshot>("/api/robin/learning", 15_000);
-  const fso = usePolledResource<FsoSnapshot>("/api/robin/fso", 60_000);
+  const fso = usePolledResource<FsoSnapshot>("/api/robin/fso", 15_000);
 
   const initialChapter = findChapter(searchParams.get("chapter")) ?? chapterForStep(searchParams.get("step"));
-  const [view, setView] = useState<View>(initialChapter ? "chapter" : searchParams.get("view") === "notebook" ? "notebook" : "roadmap");
-  const [chapterId, setChapterId] = useState<string | null>(initialChapter?.id ?? null);
+  const [view, setView] = useState<View>(!initialChapter && searchParams.get("view") === "notebook" ? "notebook" : "roadmap");
+  const [chapterId, setChapterId] = useState<string | null>(null);
+  const [opening, setOpening] = useState(false);
+  const [chapterConfirmed, setChapterConfirmed] = useState(false);
+  const [chapterError, setChapterError] = useState<string | null>(null);
+  const openingRef = useRef(false);
+  const requestedChapter = useRef<FsoChapter | null>(null);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
   const [side, setSide] = useState<Side | null>("notes");
   // The contents rail starts closed so the chapter gets the width; opening it is remembered.
   const [railOpen, setRailOpen] = useState(false);
@@ -78,16 +87,16 @@ export function FsoWorkspace() {
   const chapter = findChapter(chapterId);
   // The server's ticks with any in-flight click laid over them, so a checkbox answers immediately.
   const doneIds = useMemo(() => {
-    const ids = new Set(learning.data?.fullstack.completedIds ?? []);
+    const ids = new Set(fso.data?.fullstack.completedIds ?? []);
     for (const [id, done] of Object.entries(overrides)) {
       if (done) ids.add(id);
       else ids.delete(id);
     }
     return ids;
-  }, [learning.data, overrides]);
+  }, [fso.data, overrides]);
   const isDone = useCallback((id: string) => doneIds.has(id), [doneIds]);
   const completedCount = FULLSTACK_STEPS.filter((step) => doneIds.has(step.id)).length;
-  const current = learning.data ? continueChapter([...doneIds]) : null;
+  const current = fso.data ? continueChapter([...doneIds]) : null;
 
   const notes = useMemo(() => {
     const merged: Record<string, FsoNote> = { ...fso.data?.notes };
@@ -104,26 +113,50 @@ export function FsoWorkspace() {
     window.history.replaceState(null, "", hrefFor(nextView, nextChapter));
   }, []);
 
-  const open = useCallback((next: FsoChapter) => {
-    // Re-opening the chapter already framed keeps the same iframe, which will
-    // not fire another load — so it must not be marked as loading again.
-    if (next.id !== chapterId || view !== "chapter") setFrameLoading(true);
-    setChapterId(next.id);
-    navigate("chapter", next);
-    if (isMobile) setMobilePane("page");
-    void mutate("/api/robin/fso", "PATCH", { chapter: next.id })
-      .catch((caught) => setActionError(caught instanceof Error ? caught.message : String(caught)));
+  // Every entry path confirms the same persisted identity before changing the
+  // frame or URL. A failed response may still have committed on the server, so
+  // keep the old frame/draft but pause the mentor until a selection is confirmed.
+  const open = useCallback(async (next: FsoChapter) => {
+    if (openingRef.current) return;
+    openingRef.current = true;
+    requestedChapter.current = next;
+    setOpening(true);
+    setChapterConfirmed(false);
+    setChapterError(null);
+    setPending(undefined);
+    try {
+      await editorRef.current?.flush();
+      if (!mounted.current) return;
+      const response = await fetch("/api/robin/fso", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chapter: next.id }),
+      });
+      const body = await response.json().catch(() => null) as { openChapterId?: string; error?: string } | null;
+      if (!response.ok) throw new Error(body?.error ?? `Request failed (${response.status})`);
+      if (body?.openChapterId !== next.id) throw new Error("Invalid chapter confirmation");
+      if (!mounted.current) return;
+      // Re-opening the same mounted frame will not fire another load event.
+      if (next.id !== chapterId || view !== "chapter") setFrameLoading(true);
+      setChapterId(next.id);
+      navigate("chapter", next);
+      if (isMobile) setMobilePane("page");
+      setChapterConfirmed(true);
+    } catch (caught) {
+      if (mounted.current) setChapterError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      openingRef.current = false;
+      if (mounted.current) setOpening(false);
+    }
   }, [chapterId, isMobile, navigate, view]);
 
-  // A deep link (the dashboard's "continue") opens its chapter, and records it
-  // for the mentor. Decided once at mount: later URL changes are this page's
-  // own replaceState, whose chapter `open` has already recorded.
+  // Later URL changes are our own replaceState, not a new initial selection.
   const deepLinked = useRef(false);
   useEffect(() => {
     if (deepLinked.current) return;
     deepLinked.current = true;
-    if (initialChapter) void mutate("/api/robin/fso", "PATCH", { chapter: initialChapter.id }).catch(() => undefined);
-  }, [initialChapter]);
+    if (initialChapter) void open(initialChapter);
+  }, [initialChapter, open]);
 
   useEffect(() => {
     try {
@@ -143,13 +176,13 @@ export function FsoWorkspace() {
     }
   };
 
-  const refreshLearning = learning.refresh;
+  const refreshFso = fso.refresh;
   const toggle = useCallback(async (id: string, done: boolean) => {
     setOverrides((previous) => ({ ...previous, [id]: done }));
     try {
       setActionError(null);
       await mutate("/api/robin/learning", "PATCH", { step: id, completed: done });
-      await refreshLearning();
+      await refreshFso();
     } catch (caught) {
       setActionError(caught instanceof Error ? caught.message : String(caught));
     } finally {
@@ -159,7 +192,7 @@ export function FsoWorkspace() {
         return next;
       });
     }
-  }, [refreshLearning]);
+  }, [refreshFso]);
 
   const onNoteSaved = useCallback((id: string, note: FsoNote | null) => {
     setLocalNotes((previous) => ({ ...previous, [id]: note }));
@@ -179,7 +212,7 @@ export function FsoWorkspace() {
 
   const next = chapter ? nextChapter(chapter) : null;
   const inChapter = view === "chapter" && chapter !== null;
-  const error = actionError ?? learning.error ?? fso.error;
+  const error = chapterError ?? actionError ?? fso.error;
 
   const center = view === "notebook" ? (
     <FsoNotebook notes={notes} onOpen={open} />
@@ -245,17 +278,17 @@ export function FsoWorkspace() {
   const sideTab: Side = isMobile ? (mobilePane === "mentor" ? "mentor" : "notes") : side ?? "notes";
 
   return (
-    <div className={`robin-page flex flex-1 flex-col ${styles.workspace}`} style={{ minWidth: 0, minHeight: 0 }}>
+    <div className={`robin-page flex flex-1 flex-col ${styles.workspace}`} aria-busy={opening} style={{ minWidth: 0, minHeight: 0 }}>
       <header className={styles.bar}>
         <a href="/learn" className={`pi-eyebrow ${styles.crumb}`}>{t("learn.title")} /</a>
         <span className={styles.barTitle}>Full Stack Open</span>
-        {learning.data && (
+        {fso.data && (
           <span className={styles.barProgress}>
             <span className={styles.barMeter}><span style={{ width: `${(completedCount / FULLSTACK_STEPS.length) * 100}%` }} /></span>
             {completedCount}/{FULLSTACK_STEPS.length}
           </span>
         )}
-        <nav className={styles.barNav} aria-label={t("fso.views")}>
+        <nav className={styles.barNav} aria-label={t("fso.views")} inert={opening}>
           <button type="button" className="ui-action pi-chrome-label pi-bracket" style={{ fontSize: 10 }}
             data-state={view === "roadmap" ? "accent" : undefined} aria-current={view === "roadmap" ? "page" : undefined}
             onClick={() => navigate("roadmap", chapter)}>
@@ -264,7 +297,7 @@ export function FsoWorkspace() {
           {chapter && (
             <button type="button" className="ui-action pi-chrome-label pi-bracket" style={{ fontSize: 10 }}
               data-state={view === "chapter" ? "accent" : undefined} aria-current={view === "chapter" ? "page" : undefined}
-              onClick={() => navigate("chapter", chapter)}>
+              onClick={() => void open(chapter)}>
               {chapter.part}{chapter.letter}
             </button>
           )}
@@ -287,10 +320,15 @@ export function FsoWorkspace() {
             ))}
           </div>
         )}
-        {error && <p role="alert" style={{ width: "100%", fontSize: 11, color: "var(--danger)" }}>{error}</p>}
+        {opening && <p role="status" className="text-xs">{t("learn.daily.saving")}</p>}
+        {error && <div role="alert" style={{ width: "100%", fontSize: 11, color: "var(--danger)" }}>
+          {error}
+          {chapterError && <button type="button" className="ui-action ml-3 min-h-11 text-xs" disabled={opening}
+            onClick={() => { if (requestedChapter.current) void open(requestedChapter.current); }}>{t("fso.open.retry")}</button>}
+        </div>}
       </header>
 
-      <div className="flex flex-1" style={{ minHeight: 0 }}>
+      <div className="flex flex-1" inert={opening} style={{ minHeight: 0 }}>
         {inChapter && (isMobile || railOpen) && (
           <WorkspacePane active={isMobile ? mobilePane === "contents" : null}>
             <FsoRail width={isMobile ? null : panes.rail.width} chapter={chapter} isDone={isDone} notedIds={notedIds}
@@ -332,8 +370,10 @@ export function FsoWorkspace() {
               )}
             </div>
             <div className={styles.tabPanel} role="tabpanel" style={sideTab === "mentor" ? undefined : { display: "none" }}>
+              {!chapterConfirmed && <p role="status" className="p-3 text-xs" style={{ color: "var(--text-muted)" }}>{t("fso.mentor.paused")}</p>}
               <AgentPanel
                 mode="mentor"
+                disabled={!chapterConfirmed}
                 titleKey="coding.mentor.title"
                 placeholderKey="fso.mentor.placeholder"
                 restartHintKey="coding.mentor.restartHint"

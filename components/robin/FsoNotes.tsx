@@ -57,22 +57,38 @@ export const FsoNoteEditor = forwardRef<FsoNoteEditorHandle, {
   const textRef = useRef(text);
   const savedRef = useRef(note?.text ?? "");
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const queueRef = useRef<Promise<void>>(Promise.resolve());
 
-  const save = useCallback(async () => {
+  /**
+   * Save the latest draft, serialized so a slower older write can never land
+   * after a newer one and roll the note back. Rejects on failure so the
+   * ask-mentor action can hold back instead of handing over a stale note.
+   */
+  const save = useCallback((): Promise<void> => {
     clearTimeout(timer.current);
-    const value = textRef.current;
-    if (value === savedRef.current) return;
+    if (textRef.current === savedRef.current) {
+      return queueRef.current.then(() => undefined);
+    }
     setState("saving");
-    try {
-      const saved = await putNote(chapter.id, value);
-      savedRef.current = value;
+
+    const attempt = queueRef.current.then(async () => {
+      const latest = textRef.current;
+      if (latest === savedRef.current) return;
+      const saved = await putNote(chapter.id, latest);
+      savedRef.current = latest;
       onSaved(chapter.id, saved);
       setError(null);
-      setState(textRef.current === value ? "saved" : "dirty");
-    } catch (caught) {
+      setState(textRef.current === latest ? "saved" : "dirty");
+    });
+
+    const reported = attempt.catch((caught) => {
       setError(caught instanceof Error ? caught.message : String(caught));
       setState("error");
-    }
+      throw caught;
+    });
+
+    queueRef.current = reported.catch(() => undefined);
+    return reported;
   }, [chapter.id, onSaved]);
 
   const change = useCallback((value: string) => {
@@ -80,7 +96,7 @@ export const FsoNoteEditor = forwardRef<FsoNoteEditorHandle, {
     setText(value);
     setState("dirty");
     clearTimeout(timer.current);
-    timer.current = setTimeout(() => void save(), SAVE_DELAY_MS);
+    timer.current = setTimeout(() => { void save().catch(() => undefined); }, SAVE_DELAY_MS);
   }, [save]);
 
   useImperativeHandle(ref, () => ({
@@ -104,8 +120,19 @@ export const FsoNoteEditor = forwardRef<FsoNoteEditorHandle, {
     const text = textRef.current;
     if (text === savedRef.current) return;
     onSavedRef.current(chapter.id, text.trim() ? { text, updatedAt: new Date().toISOString() } : null);
-    void putNote(chapter.id, text, true)
-      .then((saved) => onSavedRef.current(chapter.id, saved))
+    // Serialize behind any in-flight save so a slower older write cannot land
+    // after this keepalive one and roll the note back.
+    queueRef.current = queueRef.current
+      .then(async () => {
+        if (text === savedRef.current) return;
+        try {
+          const saved = await putNote(chapter.id, text, true);
+          savedRef.current = text;
+          onSavedRef.current(chapter.id, saved);
+        } catch {
+          // Best effort on teardown; there is no UI left to report to.
+        }
+      })
       .catch(() => undefined);
   }, [chapter.id]);
 
@@ -131,11 +158,11 @@ export const FsoNoteEditor = forwardRef<FsoNoteEditorHandle, {
           className={styles.notesEditor}
           value={text}
           onChange={(event) => change(event.target.value)}
-          onBlur={() => void save()}
+          onBlur={() => { void save().catch(() => undefined); }}
           onKeyDown={(event) => {
             if ((event.metaKey || event.ctrlKey) && event.key === "s") {
               event.preventDefault();
-              void save();
+              void save().catch(() => undefined);
             }
           }}
           placeholder={t("fso.notes.placeholder")}
@@ -151,8 +178,13 @@ export const FsoNoteEditor = forwardRef<FsoNoteEditorHandle, {
         <button type="button" className="ui-action pi-chrome-label pi-bracket" style={{ fontSize: 10 }}
           data-state="accent" disabled={!text.trim()}
           onClick={async () => {
-            await save();
-            onAskMentor();
+            try {
+              await save();
+              onAskMentor();
+            } catch {
+              // The failed save already surfaced through the status line;
+              // do not hand the mentor a note that never reached the server.
+            }
           }}>
           {t("fso.notes.askMentor")}
         </button>

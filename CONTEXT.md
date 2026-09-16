@@ -38,7 +38,7 @@ One recorded sitting with a Practice Problem, including the outcome, the hint le
 _Avoid_: Submission, try, session
 
 **Course Step**:
-One completable step of Full Stack Open — a chapter's reading or one of its exercises — identified by its catalog path. The user ticks it, on the dashboard or in the Full Stack Open workspace; both write the same progress file, so a tick in one is a tick in the other.
+One completable step of Full Stack Open — a chapter's reading or one of its exercises — identified by its catalog path. The user ticks it, on the dashboard or in the Full Stack Open workspace; both write the same progress file, so a tick in one is a tick in the other. The FSO domain module owns course progress reads and writes; the Learning Hub combines the two Tracks, but course behavior never reads through that combined snapshot.
 _Avoid_: Lesson, task, card
 
 **Chapter**:
@@ -50,7 +50,7 @@ The user's own notes on one Chapter, in their words. The mentor reads them and n
 _Avoid_: Summary, annotation
 
 **Open Chapter**:
-Which Chapter the workspace opened last. Written on every open because the frame is cross-origin and reports nothing back, so the mentor would otherwise have no way to answer "this page".
+Which Chapter the workspace opened last. Written on every open because the frame is cross-origin and reports nothing back, so the mentor would otherwise have no way to answer "this page". Clicks and initial deep links use the same single-flight confirmation: save before changing the frame or URL. An uncertain write leaves the old frame intact and pauses new mentor requests until a selection is confirmed; this does not assign ownership across multiple browser windows.
 _Avoid_: Current page, reading position
 
 **Lecture**:
