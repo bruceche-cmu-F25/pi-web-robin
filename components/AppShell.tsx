@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo } from "react";
+import { useState, useCallback, useReducer, useRef, useEffect, useLayoutEffect, useMemo } from "react";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
@@ -50,6 +50,12 @@ import {
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
 } from "@/lib/panel-layout";
+import {
+  INITIAL_SHELL_PANELS,
+  shellPanelReducer,
+  type ShellPanelEvent,
+  type ShellPanelState,
+} from "@/lib/shell-panels";
 import type { BlockingExtensionUiRequest, SessionInfo, SessionTreeNode } from "@/lib/types";
 import type { SessionSearchTarget } from "@/lib/session-search";
 import type { ProjectTrustStatus } from "@/lib/api-types";
@@ -85,6 +91,9 @@ export function AppShell() {
   const { locale, t: translate } = useI18n();
   const isMobile = useIsMobile();
   const isNarrowMobile = useIsNarrowMobile();
+  // Read inside the reducer, which must see the breakpoint as of dispatch.
+  const viewportRef = useRef({ isMobile, isNarrowMobile });
+  viewportRef.current = { isMobile, isNarrowMobile };
   useViewportHeight();
 
   // Once the user has granted notification permission, register a Web Push
@@ -147,9 +156,17 @@ export function AppShell() {
   const [projectTrustDialogOpen, setProjectTrustDialogOpen] = useState(false);
   const [projectTrustBusy, setProjectTrustBusy] = useState(false);
   const [projectTrustError, setProjectTrustError] = useState<string | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [rightPanelOpen, setRightPanelOpen] = useState(false);
-  const [mobileToolbarMoreOpen, setMobileToolbarMoreOpen] = useState(false);
+  /**
+   * Which surfaces are showing. The mutual-exclusion rules live in
+   * lib/shell-panels.ts so they can be tested without a viewport; this only
+   * feeds the reducer the current breakpoint.
+   */
+  const [panels, dispatchPanel] = useReducer(
+    (state: ShellPanelState, event: ShellPanelEvent) =>
+      shellPanelReducer(state, event, viewportRef.current),
+    INITIAL_SHELL_PANELS,
+  );
+  const { sidebarOpen, rightPanelOpen, activeTopPanel, mobileToolbarMoreOpen } = panels;
   const [mobileSidebarReady, setMobileSidebarReady] = useState(false);
   const sidebarWidthRef = useRef(SIDEBAR_DEFAULT_WIDTH);
   const rightPanelWidthRef = useRef(RIGHT_PANEL_FALLBACK_WIDTH);
@@ -207,7 +224,7 @@ export function AppShell() {
   // On mobile the sidebar is an overlay drawer; hide it by default so the chat
   // is visible on load. Runs once the breakpoint resolves after hydration.
   useEffect(() => {
-    if (isMobile) setSidebarOpen(false);
+    if (isMobile) dispatchPanel({ type: "close_sidebar" });
   }, [isMobile]);
   useEffect(() => {
     setMobileSidebarReady(true);
@@ -292,18 +309,17 @@ export function AppShell() {
   }, []);
 
   // Single active panel — only one dropdown open at a time
-  const [activeTopPanel, setActiveTopPanel] = useState<"agents" | "branches" | "system" | "tools" | "session" | null>(null);
   const [topPanelPos, setTopPanelPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
   useEffect(() => {
     if (!sessionHasBranches) {
-      setActiveTopPanel((panel) => panel === "branches" ? null : panel);
+      dispatchPanel({ type: "close_top_panel_if", panel: "branches" });
     }
   }, [sessionHasBranches]);
 
   useEffect(() => {
     if (!hasSubagentSessions) {
-      setActiveTopPanel((panel) => panel === "agents" ? null : panel);
+      dispatchPanel({ type: "close_top_panel_if", panel: "agents" });
     }
   }, [hasSubagentSessions]);
 
@@ -311,10 +327,8 @@ export function AppShell() {
     panel: "agents" | "branches" | "system" | "tools" | "session",
     keepMobileToolbarOpen = false,
   ) => {
-    if (isMobile) setSidebarOpen(false);
-    setActiveTopPanel((cur) => cur === panel ? null : panel);
-    if (isMobile && isNarrowMobile && keepMobileToolbarOpen) setMobileToolbarMoreOpen(true);
-  }, [isMobile, isNarrowMobile]);
+    dispatchPanel({ type: "toggle_top_panel", panel, keepMobileToolbar: keepMobileToolbarOpen });
+  }, []);
 
   const handleSystemInfoToggle = useCallback((
     panel: "system" | "tools",
@@ -338,39 +352,24 @@ export function AppShell() {
   }, [activeTopPanel, systemInfoLoading, toggleTopPanel]);
 
   const openSessionStatsPanel = useCallback(() => {
-    if (isMobile) setSidebarOpen(false);
-    setMobileToolbarMoreOpen(false);
-    setActiveTopPanel("session");
-  }, [isMobile]);
+    dispatchPanel({ type: "open_top_panel", panel: "session" });
+  }, []);
 
   const handleSidebarToggle = useCallback(() => {
-    if (isMobile) {
-      setActiveTopPanel(null);
-      setMobileToolbarMoreOpen(false);
-    }
-    setSidebarOpen((open) => !open);
-  }, [isMobile]);
+    dispatchPanel({ type: "toggle_sidebar" });
+  }, []);
 
   const handleSessionSearchShortcut = useCallback(() => {
-    setSidebarOpen(true);
-    setActiveTopPanel(null);
-    setMobileToolbarMoreOpen(false);
+    dispatchPanel({ type: "focus_sidebar_for_search" });
   }, []);
 
   const handleMobileToolbarMoreToggle = useCallback(() => {
-    setSidebarOpen(false);
-    setActiveTopPanel(null);
-    setMobileToolbarMoreOpen((open) => !open);
+    dispatchPanel({ type: "toggle_mobile_more" });
   }, []);
 
   const handleRightPanelToggle = useCallback(() => {
-    if (isMobile) {
-      setSidebarOpen(false);
-      setActiveTopPanel(null);
-      setMobileToolbarMoreOpen(false);
-    }
-    setRightPanelOpen((open) => !open);
-  }, [isMobile]);
+    dispatchPanel({ type: "toggle_right_panel" });
+  }, []);
 
   useEffect(() => {
     if (!mobileToolbarMoreOpen) return;
@@ -378,13 +377,13 @@ export function AppShell() {
     const handlePointerDown = (event: PointerEvent) => {
       const toolbar = mobileToolbarRef.current;
       if (toolbar && event.composedPath().includes(toolbar)) return;
-      setMobileToolbarMoreOpen(false);
+      dispatchPanel({ type: "close_mobile_more" });
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
       event.stopPropagation();
-      setMobileToolbarMoreOpen(false);
+      dispatchPanel({ type: "close_mobile_more" });
     };
 
     document.addEventListener("pointerdown", handlePointerDown, true);
@@ -396,7 +395,7 @@ export function AppShell() {
   }, [mobileToolbarMoreOpen]);
 
   useEffect(() => {
-    setMobileToolbarMoreOpen(false);
+    dispatchPanel({ type: "close_mobile_more" });
   }, [isMobile, isNarrowMobile, selectedSession?.id, newSessionDraftId]);
 
   useEffect(() => {
@@ -445,19 +444,22 @@ export function AppShell() {
   // read tool resolves it the same way (it strips the @ prefix).
   const handleAtMention = useCallback((relativePath: string, isDir: boolean) => {
     chatInputRef.current?.insertText(buildAtMentionText(relativePath, isDir));
-    if (isMobile) { setRightPanelOpen(false); setSidebarOpen(false); }
-  }, [isMobile]);
+    dispatchPanel({ type: "reveal_workspace" });
+    dispatchPanel({ type: "close_right_panel" });
+  }, []);
 
   const handleAtMentions = useCallback((relativePaths: string[]) => {
     const mentions = buildFileAtMentionsText(relativePaths);
     if (mentions) chatInputRef.current?.insertText(mentions);
-    if (isMobile) { setRightPanelOpen(false); setSidebarOpen(false); }
-  }, [isMobile]);
+    dispatchPanel({ type: "reveal_workspace" });
+    dispatchPanel({ type: "close_right_panel" });
+  }, []);
 
   const handleFileLineMention = useCallback((relativePath: string, startLine: number, endLine: number) => {
     chatInputRef.current?.insertText(buildFileLineMentionText(relativePath, startLine, endLine));
-    if (isMobile) { setRightPanelOpen(false); setSidebarOpen(false); }
-  }, [isMobile]);
+    dispatchPanel({ type: "reveal_workspace" });
+    dispatchPanel({ type: "close_right_panel" });
+  }, []);
 
   const initialSessionId = initialNavigation.sessionId;
   const [activeCwd, setActiveCwd] = useState<string | null>(null);
@@ -616,13 +618,13 @@ export function AppShell() {
     setSystemPrompt(null);
     setSystemTools(null);
     setSystemInfoLoading(false);
-    setActiveTopPanel(null);
+    dispatchPanel({ type: "close_top_panel" });
     if (currentProject !== newProject) {
       // File tabs are keyed by absolute path, so tabs opened in the previous
       // project must not linger. Same-project worktree switches keep them.
       setFileTabs([]);
       setActiveFileTabId(null);
-      setRightPanelOpen(false);
+      dispatchPanel({ type: "close_right_panel" });
       // Restore the workspace we switched to: its last open session, or keep
       // the default welcome page when none is remembered.
       restoreWorkspaceContext(newProject);
@@ -647,7 +649,7 @@ export function AppShell() {
       const sameProject =
         workspaceKeyOf(selectedSession) === workspaceKeyOf(session);
       if (selectedSession.id === session.id && sameProject) {
-        if (isMobile) setSidebarOpen(false);
+        if (isMobile) dispatchPanel({ type: "close_sidebar" });
         return;
       }
     }
@@ -662,7 +664,7 @@ export function AppShell() {
     setSystemInfoLoading(false);
     setInitialSessionRestored(true);
     // On mobile, collapse the overlay drawer so the chat is revealed after pick.
-    if (isMobile && !isRestore) setSidebarOpen(false);
+    if (isMobile && !isRestore) dispatchPanel({ type: "close_sidebar" });
     if (isRestore) {
       // Suppress the redundant sessionKey bump that would come from the
       // onCwdChange effect firing after setSelectedCwd in the sidebar
@@ -699,8 +701,8 @@ export function AppShell() {
     setSystemPrompt(null);
     setSystemTools(null);
     setSystemInfoLoading(false);
-    setActiveTopPanel(null);
-    if (isMobile) setSidebarOpen(false);
+    dispatchPanel({ type: "close_top_panel" });
+    if (isMobile) dispatchPanel({ type: "close_sidebar" });
     router.replace("/", { scroll: false });
   }, [invalidateWorkspaceRestore, router, isMobile]);
 
@@ -831,7 +833,7 @@ export function AppShell() {
     const sessionId = selectedSession?.id;
     if (!sessionId || autoNameStatus.kind === "naming") return;
     if (autoNameTimerRef.current) clearTimeout(autoNameTimerRef.current);
-    setActiveTopPanel(null);
+    dispatchPanel({ type: "close_top_panel" });
     setAutoNameStatus({ kind: "naming" });
 
     try {
@@ -908,7 +910,7 @@ export function AppShell() {
       setSystemPrompt(null);
       setSystemTools(null);
       setSystemInfoLoading(false);
-      setActiveTopPanel(null);
+      dispatchPanel({ type: "close_top_panel" });
       router.replace("/", { scroll: false });
     }
   }, [invalidateWorkspaceRestore, selectedSession, router]);
@@ -929,10 +931,9 @@ export function AppShell() {
       tabId,
     }));
     setActiveFileTabId(tabId);
-    setRightPanelOpen(true);
-    // On mobile the file panel is full-screen; close the drawer so it shows.
-    if (isMobile) setSidebarOpen(false);
-  }, [isMobile]);
+    // On mobile the file panel is full-screen; the reducer closes the drawer.
+    dispatchPanel({ type: "open_right_panel" });
+  }, []);
 
   const handleOpenLinkedFile = useCallback((filePath: string) => {
     handleOpenFile(filePath, getFileName(filePath), { sourceSessionId: selectedSession?.id ?? null });
@@ -954,11 +955,10 @@ export function AppShell() {
     );
     if (existing && !existing.terminalExited) {
       if (rightPanelOpen && activeFileTabId === existing.id) {
-        setRightPanelOpen(false);
+        dispatchPanel({ type: "close_right_panel" });
       } else {
         setActiveFileTabId(existing.id);
-        setRightPanelOpen(true);
-        if (isMobile) setSidebarOpen(false);
+        dispatchPanel({ type: "open_right_panel" });
       }
       return;
     }
@@ -1006,8 +1006,7 @@ export function AppShell() {
         terminalId,
       }]);
       setActiveFileTabId(tabId);
-      setRightPanelOpen(true);
-      if (isMobile) setSidebarOpen(false);
+      dispatchPanel({ type: "open_right_panel" });
     } catch (error) {
       setTerminalNotice(
         `${translate("terminal.unavailable")}: ${error instanceof Error ? error.message : String(error)}`,
@@ -1016,7 +1015,7 @@ export function AppShell() {
       setTerminalOpeningSessionId(null);
     }
   }, [
-    activeFileTabId, fileTabs, isMobile, projectTrust, rightPanelOpen, selectedSession,
+    activeFileTabId, fileTabs, projectTrust, rightPanelOpen, selectedSession,
     terminalBlockedReason, terminalOpeningSessionId, translate,
   ]);
 
@@ -1030,7 +1029,7 @@ export function AppShell() {
     }
     setFileTabs((prev) => {
       const next = prev.filter((t) => t.id !== tabId);
-      if (next.length === 0) setRightPanelOpen(false);
+      if (next.length === 0) dispatchPanel({ type: "close_right_panel" });
       return next;
     });
     setActiveFileTabId((cur) => {
@@ -1257,7 +1256,7 @@ export function AppShell() {
           onClick={() => {
             setSessionSearchTarget(null);
             setSessionSearchOpen((open) => !open);
-            if (mobile) setMobileToolbarMoreOpen(true);
+            if (mobile) dispatchPanel({ type: "open_mobile_more" });
           }}
           disabled={!showChat}
           title={translate("sessionSearch.current")}
@@ -1289,7 +1288,7 @@ export function AppShell() {
           type="button"
           onClick={() => {
             handleViewFullHistory();
-            if (mobile && isNarrowMobile) setMobileToolbarMoreOpen(true);
+            if (mobile && isNarrowMobile) dispatchPanel({ type: "open_mobile_more" });
           }}
           disabled={!selectedSession}
           title={selectedSession ? translate("history.full") : translate("history.unsaved")}
@@ -1366,7 +1365,7 @@ export function AppShell() {
               type="button"
               onClick={() => {
                 void handleAutoName();
-                if (mobile && isNarrowMobile) setMobileToolbarMoreOpen(true);
+                if (mobile && isNarrowMobile) dispatchPanel({ type: "open_mobile_more" });
               }}
               disabled={disabled}
               title={title}
@@ -1910,7 +1909,7 @@ export function AppShell() {
       {/* Mobile overlay backdrop */}
       <div
         className={`sidebar-overlay-backdrop${mobileSidebarReady ? "" : " sidebar-mobile-pending"}`}
-        onClick={() => setSidebarOpen(false)}
+        onClick={() => dispatchPanel({ type: "close_sidebar" })}
         style={{
           position: "fixed",
           inset: 0,
@@ -1926,6 +1925,9 @@ export function AppShell() {
       <div
         ref={sidebarResizer.panelRef}
         id="session-sidebar"
+        // Closed, it is off-canvas (phone) or zero-width (desktop); either way
+        // its controls must not stay in the tab order.
+        inert={!sidebarOpen}
         className={`sidebar-container${sidebarOpen ? " sidebar-open" : " sidebar-closed"}${mobileSidebarReady ? "" : " sidebar-mobile-pending"}${sidebarResizer.isResizing ? " sidebar-resizing" : ""}`}
         style={{
           "--sidebar-width": `${sidebarResizer.width}px`,
@@ -2354,7 +2356,7 @@ export function AppShell() {
       <div
         aria-hidden="true"
         className={`right-panel-overlay-backdrop${rightPanelOpen ? " is-open" : ""}`}
-        onClick={() => setRightPanelOpen(false)}
+        onClick={() => dispatchPanel({ type: "close_right_panel" })}
       />
       {rightPanelOpen && (
         <div
@@ -2400,7 +2402,7 @@ export function AppShell() {
           </div>
           <button
             type="button"
-            onClick={() => setRightPanelOpen(false)}
+            onClick={() => dispatchPanel({ type: "close_right_panel" })}
             aria-controls="file-panel"
             aria-expanded={rightPanelOpen}
             title={translate(activePanelTab?.kind === "terminal" ? "terminal.hide" : "files.hidePanel")}

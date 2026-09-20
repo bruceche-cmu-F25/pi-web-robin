@@ -43,7 +43,9 @@ test("only renders branch toolbar controls for sessions with branches", () => {
   assert.match(source, /const sessionHasBranches = hasSessionBranches\(branchTree\)/);
   assert.match(source, /\{sessionHasBranches && \(mobile \? \(/);
   assert.match(source, /\{isMobile && sessionHasBranches && \(/);
-  assert.match(source, /panel === "branches" \? null : panel/);
+  // A branch panel that lost its branches closes itself; the rule lives in
+  // lib/shell-panels.ts and is tested there.
+  assert.match(source, /close_top_panel_if", panel: "branches"/);
 });
 
 test("keeps covered statistics and file controls out of interaction and focus", () => {
@@ -56,19 +58,24 @@ test("keeps covered statistics and file controls out of interaction and focus", 
 test("closes the mobile action layer on outside click, Escape, layout changes, and session changes", () => {
   assert.match(source, /event\.composedPath\(\)\.includes\(toolbar\)/);
   assert.match(source, /document\.addEventListener\("pointerdown", handlePointerDown, true\)/);
-  assert.match(source, /event\.key !== "Escape"[\s\S]*?setMobileToolbarMoreOpen\(false\)/);
+  assert.match(source, /event\.key !== "Escape"[\s\S]*?close_mobile_more/);
   assert.match(source, /\}, \[isMobile, isNarrowMobile, selectedSession\?\.id, newSessionDraftId\]\);/);
 });
 
 test("keeps the mobile action layer open after using an expanded action", () => {
-  const toggleTopPanel = source.match(/const toggleTopPanel = useCallback\([\s\S]*?\n  \}, \[isMobile, isNarrowMobile\]\);/)?.[0];
+  // Whether the layer survives is decided by `keepMobileToolbar`, which
+  // lib/shell-panels.test.mjs exercises directly. What is pinned here is that
+  // every action reached *from inside* the layer asks to keep it.
+  const toggleTopPanel = source.match(/const toggleTopPanel = useCallback\([\s\S]*?\n  \}, \[\]\);/)?.[0];
   const historyHandler = source.match(/onClick=\{\(\) => \{[\s\S]*?handleViewFullHistory\(\);[\s\S]*?\n          \}\}/)?.[0];
   const autoNameHandler = source.match(/onClick=\{\(\) => \{[\s\S]*?void handleAutoName\(\);[\s\S]*?\n              \}\}/)?.[0];
 
-  for (const handler of [toggleTopPanel, historyHandler, autoNameHandler]) {
+  assert.ok(toggleTopPanel);
+  assert.match(toggleTopPanel, /keepMobileToolbar: keepMobileToolbarOpen/);
+  for (const handler of [historyHandler, autoNameHandler]) {
     assert.ok(handler);
-    assert.doesNotMatch(handler, /setMobileToolbarMoreOpen\(false\)/);
-    assert.match(handler, /setMobileToolbarMoreOpen\(true\)/);
+    assert.doesNotMatch(handler, /close_mobile_more/);
+    assert.match(handler, /open_mobile_more/);
   }
 
   // Theme and language live in Settings, not on the chat toolbar.
