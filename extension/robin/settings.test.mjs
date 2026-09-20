@@ -9,6 +9,9 @@ const dir = mkdtempSync(join(tmpdir(), "robin-settings-"));
 process.env.ROBIN_DATA_DIR = dir;
 
 const {
+  applySettingsSection,
+  clearSettingsSection,
+  settingsView,
   clearGoogleCredentials,
   clearNotion,
   clearTelegram,
@@ -36,7 +39,7 @@ const {
   readDailyAgendaSessionId,
   writeAssistantSessionId,
   writeDailyAgendaSessionId,
-} = await import("./store.ts");
+} = await import("./assistant-sessions.ts");
 
 after(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -203,4 +206,100 @@ test("the secrets file is not readable by other users", () => {
   setTelegramToken("8123:AAtoken");
   const mode = statSync(secretsPath()).mode & 0o777;
   assert.equal(mode, 0o600, `expected 0600, got ${mode.toString(8)}`);
+});
+
+
+/* ────────────── the settings screen's sections ────────────── */
+
+test("settingsView reports presence and the file location, never a secret", () => {
+  setGoogleCredentials("client-id-value", "client-secret-value");
+  setNotionToken("ntn_secret_token");
+
+  const view = settingsView();
+  assert.equal(view.storedAt, secretsPath());
+  assert.equal(view.google.clientId.set, true);
+  assert.equal(view.notion.apiToken.set, true);
+  const serialised = JSON.stringify(view);
+  assert.ok(!serialised.includes("client-secret-value"));
+  assert.ok(!serialised.includes("ntn_secret_token"));
+});
+
+test("google needs both halves of the credential, or neither is written", () => {
+  const partial = applySettingsSection("google", { clientId: "only-the-id" });
+  assert.match(partial.error, /client ID and the client secret/);
+  assert.equal(describeGoogle().clientId.set, false);
+
+  const both = applySettingsSection("google", { clientId: " id ", clientSecret: " secret " });
+  assert.equal(both.google.clientId.set, true);
+  assert.deepEqual(googleCredentials(), { clientId: "id", clientSecret: "secret" });
+});
+
+test("a calendar is added once, toggled, and removed", () => {
+  const added = applySettingsSection("googleCalendars", {
+    action: "add", value: "team@group.calendar.google.com", label: " Team ",
+  });
+  assert.equal(added.google.calendars.length, 1);
+  assert.equal(added.google.calendars[0].label, "Team");
+  assert.equal(added.google.calendars[0].enabled, true);
+
+  const again = applySettingsSection("googleCalendars", {
+    action: "add", value: "team@group.calendar.google.com",
+  });
+  assert.match(again.error, /already configured/);
+
+  const id = googleCalendarSources()[0].id;
+  assert.equal(applySettingsSection("googleCalendars", { action: "toggle", id, enabled: false })
+    .google.calendars[0].enabled, false);
+  assert.equal(applySettingsSection("googleCalendars", { action: "remove", id })
+    .google.calendars.length, 0);
+});
+
+test("a calendar action naming an id that is gone is a 404, not a silent no-op", () => {
+  const missing = applySettingsSection("googleCalendars", { action: "toggle", id: "nope" });
+  assert.equal(missing.error, "Calendar not found");
+  assert.equal(missing.status, 404);
+  assert.match(applySettingsSection("googleCalendars", { action: "sideways" }).error, /add.*toggle.*remove/);
+});
+
+test("an empty telegram token leaves the stored one alone; the chat list clears", () => {
+  setTelegramToken("stored-token");
+  setTelegramChatIds([1, 2]);
+
+  applySettingsSection("telegram", { botToken: "   ", chatIds: "" });
+  assert.equal(telegramSettings().botToken, "stored-token");
+  assert.deepEqual(telegramSettings().allowedChatIds, []);
+});
+
+test("a digest audience is accepted as a comma string or as an array", () => {
+  setTelegramToken("t");
+  applySettingsSection("telegram", {
+    gmailDigest: { enabled: true, time: "08:00", locale: "zh", chatIds: "10, -20", query: "  is:unread  " },
+  });
+  let gmail = telegramSettings().gmailDigest;
+  assert.deepEqual(gmail.chatIds, [10, -20]);
+  assert.equal(gmail.query, "is:unread");
+  assert.equal(gmail.locale, "zh");
+
+  applySettingsSection("telegram", {
+    gmailDigest: { enabled: true, time: "08:00", chatIds: [30, "junk", 4.5, -40] },
+  });
+  gmail = telegramSettings().gmailDigest;
+  // Only whole numbers survive; a chat id is never fractional or a word.
+  assert.deepEqual(gmail.chatIds, [30, -40]);
+  // An unknown locale falls back rather than being stored as-is.
+  assert.equal(gmail.locale, "en");
+});
+
+test("an unknown section is refused by both apply and clear", () => {
+  assert.match(applySettingsSection("nonsense", {}).error, /section must be one of/);
+  assert.match(applySettingsSection(undefined, {}).error, /section must be one of/);
+  assert.match(clearSettingsSection("nonsense").error, /section must be/);
+});
+
+test("clearing a section through the domain falls back to the environment", () => {
+  setNotionToken("ntn_file_token");
+  assert.equal(describeNotion().apiToken.source, "file");
+  process.env.NOTION_API_TOKEN = "ntn_env_token";
+  assert.equal(clearSettingsSection("notion").notion.apiToken.source, "env");
+  delete process.env.NOTION_API_TOKEN;
 });

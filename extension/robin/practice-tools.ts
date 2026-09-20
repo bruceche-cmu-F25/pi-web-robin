@@ -11,7 +11,6 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { localDate } from "./dates.ts";
 import {
   ATTEMPT_OUTCOMES,
   PRACTICE_STATUSES,
@@ -21,20 +20,18 @@ import {
   PRACTICE_ROUND_TARGET,
   leetcodeUrl,
   problemsInList,
-  recordMap,
   type CatalogProblem,
   type PracticeList,
   type PracticeRecord,
 } from "./practice.ts";
 import {
-  currentList,
   currentProblem,
+  listPractice,
   logAttempt,
   setNote,
   setStatus,
   type PracticeSnapshot,
 } from "./practice-domain.ts";
-import { readPracticeRecords } from "./store.ts";
 import { text } from "./toolkit.ts";
 
 function describe(problem: CatalogProblem, record: PracticeRecord | null): string {
@@ -110,9 +107,10 @@ export function registerPracticeTools(pi: ExtensionAPI): void {
       limit: Type.Optional(Type.Number({ description: "How many to return (default 25, max 80)" })),
     }),
     async execute(_toolCallId, params) {
+      const board = listPractice();
       const list = (["neetcode150", "blind75", "all"] as PracticeList[])
-        .find((candidate) => candidate === params.list) ?? currentList();
-      const records = recordMap(readPracticeRecords());
+        .find((candidate) => candidate === params.list) ?? board.list;
+      const records = board.bySlug;
       const needle = params.pattern?.trim().toLowerCase();
 
       let problems = problemsInList(list);
@@ -215,10 +213,7 @@ export function registerPracticeTools(pi: ExtensionAPI): void {
     promptSnippet: "practice_due — problems due for review today",
     parameters: Type.Object({}),
     async execute() {
-      const today = localDate();
-      const records = readPracticeRecords();
-      const list = currentList();
-      const bySlug = recordMap(records);
+      const { list, bySlug, today } = listPractice();
       const plan = dailyPracticePlan(problemsInList(list), bySlug, today);
       return text([
         `Today ${today} (${list}): new ${plan.newDone}/${plan.newTarget}, reviews ${plan.reviewDone}/${plan.reviewTarget} practised.`,

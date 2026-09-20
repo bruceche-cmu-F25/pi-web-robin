@@ -25,6 +25,9 @@ import {
 
 export type PracticeResult<T> = T | { error: string };
 
+/** The list a caller works from when the user has never chosen one. */
+export const DEFAULT_PRACTICE_LIST: PracticeList = "neetcode150";
+
 function resolve(slugOrName: string): PracticeResult<CatalogProblem> {
   const matches = findProblemMatches(slugOrName);
   if (matches.length === 1) return matches[0] as CatalogProblem;
@@ -196,6 +199,43 @@ export function reschedule(
   return { problem: found, record };
 }
 
+export interface PracticeBoard {
+  /** Every problem the user has touched, in stored order. */
+  records: PracticeRecord[];
+  /** The same records keyed by slug, for joining against the catalog. */
+  bySlug: Map<string, PracticeRecord>;
+  /** The problem the workspace has open, or null when nothing is selected. */
+  currentSlug: string | null;
+  /** The list the workspace is working from; falls back to {@link DEFAULT_PRACTICE_LIST}. */
+  list: PracticeList;
+  /**
+   * Resolved here, not in the browser, because this is where the agent wrote
+   * the review dates. Letting the client decide would reintroduce the
+   * local/UTC off-by-one the store's date split exists to prevent.
+   */
+  today: string;
+}
+
+/**
+ * Everything a Practice caller needs to render or reason about the board.
+ *
+ * One read for every adapter: the HTTP route serialises it, the Pi tools join
+ * `bySlug` against the catalog. The catalog itself is deliberately absent —
+ * it is generated, unchanging between deploys, and already in the browser
+ * bundle; what changes is the user's own history, which is small.
+ */
+export function listPractice(today = localDate()): PracticeBoard {
+  const records = readPracticeRecords();
+  const state = readPracticeState();
+  return {
+    records,
+    bySlug: new Map(records.map((record) => [record.slug, record])),
+    currentSlug: state.currentSlug ?? null,
+    list: state.list ?? DEFAULT_PRACTICE_LIST,
+    today,
+  };
+}
+
 export interface PracticeSnapshot {
   problem: CatalogProblem;
   record: PracticeRecord | null;
@@ -235,7 +275,7 @@ export function setPracticeList(list: PracticeList): void {
 
 /** The list the workspace is working from, for tools that need a default. */
 export function currentList(): PracticeList {
-  return readPracticeState().list ?? "neetcode150";
+  return readPracticeState().list ?? DEFAULT_PRACTICE_LIST;
 }
 
 /** The problem the workspace has open, or null when nothing is selected. */

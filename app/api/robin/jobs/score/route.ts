@@ -1,15 +1,17 @@
 import { NextResponse } from "next/server";
 import { scoringPrompt } from "@/extension/robin/job-rubric";
 import {
-  pendingJobs,
-  readJobProfile,
-  readJobScoringState,
-  readJobs,
-  writeJobScoringState,
-  type JobScoringState,
-} from "@/extension/robin/store";
+  pendingJobCount,
+  pendingJobIds,
+  saveScoringState,
+  scoringState,
+  scoringStatus,
+  scorerName,
+} from "@/extension/robin/job-domain";
+import { jobProfile } from "@/extension/robin/job-profile";
+import type { JobScoringState } from "@/extension/robin/job-domain";
 import { runAssistantTurn } from "@/lib/robin-assistant";
-import { isApiRequestAllowed } from "@/lib/request-security";
+import { apiRoute } from "@/lib/api-route";
 
 export const dynamic = "force-dynamic";
 
@@ -22,19 +24,7 @@ const MAX_ROUNDS = 8;
 /** One run at a time per process — two would bill twice for the same queue. */
 let running: Promise<unknown> | null = null;
 
-export async function GET(req: Request) {
-  if (!isApiRequestAllowed(req)) {
-    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
-  }
-  const profile = readJobProfile();
-  return NextResponse.json({
-    scoring: readJobScoringState(),
-    // Live from the store, so the page can show a backlog even when no run is
-    // in flight — the number that decides whether pressing Score does anything.
-    pending: pendingJobs(readJobs(), profile).length,
-    model: profile.scoreModel ? `${profile.scoreModel.provider}/${profile.scoreModel.modelId}` : null,
-  });
-}
+export const GET = apiRoute(async () => NextResponse.json(scoringStatus()));
 
 /**
  * Score the backlog, in the background.
@@ -44,18 +34,15 @@ export async function GET(req: Request) {
  * for the same reason: the work outlives any sane request timeout and its only
  * other outward sign is rows quietly gaining a number.
  */
-export async function POST(req: Request) {
-  if (!isApiRequestAllowed(req)) {
-    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
-  }
+export const POST = apiRoute(async () => {
   if (running) {
-    return NextResponse.json({ started: false, reason: "already-running", scoring: readJobScoringState() });
+    return NextResponse.json({ started: false, reason: "already-running", scoring: scoringState() });
   }
 
-  const profile = readJobProfile();
-  const startedWith = pendingJobs(readJobs(), profile).length;
+  const profile = jobProfile();
+  const startedWith = pendingJobCount();
   if (startedWith === 0) {
-    return NextResponse.json({ started: false, reason: "nothing-pending", scoring: readJobScoringState() });
+    return NextResponse.json({ started: false, reason: "nothing-pending", scoring: scoringState() });
   }
 
   const batch = Math.max(1, profile.scoreBatch);
@@ -67,16 +54,16 @@ export async function POST(req: Request) {
     totalRounds: Math.min(Math.ceil(startedWith / batch), MAX_ROUNDS),
     startedWith,
     remaining: startedWith,
-    model: profile.scoreModel ? `${profile.scoreModel.provider}/${profile.scoreModel.modelId}` : null,
+    model: scorerName(profile.scoreModel),
     error: null,
   };
-  writeJobScoringState(state);
+  saveScoringState(state);
 
   const task = (async () => {
     for (let round = 1; round <= state.totalRounds; round += 1) {
       state.round = round;
-      writeJobScoringState(state);
-      const beforeIds = pendingJobs(readJobs(), readJobProfile()).map(job => job.id);
+      saveScoringState(state);
+      const beforeIds = pendingJobIds();
       try {
         await runAssistantTurn("scoring", scoringPrompt(batch, profile.rubricLocale));
       } catch (error) {
@@ -86,18 +73,18 @@ export async function POST(req: Request) {
       }
       // Counted from the store, not decremented, so a round the model half
       // finished is reflected honestly.
-      const remainingIds = new Set(pendingJobs(readJobs(), readJobProfile()).map(job => job.id));
+      const remainingIds = new Set(pendingJobIds());
       state.remaining = remainingIds.size;
       if (beforeIds.length > 0 && beforeIds.every(id => remainingIds.has(id))) {
         state.error = "Scoring made no progress; stopped rather than spending another model round on the same jobs.";
       }
-      writeJobScoringState(state);
+      saveScoringState(state);
       if (state.remaining === 0 || state.error) break;
     }
-    state.remaining = pendingJobs(readJobs(), readJobProfile()).length;
+    state.remaining = pendingJobCount();
     state.running = false;
     state.finishedAt = new Date().toISOString();
-    writeJobScoringState(state);
+    saveScoringState(state);
   })().finally(() => {
     running = null;
   });
@@ -106,4 +93,4 @@ export async function POST(req: Request) {
   task.catch(() => {});
 
   return NextResponse.json({ started: true, scoring: state });
-}
+});

@@ -1,9 +1,33 @@
 /** Job-pipeline behavior shared by the HTTP and Pi tool adapters. */
-import { JOB_STATUSES, pendingJobs, type Job, type JobStatus } from "./jobs.ts";
-import { readJobProfile, readJobs, updateJobs } from "./store.ts";
-import { experienceProblem, reviewProblem, scoringContext, type JobReview } from "./job-evidence.ts";
+import {
+  JOB_STATUSES,
+  digestCandidates,
+  formatJobDigest,
+  pendingJobs,
+  sortJobs,
+  type Job,
+  type JobStatus,
+} from "./jobs.ts";
+import {
+  readJobProfile,
+  readJobScanState,
+  readJobScoringState,
+  readJobSweepState,
+  readJobs,
+  updateJobs,
+  writeJobScoringState,
+  type JobScanState,
+  type JobScoringState,
+  type JobSweepState,
+} from "./store.ts";
+import { experienceProblem, jobSummary, reviewProblem, scoringContext, type JobReview } from "./job-evidence.ts";
 import { enrichJob } from "./job-intake.ts";
-import { hydrateDescriptions, makeFetchContext, type FetchContext } from "./job-providers.ts";
+import {
+  findDeadPostings,
+  hydrateDescriptions,
+  makeFetchContext,
+  type FetchContext,
+} from "./job-providers.ts";
 
 /** Fetch better evidence on demand, without running scan retention or changing statuses. */
 export async function getJobDetails(id: string, ctx: FetchContext = makeFetchContext()): Promise<Job | null> {
@@ -131,4 +155,220 @@ export function scoreJob(input: {
     return { value: { job, pending: pendingJobs(jobs, profile).length }, changed: true };
   });
   return result;
+}
+
+/* ────────────────────────── reads ────────────────────────── */
+
+/** The published progress shapes, re-exported so adapters never import the store. */
+export type { JobScanState, JobScoringState, JobSweepState } from "./store.ts";
+
+export interface JobBoard {
+  /** Best-first, and summarised — `jobSummary` drops the stored posting text. */
+  jobs: Job[];
+  /** How the last discovery sweep went, or null before the first one. */
+  scan: JobScanState | null;
+  /** Where the push threshold sits, so the page can explain what it shows. */
+  minScore: number;
+  digestSize: number;
+  /** False until at least one company or board is tracked. */
+  configured: boolean;
+}
+
+/**
+ * The list plus the two things the page needs to explain it.
+ *
+ * Sending them together keeps the page from firing three requests to render
+ * one screen. The CV is deliberately absent — it can be long and only the
+ * profile editor needs it, so it stays behind the profile read.
+ */
+export function jobBoard(): JobBoard {
+  const profile = readJobProfile();
+  return {
+    jobs: sortJobs(readJobs()).map((job) => jobSummary(job, profile)),
+    scan: readJobScanState(),
+    minScore: profile.minScore,
+    digestSize: profile.digestSize,
+    configured: profile.companies.length > 0 || profile.boards.length > 0,
+  };
+}
+
+/**
+ * How many jobs are waiting on a score.
+ *
+ * Counted from the store on every call rather than tracked, so a run that
+ * half-finished is reported honestly. Every caller that used to spell this
+ * `pendingJobs(readJobs(), readJobProfile()).length` now asks here.
+ */
+export function pendingJobCount(): number {
+  return pendingJobs(readJobs(), readJobProfile()).length;
+}
+
+/** Ids of the jobs waiting on a score, for a caller that must compare two rounds. */
+export function pendingJobIds(): string[] {
+  return pendingJobs(readJobs(), readJobProfile()).map((job) => job.id);
+}
+
+export interface JobScoringStatus {
+  scoring: JobScoringState | null;
+  /** Live backlog — the number that decides whether pressing Score does anything. */
+  pending: number;
+  /** The pinned scorer as `provider/modelId`, or null when none is pinned. */
+  model: string | null;
+}
+
+export function scoringStatus(): JobScoringStatus {
+  const profile = readJobProfile();
+  return {
+    scoring: readJobScoringState(),
+    pending: pendingJobs(readJobs(), profile).length,
+    model: scorerName(profile.scoreModel),
+  };
+}
+
+/** `provider/modelId` for a pinned scorer, or null. */
+export function scorerName(model: { provider: string; modelId: string } | null | undefined): string | null {
+  return model ? `${model.provider}/${model.modelId}` : null;
+}
+
+/** The scoring run's published progress — the file the page polls. */
+export function scoringState(): JobScoringState | null {
+  return readJobScoringState();
+}
+
+/**
+ * Publish a scoring run's progress.
+ *
+ * The run itself lives in the host, because it needs an assistant turn that
+ * the extension has no way to start; this is the seam it writes through.
+ */
+export function saveScoringState(state: JobScoringState): void {
+  writeJobScoringState(state);
+}
+
+/** The directory sweep's published progress. */
+export function sweepState(): JobSweepState | null {
+  return readJobSweepState();
+}
+
+/* ────────────────────────── the digest ────────────────────────── */
+
+/**
+ * Build the next push.
+ *
+ * The text is assembled here, from stored fields, by `formatJobDigest` — the
+ * model never writes it. A digest whose entire value is a link the user will
+ * click cannot afford a hallucinated URL, and a scorer that is only ever asked
+ * for a number and one sentence has no way to produce one.
+ *
+ * Claiming is the other half: every job in the returned batch gets
+ * `notifiedAt` stamped, so the evening push shows different jobs than the
+ * morning one and a bridge restart cannot re-send the same ten.
+ *
+ * Two request shapes exist so a delivery can be claimed only once it landed:
+ *
+ *   { preview: true }        → read the next batch, write nothing
+ *   { claim: [id, …] }       → stamp exactly those jobs as delivered
+ *   { }                      → read and stamp in one step
+ *
+ * The bridge uses the first two. A send that fails then costs nothing: the
+ * batch was never claimed, so the next slot offers the same jobs again rather
+ * than silently skipping ten of them.
+ */
+/**
+ * How many rounds of "drop the dead ones and pull in replacements".
+ *
+ * Two. If a third of a batch is dead the boards are having a bad day, and
+ * grinding through the whole backlog looking for ten live links is a worse
+ * outcome than sending eight.
+ */
+const REFILL_ROUNDS = 2;
+
+/**
+ * The next `limit` candidates, minus the ones whose postings have closed.
+ *
+ * Checked here rather than during the scan because this is the only moment it
+ * matters: a stale row in the store costs nothing until it becomes a
+ * notification someone taps and lands on a 404, and four of the first
+ * sixty-five pushes this feature sent were already dead when they went out.
+ *
+ * A posting confirmed gone is marked `dropped`, so the next push does not
+ * spend a slot rediscovering it. Only confirmed verdicts count — a board that
+ * timed out leaves its posting exactly where it was.
+ */
+async function liveBatch(
+  candidates: Job[],
+  limit: number,
+  checkDead: DeadPostingCheck,
+): Promise<Job[]> {
+  const ctx = makeFetchContext();
+  const live: Job[] = [];
+  const closed = new Set<string>();
+  let cursor = 0;
+
+  for (let round = 0; round < REFILL_ROUNDS && live.length < limit && cursor < candidates.length; round += 1) {
+    const attempt = candidates.slice(cursor, cursor + (limit - live.length));
+    cursor += attempt.length;
+    const dead = await checkDead(attempt.map((job) => job.url), ctx).catch(() => new Set<string>());
+    for (const job of attempt) {
+      if (dead.has(job.url)) closed.add(job.id);
+      else live.push(job);
+    }
+  }
+
+  if (closed.size > 0) dropJobs(closed);
+  return live;
+}
+
+export interface JobDigest {
+  text: string;
+  jobIds: string[];
+  count: number;
+  /** How much is still unscored, and how big a bite the scorer takes. */
+  pending: number;
+  scoreBatch: number;
+}
+
+/**
+ * Asking the boards which of these postings are gone.
+ *
+ * Injected rather than imported at the call site so a test can hold the check
+ * open and edit the profile underneath it — which is the only way to prove the
+ * re-read below actually wins. Production passes `findDeadPostings`.
+ */
+export type DeadPostingCheck = (urls: string[], ctx: FetchContext) => Promise<Set<string>>;
+
+export interface JobDigestOptions {
+  limit?: number;
+  locale?: "en" | "zh";
+  /** Read the next batch without stamping it as delivered. */
+  preview?: boolean;
+  checkDead?: DeadPostingCheck;
+}
+
+export async function buildJobDigest(options: JobDigestOptions = {}): Promise<JobDigest> {
+  const profile = readJobProfile();
+  const limit = Number.isInteger(options.limit) && (options.limit as number) > 0
+    ? Math.min(options.limit as number, 50)
+    : profile.digestSize;
+  const locale = options.locale === "zh" ? "zh" as const : "en" as const;
+
+  const checked = await liveBatch(
+    digestCandidates(readJobs(), profile),
+    limit,
+    options.checkDead ?? findDeadPostings,
+  );
+  // Network checks can take seconds; a blacklist/score/status edit during that
+  // wait must win over the snapshot taken before it.
+  const checkedIds = new Set(checked.map((job) => job.id));
+  const batch = digestCandidates(readJobs(), readJobProfile()).filter((job) => checkedIds.has(job.id));
+
+  if (!options.preview && batch.length > 0) claimJobs(batch.map((job) => job.id));
+
+  return {
+    text: formatJobDigest(batch, { locale, scanned: readJobScanState()?.scanned ?? 0 }),
+    jobIds: batch.map((job) => job.id),
+    count: batch.length,
+    pending: pendingJobs(readJobs(), readJobProfile()).length,
+    scoreBatch: profile.scoreBatch,
+  };
 }

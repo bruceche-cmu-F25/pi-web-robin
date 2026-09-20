@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { isConnected } from "@/extension/robin/google-calendar";
-import { attachMailReport, readMailReview } from "@/extension/robin/store";
+import { attachMailReport, storedMailReview } from "@/extension/robin/mail-domain";
 import { runAssistantTurn } from "@/lib/robin-assistant";
-import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
+import { apiRoute } from "@/lib/api-route";
 
 export const dynamic = "force-dynamic";
 // Reading a full inbox day and writing todos/events can outlive the default.
@@ -50,13 +50,7 @@ function mailPrompt(locale: "zh" | "en"): string {
  * Blocking on purpose — the button needs the finished report, not a job id to
  * poll — and bounded by the `mail` mode's timeout in lib/robin-assistant.
  */
-export async function POST(req: Request) {
-  if (!isApiRequestAllowed(req)) {
-    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
-  }
-  if (!hasJsonContentType(req)) {
-    return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
-  }
+export const POST = apiRoute(async (req) => {
   if (!isConnected()) {
     return NextResponse.json(
       { error: "Google is not connected. Connect it first, then check mail." },
@@ -71,11 +65,11 @@ export async function POST(req: Request) {
     // The report is part of the review: it must survive a page reload, not
     // live only in the response that triggered it.
     attachMailReport(reply);
-    return NextResponse.json({ reply, review: readMailReview() });
+    return NextResponse.json({ reply, review: storedMailReview() });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : String(error) },
       { status: 500 },
     );
   }
-}
+});

@@ -11,7 +11,7 @@ import { getEmail as getGmailMessage, listRecentEmails as listGmailMessages } fr
 import { normalizeAction, normalizeCategory, type MailReviewItem } from "./mail.ts";
 import { recordRound } from "./round-domain.ts";
 import { ROUND_FIELD_HINTS } from "./round-tools.ts";
-import { localDate, writeMailReview } from "./store.ts";
+import { saveMailReview } from "./mail-domain.ts";
 import { text } from "./toolkit.ts";
 
 export function registerGmailTools(pi: ExtensionAPI): void {
@@ -152,7 +152,7 @@ export function registerGmailTools(pi: ExtensionAPI): void {
         };
       });
 
-      writeMailReview({ day: localDate(), reviewedAt: new Date().toISOString(), items });
+      saveMailReview(items);
 
       // The review is overwritten tomorrow; the rounds it names are not.
       let rounds = 0;

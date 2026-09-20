@@ -1980,7 +1980,7 @@ export async function findDeadPostings(
 /* ───────────────────────────── registry ───────────────────────────── */
 
 /** Alphabetical, so detect() precedence is the same on every machine. */
-export const PROVIDERS: readonly Provider[] = [
+const PROVIDERS: readonly Provider[] = [
   agenticJobs,
   ashby,
   bigTechIndex,

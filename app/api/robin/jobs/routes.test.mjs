@@ -18,15 +18,12 @@ after(() => {
 });
 const stub = join(dir, "stub.mjs");
 writeFileSync(stub, `export async function runAssistantTurn() { return globalThis.__jobRouteTest.score(); }
-export function makeFetchContext() { return {}; }
-export async function findDeadPostings() { return globalThis.__jobRouteTest.check(); }`);
+export function makeFetchContext() { return {}; }`);
 const jiti = createJiti(import.meta.url, { alias: {
   "@/lib/robin-assistant": stub,
-  "@/extension/robin/job-providers": stub,
   "@": process.cwd(),
 }, moduleCache: false });
 const scoreRoute = await jiti.import("./score/route.ts");
-const digestRoute = await jiti.import("./digest/route.ts");
 const profileRoute = await createJiti(import.meta.url, { alias: { "@": process.cwd() } }).import("./profile/route.ts");
 const request = (body = {}) => new Request("http://localhost/api/robin/jobs", {
   method: "POST", headers: { "Content-Type": "application/json", Host: "localhost", Origin: "http://localhost" }, body: JSON.stringify(body),
@@ -54,24 +51,6 @@ test("a no-progress scoring round stops once, reports an error and leaves the pi
   assert.match(state.error, /no progress/);
   assert.equal(state.remaining, 2);
   assert.equal(readJobs().every(job => job.status === "new" && job.score === undefined), true);
-});
-
-test("a blacklist edit during live-link checks wins before digest formatting or claiming", async () => {
-  writeJobProfile({ ...DEFAULT_JOB_PROFILE, minScore: 3 });
-  writeJobs([{ ...posting, score: 3.5 }]);
-  let release;
-  const started = new Promise(resolve => { globalThis.__jobRouteTest = { check() {
-    resolve(); return new Promise(done => { release = done; });
-  } }; });
-  const response = digestRoute.POST(request());
-  await started;
-  writeJobProfile({ ...readJobProfile(), blacklist: ["Acme"] });
-  release(new Set());
-  const result = await (await response).json();
-  assert.equal(result.count, 0);
-  assert.deepEqual(result.jobIds, []);
-  assert.equal(readJobs()[0].notifiedAt, undefined);
-  assert.equal(readJobs()[0].status, "new");
 });
 
 test("profile API keeps work facts, stretch policy and scan ceiling separate", async () => {

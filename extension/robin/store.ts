@@ -10,7 +10,6 @@
  * alias map (pi SDK packages + typebox only), so anything else would have to be
  * installed separately.
  */
-import { localDate } from "./dates.ts";
 import type { CalendarEvent } from "./events.ts";
 import type { MailReview } from "./mail.ts";
 import { DEFAULT_JOB_PROFILE, type Job, type JobProfile } from "./jobs.ts";
@@ -93,7 +92,6 @@ const LINKS_FILE = "links.json";
 const EVENTS_FILE = "events.json";
 const TECH_EVENTS_FILE = "tech-events.json";
 const TECH_EVENT_SCAN_FILE = "tech-event-scan.json";
-const ASSISTANT_FILE = "assistant.json";
 const TELEGRAM_STATE_FILE = "telegram-state.json";
 const JOBS_FILE = "jobs.json";
 const JOB_PROFILE_FILE = "job-profile.json";
@@ -178,137 +176,6 @@ export function readTechEventScanState(): TechEventScanState | null {
 
 export function writeTechEventScanState(state: TechEventScanState): void {
   writeJsonObject(TECH_EVENT_SCAN_FILE, state);
-}
-
-/**
- * The pi session the dashboard assistant talks to, remembered across server
- * restarts so the conversation keeps its context ("move it to Thursday").
- */
-interface AssistantState {
-  sessionId?: string;
-  dailyAgendaSessionId?: string;
-  /**
-   * Kept apart from the conversational session on purpose: the scoring turn
-   * reads employer-authored job descriptions, and anything a posting tries to
-   * talk the model into must not survive into the session you chat with later.
-   */
-  jobScorerSessionId?: string;
-  /**
-   * Same isolation for the mail review: email is untrusted third-party text,
-   * so the turn that reads it and writes todos/events runs in its own session.
-   */
-  mailReviewSessionId?: string;
-  /**
-   * The coding coach's own conversation, kept apart from the dashboard
-   * assistant for the plain reason that it is a different conversation: weeks
-   * of "why is this O(n log n)" should not dilute the context you ask about
-   * rent and calendars in, and either one must be restartable without taking
-   * the other with it.
-   */
-  coachSessionId?: string;
-  /**
-   * The curriculum mentor's conversation.
-   *
-   * Apart from the coach for the same reason the coach is apart from the
-   * assistant, and one more: the two are asked opposite questions. The coach
-   * must withhold answers to keep a problem worth solving; the mentor is being
-   * asked to explain, and explaining fully is the whole job. Sharing a session
-   * would leave one persona reading the other's instructions.
-   */
-  mentorSessionId?: string;
-  updatedAt?: string;
-}
-
-function readAssistantState(): AssistantState {
-  return readJsonObject<AssistantState>(ASSISTANT_FILE) ?? {};
-}
-
-function writeAssistantState(patch: Partial<AssistantState>): void {
-  writeJsonObject(ASSISTANT_FILE, {
-    ...readAssistantState(),
-    ...patch,
-    updatedAt: new Date().toISOString(),
-  });
-}
-
-export function readAssistantSessionId(): string | null {
-  return readAssistantState().sessionId ?? null;
-}
-
-export function writeAssistantSessionId(sessionId: string): void {
-  writeAssistantState({ sessionId });
-}
-
-export function readDailyAgendaSessionId(): string | null {
-  return readAssistantState().dailyAgendaSessionId ?? null;
-}
-
-export function writeDailyAgendaSessionId(dailyAgendaSessionId: string): void {
-  writeAssistantState({ dailyAgendaSessionId });
-}
-
-export function readJobScorerSessionId(): string | null {
-  return readAssistantState().jobScorerSessionId ?? null;
-}
-
-export function writeJobScorerSessionId(jobScorerSessionId: string): void {
-  writeAssistantState({ jobScorerSessionId });
-}
-
-export function readMailReviewSessionId(): string | null {
-  return readAssistantState().mailReviewSessionId ?? null;
-}
-
-export function writeMailReviewSessionId(mailReviewSessionId: string): void {
-  writeAssistantState({ mailReviewSessionId });
-}
-
-export function readCoachSessionId(): string | null {
-  return readAssistantState().coachSessionId ?? null;
-}
-
-export function writeCoachSessionId(coachSessionId: string): void {
-  writeAssistantState({ coachSessionId });
-}
-
-export function readMentorSessionId(): string | null {
-  return readAssistantState().mentorSessionId ?? null;
-}
-
-export function writeMentorSessionId(mentorSessionId: string): void {
-  writeAssistantState({ mentorSessionId });
-}
-
-/** The assistant sessions a caller may ask to start over. */
-export const ASSISTANT_SESSION_KINDS = ["default", "readOnly", "scoring", "mail", "coach", "mentor"] as const;
-
-export type AssistantSessionKind = (typeof ASSISTANT_SESSION_KINDS)[number];
-
-const SESSION_FIELDS: Record<AssistantSessionKind, keyof AssistantState> = {
-  default: "sessionId",
-  readOnly: "dailyAgendaSessionId",
-  scoring: "jobScorerSessionId",
-  mail: "mailReviewSessionId",
-  coach: "coachSessionId",
-  mentor: "mentorSessionId",
-};
-
-/**
- * Forget a remembered session id, so the next turn of that mode starts fresh.
- *
- * The session file itself is left alone: this is "start a new conversation",
- * not "delete the old one", and the transcript is still worth having. What it
- * buys is a way out of a context that has drifted or grown expensive without
- * reaching for the filesystem from a chat message.
- */
-export function clearAssistantSession(kind: AssistantSessionKind): boolean {
-  const field = SESSION_FIELDS[kind];
-  const state = readAssistantState();
-  if (state[field] === undefined) return false;
-  const { [field]: _dropped, ...rest } = state;
-  void _dropped;
-  writeJsonObject(ASSISTANT_FILE, { ...rest, updatedAt: new Date().toISOString() });
-  return true;
 }
 
 /* ──────────────────────────── jobs ──────────────────────────── */
@@ -456,23 +323,6 @@ export function readMailReview(): MailReview | null {
 
 export function writeMailReview(review: MailReview): void {
   writeJsonObject(MAIL_REVIEW_FILE, review);
-}
-
-/**
- * Attach the assistant's report to today's review.
- *
- * The report is the turn's final text, produced after gmail_review already
- * wrote the items — so it has to be merged in a second step. An empty inbox is
- * still a review ("no mail" is information), so a turn with no items still
- * creates a shell review rather than dropping the report.
- */
-export function attachMailReport(reply: string): void {
-  const report = reply.trim();
-  if (!report) return;
-  const review = readMailReview();
-  writeMailReview(review
-    ? { ...review, report }
-    : { day: localDate(), reviewedAt: new Date().toISOString(), items: [], report });
 }
 
 /* ──────────────────────────── practice ──────────────────────────── */

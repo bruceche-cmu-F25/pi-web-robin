@@ -10,6 +10,8 @@ import { randomUUID } from "node:crypto";
 import {
   dataDir,
   readJobProfile,
+} from "@/extension/robin/store";
+import {
   readAssistantSessionId,
   readCoachSessionId,
   readDailyAgendaSessionId,
@@ -22,7 +24,7 @@ import {
   writeJobScorerSessionId,
   writeMailReviewSessionId,
   writeMentorSessionId,
-} from "@/extension/robin/store";
+} from "@/extension/robin/assistant-sessions";
 import {
   ROBIN_COACH_TOOL_NAMES,
   ROBIN_MAIL_TOOL_NAMES,
@@ -297,12 +299,12 @@ async function runTurn(
   timeoutMs: number = TURN_TIMEOUT_MS,
   includeTimeContext = false,
   signal?: AbortSignal,
-): Promise<{ reply: string; usedTools: string[] }> {
+): Promise<{ reply: string; final: string; usedTools: string[] }> {
   const chunks: string[] = [];
   const usedTools: string[] = [];
   recordRobinSessionActivity(session.sessionId, session.sessionFile);
 
-  return await new Promise<{ reply: string; usedTools: string[] }>((resolve, reject) => {
+  return await new Promise<{ reply: string; final: string; usedTools: string[] }>((resolve, reject) => {
     let settled = false;
     let unsubscribe = () => {};
     const onAbort = () => {
@@ -338,7 +340,7 @@ async function runTurn(
       // `prompt_done` is the wrapper's own end-of-run signal; `agent_settled`
       // also covers runs an extension injected without one.
       if (event.type === "prompt_done" || event.type === "agent_settled") {
-        finish(() => resolve({ reply: chunks.join("\n\n").trim(), usedTools }));
+        finish(() => resolve({ reply: chunks.join("\n\n").trim(), final: (chunks.at(-1) ?? "").trim(), usedTools }));
       }
     });
 
@@ -393,14 +395,17 @@ async function runModeTurn(
   const prompt = preamble ? `${preamble}\n\n---\n\n${message}` : message;
   try {
     if (modeName === "scoring") await prepareJobScoringSession(session);
-    const { reply, usedTools } = await runTurn(
+    const { reply, final, usedTools } = await runTurn(
       session,
       prompt,
       images,
       mode.timeoutMs,
       "timeContext" in mode && mode.timeContext === true,
     );
-    return { reply, usedTools, sessionId };
+    // A mail turn ends in a report that is stored and pushed to a phone; the
+    // narration between its tool calls ("I'll start by checking…") is not part
+    // of it. Chat modes keep every message, since their answer can span them.
+    return { reply: modeName === "mail" && final ? final : reply, usedTools, sessionId };
   } finally {
     if (stateless) await endOneShot(session);
   }
@@ -449,8 +454,8 @@ export async function runScopedAssistantTurn(options: {
   const prompt = fresh ? `${options.preamble}\n\n---\n\n${options.message}` : options.message;
   try {
     if (options.thinkingLevel) await session.send({ type: "set_thinking_level", level: options.thinkingLevel });
-    const result = await runTurn(session, prompt, options.images ?? [], options.timeoutMs ?? TURN_TIMEOUT_MS, false, options.signal);
-    return { ...result, sessionId };
+    const { reply, usedTools } = await runTurn(session, prompt, options.images ?? [], options.timeoutMs ?? TURN_TIMEOUT_MS, false, options.signal);
+    return { reply, usedTools, sessionId };
   } finally {
     if (options.oneShot) await endOneShot(session);
   }

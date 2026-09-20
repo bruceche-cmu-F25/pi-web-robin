@@ -1,31 +1,9 @@
 import { NextResponse } from "next/server";
-import { deleteJob, updateJob } from "@/extension/robin/job-domain";
-import { jobSummary } from "@/extension/robin/job-evidence";
-import {
-  JOB_STATUSES,
-  readJobProfile,
-  readJobScanState,
-  readJobs,
-  sortJobs,
-  type JobStatus,
-} from "@/extension/robin/store";
-import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
+import { deleteJob, jobBoard, updateJob } from "@/extension/robin/job-domain";
+import { JOB_STATUSES, type JobStatus } from "@/extension/robin/jobs";
+import { apiError, apiRoute } from "@/lib/api-route";
 
 export const dynamic = "force-dynamic";
-
-function guard(req: Request, requireJson: boolean): NextResponse | null {
-  if (!isApiRequestAllowed(req)) {
-    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
-  }
-  if (requireJson && !hasJsonContentType(req)) {
-    return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
-  }
-  return null;
-}
-
-function fail(error: unknown, status = 400): NextResponse {
-  return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status });
-}
 
 /**
  * The list, best-first, plus the two things the page needs to explain it: how
@@ -35,22 +13,7 @@ function fail(error: unknown, status = 400): NextResponse {
  * The CV is deliberately not included — it can be long and only the profile
  * editor needs it, so it lives behind /api/robin/jobs/profile.
  */
-export async function GET(req: Request) {
-  const blocked = guard(req, false);
-  if (blocked) return blocked;
-  try {
-    const profile = readJobProfile();
-    return NextResponse.json({
-      jobs: sortJobs(readJobs()).map((job) => jobSummary(job, profile)),
-      scan: readJobScanState(),
-      minScore: profile.minScore,
-      digestSize: profile.digestSize,
-      configured: profile.companies.length > 0 || profile.boards.length > 0,
-    });
-  } catch (error) {
-    return fail(error, 500);
-  }
-}
+export const GET = apiRoute(async () => NextResponse.json(jobBoard()));
 
 /**
  * Change one job's status, or edit your note on it.
@@ -59,40 +22,28 @@ export async function GET(req: Request) {
  * the scorer through the agent tools and `notifiedAt` from the digest — letting
  * the page set either would make "why was I shown this" unanswerable.
  */
-export async function PATCH(req: Request) {
-  const blocked = guard(req, true);
-  if (blocked) return blocked;
-  try {
-    const body = await req.json() as { id?: unknown; status?: unknown; note?: unknown };
-    if (typeof body.id !== "string" || !body.id) return fail(new Error("id is required"));
-    if (body.status !== undefined
-      && (typeof body.status !== "string" || !JOB_STATUSES.includes(body.status as JobStatus))) {
-      return fail(new Error(`status must be one of: ${JOB_STATUSES.join(", ")}`));
-    }
-    if (body.note !== undefined && typeof body.note !== "string") {
-      return fail(new Error("note must be text"));
-    }
-
-    const job = updateJob(body.id, {
-      ...(typeof body.status === "string" ? { status: body.status as JobStatus } : {}),
-      ...(typeof body.note === "string" ? { note: body.note } : {}),
-    });
-    if (!job) return fail(new Error(`No job with id "${body.id}"`), 404);
-    return NextResponse.json({ job });
-  } catch (error) {
-    return fail(error, 500);
+export const PATCH = apiRoute(async (req) => {
+  const body = await req.json() as { id?: unknown; status?: unknown; note?: unknown };
+  if (typeof body.id !== "string" || !body.id) return apiError(new Error("id is required"));
+  if (body.status !== undefined
+    && (typeof body.status !== "string" || !JOB_STATUSES.includes(body.status as JobStatus))) {
+    return apiError(new Error(`status must be one of: ${JOB_STATUSES.join(", ")}`));
   }
-}
-
-export async function DELETE(req: Request) {
-  const blocked = guard(req, true);
-  if (blocked) return blocked;
-  try {
-    const body = await req.json() as { id?: unknown };
-    if (typeof body.id !== "string" || !body.id) return fail(new Error("id is required"));
-    if (!deleteJob(body.id)) return fail(new Error(`No job with id "${body.id}"`), 404);
-    return NextResponse.json({ ok: true });
-  } catch (error) {
-    return fail(error, 500);
+  if (body.note !== undefined && typeof body.note !== "string") {
+    return apiError(new Error("note must be text"));
   }
-}
+
+  const job = updateJob(body.id, {
+    ...(typeof body.status === "string" ? { status: body.status as JobStatus } : {}),
+    ...(typeof body.note === "string" ? { note: body.note } : {}),
+  });
+  if (!job) return apiError(new Error(`No job with id "${body.id}"`), 404);
+  return NextResponse.json({ job });
+}, { errorStatus: 500 });
+
+export const DELETE = apiRoute(async (req) => {
+  const body = await req.json() as { id?: unknown };
+  if (typeof body.id !== "string" || !body.id) return apiError(new Error("id is required"));
+  if (!deleteJob(body.id)) return apiError(new Error(`No job with id "${body.id}"`), 404);
+  return NextResponse.json({ ok: true });
+}, { errorStatus: 500 });

@@ -1,7 +1,74 @@
-/** Calendar writes shared by the HTTP and Pi tool adapters. */
-import { normalizeDue } from "./dates.ts";
-import { normalizeTime, type CalendarEvent } from "./events.ts";
-import { newId, updateEvents } from "./store.ts";
+/** Calendar behavior shared by the HTTP and Pi tool adapters. */
+import { addDays, localDate, normalizeDue } from "./dates.ts";
+import { normalizeTime, type CalendarEvent, type DashboardEvent } from "./events.ts";
+import { fetchEventsWithWarnings, isConnected } from "./google-calendar.ts";
+import { newId, readEvents, updateEvents } from "./store.ts";
+
+export interface CalendarBoard {
+  /** Local events plus any read-only ones pulled from Google, unsorted. */
+  events: DashboardEvent[];
+  /** Server-resolved, matching the local dates the agent wrote. */
+  today: string;
+  google: {
+    connected: boolean;
+    /** Present when Google was connected but could not be read in full. */
+    error?: string;
+  };
+}
+
+export interface CalendarBoardOptions {
+  /**
+   * How far either side of today to pull Google events, in days. Expressed as
+   * a width rather than two dates so that `today` is read once, here: a caller
+   * that resolved its own dates first could straddle midnight and ask about a
+   * different day than the one it reports.
+   *
+   * The defaults cover the month grid either side of today.
+   */
+  before?: number;
+  after?: number;
+}
+
+/**
+ * The schedule as the user sees it: their own events merged with a connected
+ * Google calendar.
+ *
+ * Both adapters read through here because reading only the local store is a
+ * bug with a face — it made the agent answer "nothing scheduled" to someone
+ * whose day was full, which is worse than having no tool at all.
+ *
+ * A Google failure degrades to local-only rather than throwing: the dashboard
+ * staying up with the user's own events beats an error page, and the caller
+ * still learns what happened from `google.error`.
+ */
+export async function calendarBoard(options: CalendarBoardOptions = {}): Promise<CalendarBoard> {
+  const today = localDate();
+  const events: DashboardEvent[] = readEvents();
+  if (!isConnected()) return { events, today, google: { connected: false } };
+
+  const from = addDays(today, -(options.before ?? 45));
+  const to = addDays(today, options.after ?? 75);
+  try {
+    const pulled = await fetchEventsWithWarnings(from, to);
+    return {
+      events: [...events, ...pulled.events],
+      today,
+      google: {
+        connected: true,
+        ...(pulled.warnings.length > 0 ? { error: pulled.warnings.join("; ") } : {}),
+      },
+    };
+  } catch (error) {
+    return {
+      events,
+      today,
+      google: {
+        connected: true,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
+}
 
 export interface CalendarEventInput {
   title?: unknown;

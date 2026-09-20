@@ -7,14 +7,12 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { createCalendarEvent } from "./calendar-domain.ts";
-import { fetchEvents as fetchGoogleEvents, isConnected as googleConnected } from "./google-calendar.ts";
+import { calendarBoard, createCalendarEvent } from "./calendar-domain.ts";
 import {
   addDays,
   compareEvents,
   eventsInRange,
   formatEventTime,
-  localDate,
   readEvents,
   type CalendarEvent,
 } from "./store.ts";
@@ -73,24 +71,19 @@ export function registerCalendarTools(pi: ExtensionAPI): void {
       days: Type.Optional(Type.Number({ description: "How many days ahead to include, starting today (default 7)" })),
     }),
     async execute(_toolCallId, params) {
-      const today = localDate();
       const span = Math.max(1, Math.min(params.days ?? 7, 365));
+
+      // Read through the same merge the dashboard uses. Reading only the local
+      // store made the agent answer "nothing scheduled" to someone whose day
+      // was full — worse than having no tool.
+      const board = await calendarBoard({ before: 0, after: span - 1 });
+      const today = board.today;
       const until = addDays(today, span - 1);
+      const warning = board.google.error
+        ? "\n(Could not reach Google Calendar; only locally created events are listed.)"
+        : "";
 
-      // The dashboard merges Google events into its view, so this tool must do
-      // the same. Reading only the local store made the agent answer "nothing
-      // scheduled" to someone whose day was full — worse than having no tool.
-      let events: CalendarEvent[] = readEvents();
-      let warning = "";
-      if (googleConnected()) {
-        try {
-          events = [...events, ...await fetchGoogleEvents(today, until)];
-        } catch {
-          warning = "\n(Could not reach Google Calendar; only locally created events are listed.)";
-        }
-      }
-
-      const upcoming = eventsInRange(events, today, until);
+      const upcoming = eventsInRange(board.events, today, until);
       const header = `Today is ${today} (user's local date).`;
       if (upcoming.length === 0) {
         return text(`${header}\nNothing scheduled in the next ${span} day(s).${warning}`);

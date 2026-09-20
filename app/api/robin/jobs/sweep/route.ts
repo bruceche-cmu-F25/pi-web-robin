@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { runDirectorySweep, DIRECTORIES } from "@/extension/robin/job-directory";
-import { readJobProfile, readJobSweepState } from "@/extension/robin/store";
-import { isApiRequestAllowed } from "@/lib/request-security";
+import { sweepState } from "@/extension/robin/job-domain";
+import { jobProfile } from "@/extension/robin/job-profile";
+import { apiRoute } from "@/lib/api-route";
 
 export const dynamic = "force-dynamic";
 
@@ -15,15 +16,12 @@ export const dynamic = "force-dynamic";
 let running: Promise<unknown> | null = null;
 
 /** Progress, for the page's poll. */
-export async function GET(req: Request) {
-  if (!isApiRequestAllowed(req)) {
-    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
-  }
+export const GET = apiRoute(async () => {
   return NextResponse.json({
-    sweep: readJobSweepState(),
+    sweep: sweepState(),
     directories: DIRECTORIES.map(({ id, label }) => ({ id, label })),
   });
-}
+});
 
 /**
  * Start a sweep and return immediately.
@@ -34,12 +32,9 @@ export async function GET(req: Request) {
  * server restart kills the sweep; the cursor it writes as it goes is what makes
  * the next run pick up rather than start over.
  */
-export async function POST(req: Request) {
-  if (!isApiRequestAllowed(req)) {
-    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
-  }
+export const POST = apiRoute(async (req) => {
   if (running) {
-    return NextResponse.json({ started: false, reason: "already-running", sweep: readJobSweepState() });
+    return NextResponse.json({ started: false, reason: "already-running", sweep: sweepState() });
   }
 
   let body: { directories?: unknown; limit?: unknown; resume?: unknown } = {};
@@ -57,7 +52,7 @@ export async function POST(req: Request) {
     : Infinity;
 
   const task = runDirectorySweep({
-    profile: readJobProfile(),
+    profile: jobProfile(),
     ...(directories ? { directories } : {}),
     limit,
     resume: body.resume === true,
@@ -68,5 +63,5 @@ export async function POST(req: Request) {
   // Nothing awaits this, so an unhandled rejection would take down the process.
   task.catch(() => {});
 
-  return NextResponse.json({ started: true, sweep: readJobSweepState() });
-}
+  return NextResponse.json({ started: true, sweep: sweepState() });
+});

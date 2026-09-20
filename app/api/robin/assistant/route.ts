@@ -1,26 +1,19 @@
 import { NextResponse } from "next/server";
+import { attachMailReport } from "@/extension/robin/mail-domain";
 import {
   ASSISTANT_SESSION_KINDS,
-  attachMailReport,
   clearAssistantSession,
   type AssistantSessionKind,
-} from "@/extension/robin/store";
+} from "@/extension/robin/assistant-sessions";
 import { runAssistantTurn, resolveMode } from "@/lib/robin-assistant";
 import { validateAgentImages } from "@/lib/image-attachments";
-import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
+import { apiRoute } from "@/lib/api-route";
 
 export const dynamic = "force-dynamic";
 // The scoring mode walks a whole batch of postings in one turn.
 export const maxDuration = 360;
 
-export async function POST(req: Request) {
-  if (!isApiRequestAllowed(req)) {
-    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
-  }
-  if (!hasJsonContentType(req)) {
-    return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
-  }
-
+export const POST = apiRoute(async (req) => {
   try {
     const body = await req.json() as {
       message?: unknown;
@@ -50,7 +43,7 @@ export async function POST(req: Request) {
       { status: 500 },
     );
   }
-}
+});
 
 /**
  * Start a mode's conversation over.
@@ -63,13 +56,7 @@ export async function POST(req: Request) {
  * or a local date change. This remains the explicit way to reset it sooner;
  * the monthly retention sweep handles old Robin transcripts separately.
  */
-export async function DELETE(req: Request) {
-  if (!isApiRequestAllowed(req)) {
-    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
-  }
-  if (!hasJsonContentType(req)) {
-    return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
-  }
+export const DELETE = apiRoute(async (req) => {
   try {
     const body = await req.json().catch(() => ({})) as { mode?: unknown };
     const mode = typeof body.mode === "string" ? body.mode : "default";
@@ -87,4 +74,4 @@ export async function DELETE(req: Request) {
       { status: 500 },
     );
   }
-}
+});

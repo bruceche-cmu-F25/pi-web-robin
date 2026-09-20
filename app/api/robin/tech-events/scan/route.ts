@@ -1,25 +1,18 @@
 import { NextResponse } from "next/server";
-import {
-  startTechEventScan,
-  techEventScanRunning,
-} from "@/extension/robin/tech-event-scan";
+import { startTechEventScan } from "@/extension/robin/tech-event-scan";
+import { techEventScanStatus } from "@/extension/robin/tech-event-domain";
 import { DEFAULT_SOURCES } from "@/extension/robin/tech-event-sources";
-import { readTechEventScanState } from "@/extension/robin/store";
-import { isApiRequestAllowed } from "@/lib/request-security";
+import { apiRoute } from "@/lib/api-route";
 
 export const dynamic = "force-dynamic";
 
 /** What the last scan did, and which feeds it reads. */
-export async function GET(req: Request) {
-  if (!isApiRequestAllowed(req)) {
-    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
-  }
+export const GET = apiRoute(async () => {
   return NextResponse.json({
-    scan: readTechEventScanState(),
-    scanning: techEventScanRunning(),
+    ...techEventScanStatus(),
     sources: DEFAULT_SOURCES.map(({ id, label, kind }) => ({ id, label, kind })),
   });
-}
+});
 
 /**
  * Scan now, without waiting for the week to be up.
@@ -29,14 +22,11 @@ export async function GET(req: Request) {
  * list anyway — so there is nothing to gain by holding the request open for
  * the worst case.
  */
-export async function POST(req: Request) {
-  if (!isApiRequestAllowed(req)) {
-    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
-  }
+export const POST = apiRoute(async () => {
   const started = startTechEventScan();
   return NextResponse.json({
     started,
     ...(started ? {} : { reason: "already-running" }),
-    scan: readTechEventScanState(),
+    scan: techEventScanStatus().scan,
   });
-}
+});

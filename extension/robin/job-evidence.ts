@@ -1,4 +1,5 @@
-import { extractYearsRequired, hasDegreeExperienceAlternatives, type Job, type JobProfile } from "./jobs.ts";
+import { extractYearsRequired, hasDegreeExperienceAlternatives } from "./job-requirements.ts";
+import type { Job, JobProfile } from "./jobs.ts";
 
 export const JOB_SCORING_CONTRACT = "job-evidence-v3";
 

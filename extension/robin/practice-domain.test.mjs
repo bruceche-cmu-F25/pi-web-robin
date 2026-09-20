@@ -6,8 +6,10 @@ import { after, beforeEach, test } from "node:test";
 import { localDate, addDays } from "./dates.ts";
 import { reviewDateFor, practiceProgress, dailyPracticePlan, problemsInList, recordMap } from "./practice.ts";
 import {
+  DEFAULT_PRACTICE_LIST,
   currentList,
   currentProblem,
+  listPractice,
   logAttempt,
   patchPractice,
   reschedule,
@@ -236,4 +238,34 @@ test("re-selecting the same status cannot clear an overdue review", () => {
   assert.equal(readPracticeRecords()[0].nextReviewOn, overdue);
   patchPractice({ problem: "two-sum", status: "solved", note: "A note is not a sitting" });
   assert.equal(readPracticeRecords()[0].nextReviewOn, overdue);
+});
+
+test("listPractice is the one read both adapters share", () => {
+  writePracticeRecords([
+    { slug: "two-sum", status: "solved", attempts: [], updatedAt: "2026-09-01T00:00:00.000Z" },
+    { slug: "valid-parentheses", status: "todo", attempts: [], updatedAt: "2026-09-02T00:00:00.000Z" },
+  ]);
+  setCurrentProblem("two-sum", "blind75");
+
+  const board = listPractice();
+  assert.deepEqual(board.records, readPracticeRecords());
+  assert.equal(board.currentSlug, "two-sum");
+  assert.equal(board.list, "blind75");
+  assert.equal(board.today, localDate());
+  // bySlug is the join key the Pi tools use against the catalog.
+  assert.equal(board.bySlug.get("two-sum")?.status, "solved");
+  assert.equal(board.bySlug.size, board.records.length);
+});
+
+test("listPractice falls back to the default list and reports no open problem", () => {
+  const board = listPractice();
+  assert.deepEqual(board.records, []);
+  assert.equal(board.currentSlug, null);
+  assert.equal(board.list, DEFAULT_PRACTICE_LIST);
+  assert.equal(board.list, currentList());
+});
+
+test("listPractice dates the board on the server, and honours an explicit day", () => {
+  const yesterday = addDays(localDate(), -1);
+  assert.equal(listPractice(yesterday).today, yesterday);
 });

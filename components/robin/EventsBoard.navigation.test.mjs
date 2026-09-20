@@ -9,6 +9,7 @@ const marginSource = await read("./RobinMargin.tsx");
 const pageSource = await read("../../app/dashboard/events/page.tsx");
 const listRoute = await read("../../app/api/robin/tech-events/route.ts");
 const scanRoute = await read("../../app/api/robin/tech-events/scan/route.ts");
+const domain = await read("../../extension/robin/tech-event-domain.ts");
 
 test("the events page lives under the dashboard shell", () => {
   // /dashboard has a layout that wraps children in <RobinShell>, so the page
@@ -30,21 +31,23 @@ test("the nav badge counts what you decided to go to", () => {
 });
 
 test("the weekly cadence is driven by the read, not by a daemon", () => {
-  // There is no cron behind this feature. The GET checks whether the week is
+  // There is no cron behind this feature. The read checks whether the week is
   // up, starts a scan if it is, and answers with what is already stored — so
-  // the page is never blocked on the network.
-  assert.match(listRoute, /if \(isScanDue\(scan, now\)\) startTechEventScan\(\)/);
-  assert.match(listRoute, /events: sortTechEvents\(live\)/);
+  // the page is never blocked on the network. The rule lives in the domain
+  // module; tech-event-domain.test.mjs exercises it through techEventBoard().
+  assert.match(domain, /if \(options\.autoScan !== false && isScanDue\(scan, now\)\) startTechEventScan\(\)/);
+  assert.match(domain, /events: sortTechEvents\(live\)/);
+  assert.match(listRoute, /techEventBoard\(\)/);
   assert.match(scanRoute, /const started = startTechEventScan\(\)/);
 });
 
 test("every route is behind the shared request guard", () => {
-  for (const source of [listRoute, scanRoute]) {
-    assert.match(source, /isApiRequestAllowed\(req\)/);
-  }
-  // A write needs the content-type check too, or a cross-site form post
-  // reaches it.
-  assert.match(listRoute, /hasJsonContentType\(req\)/);
+  // The origin check and the content-type check both live in `apiRoute`
+  // (lib/api-route.ts), which is what a route is wrapped in rather than what
+  // it calls. lib/api-route.test.mjs pins the policy itself; this only pins
+  // that these two routes are behind it.
+  assert.match(listRoute, /apiRoute\(/);
+  assert.match(scanRoute, /isApiRequestAllowed\(req\)|apiRoute\(|guardApiRequest\(/);
 });
 
 test("the page may only write the two fields the scanner does not own", () => {
@@ -53,6 +56,8 @@ test("the page may only write the two fields the scanner does not own", () => {
   assert.match(listRoute, /saved must be true or false/);
   assert.match(listRoute, /hidden must be true or false/);
   assert.doesNotMatch(listRoute, /body\.(title|url|startAt|score)/);
+  // The domain enforces the same thing rather than trusting the route to.
+  assert.match(domain, /const \{ saved, hidden, \.\.\.rest \} = events\[index\]!/);
 });
 
 test("third-party event links open with noreferrer", () => {

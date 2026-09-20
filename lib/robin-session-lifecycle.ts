@@ -4,7 +4,7 @@ import { dataDir, readJsonObject, updateJsonObject } from "@/extension/robin/pat
 import {
   readAssistantSessionId, readCoachSessionId, readDailyAgendaSessionId,
   readJobScorerSessionId, readMailReviewSessionId, readMentorSessionId,
-} from "@/extension/robin/store";
+} from "@/extension/robin/assistant-sessions";
 import { readProductAgentSessionIds } from "@/extension/robin/product-agent-state";
 import { readNotesAgentSessionIds } from "@/extension/robin/notes-agent-state";
 import { getRpcSession } from "@/lib/rpc-manager";

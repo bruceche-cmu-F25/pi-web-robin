@@ -579,3 +579,238 @@ export function parseChatIds(raw: string | undefined): number[] {
       return parsed;
     });
 }
+
+/* ────────────────── the settings screen's sections ────────────────── */
+
+/**
+ * The settings screen edits four sections, and every field it sends arrives as
+ * untrusted JSON that has to be coerced into one of the typed records above.
+ *
+ * That coercion is domain knowledge — what a locale may be, that a digest's
+ * chat list can arrive as a string or an array, that an absent key means
+ * "leave the stored value alone" while an empty string means "clear it". It
+ * used to live in the HTTP route, which meant the route imported twenty-three
+ * setters and knew the shape of every field. Adding a setting meant editing
+ * two files.
+ */
+export const SETTINGS_SECTIONS = ["google", "googleCalendars", "notion", "telegram"] as const;
+export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
+
+/** Configuration state as the screen renders it — presence and origin, never a secret. */
+export interface SettingsView {
+  google: ReturnType<typeof describeGoogle>;
+  notion: ReturnType<typeof describeNotion>;
+  telegram: ReturnType<typeof describeTelegram>;
+  /** Where the file lives, so the screen can tell the user where to look. */
+  storedAt: string;
+}
+
+export type SettingsResult<T> = T | { error: string; status?: number };
+
+export function settingsView(): SettingsView {
+  return {
+    google: describeGoogle(),
+    notion: describeNotion(),
+    telegram: describeTelegram(),
+    storedAt: secretsPath(),
+  };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null ? value as Record<string, unknown> : null;
+}
+
+const str = (value: unknown): string => (typeof value === "string" ? value : "");
+const locale = (value: unknown): "en" | "zh" => (value === "zh" ? "zh" : "en");
+
+/** A digest's audience arrives as a comma string from the form, or an array on replay. */
+function chatList(value: unknown): number[] {
+  if (typeof value === "string") return parseChatIds(value);
+  if (Array.isArray(value)) return value.filter((id): id is number => Number.isInteger(id));
+  return [];
+}
+
+function applyGoogle(body: Record<string, unknown>): SettingsResult<Pick<SettingsView, "google">> {
+  const clientId = str(body.clientId).trim();
+  const clientSecret = str(body.clientSecret).trim();
+  if (!clientId || !clientSecret) {
+    return { error: "Both the client ID and the client secret are required" };
+  }
+  setGoogleCredentials(clientId, clientSecret);
+  return { google: describeGoogle() };
+}
+
+function applyGoogleCalendars(body: Record<string, unknown>): SettingsResult<Pick<SettingsView, "google">> {
+  const calendars = googleCalendarSources();
+  const id = typeof body.id === "string" ? body.id : null;
+
+  if (body.action === "add") {
+    if (typeof body.value !== "string") return { error: "Calendar URL or ID is required" };
+    const added = parseGoogleCalendarId(body.value);
+    if (calendars.some((source) => source.id === added)) {
+      return { error: "That calendar is already configured" };
+    }
+    const label = str(body.label).trim();
+    setGoogleCalendarSources([...calendars, { id: added, ...(label ? { label } : {}), enabled: true }]);
+  } else if (body.action === "toggle" || body.action === "remove") {
+    if (!id) return { error: "Calendar id is required" };
+    if (!calendars.some((source) => source.id === id)) return { error: "Calendar not found", status: 404 };
+    setGoogleCalendarSources(body.action === "remove"
+      ? calendars.filter((source) => source.id !== id)
+      : calendars.map((source) => (source.id === id ? { ...source, enabled: body.enabled === true } : source)));
+  } else {
+    return { error: 'action must be "add", "toggle", or "remove"' };
+  }
+  return { google: describeGoogle() };
+}
+
+function applyTelegram(body: Record<string, unknown>): SettingsResult<Pick<SettingsView, "telegram">> {
+  // The token and the chat list are edited separately, so an empty field means
+  // "leave alone" rather than "clear" — clearing is its own action.
+  if (typeof body.botToken === "string" && body.botToken.trim()) setTelegramToken(body.botToken);
+  if (typeof body.chatIds === "string") setTelegramChatIds(parseChatIds(body.chatIds));
+
+  const agenda = asRecord(body.dailyAgenda);
+  if (agenda) {
+    setDailyAgenda({ enabled: agenda.enabled === true, time: str(agenda.time), locale: locale(agenda.locale) });
+  }
+
+  const jobDigest = asRecord(body.jobDigest);
+  if (jobDigest) {
+    setJobDigest({
+      enabled: jobDigest.enabled === true,
+      morning: str(jobDigest.morning),
+      evening: str(jobDigest.evening),
+      count: Number(jobDigest.count),
+      locale: locale(jobDigest.locale),
+      chatIds: chatList(jobDigest.chatIds),
+      sweepAt: str(jobDigest.sweepAt),
+    });
+  }
+
+  const gmailDigest = asRecord(body.gmailDigest);
+  if (gmailDigest) {
+    setGmailDigest({
+      enabled: gmailDigest.enabled === true,
+      time: str(gmailDigest.time),
+      locale: locale(gmailDigest.locale),
+      chatIds: chatList(gmailDigest.chatIds),
+      query: str(gmailDigest.query).trim(),
+    });
+  }
+
+  const reminders = asRecord(body.reminders);
+  if (reminders) {
+    setReminders({
+      enabled: reminders.enabled === true,
+      lead: Number(reminders.lead),
+      locale: locale(reminders.locale),
+      chatIds: chatList(reminders.chatIds),
+    });
+  }
+
+  const transcription = asRecord(body.transcription);
+  if (transcription) {
+    // An absent key means "leave the stored one alone", matching how the bot
+    // token behaves; an empty string is an explicit clear.
+    setTranscription(
+      {
+        enabled: transcription.enabled === true,
+        baseUrl: str(transcription.baseUrl),
+        model: str(transcription.model),
+      },
+      typeof transcription.apiKey === "string" ? transcription.apiKey : undefined,
+    );
+  }
+
+  return { telegram: describeTelegram() };
+}
+
+/** Apply one section of the settings screen, coercing whatever the browser sent. */
+export function applySettingsSection(
+  section: unknown,
+  body: Record<string, unknown>,
+): SettingsResult<Partial<SettingsView>> {
+  switch (section) {
+    case "google": return applyGoogle(body);
+    case "googleCalendars": return applyGoogleCalendars(body);
+    case "notion":
+      setNotionToken(str(body.apiToken));
+      return { notion: describeNotion() };
+    case "telegram": return applyTelegram(body);
+    default:
+      return { error: `section must be one of: ${SETTINGS_SECTIONS.join(", ")}` };
+  }
+}
+
+/** Forget one section's credentials; the environment becomes the fallback again. */
+export function clearSettingsSection(section: unknown): SettingsResult<Partial<SettingsView>> {
+  switch (section) {
+    case "google":
+      clearGoogleCredentials();
+      return { google: describeGoogle() };
+    case "notion":
+      clearNotion();
+      return { notion: describeNotion() };
+    case "telegram":
+      clearTelegram();
+      return { telegram: describeTelegram() };
+    default:
+      return { error: 'section must be "google", "notion", or "telegram"' };
+  }
+}
+
+export interface DetectedChat {
+  id: number;
+  name: string;
+}
+
+/**
+ * One-shot chat-id discovery: ask Telegram for pending updates and report the
+ * chats they came from.
+ *
+ * Sent without an `offset`, so it reads the backlog without acknowledging it
+ * and does not consume messages the bridge still needs.
+ */
+export async function detectTelegramChats(): Promise<SettingsResult<{ chats: DetectedChat[] }>> {
+  const { botToken } = telegramSettings();
+  if (!botToken) return { error: "Save a bot token first" };
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15_000);
+  let payload: { ok?: boolean; result?: unknown[]; description?: string };
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${botToken}/getUpdates`, {
+      method: "POST",
+      signal: controller.signal,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ timeout: 0, allowed_updates: ["message", "channel_post", "my_chat_member"] }),
+    });
+    payload = await response.json() as typeof payload;
+    if (!response.ok || !payload.ok) {
+      return { error: payload.description ?? `Telegram returned HTTP ${response.status}` };
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+
+  const seen = new Map<number, string>();
+  for (const raw of payload.result ?? []) {
+    // A private chat arrives as `message`; a channel the bot was just added to
+    // arrives as `my_chat_member`, and a channel it can post in as
+    // `channel_post`. Reading only `message` is why adding the bot to a channel
+    // used to detect nothing.
+    const update = raw as {
+      message?: { chat?: { id?: unknown; title?: unknown }; from?: { username?: unknown; first_name?: unknown } };
+      channel_post?: { chat?: { id?: unknown; title?: unknown } };
+      my_chat_member?: { chat?: { id?: unknown; title?: unknown; type?: unknown } };
+    };
+    const source = update.message ?? update.channel_post ?? update.my_chat_member;
+    const id = source?.chat?.id;
+    if (typeof id !== "number") continue;
+    const from = update.message?.from;
+    seen.set(id, String(source?.chat?.title ?? from?.username ?? from?.first_name ?? "unknown"));
+  }
+
+  return { chats: [...seen].map(([id, name]) => ({ id, name })) };
+}

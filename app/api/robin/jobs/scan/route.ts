@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { runJobScan } from "@/extension/robin/job-scan";
-import { isApiRequestAllowed } from "@/lib/request-security";
+import { apiRoute } from "@/lib/api-route";
 
 export const dynamic = "force-dynamic";
 // A scan fans out to every enabled board. Twenty companies at six in flight,
@@ -16,10 +16,7 @@ export const maxDuration = 120;
  *
  * Costs no tokens, so it is safe to leave on a button.
  */
-export async function POST(req: Request) {
-  if (!isApiRequestAllowed(req)) {
-    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
-  }
+export const POST = apiRoute(async () => {
   try {
     return NextResponse.json({ scan: await runJobScan() });
   } catch (error) {
@@ -28,4 +25,4 @@ export async function POST(req: Request) {
       { status: 500 },
     );
   }
-}
+});
