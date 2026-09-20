@@ -50,11 +50,17 @@ app/api/
   sessions/route.ts               GET  list all sessions
   sessions/[id]/route.ts          GET/PATCH/DELETE session
   sessions/[id]/context/route.ts  GET ?leafId= — context for a specific leaf
+  sessions/[id]/state/route.ts    GET live streaming/compaction state without an AgentSession
   sessions/[id]/export/route.ts   GET exported HTML for a session
+  sessions/[id]/auto-name/route.ts POST generate and store a session name
+  sessions/[id]/entries/[entryId]/thinking/route.ts      GET one entry's thinking blocks
+  sessions/[id]/entries/[entryId]/tool-result-image/route.ts GET an image out of a tool result
+  sessions/search/route.ts        GET full-text search across session files
   sessions/[id]/terminal/         authenticated loopback-only PTY create/input/events/close
   agent/new/route.ts              POST { cwd, message, toolNames?, provider?, modelId? }
   agent/[id]/route.ts             GET state | POST any command
   agent/[id]/events/route.ts      GET SSE stream
+  agent/[id]/bash-output/route.ts GET buffered output of a running bash tool call
   agent/running/route.ts          GET currently-running session ids
   agent/running/events/route.ts   GET SSE stream of currently-running session ids
   auth/all-providers/route.ts     GET API-key provider list
@@ -63,20 +69,45 @@ app/api/
   auth/logout/[provider]/route.ts POST OAuth logout
   auth/providers/route.ts         GET OAuth provider list
   cwd/validate/route.ts           POST validate/select a cwd
+  cwd/browse/route.ts             GET directory listing for the cwd picker
   default-cwd/route.ts            POST create ~/pi-cwd-YYYYMMDD
   files/[...path]/route.ts        GET file contents for viewer
+  file-index/route.ts             GET fuzzy file index for a cwd, within the allowed roots
   home/route.ts                   GET user home directory
+  git/status/route.ts             GET working-tree status for a cwd
+  git/diff/route.ts               GET diff for one changed file
   models/route.ts                 GET { models, modelList, defaultModel }
   models-config/route.ts          GET/PUT — read/write ~/.pi/agent/models.json
   models-config/catalog/route.ts  GET models.dev pricing presets
   models-config/discover/route.ts POST fetch a configured provider's upstream model list
   models-config/test/route.ts     POST test a configured model/provider
   plugins/route.ts                GET/POST package plugin management
+  project-trust/route.ts          GET/POST per-project trust used by the terminal routes
   skills/route.ts                 GET/PATCH loaded skills and disable-model-invocation
   skills/install/route.ts         POST install skills through npx skills add
   skills/search/route.ts          GET/POST skills.sh search
+  skills/check/route.ts           POST check an installed skill package for updates
+  skills/update/route.ts          POST update an installed skill package
   subagents/settings/route.ts     GET/PUT built-in subagent feature setting
+  subagents/profiles/route.ts     GET/PUT/PATCH/DELETE agent profiles per scope
+  subagents/[id]/route.ts         GET child state | POST steer/abort a running child
+  usage/route.ts                  GET provider quota percentages — never credentials
+  app-update/route.ts             GET cached npm latest-version check (12h TTL)
+  pdf/render/route.ts             POST render a PDF page to an image for the viewer
+  pdf/text/route.ts               POST extract PDF text for the viewer
+  push/config/route.ts            GET VAPID public key
+  push/subscribe/route.ts         POST register a Web Push subscription
+  push/unsubscribe/route.ts       POST drop a Web Push subscription
   worktrees/route.ts              GET/POST/DELETE git worktrees
+
+app/api/robin/        Robin dashboard — HTTP adapters over extension/robin/*-domain.ts.
+                      Most are plain CRUD onto the matching domain; the rest:
+  jobs/{scan,score,sweep,digest}  discovery, scoring run, directory sweep, Telegram push
+  rounds/scan  tech-events/scan  gmail/check  product-classify   turns that cost tokens
+  assistant/route.ts              a scoped assistant turn (see "Robin tool scoping")
+  settings/route.ts               ~/.pi/robin/secrets.json
+  google/{route,callback}         OAuth; the callback is exempt from the origin guard
+app/api/research/     objective (GET/PUT) and cached source icons
 
 lib/
   agent-client.ts      typed fetch helper for /api/agent commands
@@ -122,7 +153,25 @@ hooks/
   useDragDrop.ts      shared drag/drop state
   useIsMobile.ts      responsive breakpoint hook
   useTheme.ts         theme state
+
+extension/robin/      the Robin pi extension — symlinked from ~/.pi/agent/extensions/robin
+  index.ts            composition root; registers each domain's tools, nothing else
+  tools.ts            the six capability-scoped tool allow-lists (see "Robin tool scoping")
+  store.ts            JSON file store under ~/.pi/robin — only *-domain.ts reads it
+  *-domain.ts         one per domain; HTTP and Pi tools are adapters over these.
+                      CONTEXT.md defines the vocabulary they use.
+  *-tools.ts          the Pi tool adapters, one file per domain
+  job-*.ts            the job pipeline: providers, scan, intake, rubric, evidence, profile
+
+components/robin/     the dashboard and its workspaces, one directory per feature.
+                      Two worth knowing: usePolledResource.ts (every board polls
+                      through it) and RobinMargin.tsx (a document margin, not an
+                      app sidebar — see docs/pi-visual-language.md).
+app/                  pi-web owns "/"; Robin owns /dashboard, /learn, /notes,
+                      /podcasts, /product, /research, /coding
 ```
+
+Module-depth findings live in [docs/architecture-audit.md](docs/architecture-audit.md).
 
 ---
 
@@ -217,6 +266,16 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 
 ### Exported session HTML
 - `/api/sessions/[id]/export` delegates to pi's export helper, then patches recursive tree helpers in the generated HTML to iterative versions so very deep linear sessions do not overflow the browser call stack.
+
+### Robin domain modules are the seam
+- Each domain owns its invariants in one `extension/robin/*-domain.ts`; the HTTP route and the Pi tool are both adapters over it. `todo-domain.ts` + `api/robin/todos` + `todo-tools.ts` is the reference shape.
+- `store.ts` is the file store, not a domain interface. No route and nothing in `lib/` imports it; keep it that way. A domain function with no home belongs *moved out* of `store.ts`, not wrapped — a wrapper that only forwards is indirection, not a seam.
+- Tests go at the domain interface (`domain-writes.test.mjs`), asserting outcomes rather than file contents.
+
+### Robin tool scoping
+- `extension/robin/tools.ts` holds six allow-lists, one per assistant turn. The assistant route requests exact tool activation, so coding builtins stay inactive — naming a tool there is the security boundary, and each list carries its reason in a comment.
+- `ROBIN_SCORING_TOOL_NAMES` is the narrowest because it is the one turn fed employer-written text; it must stay the last declaration in the file, and a test pins that.
+- The lists are string literals: renaming a registered tool without updating its list silently drops the capability.
 
 ## Pi Session File Format
 
