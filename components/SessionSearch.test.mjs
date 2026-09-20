@@ -20,6 +20,8 @@ test("all-session search is wired through the sidebar and guarded route", () => 
   assert.match(sidebar, /\/api\/sessions\/search\?/);
   assert.match(sidebar, /onSelectSessionMatch\(session, hit\.entryId, sessionSearchQuery\.trim\(\)\)/);
   assert.match(appShell, /onSelectSessionMatch=\{handleSelectSessionMatch\}/);
-  assert.match(route, /isApiRequestAllowed\(req\)/);
+  // The origin check lives in `apiRoute` (lib/api-route.ts), which the route is
+  // wrapped in rather than calls; lib/api-route.test.mjs pins the policy itself.
+  assert.match(route, /apiRoute\(/);
   assert.match(route, /searchAllSessions\(query, limit\)/);
 });

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { isConnected } from "@/extension/robin/google-calendar";
 import { listRounds, writeRoundScanState } from "@/extension/robin/round-domain";
 import { runAssistantTurn } from "@/lib/robin-assistant";
-import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
+import { apiRoute } from "@/lib/api-route";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 360;
@@ -63,13 +63,7 @@ function scanPrompt(locale: "zh" | "en"): string {
  * before the daily mail review started recording them. Runs in the mail
  * mode: it reads email, so it gets the same narrow, stateless turn.
  */
-export async function POST(req: Request) {
-  if (!isApiRequestAllowed(req)) {
-    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
-  }
-  if (!hasJsonContentType(req)) {
-    return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
-  }
+export const POST = apiRoute(async (req) => {
   if (!isConnected()) {
     return NextResponse.json(
       { error: "Google is not connected. Connect it first, then scan." },
@@ -89,4 +83,4 @@ export async function POST(req: Request) {
       { status: 500 },
     );
   }
-}
+});

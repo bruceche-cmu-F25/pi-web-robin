@@ -8,36 +8,19 @@ import {
   listIdeas,
   type StepId,
 } from "@/extension/robin/product-domain";
-import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
+import { apiError, apiRoute } from "@/lib/api-route";
 
 export const dynamic = "force-dynamic";
 
-function guard(req: Request, json = false): NextResponse | null {
-  if (!isApiRequestAllowed(req)) return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
-  if (json && !hasJsonContentType(req)) return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
-  return null;
-}
 
-function fail(error: unknown, status = 400): NextResponse {
-  return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status });
-}
 
 const isStep = (value: unknown): value is StepId => PLAYBOOK_STEPS.includes(value as StepId);
 
-export async function GET(req: Request) {
-  const denied = guard(req);
-  if (denied) return denied;
-  try {
+export const GET = apiRoute(async () => {
     return NextResponse.json({ ideas: listIdeas(), captures: listCaptures().filter((item) => item.status === "pending") });
-  } catch (error) {
-    return fail(error, 500);
-  }
-}
+});
 
-export async function POST(req: Request) {
-  const denied = guard(req, true);
-  if (denied) return denied;
-  try {
+export const POST = apiRoute(async (req) => {
     const body = await req.json() as Record<string, unknown>;
 
     // A raw capture: text, an image, or both. Kept whole and filed later.
@@ -57,8 +40,8 @@ export async function POST(req: Request) {
     // Filing a capture the user has confirmed a classification for.
     if (typeof body.captureId === "string") {
       const kind = body.kind;
-      if (kind !== "idea" && kind !== "resource" && kind !== "link" && kind !== "note") return fail(new Error("invalid kind"));
-      if (typeof body.title !== "string" || !body.title.trim()) return fail(new Error("title is required"));
+      if (kind !== "idea" && kind !== "resource" && kind !== "link" && kind !== "note") return apiError(new Error("invalid kind"));
+      if (typeof body.title !== "string" || !body.title.trim()) return apiError(new Error("title is required"));
       return NextResponse.json({ capture: fileCapture({
         id: body.captureId,
         kind,
@@ -69,13 +52,10 @@ export async function POST(req: Request) {
       }) });
     }
 
-    if (typeof body.name !== "string" || !body.name.trim()) return fail(new Error("name is required"));
+    if (typeof body.name !== "string" || !body.name.trim()) return apiError(new Error("name is required"));
     return NextResponse.json({ idea: addIdea({
       name: body.name,
       ...(typeof body.note === "string" ? { note: body.note } : {}),
       ...(isStep(body.step) ? { step: body.step } : {}),
     }) });
-  } catch (error) {
-    return fail(error);
-  }
-}
+});

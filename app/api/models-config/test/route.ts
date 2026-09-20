@@ -25,6 +25,12 @@ function getAssistantText(message: AssistantMessage): string {
     .join("");
 }
 
+/**
+ * Not wrapped in `apiRoute`: every answer here is `{ ok, ... }`, where `ok` is
+ * the result of the model test rather than an error envelope. The shared
+ * wrapper would answer a rejected request with a bare `{ error }` and break
+ * that contract for the one caller that reads `ok`.
+ */
 export async function POST(req: Request) {
   if (!isApiRequestAllowed(req)) {
     return NextResponse.json({ ok: false, error: "Untrusted API request" }, { status: 403 });

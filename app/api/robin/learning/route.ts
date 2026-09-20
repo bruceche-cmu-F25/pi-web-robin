@@ -2,22 +2,15 @@ import { NextResponse } from "next/server";
 import { learningSnapshot } from "@/extension/robin/learning-domain";
 import { setFullstackCompleted } from "@/extension/robin/fso-domain";
 import { FULLSTACK_STEPS } from "@/extension/robin/learning";
-import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
+import { apiRoute } from "@/lib/api-route";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(req: Request) {
-  if (!isApiRequestAllowed(req)) return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
-  try {
-    return NextResponse.json(learningSnapshot());
-  } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
-  }
-}
+export const GET = apiRoute(async () => {
+  return NextResponse.json(learningSnapshot());
+});
 
-export async function PATCH(req: Request) {
-  if (!isApiRequestAllowed(req)) return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
-  if (!hasJsonContentType(req)) return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
+export const PATCH = apiRoute(async (req) => {
   let body;
   try {
     body = await req.json();
@@ -36,4 +29,4 @@ export async function PATCH(req: Request) {
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
-}
+});

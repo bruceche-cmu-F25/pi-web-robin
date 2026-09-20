@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
+import { apiRoute } from "@/lib/api-route";
 import {
   readSubagentSettings,
   writeBuiltInSubagentsEnabled,
@@ -19,14 +19,7 @@ export async function GET() {
   }
 }
 
-export async function PUT(req: Request) {
-  if (!isApiRequestAllowed(req)) {
-    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
-  }
-  if (!hasJsonContentType(req)) {
-    return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
-  }
-
+export const PUT = apiRoute(async (req) => {
   try {
     const body = await req.json() as { enabled?: unknown };
     if (typeof body.enabled !== "boolean") {
@@ -40,4 +33,4 @@ export async function PUT(req: Request) {
       { status: 500 },
     );
   }
-}
+});

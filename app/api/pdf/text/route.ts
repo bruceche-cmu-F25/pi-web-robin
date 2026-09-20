@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { parseFormDataWithinLimit, RequestBodyTooLargeError } from "@/lib/bounded-form-data";
 import { extractPdfText } from "@/lib/pdf-render";
-import { isApiRequestAllowed } from "@/lib/request-security";
+import { apiRoute } from "@/lib/api-route";
 
 export const runtime = "nodejs";
 
@@ -10,11 +10,7 @@ const MAX_REQUEST_BYTES = MAX_PDF_BYTES + 1024 * 1024;
 /** About 15k tokens: a long lecture deck or a paper, without flooding the agent's context. */
 const MAX_TEXT_CHARS = 60_000;
 
-export async function POST(request: Request) {
-  if (!isApiRequestAllowed(request)) {
-    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
-  }
-
+export const POST = apiRoute(async (request) => {
   try {
     const formData = await parseFormDataWithinLimit(request, MAX_REQUEST_BYTES);
     const file = formData.get("file");
@@ -37,4 +33,4 @@ export async function POST(request: Request) {
       { status: 422 },
     );
   }
-}
+}, { json: false });

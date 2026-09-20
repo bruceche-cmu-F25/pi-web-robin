@@ -10,7 +10,7 @@ import { readNoteDrafts } from "@/extension/robin/notes-domain";
 import { parseFormDataWithinLimit, RequestBodyTooLargeError } from "@/lib/bounded-form-data";
 import { isBase64ImageWithinLimits, MAX_ATTACHED_IMAGE_BYTES } from "@/lib/image-attachments";
 import { extractPdfText, hasPdfHeader, renderPdfPages } from "@/lib/pdf-render";
-import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
+import { guardApiRequest } from "@/lib/api-route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,8 +21,12 @@ const MAX_TEXT_CHARS = 60_000;
 const SCANNED_PAGES = 5;
 const SCANNED_PDF_TEXT_CHARS = 200;
 
+/**
+ * GET serves the attachment's own bytes, so this route cannot be wrapped in
+ * `apiRoute` (which answers JSON). It shares the policy instead.
+ */
 function denied(req: Request): NextResponse | null {
-  return isApiRequestAllowed(req) ? null : NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
+  return guardApiRequest(req);
 }
 
 /** `?draftId=` lists a draft's files; adding `&id=` serves one, for previews. */
@@ -108,7 +112,8 @@ export async function POST(req: Request) {
 export async function DELETE(req: Request) {
   const blocked = denied(req);
   if (blocked) return blocked;
-  if (!hasJsonContentType(req)) return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
+  const wrongType = guardApiRequest(req, { json: true });
+  if (wrongType) return wrongType;
   try {
     const body = await req.json() as { draftId?: unknown; id?: unknown };
     if (typeof body.draftId !== "string" || typeof body.id !== "string") {

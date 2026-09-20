@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { readIcon } from "@/extension/robin/icons";
 import { getLink, refreshLinkIcon } from "@/extension/robin/link-domain";
-import { isApiRequestAllowed } from "@/lib/request-security";
+import { apiRoute } from "@/lib/api-route";
 
 export const dynamic = "force-dynamic";
 
@@ -42,10 +42,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
  * site was unreachable. `iconCheckedAt` is stamped either way so a site with no
  * icon is not asked again on every render.
  */
-export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  if (!isApiRequestAllowed(req)) {
-    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
-  }
+export const POST = apiRoute(async (_req, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
 
   try {
@@ -58,4 +55,4 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       { status: 500 },
     );
   }
-}
+});

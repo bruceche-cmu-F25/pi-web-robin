@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { validateAgentImages } from "@/lib/image-attachments";
 import { runScopedAssistantTurn } from "@/lib/robin-assistant";
-import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
+import { apiRoute } from "@/lib/api-route";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 90;
@@ -52,9 +52,7 @@ function parseSuggestion(reply: string): Suggestion | null {
   }
 }
 
-export async function POST(req: Request) {
-  if (!isApiRequestAllowed(req)) return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
-  if (!hasJsonContentType(req)) return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
+export const POST = apiRoute(async (req) => {
   try {
     const body = await req.json() as { text?: unknown; images?: unknown };
     const text = typeof body.text === "string" ? body.text.trim() : "";
@@ -84,4 +82,4 @@ export async function POST(req: Request) {
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
-}
+});

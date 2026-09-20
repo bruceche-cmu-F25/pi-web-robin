@@ -3,7 +3,7 @@ import { clearProductAgentSession, readProductAgentSessionId, writeProductAgentS
 import { getIdea } from "@/extension/robin/product-domain";
 import { validateAgentImages } from "@/lib/image-attachments";
 import { runScopedAssistantTurn } from "@/lib/robin-assistant";
-import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
+import { apiRoute } from "@/lib/api-route";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 180;
@@ -68,15 +68,7 @@ const STILL_RUNNING = [
   "Anything found is saved to the idea as it goes, so the links will appear on their own.",
 ].join(" ");
 
-function guard(req: Request): NextResponse | null {
-  if (!isApiRequestAllowed(req)) return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
-  if (!hasJsonContentType(req)) return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
-  return null;
-}
-
-export async function POST(req: Request) {
-  const denied = guard(req);
-  if (denied) return denied;
+export const POST = apiRoute(async (req) => {
   try {
     const body = await req.json() as { message?: unknown; productId?: unknown; images?: unknown };
     const message = typeof body.message === "string" ? body.message.trim() : "";
@@ -112,11 +104,9 @@ export async function POST(req: Request) {
     }
     return NextResponse.json({ error: message }, { status: 500 });
   }
-}
+});
 
-export async function DELETE(req: Request) {
-  const denied = guard(req);
-  if (denied) return denied;
+export const DELETE = apiRoute(async (req) => {
   try {
     const body = await req.json().catch(() => ({})) as { productId?: unknown };
     const productId = typeof body.productId === "string" && body.productId ? body.productId : undefined;
@@ -124,4 +114,4 @@ export async function DELETE(req: Request) {
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
-}
+});

@@ -8,33 +8,19 @@ import {
   type IdeaPatch,
   type StepId,
 } from "@/extension/robin/product-domain";
-import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
+import { apiError, apiRoute } from "@/lib/api-route";
 
 export const dynamic = "force-dynamic";
 
-function guard(req: Request, json = false): NextResponse | null {
-  if (!isApiRequestAllowed(req)) return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
-  if (json && !hasJsonContentType(req)) return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
-  return null;
-}
-
-function fail(error: unknown, status = 400): NextResponse {
-  return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status });
-}
-
 const isStep = (value: unknown): value is StepId => PLAYBOOK_STEPS.includes(value as StepId);
 
-export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const denied = guard(req);
-  if (denied) return denied;
+export const GET = apiRoute(async (req, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const idea = getIdea(id);
-  return idea ? NextResponse.json({ idea }) : fail(new Error(`No idea with id "${id}"`), 404);
-}
+  return idea ? NextResponse.json({ idea }) : apiError(new Error(`No idea with id "${id}"`), 404);
+});
 
-export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const denied = guard(req, true);
-  if (denied) return denied;
+export const PATCH = apiRoute(async (req, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   try {
     const body = await req.json() as Record<string, unknown>;
@@ -43,7 +29,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     // two saves racing cannot drop one another's link.
     if (body.link && typeof body.link === "object") {
       const link = body.link as Record<string, unknown>;
-      if (typeof link.url !== "string" || !link.url.trim()) return fail(new Error("link.url is required"));
+      if (typeof link.url !== "string" || !link.url.trim()) return apiError(new Error("link.url is required"));
       return NextResponse.json({ link: addIdeaLink(id, {
         title: typeof link.title === "string" ? link.title : "",
         url: link.url,
@@ -53,16 +39,16 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
     const patch: IdeaPatch = {};
     if (typeof body.name === "string") {
-      if (!body.name.trim()) return fail(new Error("name cannot be empty"));
+      if (!body.name.trim()) return apiError(new Error("name cannot be empty"));
       patch.name = body.name.trim();
     }
     if (typeof body.note === "string") patch.note = body.note;
     if (body.step !== undefined) {
-      if (!isStep(body.step)) return fail(new Error("invalid step"));
+      if (!isStep(body.step)) return apiError(new Error("invalid step"));
       patch.step = body.step;
     }
     if (body.parked !== undefined) {
-      if (typeof body.parked !== "boolean") return fail(new Error("parked must be a boolean"));
+      if (typeof body.parked !== "boolean") return apiError(new Error("parked must be a boolean"));
       patch.parked = body.parked;
     }
     if (Array.isArray(body.links)) patch.links = body.links as IdeaPatch["links"];
@@ -70,9 +56,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       if (body.bet === null) patch.bet = undefined;
       else {
         const bet = body.bet as Record<string, unknown>;
-        if (typeof bet.claim !== "string" || !bet.claim.trim()) return fail(new Error("bet.claim is required"));
-        if (bet.by !== undefined && bet.by !== "" && !/^\d{4}-\d{2}-\d{2}$/.test(String(bet.by))) return fail(new Error("bet.by must be YYYY-MM-DD"));
-        if (bet.settled !== undefined && bet.settled !== "held" && bet.settled !== "broke") return fail(new Error("invalid bet.settled"));
+        if (typeof bet.claim !== "string" || !bet.claim.trim()) return apiError(new Error("bet.claim is required"));
+        if (bet.by !== undefined && bet.by !== "" && !/^\d{4}-\d{2}-\d{2}$/.test(String(bet.by))) return apiError(new Error("bet.by must be YYYY-MM-DD"));
+        if (bet.settled !== undefined && bet.settled !== "held" && bet.settled !== "broke") return apiError(new Error("invalid bet.settled"));
         patch.bet = {
           claim: bet.claim.trim(),
           ...(bet.by ? { by: String(bet.by) } : {}),
@@ -80,19 +66,17 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         };
       }
     }
-    if (Object.keys(patch).length === 0) return fail(new Error("nothing to update"));
+    if (Object.keys(patch).length === 0) return apiError(new Error("nothing to update"));
 
     const idea = updateIdea(id, patch);
-    return idea ? NextResponse.json({ idea }) : fail(new Error(`No idea with id "${id}"`), 404);
+    return idea ? NextResponse.json({ idea }) : apiError(new Error(`No idea with id "${id}"`), 404);
   } catch (error) {
-    return fail(error);
+    return apiError(error);
   }
-}
+});
 
-export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const denied = guard(req);
-  if (denied) return denied;
+export const DELETE = apiRoute(async (req, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const idea = deleteIdea(id);
-  return idea ? NextResponse.json({ idea }) : fail(new Error(`No idea with id "${id}"`), 404);
-}
+  return idea ? NextResponse.json({ idea }) : apiError(new Error(`No idea with id "${id}"`), 404);
+});

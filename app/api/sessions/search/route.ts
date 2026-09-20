@@ -1,14 +1,10 @@
 import { NextResponse } from "next/server";
-import { isApiRequestAllowed } from "@/lib/request-security";
+import { apiRoute } from "@/lib/api-route";
 import { searchAllSessions } from "@/lib/session-search-server";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(req: Request) {
-  if (!isApiRequestAllowed(req)) {
-    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
-  }
-
+export const GET = apiRoute(async (req) => {
   const params = new URL(req.url).searchParams;
   const query = params.get("q")?.trim() ?? "";
   if (!query) return NextResponse.json({ results: [], hasMore: false });
@@ -30,4 +26,4 @@ export async function GET(req: Request) {
       { status: 500, headers: { "Cache-Control": "no-store" } },
     );
   }
-}
+});

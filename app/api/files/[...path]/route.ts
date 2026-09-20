@@ -20,7 +20,7 @@ import {
 } from "@/lib/file-types";
 import { resolveDirentIsDirectory } from "@/lib/file-dirent";
 import { isFilePathReferencedBySession } from "@/lib/session-file-references";
-import { isApiRequestAllowed } from "@/lib/request-security";
+import { guardApiRequest } from "@/lib/api-route";
 import {
   inspectUploadTargets,
   parseUploadConflictStrategy,
@@ -127,9 +127,10 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
 ) {
-  if (!isApiRequestAllowed(request)) {
-    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
-  }
+  // Not `apiRoute`: GET streams file bytes, and this POST is multipart, so
+  // neither the JSON error shape nor the content-type check fits.
+  const blocked = guardApiRequest(request);
+  if (blocked) return blocked;
 
   try {
     const { path: segments } = await params;

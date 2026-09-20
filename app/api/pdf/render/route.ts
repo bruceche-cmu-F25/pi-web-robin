@@ -2,18 +2,14 @@ import { NextResponse } from "next/server";
 import { parseFormDataWithinLimit, RequestBodyTooLargeError } from "@/lib/bounded-form-data";
 import { MAX_ATTACHED_IMAGES } from "@/lib/image-attachments";
 import { renderPdfPages } from "@/lib/pdf-render";
-import { isApiRequestAllowed } from "@/lib/request-security";
+import { apiRoute } from "@/lib/api-route";
 
 export const runtime = "nodejs";
 
 const MAX_PDF_BYTES = 25 * 1024 * 1024;
 const MAX_REQUEST_BYTES = MAX_PDF_BYTES + 1024 * 1024;
 
-export async function POST(request: Request) {
-  if (!isApiRequestAllowed(request)) {
-    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
-  }
-
+export const POST = apiRoute(async (request) => {
   try {
     const formData = await parseFormDataWithinLimit(request, MAX_REQUEST_BYTES);
     const file = formData.get("file");
@@ -45,4 +41,4 @@ export async function POST(request: Request) {
       { status: 422 },
     );
   }
-}
+}, { json: false });

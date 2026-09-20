@@ -4,12 +4,11 @@ import { createNotionPage, searchNotion, type NotionAttachmentFile } from "@/ext
 import { deleteNoteDraft } from "@/extension/robin/notes-domain";
 import { clearNotesAgentSession } from "@/extension/robin/notes-agent-state";
 import { cancelNoteFinalize } from "@/lib/note-finalize-jobs";
-import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
+import { apiRoute } from "@/lib/api-route";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(req: Request) {
-  if (!isApiRequestAllowed(req)) return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
+export const GET = apiRoute(async (req) => {
   try {
     const url = new URL(req.url);
     const pages = await searchNotion(url.searchParams.get("query") ?? "", 500);
@@ -20,12 +19,9 @@ export async function GET(req: Request) {
       { status: 500 },
     );
   }
-}
+});
 
-export async function POST(req: Request) {
-  if (!isApiRequestAllowed(req)) return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
-  if (!hasJsonContentType(req)) return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
-
+export const POST = apiRoute(async (req) => {
   try {
     const body = await req.json() as {
       parentPageId?: unknown;
@@ -62,4 +58,4 @@ export async function POST(req: Request) {
       { status: 500 },
     );
   }
-}
+});

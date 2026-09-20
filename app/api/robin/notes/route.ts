@@ -3,35 +3,21 @@ import { createNoteDraft, deleteNoteDraft, readNoteDrafts, updateNoteDraft } fro
 import { clearNotesAgentSession } from "@/extension/robin/notes-agent-state";
 import { clearNoteAttachments } from "@/extension/robin/note-attachments";
 import { cancelNoteFinalize } from "@/lib/note-finalize-jobs";
-import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
+import { apiRoute } from "@/lib/api-route";
 
 export const dynamic = "force-dynamic";
 
 const MAX_TITLE = 200;
 const MAX_NOTE = 100_000;
 
-function denied(req: Request): NextResponse | null {
-  if (!isApiRequestAllowed(req)) return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
-  if (req.method !== "GET" && !hasJsonContentType(req)) {
-    return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
-  }
-  return null;
-}
-
 function text(value: unknown, limit: number): string | null {
   if (typeof value !== "string" || value.length > limit) return null;
   return value;
 }
 
-export function GET(req: Request) {
-  const blocked = denied(req);
-  if (blocked) return blocked;
-  return NextResponse.json({ drafts: readNoteDrafts() });
-}
+export const GET = apiRoute(async () => NextResponse.json({ drafts: readNoteDrafts() }));
 
-export async function POST(req: Request) {
-  const blocked = denied(req);
-  if (blocked) return blocked;
+export const POST = apiRoute(async (req) => {
   try {
     const body = await req.json() as { title?: unknown; text?: unknown; notionParentId?: unknown };
     const title = text(body.title, MAX_TITLE);
@@ -44,11 +30,9 @@ export async function POST(req: Request) {
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
-}
+});
 
-export async function PATCH(req: Request) {
-  const blocked = denied(req);
-  if (blocked) return blocked;
+export const PATCH = apiRoute(async (req) => {
   try {
     const body = await req.json() as { id?: unknown; title?: unknown; text?: unknown; notionParentId?: unknown };
     if (typeof body.id !== "string" || !body.id) return NextResponse.json({ error: "id is required" }, { status: 400 });
@@ -75,11 +59,9 @@ export async function PATCH(req: Request) {
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
-}
+});
 
-export async function DELETE(req: Request) {
-  const blocked = denied(req);
-  if (blocked) return blocked;
+export const DELETE = apiRoute(async (req) => {
   try {
     const body = await req.json() as { id?: unknown };
     if (typeof body.id !== "string" || !body.id) return NextResponse.json({ error: "id is required" }, { status: 400 });
@@ -95,4 +77,4 @@ export async function DELETE(req: Request) {
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
-}
+});
