@@ -26,9 +26,12 @@ test("keeps the session event stream open through the idle grace window", () => 
   assert.match(sendSource, /const definitivelyRejected = !promptRequestStarted/);
   assert.match(sendSource, /if \(!definitivelyRejected && sentSessionId\) \{[\s\S]*?waitForPromptSettlement/);
   assert.match(sendSource, /restoreSubmission\(message, images, composerDraftKey\);[\s\S]*?if \(sentSessionId\) \{[\s\S]*?reconcileAgentState\(sentSessionId\);[\s\S]*?return;[\s\S]*?\}[\s\S]*?closeEvents\(\)/);
+  // The old shape: clear both flags by hand and hang up, losing a run the
+  // server may still have. Both flags now move through the lifecycle machine,
+  // so the check is that nothing abandons a turn without reconciling first.
   assert.doesNotMatch(
     sendSource,
-    /rpcPromptPendingRef\.current = false;\s*agentRunningRef\.current = false;\s*closeEvents\(\)/,
+    /prompt_rejected[\s\S]{0,80}prompt_abandoned[\s\S]{0,40}closeEvents\(\)/,
   );
 });
 
@@ -39,9 +42,12 @@ test("a rejected submission preserves a different run reported by the server", (
   );
 
   assert.match(reconcileSource, /sessionIdRef\.current !== sid/);
-  assert.match(reconcileSource, /if \(busy\) \{[\s\S]*?sdkAgentActiveRef\.current = Boolean\(state\.isStreaming\)/);
-  assert.match(reconcileSource, /rpcPromptPendingRef\.current = Boolean\(state\.isPromptRunning\)/);
-  assert.match(reconcileSource, /if \(!agentRunningRef\.current\) return;[\s\S]*?finishPromptWithoutStream/);
+  // A busy server is adopted as reported rather than guessed at; see
+  // lib/agent-stream-lifecycle.test.mjs for what "adopted" means.
+  assert.match(reconcileSource, /if \(busy\) \{[\s\S]*?type: "adopted"/);
+  assert.match(reconcileSource, /sdkAgentActive: Boolean\(state\.isStreaming\)/);
+  assert.match(reconcileSource, /rpcPromptPending: Boolean\(state\.isPromptRunning\)/);
+  assert.match(reconcileSource, /if \(!lifecycleRef\.current\.agentRunning\) return;[\s\S]*?finishPromptWithoutStream/);
 });
 
 test("opening System or Tools lazily starts a dormant session without sending a prompt", () => {
@@ -213,7 +219,7 @@ test("built-in clone switches to the independent child session", () => {
 
   assert.match(builtinSource, /case "clone"/);
   assert.match(builtinSource, /type: "clone",\s+leafId: activeLeafId/);
-  assert.match(builtinSource, /agentRunningRef\.current \|\| bashRunningRef\.current/);
+  assert.match(builtinSource, /lifecycleRef\.current\.agentRunning \|\| bashRunningRef\.current/);
   assert.match(builtinSource, /onSessionForked\?\.\(result\.newSessionId\)/);
 });
 
@@ -293,7 +299,7 @@ test("keeps one reducer-owned assistant partial and consumes Pi JSON deltas", ()
   assert.doesNotMatch(source, /streamingMessageRef/);
   assert.match(connectedSource, /dispatch\(\{ type: "end" \}\)/);
   assert.match(connectedSource, /event\.isStreaming === true/);
-  assert.match(connectedSource, /agentRunningRef\.current = true/);
+  assert.match(connectedSource, /type: "stream_connected"/);
   assert.match(streamSource, /msg\?\.role === "assistant"[\s\S]*dispatch\(\{ type: "snapshot", message: msg \}\)/);
   assert.match(streamSource, /event\.assistantMessageEvent as ClientAssistantMessageEvent/);
   assert.match(streamSource, /dispatch\(\{ type: "delta", event: delta \}\)/);
@@ -389,7 +395,7 @@ test("keeps live following cancellable when the user scrolls away from the tail"
   assert.match(source, /const liveFollowFrameRef = useRef<number \| null>\(null\)/);
   assert.match(source, /const previousScrollTopRef = useRef\(0\)/);
   assert.match(source, /const wasAttached = isNearBottomRef\.current;[\s\S]*?const isAttached = getLiveFollowAttached\([\s\S]*?wasAttached,[\s\S]*?previousScrollTopRef\.current,[\s\S]*?scrollTop,[\s\S]*?clientHeight,[\s\S]*?scrollHeight/);
-  assert.match(scrollHandlerSource, /const isAgentRunning = agentRunningRef\.current;[\s\S]*?isAgentRunning\s*\? CHAT_SCROLL_REATTACH_TOLERANCE\s*:\s*CHAT_SCROLL_TAIL_TOLERANCE/);
+  assert.match(scrollHandlerSource, /const isAgentRunning = lifecycleRef\.current\.agentRunning;[\s\S]*?isAgentRunning\s*\? CHAT_SCROLL_REATTACH_TOLERANCE\s*:\s*CHAT_SCROLL_TAIL_TOLERANCE/);
   assert.match(source, /previousScrollTopRef\.current = scrollTop/);
   assert.match(scrollToBottomSource, /messagesEndRef\.current\?\.scrollIntoView\(\{ behavior \}\);\s*if \(container\) previousScrollTopRef\.current = container\.scrollTop/);
   assert.match(streamUpdateSource, /liveFollowFrameRef\.current === null/);
@@ -476,7 +482,7 @@ test("keeps a detached viewport in place when streaming completes", () => {
     source.indexOf("// Load model list"),
   );
 
-  assert.match(scrollEffectSource, /!agentRunningRef\.current && isNearBottomRef\.current[\s\S]*?scrollToBottom\("auto"\)/);
+  assert.match(scrollEffectSource, /!lifecycleRef\.current\.agentRunning && isNearBottomRef\.current[\s\S]*?scrollToBottom\("auto"\)/);
   assert.doesNotMatch(scrollEffectSource, /\|\|/);
   assert.match(source, /addEventListener\("scroll", handleScrollPositionChange/);
 });

@@ -27,6 +27,8 @@ import {
   graceOutcome,
   isGraceCheckStale,
   type AgentLifecycleEvent,
+  type AgentLifecycleState,
+  type AgentStateEvent,
   type AgentStatusReport,
 } from "@/lib/agent-stream-lifecycle";
 import {
@@ -334,10 +336,34 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const sessionIdRef = useRef<string | null>(session?.id ?? null);
   const sessionPropIdRef = useRef<string | null>(session?.id ?? null);
   const sessionRunningRef = useRef(Boolean(sessionRunning));
-  const agentRunningRef = useRef(false);
-  const sdkAgentActiveRef = useRef(false);
-  const rpcPromptPendingRef = useRef(false);
-  const notifiedPromptRunIdRef = useRef(-1);
+  /**
+   * The run lifecycle's state, in one place.
+   *
+   * These five fields used to be five loose refs that twenty assignments wrote
+   * directly, around the pure machine in lib/agent-stream-lifecycle.ts that was
+   * supposed to own them. Everything now moves through `lifecycle()` below, so
+   * "is a turn in flight" cannot be half-updated by a call site that remembered
+   * four of the five.
+   */
+  const lifecycleRef = useRef<AgentLifecycleState>({
+    agentRunning: false,
+    sdkAgentActive: false,
+    rpcPromptPending: false,
+    notifiedRunId: -1,
+    promptRunId: 0,
+  });
+
+  /**
+   * Move the run lifecycle, and nothing else.
+   *
+   * The state-only events carry no effects, so this is the whole of applying
+   * one: the machine decides the next state and this stores it. Anything that
+   * also has to touch the UI keeps doing that at the call site, right where it
+   * always did — what moved here is only who is allowed to write the state.
+   */
+  const lifecycle = useCallback((event: AgentStateEvent) => {
+    lifecycleRef.current = agentLifecycleTransition(event, lifecycleRef.current).next;
+  }, []);
   const bashRunningRef = useRef(false);
   const bashRecoveryIdRef = useRef(0);
   const handleAgentEventRef = useRef<((event: AgentEvent) => void) | null>(null);
@@ -354,7 +380,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const newSessionPromotedRef = useRef(false);
   const newSessionModelOverrideRef = useRef<SelectedModel | null>(null);
   const thinkingLevelOverrideRef = useRef<Exclude<ThinkingLevelOption, "auto"> | null>(null);
-  const promptRunIdRef = useRef(0);
   const optimisticUserMessageKeyRef = useRef<string | null>(null);
   const modelSwitchPendingRef = useRef(false);
   const draftKeyAliasesRef = useRef(new Map<string, string>());
@@ -371,7 +396,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         sessionHookMountedRef.current
         && sessionIdRef.current === sid
         && (
-          agentRunningRef.current
+          lifecycleRef.current.agentRunning
           || eventStreamGraceActiveRef.current
           || (sessionPropIdRef.current === sid && sessionRunningRef.current)
         )
@@ -723,7 +748,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     return () => {
       if (
         sessionIdRef.current === session.id
-        && !agentRunningRef.current
+        && !lifecycleRef.current.agentRunning
         && !eventStreamGraceActiveRef.current
         && (sessionPropIdRef.current !== session.id || !sessionRunningRef.current)
       ) {
@@ -831,21 +856,21 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [addNotice, onAttentionNeeded, opts.chatInputRef]);
 
   const settleUiStage = useCallback(() => {
-    const wasRunning = agentRunningRef.current;
-    agentRunningRef.current = false;
+    const wasRunning = lifecycleRef.current.agentRunning;
+    lifecycle({ type: "settled" });
     setAgentRunning(false);
     setAgentPhase(null);
     setRetryInfo(null);
     dispatch({ type: "end" });
     return wasRunning;
-  }, []);
+  }, [lifecycle]);
 
   const notifyPromptStage = useCallback((runId: number) => {
-    if (notifiedPromptRunIdRef.current === runId) return false;
-    notifiedPromptRunIdRef.current = runId;
+    if (lifecycleRef.current.notifiedRunId === runId) return false;
+    lifecycle({ type: "notified", runId });
     onAgentEnd?.();
     return true;
-  }, [onAgentEnd]);
+  }, [lifecycle, onAgentEnd]);
 
   const scheduleEventStreamClose = useCallback((sid: string) => {
     cancelEventStreamGrace();
@@ -878,9 +903,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (outcome.kind === "adopt") {
         eventStreamGraceActiveRef.current = false;
         eventStreamGraceTimerRef.current = null;
-        sdkAgentActiveRef.current = outcome.sdkAgentActive;
-        rpcPromptPendingRef.current = outcome.rpcPromptPending;
-        agentRunningRef.current = true;
+        lifecycle({
+          type: "adopted",
+          sdkAgentActive: outcome.sdkAgentActive,
+          rpcPromptPending: outcome.rpcPromptPending,
+        });
         setAgentRunning(true);
         setAgentPhase({ kind: outcome.phase });
         return;
@@ -898,19 +925,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     };
 
     eventStreamGraceTimerRef.current = setTimeout(() => void checkServerIdle(), EVENT_STREAM_IDLE_GRACE_MS);
-  }, [cancelEventStreamGrace, closeEvents]);
-  const finishPromptWithoutStream = useCallback(async (sid: string | null = sessionIdRef.current, runId = promptRunIdRef.current) => {
+  }, [lifecycle, cancelEventStreamGrace, closeEvents]);
+  const finishPromptWithoutStream = useCallback(async (sid: string | null = sessionIdRef.current, runId = lifecycleRef.current.promptRunId) => {
     // Bail out before loadSession too: a stale finish for a previous run
     // must not overwrite the messages of the run currently streaming.
-    if (promptRunIdRef.current !== runId) return;
+    if (lifecycleRef.current.promptRunId !== runId) return;
     try {
       if (sid) await loadSession(sid);
     } finally {
-      if (promptRunIdRef.current !== runId) return;
-      const promptWasPending = rpcPromptPendingRef.current;
-      const agentWasActive = sdkAgentActiveRef.current;
-      rpcPromptPendingRef.current = false;
-      sdkAgentActiveRef.current = false;
+      if (lifecycleRef.current.promptRunId !== runId) return;
+      const promptWasPending = lifecycleRef.current.rpcPromptPending;
+      const agentWasActive = lifecycleRef.current.sdkAgentActive;
+      lifecycle({ type: "prompt_settled" });
       optimisticUserMessageKeyRef.current = null;
       const wasRunning = settleUiStage();
       if (promptWasPending) {
@@ -920,14 +946,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
       if (sid) scheduleEventStreamClose(sid);
     }
-  }, [loadSession, notifyPromptStage, onAgentEnd, scheduleEventStreamClose, settleUiStage]);
+  }, [lifecycle, loadSession, notifyPromptStage, onAgentEnd, scheduleEventStreamClose, settleUiStage]);
 
   const waitForPromptSettlement = useCallback(async (sid: string, runId?: number) => {
     await delay(PROMPT_SETTLE_INITIAL_DELAY_MS);
     const startedAt = Date.now();
 
-    while (agentRunningRef.current && Date.now() - startedAt < PROMPT_SETTLE_MAX_MS) {
-      if (runId !== undefined && promptRunIdRef.current !== runId) return;
+    while (lifecycleRef.current.agentRunning && Date.now() - startedAt < PROMPT_SETTLE_MAX_MS) {
+      if (runId !== undefined && lifecycleRef.current.promptRunId !== runId) return;
       try {
         const res = await fetch(`/api/agent/${encodeURIComponent(sid)}`);
         if (res.ok) {
@@ -979,8 +1005,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // If the server reports idle while we still think it's running, finish
   // through the same settlement path used by non-streaming prompts.
   const reconcileAgentState = useCallback(async (sid: string) => {
-    if (!agentRunningRef.current || sessionIdRef.current !== sid) return;
-    const runId = promptRunIdRef.current;
+    if (!lifecycleRef.current.agentRunning || sessionIdRef.current !== sid) return;
+    const runId = lifecycleRef.current.promptRunId;
     try {
       const res = await fetch(`/api/agent/${encodeURIComponent(sid)}`);
       if (!res.ok) return;
@@ -988,7 +1014,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       // A slow response can straddle a run boundary (previous run finished
       // and the user already started the next one while this request was in
       // flight) — everything in it is stale, drop it.
-      if (sessionIdRef.current !== sid || promptRunIdRef.current !== runId) return;
+      if (sessionIdRef.current !== sid || lifecycleRef.current.promptRunId !== runId) return;
       const state = data.state;
       // Mirror compaction state unconditionally: a missed compaction_end
       // would otherwise leave the "Stop compaction" UI stuck. No state
@@ -998,11 +1024,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const busy = data.running && state
         && (state.isStreaming || state.isPromptRunning || state.isCompacting);
       if (busy) {
-        sdkAgentActiveRef.current = Boolean(state.isStreaming);
-        rpcPromptPendingRef.current = Boolean(state.isPromptRunning);
+        lifecycle({
+          type: "adopted",
+          sdkAgentActive: Boolean(state.isStreaming),
+          rpcPromptPending: Boolean(state.isPromptRunning),
+        });
         return;
       }
-      if (!agentRunningRef.current) return;
+      if (!lifecycleRef.current.agentRunning) return;
       if (state) {
         if (state.contextUsage !== undefined) setContextUsage(state.contextUsage ?? null);
         if (state.systemPrompt !== undefined) setSystemPrompt(state.systemPrompt ?? null);
@@ -1013,7 +1042,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } catch {
       // Network still down — the next poll / visibility / online tick retries.
     }
-  }, [finishPromptWithoutStream]);
+  }, [lifecycle, finishPromptWithoutStream]);
 
   // Recovery net for missed SSE events: while the agent is running, verify
   // against the server periodically and whenever the tab returns to the
@@ -1040,8 +1069,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [agentRunning, reconcileAgentState]);
 
   useEffect(() => {
-    agentRunningRef.current = agentRunning;
-  }, [agentRunning]);
+    lifecycle({ type: "ui_running_changed", running: agentRunning });
+  }, [lifecycle, agentRunning]);
 
   /**
    * Refresh the panels an ended turn can invalidate. Unlike
@@ -1068,18 +1097,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
    * refs it decided, then perform the effects it asked for, in order.
    */
   const applyLifecycleEvent = useCallback((event: AgentLifecycleEvent) => {
-    const { next, effects } = agentLifecycleTransition(event, {
-      agentRunning: agentRunningRef.current,
-      sdkAgentActive: sdkAgentActiveRef.current,
-      rpcPromptPending: rpcPromptPendingRef.current,
-      notifiedRunId: notifiedPromptRunIdRef.current,
-      promptRunId: promptRunIdRef.current,
-    });
-
-    agentRunningRef.current = next.agentRunning;
-    sdkAgentActiveRef.current = next.sdkAgentActive;
-    rpcPromptPendingRef.current = next.rpcPromptPending;
-    notifiedPromptRunIdRef.current = next.notifiedRunId;
+    const { next, effects } = agentLifecycleTransition(event, lifecycleRef.current);
+    lifecycleRef.current = next;
 
     const sid = sessionIdRef.current;
     for (const effect of effects) {
@@ -1113,8 +1132,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         dispatch({ type: "end" });
         if (event.isStreaming === true) {
           cancelEventStreamGrace();
-          sdkAgentActiveRef.current = true;
-          agentRunningRef.current = true;
+          lifecycle({ type: "stream_connected" });
           setAgentRunning(true);
           setAgentPhase({ kind: "waiting_model" });
         }
@@ -1140,7 +1158,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         // Ignore streaming events arriving after this run already finished
         // (e.g. SSE data buffered while the tab was frozen, flushed after
         // reconcile) — they would resurrect a ghost streaming bubble.
-        if (!agentRunningRef.current) break;
+        if (!lifecycleRef.current.agentRunning) break;
         if (event.type === "message_start") {
           const msg = event.message as AgentMessage | undefined;
           if (msg?.role === "user") break;
@@ -1175,7 +1193,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         // Same late-event guard: after reconcile finished this run,
         // loadSession already loaded this message from the session file —
         // appending it again would duplicate it.
-        if (!agentRunningRef.current) break;
+        if (!lifecycleRef.current.agentRunning) break;
         const completed = event.message as AgentMessage | undefined;
         if (completed && completed.role === "user") {
           // Delivered steering/follow-up messages surface here as user
@@ -1274,13 +1292,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         handleExtensionUiRequest(event as ExtensionUiRequest);
         break;
     }
-  }, [addNotice, applyLifecycleEvent, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, scrollToBottom]);
+  }, [lifecycle, addNotice, applyLifecycleEvent, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, scrollToBottom]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
     const trimmedMessage = message.trim();
     if (!trimmedMessage && !images?.length) return;
-    if (agentRunningRef.current || bashRunningRef.current) {
+    if (lifecycleRef.current.agentRunning || bashRunningRef.current) {
       restoreSubmission(message, images, composerDraftKey);
       return;
     }
@@ -1298,9 +1316,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       return;
     }
 
-    const promptRunId = promptRunIdRef.current + 1;
+    const promptRunId = lifecycleRef.current.promptRunId + 1;
     cancelEventStreamGrace();
-    rpcPromptPendingRef.current = true;
+    lifecycle({ type: "prompt_sending" });
 
     const imageBlocks = images?.map((img) => ({ type: "image" as const, source: { type: "base64" as const, media_type: img.mimeType, data: img.data } }));
     const userMsg: AgentMessage = {
@@ -1312,8 +1330,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     };
     setMessages((prev) => [...prev, userMsg]);
     optimisticUserMessageKeyRef.current = userMessageKey(userMsg);
-    promptRunIdRef.current = promptRunId;
-    agentRunningRef.current = true;
+    lifecycle({ type: "prompt_started", runId: promptRunId });
     setAgentRunning(true);
     setAgentPhase(isSlashCommandPrompt ? { kind: "running_command" } : { kind: "waiting_model" });
     dispatch({ type: "start" });
@@ -1371,7 +1388,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         void waitForPromptSettlement(sentSessionId, promptRunId);
         return;
       }
-      rpcPromptPendingRef.current = false;
+      lifecycle({ type: "prompt_rejected" });
       setMessages((prev) => {
         const optimisticIndex = prev.lastIndexOf(userMsg);
         return optimisticIndex === -1
@@ -1388,16 +1405,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         void reconcileAgentState(sentSessionId);
         return;
       }
-      agentRunningRef.current = false;
+      lifecycle({ type: "prompt_abandoned" });
       closeEvents();
       setAgentRunning(false);
       setAgentPhase(null);
       dispatch({ type: "end" });
     }
-  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, composerDraftKey, reconcileAgentState, restoreSubmission]);
+  }, [lifecycle, isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, composerDraftKey, reconcileAgentState, restoreSubmission]);
 
   const executeBash = useCallback(async (command: string, excludeFromContext: boolean) => {
-    if (agentRunningRef.current || bashRunningRef.current) return;
+    if (lifecycleRef.current.agentRunning || bashRunningRef.current) return;
     const inputText = `${excludeFromContext ? "!!" : "!"}${command}`;
     bashRunningRef.current = true;
     setPendingBash({ command, excludeFromContext });
@@ -1649,7 +1666,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
         case "clone": {
           if (!sid) return complete({ handled: true, error: "No active session to clone" });
-          if (agentRunningRef.current || bashRunningRef.current) {
+          if (lifecycleRef.current.agentRunning || bashRunningRef.current) {
             return complete({ handled: true, error: "Cannot clone while the session is running" });
           }
           const result = await sendAgentCommand<{ cancelled?: boolean; newSessionId?: string }>(sid, {
@@ -1819,7 +1836,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const container = scrollContainerRef.current;
     if (container) {
       const { scrollTop, clientHeight, scrollHeight } = container;
-      const isAgentRunning = agentRunningRef.current;
+      const isAgentRunning = lifecycleRef.current.agentRunning;
       const wasAttached = isNearBottomRef.current;
       const isAttached = getLiveFollowAttached(
         wasAttached,
@@ -1851,9 +1868,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         if (agentState?.running) {
           loadTools(session.id);
           if (agentState.state?.isStreaming || agentState.state?.isPromptRunning) {
-            sdkAgentActiveRef.current = Boolean(agentState.state.isStreaming);
-            rpcPromptPendingRef.current = Boolean(agentState.state.isPromptRunning);
-            agentRunningRef.current = true;
+            lifecycle({
+              type: "adopted",
+              sdkAgentActive: Boolean(agentState.state.isStreaming),
+              rpcPromptPending: Boolean(agentState.state.isPromptRunning),
+            });
             setAgentRunning(true);
             setAgentPhase(agentState.state.isStreaming ? { kind: "waiting_model" } : { kind: "running_command" });
             dispatch({ type: "start" });
@@ -1937,7 +1956,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       } else if (!initialScrollDoneRef.current) {
         initialScrollDoneRef.current = true;
         scrollToBottom("instant");
-      } else if (!agentRunningRef.current && isNearBottomRef.current) {
+      } else if (!lifecycleRef.current.agentRunning && isNearBottomRef.current) {
         scrollToBottom("auto");
       }
     }

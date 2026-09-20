@@ -105,7 +105,41 @@ export function isGraceCheckStale(identity: GraceCheckIdentity): boolean {
  * the ones that decide whether the agent is still working, whether the stream
  * stays open, and whether the caller is told the turn ended.
  */
-export type AgentLifecycleEvent = "agent_start" | "agent_end" | "agent_settled" | "prompt_done";
+export type AgentLifecycleEvent =
+  | "agent_start" | "agent_end" | "agent_settled" | "prompt_done"
+  | AgentStateEvent;
+
+/**
+ * The rest of what moves this state, which the hook used to do by assigning to
+ * five loose refs.
+ *
+ * They carry no effects — every one of them sits next to UI code the hook was
+ * already running, and moving that here would only trade one kind of spread
+ * for another. What they buy is that the state above has exactly one writer,
+ * so "is a turn in flight" can no longer be half-updated by a call site that
+ * forgot one of the five.
+ */
+export type AgentStateEvent =
+  /** A prompt is about to be sent; the server has not accepted it yet. */
+  | { type: "prompt_sending" }
+  /** The prompt was sent and is now the run in flight. */
+  | { type: "prompt_started"; runId: number }
+  /** The send was refused outright, so nothing is pending on the server. */
+  | { type: "prompt_rejected" }
+  /** The send failed with no session to reconcile against; give the turn up. */
+  | { type: "prompt_abandoned" }
+  /** The server confirmed the run is over, however it ended. */
+  | { type: "prompt_settled" }
+  /** An SSE connection reported a stream already in progress. */
+  | { type: "stream_connected" }
+  /** Server state says a run is live: adopt it rather than guess. */
+  | { type: "adopted"; sdkAgentActive: boolean; rpcPromptPending: boolean }
+  /** The UI stage was settled; the turn is no longer shown as running. */
+  | { type: "settled" }
+  /** This run's completion has been announced, so it is announced once. */
+  | { type: "notified"; runId: number }
+  /** The rendered flag changed; keep the machine's copy in step. */
+  | { type: "ui_running_changed"; running: boolean };
 
 export interface AgentLifecycleState {
   /** Whether the UI is showing a turn in progress. */
@@ -144,6 +178,37 @@ export interface AgentLifecycleTransition {
   effects: AgentLifecycleEffect[];
 }
 
+function applyStateEvent(event: AgentStateEvent, state: AgentLifecycleState): AgentLifecycleState {
+  switch (event.type) {
+    case "prompt_sending":
+      return { ...state, rpcPromptPending: true };
+    case "prompt_started":
+      return { ...state, promptRunId: event.runId, agentRunning: true };
+    case "prompt_rejected":
+      return { ...state, rpcPromptPending: false };
+    case "prompt_abandoned":
+      return { ...state, agentRunning: false };
+    case "prompt_settled":
+      return { ...state, rpcPromptPending: false, sdkAgentActive: false };
+    case "stream_connected":
+      return { ...state, sdkAgentActive: true, agentRunning: true };
+    case "adopted":
+      return {
+        ...state,
+        sdkAgentActive: event.sdkAgentActive,
+        rpcPromptPending: event.rpcPromptPending,
+        agentRunning: true,
+      };
+    case "settled":
+      return { ...state, agentRunning: false };
+    case "notified":
+      // Announced once per run: a repeat for the same id is not a change.
+      return state.notifiedRunId === event.runId ? state : { ...state, notifiedRunId: event.runId };
+    case "ui_running_changed":
+      return state.agentRunning === event.running ? state : { ...state, agentRunning: event.running };
+  }
+}
+
 /**
  * Decide how one lifecycle event moves the turn along.
  *
@@ -157,6 +222,8 @@ export function agentLifecycleTransition(
   event: AgentLifecycleEvent,
   state: AgentLifecycleState,
 ): AgentLifecycleTransition {
+  if (typeof event === "object") return { next: applyStateEvent(event, state), effects: [] };
+
   switch (event) {
     case "agent_start":
       return {
