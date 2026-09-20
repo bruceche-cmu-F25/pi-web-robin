@@ -17,6 +17,19 @@ export interface TelegramContext {
   fetch: typeof fetch;
 }
 
+/** A send lost its response, so Telegram may already have accepted the message. */
+export class TelegramDeliveryUnknownError extends Error {
+  constructor(method: string, cause: unknown) {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    super(`Telegram ${method} delivery is unknown: ${detail}`);
+    this.name = "TelegramDeliveryUnknownError";
+  }
+}
+
+export function deliveryMayHaveSucceeded(error: unknown): boolean {
+  return error instanceof TelegramDeliveryUnknownError;
+}
+
 /**
  * One inline button: either it calls back, or it opens a link.
  *
@@ -44,12 +57,20 @@ export async function telegram(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await ctx.fetch(`${TELEGRAM_API}/bot${ctx.token}/${method}`, {
-      method: "POST",
-      signal: controller.signal,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    let response: Response;
+    try {
+      response = await ctx.fetch(`${TELEGRAM_API}/bot${ctx.token}/${method}`, {
+        method: "POST",
+        signal: controller.signal,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    } catch (error) {
+      // sendMessage has no idempotency key. Retrying after a lost response can
+      // duplicate a message Telegram already accepted, so expose the ambiguity.
+      if (method === "sendMessage") throw new TelegramDeliveryUnknownError(method, error);
+      throw error;
+    }
     const parsed = await response.json().catch(() => null);
     if (!response.ok) {
       const detail = (parsed as { description?: string } | null)?.description ?? `HTTP ${response.status}`;

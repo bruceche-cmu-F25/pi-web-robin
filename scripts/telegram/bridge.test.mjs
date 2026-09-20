@@ -301,6 +301,21 @@ test("a failed send claims nothing, so the same jobs are offered again", async (
   assert.match(logs.join("\n"), /send to 42 failed/);
 });
 
+test("a send with no response is consumed instead of retried as duplicate spam", async () => {
+  const { fetch, calls } = fakeFetch({
+    "/api/robin/jobs/scan": { body: { scan: { scanned: 0, matched: 0, added: 0 } } },
+    "/api/robin/jobs/digest": { body: { text: "1. 4.6 Acme", jobIds: ["j1"], count: 1, pending: 0, scoreBatch: 40 } },
+    "sendMessage": () => { throw new Error("socket closed before the response"); },
+  });
+  const job = ledger();
+  const logs = [];
+  await sendJobDigest(config({ jobDigest: schedule }), deps(fetch, logs, { job }), "2026-08-17:morning");
+
+  assert.deepEqual(calls.find((call) => call.body?.claim)?.body.claim, ["j1"]);
+  assert.deepEqual(job.runs.get("2026-08-17:morning"), [42]);
+  assert.match(logs.join("\n"), /suppressing a duplicate retry/);
+});
+
 test("a board being down still lets already-scored jobs go out", async () => {
   const { fetch, calls } = fakeFetch({
     "/api/robin/jobs/scan": { ok: false, status: 500, body: { error: "boom" } },

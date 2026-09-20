@@ -81,6 +81,7 @@ import { runReminders } from "./reminders.ts";
 import { runIfDue, type Slot } from "./schedule.ts";
 import {
   answerCallbackQuery,
+  deliveryMayHaveSucceeded,
   downloadFile,
   editMessageButtons,
   sendMessage as sendTelegramMessage,
@@ -243,6 +244,19 @@ export async function askAssistant(
  * ids, and the ids in the model's summary are whatever it chose to write. What
  * you tap has to be what the store holds.
  */
+function markUncertainDelivery(
+  ledger: DeliveryLedger,
+  key: string,
+  chatId: number,
+  error: unknown,
+): boolean {
+  if (!deliveryMayHaveSucceeded(error)) return false;
+  // Telegram has no idempotency key. Prefer one possibly-missed digest over a
+  // message that repeats every poll cycle after Telegram accepted it silently.
+  ledger.mark(key, chatId);
+  return true;
+}
+
 export async function sendDailyAgenda(
   config: BridgeConfig,
   deps: BridgeDeps,
@@ -297,7 +311,11 @@ export async function sendDailyAgenda(
     } catch (error) {
       // Per chat, like the job digest: one unreachable chat must not abort the
       // broadcast, nor leave the whole run to be retried on every poll cycle.
-      deps.log(`[daily agenda] send to ${chatId} failed — ${error instanceof Error ? error.message : String(error)}`);
+      if (markUncertainDelivery(deps.dailyAgendaLedger, date, chatId, error)) {
+        deps.log(`[daily agenda] send to ${chatId} had no response — suppressing a duplicate retry`);
+      } else {
+        deps.log(`[daily agenda] send to ${chatId} failed — ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
   }
   deps.log(`[daily agenda] sent ${date} to ${delivered}/${chatIds.length} chat(s)`);
@@ -425,7 +443,14 @@ export async function sendJobDigest(
       delivered.push(chatId);
       deps.jobLedger.mark(runKey, chatId);
     } catch (error) {
-      deps.log(`[jobs] send to ${chatId} failed — ${error instanceof Error ? error.message : String(error)}`);
+      if (markUncertainDelivery(deps.jobLedger, runKey, chatId, error)) {
+        // Treat an ambiguous result as consumed too: otherwise the same jobs
+        // return in the next slot even though this slot no longer retries.
+        delivered.push(chatId);
+        deps.log(`[jobs] send to ${chatId} had no response — suppressing a duplicate retry`);
+      } else {
+        deps.log(`[jobs] send to ${chatId} failed — ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
   }
 
@@ -482,7 +507,11 @@ export async function sendGmailDigest(
       deps.gmailLedger.mark(runKey, chatId);
       delivered += 1;
     } catch (error) {
-      deps.log(`[gmail digest] send to ${chatId} failed — ${error instanceof Error ? error.message : String(error)}`);
+      if (markUncertainDelivery(deps.gmailLedger, runKey, chatId, error)) {
+        deps.log(`[gmail digest] send to ${chatId} had no response — suppressing a duplicate retry`);
+      } else {
+        deps.log(`[gmail digest] send to ${chatId} failed — ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
   }
   deps.log(`[gmail digest] sent ${runKey} to ${delivered}/${chatIds.length} chat(s)`);

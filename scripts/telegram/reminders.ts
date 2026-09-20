@@ -13,6 +13,7 @@
  */
 import { occursOn, type DashboardEvent } from "../../extension/robin/events.ts";
 import type { DeliveryLedger } from "../../extension/robin/delivery-ledger.ts";
+import { deliveryMayHaveSucceeded } from "./telegram-api.ts";
 import { piWeb, type PiWebContext } from "./pi-web.ts";
 import type { BridgeLocale } from "./protocol.ts";
 
@@ -140,9 +141,15 @@ export async function runReminders(run: ReminderRun): Promise<void> {
         await run.send(chatId, text);
         run.ledger.mark(key, chatId);
       } catch (error) {
-        // Left unmarked on purpose: the next cycle is thirty seconds away and
-        // the event has not started yet, so a retry is still a useful reminder.
-        run.log(`[reminders] send to ${chatId} failed — ${error instanceof Error ? error.message : String(error)}`);
+        if (deliveryMayHaveSucceeded(error)) {
+          // Telegram may have accepted the request before its response was
+          // lost. Without an idempotency key, retrying can only create spam.
+          run.ledger.mark(key, chatId);
+          run.log(`[reminders] send to ${chatId} had no response — suppressing a duplicate retry`);
+        } else {
+          // A definite failure is still worth retrying while the event is future.
+          run.log(`[reminders] send to ${chatId} failed — ${error instanceof Error ? error.message : String(error)}`);
+        }
       }
     }
     run.log(`[reminders] ${event.title} at ${event.start} → ${pending.length} chat(s)`);

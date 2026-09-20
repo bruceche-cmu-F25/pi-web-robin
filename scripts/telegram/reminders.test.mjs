@@ -7,6 +7,7 @@ import {
   reminderKey,
   runReminders,
 } from "./reminders.ts";
+import { TelegramDeliveryUnknownError } from "./telegram-api.ts";
 
 const event = (over) => ({ id: "e1", title: "Standup", date: "2026-08-23", start: "09:00", ...over });
 
@@ -149,6 +150,26 @@ test("a send failure leaves the reminder unclaimed so the next cycle retries", a
   await runReminders(run);
   await runReminders(run);
   assert.equal(attempts, 2, "an unsent reminder is still worth sending while the event is future");
+});
+
+test("an uncertain send is claimed instead of repeated every cycle", async () => {
+  let attempts = 0;
+  const shared = ledger();
+  const run = baseRun({
+    ctx: {
+      url: "http://x",
+      fetch: calendar({ events: [event({ start: "09:20" })], today: "2026-08-23" }),
+    },
+    ledger: shared,
+    send: async () => {
+      attempts += 1;
+      throw new TelegramDeliveryUnknownError("sendMessage", new Error("timed out"));
+    },
+  });
+  await runReminders(run);
+  await runReminders(run);
+  assert.equal(attempts, 1);
+  assert.deepEqual(shared.runs.get("2026-08-23:e1"), [42]);
 });
 
 test("an unreadable calendar is logged, not thrown", async () => {
