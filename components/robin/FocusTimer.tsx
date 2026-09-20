@@ -43,7 +43,7 @@ function MinutesInput({ label, value, max, onChange }: {
 
 /** A single timer per shell, outside workspace lifecycles and scroll containers. */
 export function FocusTimer({ compact = false }: { compact?: boolean } = {}) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const timer = useFocusTimer((done) => {
     // The in-page reminder is invisible while you are in another tab or app.
     // Permission is asked for when a round starts; never prompt from here.
@@ -73,6 +73,13 @@ export function FocusTimer({ compact = false }: { compact?: boolean } = {}) {
   const time = formatFocusTime(remaining);
   const status = complete ? t(`focus.${state.phase}Complete`)
     : state.status === "paused" ? t("focus.paused") : phase;
+  // Below the countdown: what the clock can't say on its own.
+  const detail = state.status === "running"
+    ? t("focus.endsAt", { time: new Date(state.endsAt!).toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" }) })
+    : state.status === "paused" ? status
+    : t("focus.thenBreak", { minutes: state.breakMinutes });
+  const pendingChange = active && !complete
+    && state.phaseMs !== (state.phase === "focus" ? state.focusMinutes : state.breakMinutes) * 60_000;
   const today = todayFocus(state, now);
   const todayMinutes = Math.floor(today.focusMs / 60_000);
   // Minutes, not seconds: a hidden tab only repaints about once a minute.
@@ -95,8 +102,9 @@ export function FocusTimer({ compact = false }: { compact?: boolean } = {}) {
     const positionPanel = () => {
       const rect = trigger.current?.getBoundingClientRect();
       if (!rect) return;
-      const width = Math.min(288, window.innerWidth - 16);
       const gap = 8;
+      // Measure, don't restate the CSS width, or the panel overhangs its trigger.
+      const width = panel.current?.offsetWidth ?? Math.min(320, window.innerWidth - 2 * gap);
       const height = panel.current?.offsetHeight ?? 0;
       let top = rect.bottom + gap;
       // Flip above the trigger when there is not enough room below it (drawer).
@@ -104,6 +112,10 @@ export function FocusTimer({ compact = false }: { compact?: boolean } = {}) {
       setPosition({ top, left: Math.max(gap, Math.min(rect.right - width, window.innerWidth - width - gap)) });
     };
     positionPanel();
+    // Content changes height (ending a round, a validation message); a panel
+    // flipped above its trigger must move with it.
+    const resize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(positionPanel);
+    if (panel.current) resize?.observe(panel.current);
     window.addEventListener("resize", positionPanel);
     window.addEventListener("scroll", positionPanel, true);
     if (manualFocus.current) {
@@ -111,6 +123,7 @@ export function FocusTimer({ compact = false }: { compact?: boolean } = {}) {
       manualFocus.current = false;
     }
     return () => {
+      resize?.disconnect();
       window.removeEventListener("resize", positionPanel);
       window.removeEventListener("scroll", positionPanel, true);
     };
@@ -184,12 +197,8 @@ export function FocusTimer({ compact = false }: { compact?: boolean } = {}) {
                   onClick={() => start(state.phase === "focus" ? "break" : "focus")}>
                   {t(state.phase === "focus" ? "focus.startBreak" : "focus.nextRound")}
                 </button>
-                <button type="button" className={styles.secondary} onClick={() => {
-                  if (state.phase === "break") act({ type: "end" });
-                  close();
-                }}>{t(state.phase === "focus" ? "focus.notNow" : "focus.end")}</button>
+                <button type="button" className={styles.secondary} onClick={() => { act({ type: "end" }); close(); }}>{t("focus.end")}</button>
               </div>
-              {state.phase === "focus" && <button type="button" className={styles.secondary} onClick={() => { act({ type: "end" }); close(); }}>{t("focus.end")}</button>}
             </div>
           ) : (
             <>
@@ -197,7 +206,7 @@ export function FocusTimer({ compact = false }: { compact?: boolean } = {}) {
                 style={{ "--timer-progress": `${progress * 100}%` } as CSSProperties}
                 role="timer" aria-label={`${status} ${time}`} aria-live="off">
                 <div className={styles.dialFace}>
-                  <span className={styles.phase}>{status}</span>
+                  <span className={styles.phase}>{detail}</span>
                   <span className={styles.countdown}>{time}</span>
                 </div>
               </div>
@@ -234,7 +243,7 @@ export function FocusTimer({ compact = false }: { compact?: boolean } = {}) {
             </div>
             <MinutesInput label={t("focus.focus")} value={state.focusMinutes} max={MAX_FOCUS_MINUTES} onChange={(focusMinutes) => act({ type: "settings", focusMinutes })} />
             <MinutesInput label={t("focus.break")} value={state.breakMinutes} max={MAX_BREAK_MINUTES} onChange={(breakMinutes) => act({ type: "settings", breakMinutes })} />
-            {(state.status === "running" || state.status === "paused") && <p className={styles.hint}>{t("focus.nextPhase")}</p>}
+            {pendingChange && <p className={styles.hint}>{t("focus.nextPhase")}</p>}
             <div className={styles.sound}>
               <label>
                 <span>{t("focus.sound")}</span>
