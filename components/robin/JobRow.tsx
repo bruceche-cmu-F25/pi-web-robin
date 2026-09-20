@@ -5,20 +5,21 @@ import { useI18n } from "@/hooks/useI18n";
 import type { Job, JobStatus } from "@/extension/robin/jobs";
 
 /**
- * The score badge is a three-step ladder on the one accent hue, not a
- * red/amber/green traffic light: those are reserved for alarm states, and a
- * 3.2 is not a warning — it is a job that scored 3.2. Below the push floor the
- * badge drops out of the accent entirely and reads as ordinary data.
+ * The score badge is a ladder on the one accent hue, not a red/amber/green
+ * traffic light: those are reserved for alarm states, and a 3.2 is not a
+ * warning — it is a job that scored 3.2. Three steps are worth applying to and
+ * each reads differently at a glance: 4.5+ solid, 4.0+ filled, and the band
+ * from the push floor up to 4.0 outlined only. Below the floor the badge drops
+ * out of the accent entirely and reads as ordinary data.
  */
 function scoreSurface(score: number | undefined, minScore: number) {
-  if (typeof score !== "number") {
-    return { background: "transparent", color: "var(--text-dim)", border: "1px solid var(--border)" };
-  }
-  // Solid, not another tint: at four steps the tint ladder stops separating,
-  // and the top of the list is the one thing that has to read at a glance.
+  const plain = { background: "transparent", color: "var(--text-dim)", border: "1px solid var(--border)" };
+  if (typeof score !== "number" || score < minScore) return plain;
   if (score >= 4.5) return { background: "var(--accent)", color: "var(--on-accent)", border: "1px solid var(--accent)" };
-  if (score >= minScore) return { background: "var(--accent-soft)", color: "var(--accent)", border: "1px solid var(--accent-line)" };
-  return { background: "transparent", color: "var(--text-dim)", border: "1px solid var(--border)" };
+  // --accent-line as a fill, not --accent-fill: the lighter tint all but
+  // vanished against the outlined band in the dark theme.
+  if (score >= 4) return { background: "var(--accent-line)", color: "var(--text)", border: "1px solid var(--accent-line-strong)" };
+  return { background: "transparent", color: "var(--accent)", border: "1px solid var(--accent-line)" };
 }
 
 export function JobRow({

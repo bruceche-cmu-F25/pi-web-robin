@@ -374,7 +374,8 @@ export function JobsBoard() {
                         profile.maxYears > 0 ? "robin.jobs.summaryDeliveryYears" : "robin.jobs.summaryDelivery",
                         {
                           days: String(profile.sinceDays),
-                          score: profile.minScore.toFixed(1),
+                          // 3.75 must not round to "3.8"; 4 still reads "4.0".
+                          score: profile.minScore.toFixed(Number.isInteger(profile.minScore * 10) ? 1 : 2),
                           count: String(profile.digestSize),
                           years: String(profile.maxYears),
                         },

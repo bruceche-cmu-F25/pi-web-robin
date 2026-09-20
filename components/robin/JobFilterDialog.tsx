@@ -165,6 +165,7 @@ export function JobFilterDialog({
   return createPortal(
     <div
       role="dialog"
+      className="job-filter-dialog"
       aria-modal="true"
       aria-label={t("robin.jobs.filterTitle")}
       onClick={(event) => {
@@ -181,14 +182,17 @@ export function JobFilterDialog({
         alignItems: "center",
         justifyContent: "center",
         background: "rgba(0,0,0,0.35)",
-        padding: 8,
+        paddingTop: "max(8px, env(safe-area-inset-top))",
+        paddingRight: "max(8px, env(safe-area-inset-right))",
+        paddingBottom: "max(8px, env(safe-area-inset-bottom))",
+        paddingLeft: "max(8px, env(safe-area-inset-left))",
       }}
     >
       <div
         className="flex w-full flex-col"
         style={{
           maxWidth: 960,
-          height: "min(760px, calc(100dvh - 16px))",
+          height: "min(760px, 100%)",
           background: "var(--bg)",
           border: "1px solid var(--border)",
           boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
@@ -214,8 +218,8 @@ export function JobFilterDialog({
               onClick={onClose}
               disabled={saving}
               aria-label={t("i18n.close")}
-              className="ui-action px-1 disabled:opacity-40"
-              style={{ fontSize: 20, lineHeight: 1 }}
+              className="ui-action min-h-11 min-w-11 px-1 disabled:opacity-40"
+              style={{ minWidth: 44, fontSize: 20, lineHeight: 1 }}
             >
               ×
             </button>
@@ -457,7 +461,7 @@ export function JobFilterDialog({
                       type="number"
                       min={1}
                       max={5}
-                      step={0.1}
+                      step={0.05}
                       value={profile.minScore}
                       onChange={(event) => patch({ minScore: Number(event.target.value) })}
                       className="rounded px-2 py-1 text-sm tabular-nums outline-none"
