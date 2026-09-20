@@ -324,6 +324,31 @@ export function parseYouTubeFeed(xml: string, channelId: string): FeedEpisode[] 
   return episodes;
 }
 
+/**
+ * Video ids from a YouTube browse response for a playlist, newest first.
+ * The RSS feeds can go away for days at a time (every one of them answered
+ * 404 from 2026-09-14); the page the site itself renders still lists uploads.
+ * Both the current lockup shape and the older playlist renderer are read.
+ */
+export function parseBrowseVideoIds(data: unknown, limit = 15): string[] {
+  const ids: string[] = [];
+  const visit = (node: unknown): void => {
+    if (ids.length >= limit || !node || typeof node !== "object") return;
+    if (Array.isArray(node)) { for (const item of node) visit(item); return; }
+    const record = node as Record<string, unknown>;
+    const lockup = record.lockupViewModel as { contentId?: unknown; contentType?: unknown } | undefined;
+    const legacy = record.playlistVideoRenderer as { videoId?: unknown } | undefined;
+    const id = lockup?.contentType === "LOCKUP_CONTENT_TYPE_VIDEO" ? lockup.contentId : legacy?.videoId;
+    if (isVideoId(id)) {
+      if (!ids.includes(id)) ids.push(id);
+      return;
+    }
+    for (const value of Object.values(record)) visit(value);
+  };
+  visit(data);
+  return ids;
+}
+
 // ---------------------------------------------------------------------------
 // Descriptions
 
@@ -470,13 +495,6 @@ export function podcastView(store: PodcastStore, now = Date.now()): PodcastView 
     if (!seen || episode.published > seen) lastPublished[episode.channelId] = episode.published;
   }
   return { scannedAt: store.scannedAt, failures: store.failures, latest, details, summaries, lastPublished };
-}
-
-export const SCAN_INTERVAL_MS = 6 * 3_600_000;
-
-export function isPodcastScanDue(store: PodcastStore, now = Date.now()): boolean {
-  const scanned = store.scannedAt ? Date.parse(store.scannedAt) : Number.NaN;
-  return !Number.isFinite(scanned) || now - scanned >= SCAN_INTERVAL_MS;
 }
 
 // ---------------------------------------------------------------------------

@@ -53,3 +53,38 @@ test("a channel whose feed fails keeps its last episodes; the others refresh", a
   assert.deepEqual(store.failures.map((failure) => failure.channelId), ["b"]);
   assert.deepEqual(store.episodes.map((episode) => episode.videoId), ["secondAAAAA", "firstBBBBBB"]);
 });
+
+test("when every feed 404s, uploads come from the browse endpoint and reuse known details", async () => {
+  const channels = [
+    { id: "c", name: "C", youtubeId: "UCcccccccccccccccccccccc", shelf: "ai", host: { en: "", zh: "" }, why: { en: "", zh: "" } },
+  ];
+  const lockup = (id) => ({ lockupViewModel: { contentId: id, contentType: "LOCKUP_CONTENT_TYPE_VIDEO" } });
+  const players = [];
+  const fetchImpl = async (url, init) => {
+    if (url.includes("/youtubei/v1/browse")) {
+      assert.equal(JSON.parse(init.body).browseId, "VLUULFcccccccccccccccccccccc");
+      return Response.json({ contents: { items: [lockup("newVideoCCC"), lockup("oldVideoCCC"), { lockupViewModel: { contentId: "PLnotavideo", contentType: "LOCKUP_CONTENT_TYPE_PLAYLIST" } }] } });
+    }
+    if (url.includes("/youtubei/v1/player")) {
+      const { videoId } = JSON.parse(init.body);
+      players.push(videoId);
+      return Response.json({
+        videoDetails: { title: `Title ${videoId}`, author: "C", lengthSeconds: "3600", shortDescription: "about" },
+        microformat: { playerMicroformatRenderer: { publishDate: "2026-09-12T10:00:00-07:00" } },
+      });
+    }
+    return new Response("", { status: 404 });
+  };
+  const now = Date.parse("2026-09-16T00:00:00Z");
+  const first = await scanPodcasts({ fetchImpl, channels, now });
+  assert.deepEqual(first.failures, []);
+  assert.deepEqual(first.episodes.map((episode) => [episode.videoId, episode.title, episode.published]), [
+    ["newVideoCCC", "Title newVideoCCC", "2026-09-12T10:00:00-07:00"],
+    ["oldVideoCCC", "Title oldVideoCCC", "2026-09-12T10:00:00-07:00"],
+  ]);
+  assert.equal(first.details.newVideoCCC.lengthSeconds, 3600);
+
+  players.length = 0;
+  await scanPodcasts({ fetchImpl, channels, now });
+  assert.deepEqual(players, [], "details the store already holds are not fetched again");
+});

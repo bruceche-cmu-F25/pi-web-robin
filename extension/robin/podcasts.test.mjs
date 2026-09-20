@@ -5,7 +5,6 @@ import {
   PODCAST_CHANNELS,
   PODCAST_PEOPLE,
   describeEpisode,
-  isPodcastScanDue,
   latestEpisodes,
   parseCaptionXml,
   parseSummaryReply,
@@ -96,13 +95,6 @@ test("latest episodes: recent, not clips, at most three per channel", () => {
   const details = { [episodes[6].videoId]: { lengthSeconds: 120 } };
   const ids = latestEpisodes(episodes, details, now).map((episode) => episode.title);
   assert.deepEqual(ids, ["b1", "a1", "a2", "a3"]);
-});
-
-test("scan is due after six hours or when never run", () => {
-  const now = Date.parse("2026-09-11T12:00:00Z");
-  assert.equal(isPodcastScanDue({ scannedAt: null }, now), true);
-  assert.equal(isPodcastScanDue({ scannedAt: "2026-09-11T07:00:00Z" }, now), false);
-  assert.equal(isPodcastScanDue({ scannedAt: "2026-09-11T05:59:00Z" }, now), true);
 });
 
 test("captions become minute-stamped paragraphs and respect the budget", () => {
