@@ -25,7 +25,8 @@ export function TodoTitle({
 }) {
   const url = todoUrl(todo);
   if (!url) {
-    return <span className={className} style={style}>{todo.title}</span>;
+    // Most callers truncate; the tooltip is the only way to read the rest.
+    return <span className={className} style={style} title={todo.title}>{todo.title}</span>;
   }
   return (
     <a

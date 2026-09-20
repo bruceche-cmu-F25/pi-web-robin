@@ -44,7 +44,8 @@ export function RobinShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (inline || !open) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closeDrawer();
+      // Escape inside a popover (the focus timer) closes that, not the drawer too.
+      if (event.key === "Escape" && !event.defaultPrevented) closeDrawer();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);

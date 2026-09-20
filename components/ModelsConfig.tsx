@@ -1859,6 +1859,10 @@ function AddProviderPicker({
 
   return (
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={t("i18n.addProvider")}
+      className="config-picker-backdrop"
       style={{ position: "fixed", inset: 0, zIndex: 1100, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center" }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
       onKeyDown={(e) => {
@@ -1868,7 +1872,7 @@ function AddProviderPicker({
         onClose();
       }}
     >
-      <div style={{ width: 820, maxWidth: "calc(100vw - 32px)", maxHeight: "min(72vh, calc(100vh - 32px))", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 0, display: "flex", flexDirection: "column", boxShadow: "0 8px 32px rgba(0,0,0,0.22)", overflow: "hidden" }}>
+      <div style={{ width: 820, maxWidth: "calc(100vw - 32px)", maxHeight: "min(72dvh, calc(100dvh - 32px))", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 0, display: "flex", flexDirection: "column", boxShadow: "0 8px 32px rgba(0,0,0,0.22)", overflow: "hidden" }}>
         {/* Search */}
         <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)", flexShrink: 0, display: "flex", alignItems: "center", gap: 8 }}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--text-dim)", flexShrink: 0 }}>
@@ -1878,9 +1882,19 @@ function AddProviderPicker({
             ref={inputRef}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-             placeholder={t("i18n.searchProviders")}
-            style={{ flex: 1, background: "none", border: "none", outline: "none", color: "var(--text)", fontSize: 13, boxSizing: "border-box" }}
+            placeholder={t("i18n.searchProviders")}
+            aria-label={t("i18n.searchProviders")}
+            style={{ flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "var(--text)", fontSize: 13, boxSizing: "border-box" }}
           />
+          <button
+            type="button"
+            className="config-close-button"
+            onClick={onClose}
+            title={t("i18n.close")}
+            aria-label={t("i18n.close")}
+          >
+            ×
+          </button>
         </div>
 
         {/* Card grid */}

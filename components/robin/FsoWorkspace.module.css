@@ -140,6 +140,7 @@
    exercises tuck under it. */
 @media (max-width: 767px) {
   .roadmap { padding: 22px 14px 48px; }
+  .crumb, .railBack, .railPart > button, .railChapterButton, .readToggle { min-height: 44px; }
   .intro h1 { font-size: 28px; }
   .spine { grid-template-columns: minmax(0, 1fr); padding-left: 24px; }
   .spine::before { left: 11px; }

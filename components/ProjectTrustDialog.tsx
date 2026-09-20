@@ -20,6 +20,7 @@ export function ProjectTrustDialog({
   return (
     <div
       role="presentation"
+      className="project-trust-backdrop"
       style={{
         position: "fixed",
         inset: 0,
@@ -27,7 +28,10 @@ export function ProjectTrustDialog({
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        padding: 16,
+        paddingTop: "max(16px, env(safe-area-inset-top))",
+        paddingRight: "max(16px, env(safe-area-inset-right))",
+        paddingBottom: "max(16px, env(safe-area-inset-bottom))",
+        paddingLeft: "max(16px, env(safe-area-inset-left))",
         background: "rgba(0,0,0,0.4)",
       }}
       onClick={(event) => {

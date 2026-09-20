@@ -51,7 +51,7 @@ test("navigation separates primary pages from chat and settings", () => {
 
 test("narrow screens use an off-canvas drawer", () => {
   assert.match(shellSource, /className="robin-mobile-nav-trigger"/);
-  assert.match(shellSource, /if \(event\.key === "Escape"\) closeDrawer\(\)/);
+  assert.match(shellSource, /if \(event\.key === "Escape" && !event\.defaultPrevented\) closeDrawer\(\)/);
   assert.match(shellSource, /inert=\{!inline && open\}/);
   assert.match(css, /@media \(max-width: 959px\)[\s\S]*?robin-navigation-container\.robin-navigation-closed[\s\S]*?translateX/);
 });

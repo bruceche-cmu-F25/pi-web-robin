@@ -61,7 +61,7 @@
   .deskHeader { padding: 12px 16px; }
   .deskActions { gap: 4px 12px; }
   .identity { flex-basis: 100%; }
-  .stage { height: calc(100dvh - 52px); min-height: 620px; }
+  .stage { height: calc(100dvh - 52px); min-height: min(620px, calc(100dvh - 52px)); }
   .record { padding: 28px 16px 40px; }
   .workspace :is(input, textarea) { font-size: 16px !important; }
 }

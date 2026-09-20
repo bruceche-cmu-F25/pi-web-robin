@@ -86,7 +86,7 @@ export function GoogleConnect({
             type="button"
             onClick={() => void act(connected ? "disconnect" : "connect")}
             disabled={busy}
-            className="text-xs disabled:opacity-40"
+            className="ui-action px-2 text-xs disabled:opacity-40"
             style={{ color: "var(--accent)" }}
           >
             {busy ? "…" : connected ? t("robin.google.disconnect") : t("robin.google.connect")}

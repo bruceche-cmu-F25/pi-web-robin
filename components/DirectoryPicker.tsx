@@ -112,9 +112,21 @@ export function DirectoryPicker({ onCancel, onSelect, initialPath, busy = false,
       onKeyDown={(event) => {
         if (event.key === "Escape" && !busy) onCancel();
       }}
-      style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.35)" }}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 1000,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        paddingTop: "max(8px, env(safe-area-inset-top))",
+        paddingRight: "max(8px, env(safe-area-inset-right))",
+        paddingBottom: "max(8px, env(safe-area-inset-bottom))",
+        paddingLeft: "max(8px, env(safe-area-inset-left))",
+        background: "rgba(0,0,0,0.35)",
+      }}
     >
-      <div className="directory-picker-panel" style={{ width: 520, maxWidth: "calc(100vw - 16px)", height: "min(620px, calc(100dvh - 16px))", maxHeight: "calc(100dvh - 16px)", display: "flex", flexDirection: "column", overflow: "hidden", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 0, boxShadow: "0 8px 32px rgba(0,0,0,0.18)" }}>
+      <div className="directory-picker-panel" style={{ width: 520, maxWidth: "100%", height: "min(620px, 100%)", maxHeight: "100%", display: "flex", flexDirection: "column", overflow: "hidden", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 0, boxShadow: "0 8px 32px rgba(0,0,0,0.18)" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, padding: "12px 18px", borderBottom: "1px solid var(--border)" }}>
           <div style={{ minWidth: 0, flex: 1 }}>
             <div style={{ color: "var(--text)", fontWeight: 700, fontSize: 15 }}>{t("directoryPicker.selectDirectory")}</div>
@@ -125,7 +137,7 @@ export function DirectoryPicker({ onCancel, onSelect, initialPath, busy = false,
             disabled={busy}
             title={t("i18n.close")}
             aria-label={t("i18n.close")}
-            style={{ padding: "2px 6px", border: 0, background: "none", color: "var(--text-muted)", fontSize: 20, lineHeight: 1, cursor: busy ? "default" : "pointer", opacity: busy ? 0.5 : 1 }}
+            style={{ width: 44, height: 44, padding: 0, border: 0, background: "none", color: "var(--text-muted)", fontSize: 20, lineHeight: 1, cursor: busy ? "default" : "pointer", opacity: busy ? 0.5 : 1 }}
           >
             ×
           </button>

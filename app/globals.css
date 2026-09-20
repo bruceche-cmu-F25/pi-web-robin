@@ -860,8 +860,8 @@ body {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-width: 36px;
-    min-height: 36px;
+    min-width: 44px;
+    min-height: 44px;
   }
 }
 
@@ -1056,9 +1056,19 @@ body {
     position: relative;
     padding-left: env(safe-area-inset-left);
   }
+  /* Shared phone hit areas: visual labels can stay compact without requiring
+     precision taps. */
+  .robin-page :is(button, a, summary).ui-action,
+  .robin-page button:is([role="tab"], [role="radio"]),
+  .job-filter-dialog :is(button, a, summary).ui-action,
+  .project-trust-backdrop button {
+    min-height: 44px;
+  }
+  .robin-page button[role="tab"] { min-width: 44px; }
   /* The dashboard search occupies the same masthead row as the menu button.
-     Other pages still reserve the button's row below. */
-  .robin-shell-content { padding-top: 52px; }
+     Other pages still reserve the button's row below. Keep an extra 8px above
+     phone controls so they do not crowd the OS chrome. */
+  .robin-shell-content { padding-top: 60px; }
   .robin-shell-content.is-dashboard { padding-top: 0; }
   /* Narrow chat already has its session-sidebar button in the corner the
      Robin menu button would take, so the masthead stays a bar instead of
@@ -1093,11 +1103,11 @@ body {
     white-space: nowrap;
   }
   .robin-shell-content.is-dashboard .robin-dashboard-header > div {
-    padding: 4px 14px 4px 58px;
+    padding: 12px 14px 12px 58px;
   }
   .robin-mobile-nav-trigger {
     position: fixed;
-    top: calc(4px + env(safe-area-inset-top));
+    top: calc(12px + env(safe-area-inset-top));
     left: calc(6px + env(safe-area-inset-left));
     z-index: 198;
     display: flex;
@@ -2279,6 +2289,7 @@ pre, code {
     width: 100vw;
     max-height: calc(100dvh - max(12px, env(safe-area-inset-top)));
     margin: auto 0 0;
+    padding-bottom: env(safe-area-inset-bottom);
     border-right: 0;
     border-bottom: 0;
     border-left: 0;
@@ -2338,7 +2349,10 @@ pre, code {
   height: 100dvh;
   max-height: none;
   margin: 0;
-  padding: 0;
+  padding-top: env(safe-area-inset-top);
+  padding-right: env(safe-area-inset-right);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
   border: 0;
   background: var(--bg);
   color: var(--text);
@@ -2462,6 +2476,13 @@ pre, code {
   .mermaid-zoom-toolbar {
     padding-inline: 8px;
   }
+
+  .mermaid-zoom-stepper { height: 44px; }
+  .mermaid-zoom-stepper button,
+  .mermaid-zoom-icon-button { width: 44px; height: 44px; }
+  .mermaid-zoom-stepper button { height: 42px; }
+  .mermaid-zoom-icon-button { flex-basis: 44px; }
+  .mermaid-zoom-value { height: 42px; line-height: 42px; }
 
   .mermaid-zoom-title {
     font-size: 10px;
@@ -3916,6 +3937,14 @@ span.token.table {
   .capability-tree-controls button { min-height: 44px; flex: 1; }
   .roadmap-directory > header { flex-direction: column; }
   .capability-tree-hint { display: none; }
+  /* Label over counts, toggle at the side: side by side they squeeze the
+     label into a two-line box. */
+  .capability-role-reference > summary {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 2px 12px;
+  }
+  .capability-role-reference > summary::after { grid-column: 2; grid-row: 1 / span 2; }
 }
 
 @media (prefers-reduced-motion: reduce) {

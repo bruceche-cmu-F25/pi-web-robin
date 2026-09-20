@@ -93,11 +93,14 @@ export function ProductIncubatorShell({ children }: { children: ReactNode }) {
     <AgentContext.Provider value={handle}>
     <div className="robin-page robin-dashboard flex flex-1 flex-col" style={{ minWidth: 0, minHeight: 0 }}>
       <header
-        className="flex flex-wrap items-baseline gap-x-5 gap-y-2 border-b px-4 py-3 desktop:px-6"
+        className="border-b py-3"
         // No wash: this page is a document on the ruled ground, and the nav
         // panel colour is the chat shell's chrome. One hairline separates it.
         style={{ borderColor: "var(--border)" }}
       >
+        {/* The hairline runs full width; the title lines up with the centred
+            column below it, which only spans the page while the agent is shut. */}
+        <div className={`flex w-full flex-wrap items-baseline gap-x-5 gap-y-2 px-4 desktop:px-6${agentOpen && split ? "" : " mx-auto max-w-7xl"}`}>
         <div className="flex min-w-0 flex-col gap-1">
           {/* No sub-navigation: the library used to be a second route, and
               getting back from it was a real complaint. Folding it into this
@@ -116,6 +119,7 @@ export function ProductIncubatorShell({ children }: { children: ReactNode }) {
         >
           {copy.agent}
         </button>
+        </div>
       </header>
 
       <div className="flex flex-1" style={{ minWidth: 0, minHeight: 0 }}>
