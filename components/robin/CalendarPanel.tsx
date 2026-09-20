@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useI18n } from "@/hooks/useI18n";
 import { MOBILE_MAX_WIDTH } from "@/lib/panel-layout";
 import {
@@ -20,6 +21,7 @@ import { EventDetailsDialog } from "./EventDetailsDialog";
 import { SeriesPaletteContext } from "./eventSurface";
 import { requestRefresh } from "./refreshBus";
 import { mutate, usePolledResource } from "./usePolledResource";
+import { writeUrlState } from "@/lib/url-state";
 
 interface EventsResponse {
   events: DashboardEvent[];
@@ -52,9 +54,23 @@ function readStoredView(): CalendarView {
   return window.matchMedia(`(max-width: ${MOBILE_MAX_WIDTH}px)`).matches ? "agenda" : "week";
 }
 
+function calendarView(value: string | null): CalendarView | null {
+  return value === "agenda" || value === "week" || value === "month" ? value : null;
+}
+
+function calendarDate(value: string | null): string | null {
+  if (!value) return null;
+  try {
+    parseLocalDate(value);
+    return value;
+  } catch {
+    return null;
+  }
+}
 
 export function CalendarPanel() {
   const { t, locale } = useI18n();
+  const searchParams = useSearchParams();
   const { data, error, refresh } = usePolledResource<EventsResponse>("/api/robin/events");
   const {
     data: todosData,
@@ -73,7 +89,13 @@ export function CalendarPanel() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<DashboardEvent | null>(null);
 
-  useEffect(() => setView(readStoredView()), []);
+  useEffect(() => {
+    const requestedView = calendarView(searchParams.get("calendar"));
+    const nextView = requestedView ?? readStoredView();
+    setView(nextView);
+    setAnchor(calendarDate(searchParams.get("date")));
+    if (!requestedView) writeUrlState({ calendar: nextView }, "replace");
+  }, [searchParams]);
 
   const today = data?.today ?? "";
   // The anchor follows today until the user navigates away from it.
@@ -81,6 +103,7 @@ export function CalendarPanel() {
 
   const chooseView = (next: CalendarView) => {
     setView(next);
+    writeUrlState({ calendar: next });
     try {
       localStorage.setItem(VIEW_STORAGE_KEY, next);
     } catch {
@@ -90,14 +113,14 @@ export function CalendarPanel() {
 
   const range = useMemo(() => {
     if (!activeAnchor) return null;
-    if (view === "agenda") return { from: today, to: addDays(today, AGENDA_DAYS - 1) };
+    if (view === "agenda") return { from: activeAnchor, to: addDays(activeAnchor, AGENDA_DAYS - 1) };
     if (view === "week") {
       const days = weekDays(activeAnchor);
       return { from: days[0] as string, to: days[6] as string };
     }
     const grid = weeksFrom(activeAnchor, MONTH_WEEKS);
     return { from: grid[0] as string, to: grid[grid.length - 1] as string };
-  }, [view, activeAnchor, today]);
+  }, [view, activeAnchor]);
 
   /**
    * Dealt from every event the panel holds, not from the visible slice, so
@@ -122,7 +145,9 @@ export function CalendarPanel() {
 
   const heading = useMemo(() => {
     if (!activeAnchor || !range) return "";
-    if (view === "agenda") return t("robin.calendar.agendaRange", { days: String(AGENDA_DAYS) });
+    if (view === "agenda" && activeAnchor === today) {
+      return t("robin.calendar.agendaRange", { days: String(AGENDA_DAYS) });
+    }
     // A rolling window is named by its range; a month name would be a lie.
     const from = parseLocalDate(range.from);
     const to = parseLocalDate(range.to);
@@ -133,7 +158,7 @@ export function CalendarPanel() {
         ...(withYear ? { year: "numeric" } : {}),
       });
     return `${format(from, false)} – ${format(to, true)}`;
-  }, [view, activeAnchor, range, t, locale]);
+  }, [view, activeAnchor, range, t, locale, today]);
 
   async function run(action: () => Promise<void>): Promise<boolean> {
     try {
@@ -150,7 +175,11 @@ export function CalendarPanel() {
   const step = (direction: -1 | 1) => {
     if (!activeAnchor) return;
     const weeks = view === "month" ? MONTH_WEEKS : 1;
-    setAnchor(addDays(startOfWeek(activeAnchor), direction * 7 * weeks));
+    const next = view === "agenda"
+      ? addDays(activeAnchor, direction * 7)
+      : addDays(startOfWeek(activeAnchor), direction * 7 * weeks);
+    setAnchor(next);
+    writeUrlState({ date: next });
   };
 
   const addEvent = (event: React.FormEvent) => {
@@ -188,8 +217,7 @@ export function CalendarPanel() {
     })();
   };
 
-  const navigable = view !== "agenda";
-  const offToday = navigable && activeAnchor !== "" && anchor !== null;
+  const offToday = activeAnchor !== "" && activeAnchor !== today;
 
   return (
     <section
@@ -201,34 +229,33 @@ export function CalendarPanel() {
           <span className="pi-meta">{heading}</span>
         </div>
         <div className="robin-calendar-toolbar flex flex-wrap items-center gap-1 font-mono">
-          {navigable && (
-            <>
-              <button
-                type="button"
-                onClick={() => step(-1)}
-                aria-label={t("robin.calendar.previous")}
-                className="ui-action ui-action--outline-soft px-2 py-0.5 text-xs"
-              >
-                ‹
-              </button>
-              <button
-                type="button"
-                onClick={() => setAnchor(null)}
-                disabled={!offToday}
-                className="ui-action ui-action--outline-soft px-2 py-0.5 text-xs disabled:opacity-40"
-              >
-                {t("robin.calendar.today")}
-              </button>
-              <button
-                type="button"
-                onClick={() => step(1)}
-                aria-label={t("robin.calendar.next")}
-                className="ui-action ui-action--outline-soft px-2 py-0.5 text-xs"
-              >
-                ›
-              </button>
-            </>
-          )}
+          <button
+            type="button"
+            onClick={() => step(-1)}
+            aria-label={t("robin.calendar.previous")}
+            className="ui-action ui-action--outline-soft px-2 py-0.5 text-xs"
+          >
+            ‹
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setAnchor(null);
+              writeUrlState({ date: null });
+            }}
+            disabled={!offToday}
+            className="ui-action ui-action--outline-soft px-2 py-0.5 text-xs disabled:opacity-40"
+          >
+            {t("robin.calendar.today")}
+          </button>
+          <button
+            type="button"
+            onClick={() => step(1)}
+            aria-label={t("robin.calendar.next")}
+            className="ui-action ui-action--outline-soft px-2 py-0.5 text-xs"
+          >
+            ›
+          </button>
           {/* No box around the group: the active view already reads from its
               surface and left stripe, and a border here put a third line
               through an already busy row. */}
@@ -326,6 +353,7 @@ export function CalendarPanel() {
             events={visible}
             todos={visibleTodos}
             today={today}
+            start={activeAnchor}
             onSelectEvent={setSelectedEvent}
             onCompleteTodo={completeTodo}
           />
@@ -348,7 +376,9 @@ export function CalendarPanel() {
             days={weeksFrom(activeAnchor, MONTH_WEEKS)}
             onSelectDay={(day) => {
               setAnchor(day);
-              chooseView("week");
+              setView("week");
+              writeUrlState({ calendar: "week", date: day });
+              try { localStorage.setItem(VIEW_STORAGE_KEY, "week"); } catch { /* Keep the live view. */ }
             }}
             onSelectEvent={setSelectedEvent}
             onCompleteTodo={completeTodo}

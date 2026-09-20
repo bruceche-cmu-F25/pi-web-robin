@@ -28,6 +28,7 @@ interface ViewProps {
 
 interface AgendaViewProps extends ViewProps {
   todos: Todo[];
+  start: string;
   onCompleteTodo: (todo: Todo) => void;
 }
 
@@ -87,7 +88,7 @@ function EventChip({ event, onSelect, t }: {
       >
         {event.start ?? t("robin.calendar.allDay")}
       </span>
-      <span className="min-w-0 flex-1 truncate">{event.title}</span>
+      <span className="min-w-0 flex-1 truncate" title={event.title}>{event.title}</span>
     </button>
   );
 }
@@ -99,24 +100,25 @@ export function AgendaView({
   events,
   todos,
   today,
+  start,
   onSelectEvent,
   onCompleteTodo,
 }: AgendaViewProps) {
   const { t, locale } = useI18n();
   const surface = useEventSurface();
-  const grouped = groupAgendaItems(events, todos, today);
-  // Today always gets a row, even when empty: on a daily dashboard "nothing on
-  // today" is itself the answer, and omitting the day reads as a load failure.
-  const withToday = grouped.some((group) => group.date === today)
+  const grouped = groupAgendaItems(events, todos, start);
+  // The first day always gets a row, even when empty: "nothing scheduled" is
+  // itself the answer, and omitting the requested day reads as a load failure.
+  const withStart = grouped.some((group) => group.date === start)
     ? grouped
-    : [{ date: today, events: [] as DashboardEvent[], todos: [] as Todo[] }, ...grouped];
+    : [{ date: start, events: [] as DashboardEvent[], todos: [] as Todo[] }, ...grouped];
 
-  // Detail only covers the days you can still act on. Everything further out
-  // becomes a one-line-per-day brief: enough to notice a busy Thursday without
-  // reading the whole week.
-  const detailUntil = addDays(today, AGENDA_DETAIL_DAYS - 1);
-  const days = withToday.filter((group) => group.date <= detailUntil);
-  const rest = withToday.filter((group) => group.date > detailUntil
+  // Detail only covers the first three days. Everything further out becomes a
+  // one-line-per-day brief: enough to notice a busy Thursday without reading
+  // the whole week.
+  const detailUntil = addDays(start, AGENDA_DETAIL_DAYS - 1);
+  const days = withStart.filter((group) => group.date <= detailUntil);
+  const rest = withStart.filter((group) => group.date > detailUntil
     && group.events.length + group.todos.length > 0);
 
   return (
@@ -164,7 +166,7 @@ export function AgendaView({
               <TodoTitle
                 todo={todo}
                 t={t}
-                className="min-w-0 flex-1 truncate text-sm"
+                className="min-w-0 flex-1 text-sm [overflow-wrap:anywhere] desktop:truncate"
                 style={{ color: todo.color ? `var(--todo-${todo.color})` : "var(--text)" }}
               />
               {todo.startDate && todo.due && todo.startDate < todo.due && (
@@ -197,7 +199,7 @@ export function AgendaView({
               >
                 {formatEventTime(event)}
               </span>
-              <span className="min-w-0 flex-1 truncate" style={{ fontSize: TITLE_SIZE }}>
+              <span className="min-w-0 flex-1 [overflow-wrap:anywhere] desktop:truncate" style={{ fontSize: TITLE_SIZE }} title={event.title}>
                 {event.title}
                 {event.location && <span style={{ color: "var(--text-dim)" }}> @ {event.location}</span>}
                 {isReadOnlyEvent(event) && (
@@ -227,6 +229,7 @@ export function AgendaView({
                     onClick={() => onSelectEvent(event)}
                     aria-haspopup="dialog"
                     className="min-w-0 truncate underline-offset-2 hover:underline"
+                    title={event.title}
                   >
                     {event.title}
                   </button>

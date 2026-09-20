@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useSearchParams } from "next/navigation";
 import { useI18n } from "@/hooks/useI18n";
 import { localDate } from "@/extension/robin/dates";
 import { PLAYBOOK, PLAYBOOK_STEPS, nextStep, playbookStep, type PlaybookStep, type StepId } from "@/extension/robin/product-playbook";
@@ -14,6 +15,7 @@ import { ProductResourceShelf } from "./ProductResourceShelf";
 import { productCopy, researchBrief, type ProductCopy } from "./product-copy";
 import { categoryChip, stepSurface } from "./productSurface";
 import { usePolledResource } from "./usePolledResource";
+import { writeUrlState } from "@/lib/url-state";
 import styles from "./ProductIdeas.module.css";
 
 interface IdeasResponse {
@@ -23,6 +25,13 @@ interface IdeasResponse {
 
 /** How long the note waits after the last keystroke before saving itself. */
 const NOTE_AUTOSAVE_MS = 1_000;
+
+type IdeaFilter = "active" | "attention" | "parked" | StepId;
+
+function ideaFilter(value: string | null): IdeaFilter {
+  if (value === "attention" || value === "parked" || PLAYBOOK_STEPS.includes(value as StepId)) return value as IdeaFilter;
+  return "active";
+}
 
 interface Suggestion {
   kind: "idea" | "resource" | "link" | "note";
@@ -47,6 +56,7 @@ async function jsonRequest<T>(url: string, method: string, body: unknown): Promi
 /** A workbench, not a portfolio dashboard: ideas first, tools on demand. */
 export function ProductIdeas() {
   const { locale } = useI18n();
+  const searchParams = useSearchParams();
   const copy = productCopy(locale);
   const zh = locale.startsWith("zh");
   const { data, error, refresh } = usePolledResource<IdeasResponse>("/api/robin/products", 30_000);
@@ -54,10 +64,25 @@ export function ProductIdeas() {
   // this snapshot, and shelf edits refresh it here instead of starting a
   // second poll for the same thirty-four rows.
   const { data: library, error: libraryError, refresh: refreshLibrary } = usePolledResource<{ resources: ProductLibraryResource[] }>("/api/robin/product-library", 60_000);
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(() => searchParams.get("idea") || null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<"active" | "attention" | "parked" | StepId>("active");
+  const [filter, setFilter] = useState<IdeaFilter>(() => ideaFilter(searchParams.get("stage")));
   const [libraryOpen, setLibraryOpen] = useState(false);
+
+  useEffect(() => {
+    setFilter(ideaFilter(searchParams.get("stage")));
+    setOpenId(searchParams.get("idea") || null);
+  }, [searchParams]);
+
+  const chooseFilter = (next: IdeaFilter) => {
+    setFilter(next);
+    writeUrlState({ stage: next === "active" ? null : next });
+  };
+
+  const chooseIdea = (id: string | null, mode: "push" | "replace" = "push") => {
+    setOpenId(id);
+    writeUrlState({ idea: id }, mode);
+  };
 
   const ideas = useMemo(() => data?.ideas ?? [], [data?.ideas]);
   const today = localDate();
@@ -113,7 +138,7 @@ export function ProductIdeas() {
                   key={step.id}
                   type="button"
                   aria-pressed={filter === step.id}
-                  onClick={() => setFilter(filter === step.id ? "active" : step.id)}
+                  onClick={() => chooseFilter(filter === step.id ? "active" : step.id)}
                   className={`ui-action ${styles.stage}`}
                   data-selected={filter === step.id}
                   data-empty={data ? n === 0 : undefined}
@@ -155,7 +180,7 @@ export function ProductIdeas() {
                   ["attention", copy.attention, needsAttention],
                   ["parked", copy.parked, parked],
                 ] as const).filter(([value, , count]) => value === "active" || count > 0 || filter === value).map(([value, label, count]) => (
-                  <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)} className="ui-action min-h-[44px] px-3 text-xs" data-selected={filter === value}>
+                  <button key={value} type="button" aria-pressed={filter === value} onClick={() => chooseFilter(value)} className="ui-action min-h-[44px] px-3 text-xs" data-selected={filter === value}>
                     {label} <span className="ml-1 tabular-nums">{count}</span>
                   </button>
                 ))}
@@ -170,7 +195,7 @@ export function ProductIdeas() {
                 <p className="mt-2 max-w-lg text-sm" style={{ color: "var(--text-muted)" }}>
                   {selectedStep ? selectedStep.does[0]?.[zh ? "zh" : "en"] : copy.noIdeasHint}
                 </p>
-                {filter !== "active" ? <button type="button" onClick={() => setFilter("active")} className="ui-action pi-bracket mt-4 min-h-[44px] text-xs">{copy.clearFilter}</button> : null}
+                {filter !== "active" ? <button type="button" onClick={() => chooseFilter("active")} className="ui-action pi-bracket mt-4 min-h-[44px] text-xs">{copy.clearFilter}</button> : null}
               </div>
             ) : null}
             {/* Keep filtered rows mounted: changing views must not discard drafts. */}
@@ -185,9 +210,9 @@ export function ProductIdeas() {
                   today={today}
                   resources={library?.resources ?? []}
                   open={openId === idea.id}
-                  onToggle={() => setOpenId(openId === idea.id ? null : idea.id)}
+                  onToggle={() => chooseIdea(openId === idea.id ? null : idea.id)}
                   onAct={act}
-                  onGone={() => setOpenId(null)}
+                  onGone={() => chooseIdea(null, "replace")}
                 />
               ))}
             </ul>
@@ -199,7 +224,11 @@ export function ProductIdeas() {
             copy={copy}
             locale={locale}
             onDone={async () => { await Promise.all([refresh(), refreshLibrary()]); }}
-            onCreated={(idea) => { setFilter("active"); setOpenId(idea.id); }}
+            onCreated={(idea) => {
+              setFilter("active");
+              setOpenId(idea.id);
+              writeUrlState({ stage: null, idea: idea.id });
+            }}
           />
         </div>
 

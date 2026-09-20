@@ -208,6 +208,7 @@
   font-size: 12px;
   line-height: 1.5;
 }
+.tree > p[data-error] { color: var(--danger); }
 
 .tree ul {
   margin: 0;

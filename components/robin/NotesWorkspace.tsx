@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type DragEvent, type KeyboardEvent } from "react";
+import { useSearchParams } from "next/navigation";
 import { MarkdownBody } from "@/components/MarkdownBody";
 import { ModelSelector, type ModelSelectorOption } from "@/components/ModelSelector";
 import { useI18n } from "@/hooks/useI18n";
@@ -10,6 +11,7 @@ import type { NoteFinal } from "@/extension/robin/notes-agent-state";
 import type { NoteDraft } from "@/extension/robin/notes-domain";
 import { compressImageFile } from "@/lib/image-compress";
 import type { ModelsData } from "@/lib/models-cache";
+import { writeUrlState } from "@/lib/url-state";
 import { AgentPanel } from "./AgentPanel";
 import { MarginNotes, NoteOutline, useEditorGeometry } from "./NoteMargins";
 import { currentHeading, noteMarginItems, noteOutline, type MarginItem, type OutlineEntry } from "./note-margin";
@@ -36,6 +38,10 @@ const BRANCH_TONES = ["iris", "teal", "clay", "slate", "honey", "plum", "fern"] 
 
 type MobilePane = "notion" | "note" | "agent";
 type SaveState = "idle" | "dirty" | "saving" | "saved" | "error";
+
+function notePane(value: string | null): MobilePane {
+  return value === "notion" || value === "agent" ? value : "note";
+}
 type DraftPatch = Partial<Pick<NoteDraft, "title" | "text" | "notionParentId">>;
 interface ModelRef { provider: string; modelId: string }
 interface FinalPreview { title: string; content: string }
@@ -117,12 +123,13 @@ function NotionTreeItem({ node, tone, selectedId, highlightedId, onSelect, openL
 
 export function NotesWorkspace() {
   const { t } = useI18n();
+  const searchParams = useSearchParams();
   const split = useIsSplitLayout();
   const [loaded, setLoaded] = useState(false);
   const [drafts, setDrafts] = useState<NoteDraft[]>([]);
-  const [activeId, setActiveId] = useState("");
+  const [activeId, setActiveId] = useState(() => searchParams.get("draft") ?? "");
   const [preview, setPreview] = useState(false);
-  const [mobilePane, setMobilePane] = useState<MobilePane>("note");
+  const [mobilePane, setMobilePane] = useState<MobilePane>(() => notePane(searchParams.get("pane")));
   const [pages, setPages] = useState<NotionTreePage[]>([]);
   const [notionQuery, setNotionQuery] = useState("");
   const [searching, setSearching] = useState(false);
@@ -195,8 +202,6 @@ export function NotesWorkspace() {
       const body = await response.json().catch(() => null) as { draft?: NoteDraft; error?: string } | null;
       if (!response.ok || !body?.draft) throw new Error(body?.error ?? `Request failed (${response.status})`);
       replaceDrafts((current) => [body.draft!, ...current]);
-      setActiveId(body.draft.id);
-      window.localStorage.setItem(ACTIVE_DRAFT_KEY, body.draft.id);
       return body.draft;
     } finally {
       setCreatingDraft(false);
@@ -223,17 +228,32 @@ export function NotesWorkspace() {
           window.localStorage.removeItem(LEGACY_DRAFT_KEY);
         }
         replaceDrafts(items);
+        const requested = searchParams.get("draft");
         const remembered = window.localStorage.getItem(ACTIVE_DRAFT_KEY);
-        const nextId = items.some((draft) => draft.id === remembered) ? remembered! : items[0].id;
+        const nextId = items.some((draft) => draft.id === requested)
+          ? requested!
+          : items.some((draft) => draft.id === remembered) ? remembered! : items[0].id;
         setActiveId(nextId);
         window.localStorage.setItem(ACTIVE_DRAFT_KEY, nextId);
+        writeUrlState({ draft: nextId }, "replace");
       } catch (caught) {
         setFinalError(caught instanceof Error ? caught.message : String(caught));
       } finally {
         setLoaded(true);
       }
     })();
-  }, [createDraft, replaceDrafts]);
+  }, [createDraft, replaceDrafts, searchParams]);
+
+  useEffect(() => {
+    setMobilePane(notePane(searchParams.get("pane")));
+    if (!loaded) return;
+    const requested = searchParams.get("draft");
+    if (!requested || requested === activeId || !drafts.some((draft) => draft.id === requested)) return;
+    setActiveId(requested);
+    setPreview(false);
+    setFinalError(null);
+    window.localStorage.setItem(ACTIVE_DRAFT_KEY, requested);
+  }, [activeId, drafts, loaded, searchParams]);
 
   /**
    * Write a draft's pending edits. Writes run one after another so a slow
@@ -357,11 +377,18 @@ export function NotesWorkspace() {
       .map((node, index) => [node.id, BRANCH_TONES[index % BRANCH_TONES.length]]),
   ), [fullTree]);
 
-  const selectDraft = (id: string) => {
+  const selectDraft = (id: string, pane?: MobilePane) => {
     setActiveId(id);
     setPreview(false);
     setFinalError(null);
+    if (pane) setMobilePane(pane);
     window.localStorage.setItem(ACTIVE_DRAFT_KEY, id);
+    writeUrlState({ draft: id, pane });
+  };
+
+  const showMobilePane = (pane: MobilePane) => {
+    setMobilePane(pane);
+    writeUrlState({ pane });
   };
 
   const switchDraft = (id: string) => {
@@ -395,11 +422,11 @@ export function NotesWorkspace() {
       if (DATED_TITLE.test(blank.title) && blank.title !== defaultTitle()) patch.title = defaultTitle();
       if (!blank.notionParentId && notionParentId) patch.notionParentId = notionParentId;
       if (Object.keys(patch).length) patchDraft(blank.id, patch);
-      selectDraft(blank.id);
+      selectDraft(blank.id, "note");
     } else {
-      await createDraft({ notionParentId });
+      const created = await createDraft({ notionParentId });
+      selectDraft(created.id, "note");
     }
-    setMobilePane("note");
     focusEditor();
   };
 
@@ -414,7 +441,7 @@ export function NotesWorkspace() {
     const base = current.text.trimEnd();
     updateActive({ text: base ? `${base}\n\n${addition.trim()}\n` : `${addition.trim()}\n` });
     setPreview(false);
-    setMobilePane("note");
+    showMobilePane("note");
     focusEditor(true);
   };
 
@@ -818,12 +845,12 @@ export function NotesWorkspace() {
     <div className={`robin-page robin-dashboard ${styles.page}`}>
       <header className={styles.header}>
         <div><span className="pi-eyebrow">Markdown · Notion</span><h1>{t("notes.title")}</h1></div>
-        <p>{t("notes.subtitle")}</p>
+        <p title={t("notes.subtitle")}>{t("notes.subtitle")}</p>
         {split ? filing : null}
         {!split ? (
           <div className={styles.mobileTabs} role="tablist" aria-label={t("notes.views")}>
             {(["notion", "note", "agent"] as const).map((pane) => (
-              <button key={pane} type="button" role="tab" aria-selected={mobilePane === pane} onClick={() => setMobilePane(pane)}>
+              <button key={pane} type="button" role="tab" aria-selected={mobilePane === pane} onClick={() => showMobilePane(pane)}>
                 {t(pane === "notion" ? "notes.notion.short" : pane === "note" ? "notes.note" : "notes.agent.short")}
               </button>
             ))}
@@ -871,12 +898,13 @@ export function NotesWorkspace() {
           <div className={styles.notionSearch}><input value={notionQuery} onChange={(event) => setNotionQuery(event.target.value)} placeholder={t("notes.notion.search")} aria-label={t("notes.notion.search")} /></div>
           <nav className={styles.tree} aria-label={t("notes.notion.tree")} aria-busy={searching}>
             {searching && pages.length === 0 ? <p>{t("robin.common.loading")}</p> : null}
-            {!searching && tree.length === 0 ? <p>{notionError ?? t("notes.notion.empty")}</p> : null}
+            {/* A failed load explains itself where the pages would be, once. */}
+            {!searching && tree.length === 0 ? <p data-error={notionError ? true : undefined} role={notionError ? "alert" : undefined}>{notionError ?? t("notes.notion.empty")}</p> : null}
             <ul>{tree.map((node) => (
               <NotionTreeItem key={node.id} node={node} tone={branchTones.get(node.id)} selectedId={activeDraft?.notionParentId ?? ""} highlightedId={highlightedNotionId} onSelect={(page) => { updateActive({ notionParentId: page.id }); setHighlightedNotionId(""); }} openLabel={t("notes.notion.open")} destinationLabel={t("notes.notion.destinationTag")} locked={locked} searchActive={Boolean(notionQuery.trim())} />
             ))}</ul>
           </nav>
-          {notionError ? <p className={styles.error} role="alert">{notionError}</p> : null}
+          {notionError && tree.length > 0 ? <p className={styles.error} role="alert">{notionError}</p> : null}
           </>}
         </aside>
 
