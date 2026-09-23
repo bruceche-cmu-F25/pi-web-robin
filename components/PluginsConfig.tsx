@@ -437,6 +437,7 @@ function PackageDetail({
   const enabled = !pkg.disabled;
   const canCheckForUpdates = pkg.canCheckForUpdates;
   const updateAvailable = updateStatus?.state === "update-available";
+  const description = pkg.description?.trim();
 
   return (
     <ConfigDetailStack>
@@ -534,6 +535,14 @@ function PackageDetail({
           lineHeight: 1.45,
         }}
       >
+        {description && (
+          <>
+            <div style={{ color: "var(--text-dim)" }}>{t("i18n.description")}</div>
+            <div style={{ color: "var(--text-muted)", overflowWrap: "anywhere" }}>
+              {description}
+            </div>
+          </>
+        )}
         <div style={{ color: "var(--text-dim)" }}>{t("i18n.status")}</div>
         <div style={{ color: statusColor(pkg.status), textTransform: "capitalize" }}>{pkg.status}</div>
         <div style={{ color: "var(--text-dim)" }}>{t("i18n.version")}</div>
@@ -956,6 +965,7 @@ export function PluginsConfig({
                           <ConfigSidebarItem
                             key={key}
                             active={isSelected}
+                            title={pkg.description ?? pkg.source}
                             onClick={() => {
                               setSelected(key);
                               setAddMode(false);

@@ -150,13 +150,15 @@ test("deleting an unpersisted session shuts down its runtime and invalidates cac
   }
 });
 
-test("session listing merges live registry snapshots, honors force refresh, and sweeps expired history payloads", () => {
+test("session listing supports cheap summaries, honors force refresh, and sweeps expired history payloads", () => {
+  assert.match(listRoute, /searchParams\.get\("summary"\) === "1"/);
+  assert.match(listRoute, /summary\s*\n?\s*\? listSessionSummaries\(\)/);
   assert.match(listRoute, /searchParams\.get\("force"\) === "1"/);
   assert.match(listRoute, /listAllSessions\(\{ force \}\)/);
   assert.match(listRoute, /attachSessionProjectInfo\(getRpcSessionInfos\(\)\)/);
   assert.match(listRoute, /maybePruneExpiredSessionPayloads\(/);
   assert.match(listRoute, /getRpcSession\(id\)\?\.isAlive\(\)/);
-  assert.match(listRoute, /retention\.filesChanged > 0[\s\S]*?invalidateSessionListCache\(\)[\s\S]*?listAllSessions\(\)/);
+  assert.match(listRoute, /if \(!summary\)[\s\S]*?retention\.filesChanged > 0[\s\S]*?invalidateSessionListCache\(\)[\s\S]*?listAllSessions\(\)/);
   assert.match(listRoute, /mergeSessionLists\(persistedSessions, runtimeSessions\)/);
   assert.match(listRoute, /"Cache-Control": "no-store"/);
 });
@@ -167,8 +169,16 @@ test("session reads use the live SessionManager before requiring a JSONL path", 
     const pathLookup = source.indexOf("resolveSessionPath(id)");
     assert.ok(liveLookup >= 0);
     assert.ok(pathLookup > liveLookup);
-    assert.match(source, /liveRpc\?\.inner\.sessionManager \?\? SessionManager\.open/);
+    // openSessionManager is the cached read-only opener; the live wrapper's
+    // manager must still win over any disk read, cached or not.
+    assert.match(source, /liveRpc\?\.inner\.sessionManager \?\? openSessionManager\(/);
   }
+});
+
+test("detail reads probe disk only on force/mount and evict a stale idle wrapper", () => {
+  assert.match(detailRoute, /searchParams\.get\("force"\) === "1"/);
+  assert.match(detailRoute, /force && liveWrapper\?\.evictIfDiskAhead\(\)/);
+  assert.doesNotMatch(contextRoute, /evictIfDiskAhead|readLatestSessionEntryId/);
 });
 
 test("live agent state is available before the session file is persisted", () => {

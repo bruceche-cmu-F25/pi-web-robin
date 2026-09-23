@@ -110,3 +110,12 @@ test("places trust warnings below the mobile toolbar and the file toggle in tool
   assert.doesNotMatch(source, /File panel toggle — always visible at top-right/);
   assert.doesNotMatch(source, /position: "fixed", top: "env\(safe-area-inset-top\)"/);
 });
+
+test("closes top-bar dropdowns when the file panel expands to full width", () => {
+  assert.match(
+    source,
+    /const handleRightPanelExpandToggle = useCallback\(\(\) => \{\s*dispatchPanel\(\{ type: "close_top_panel" \}\);\s*setRightPanelExpanded\(\(expanded\) => !expanded\);/,
+  );
+  assert.match(source, /onClick=\{handleRightPanelExpandToggle\}/);
+  assert.match(source, /if \(rightPanelFullWidth\) dispatchPanel\(\{ type: "close_top_panel" \}\);/);
+});

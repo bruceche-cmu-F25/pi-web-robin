@@ -11,6 +11,7 @@ import { getProjectActivity, getRecentProjects, sessionsForProject } from "@/lib
 import { workspaceKeyOf } from "@/lib/workspace-memory";
 import { formatRelativeTime } from "@/lib/i18n/format";
 import { useI18n } from "@/hooks/useI18n";
+import { useResizablePanel } from "@/hooks/useResizablePanel";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
 
@@ -95,6 +96,12 @@ function ToolbarIconButton({
   );
 }
 
+function sessionListUrl(summary: boolean, force: boolean): string {
+  if (summary) return "/api/sessions?summary=1";
+  if (force) return "/api/sessions?force=1";
+  return "/api/sessions";
+}
+
 interface Props {
   selectedSessionId: string | null;
   onSelectSession: (session: SessionInfo, isRestore?: boolean) => void;
@@ -159,6 +166,11 @@ interface ValidatedProject {
 const UNREAD_SESSIONS_STORAGE_KEY = "pi-web:unread-session-ids";
 const LAST_CUSTOM_CWD_STORAGE_KEY = "pi-web:last-custom-cwd";
 const RUNNING_SESSIONS_POLL_MS = 2500;
+const SESSION_DETAILS_HYDRATION_DELAY_MS = 750;
+const SESSION_PANE_DEFAULT_HEIGHT = 320;
+const SESSION_PANE_MIN_HEIGHT = 80;
+const EXPLORER_PANE_MIN_HEIGHT = 120;
+const SESSION_PANE_MAX_HEIGHT = 1600;
 
 function loadLastCustomCwd(): string {
   if (typeof window === "undefined") return "";
@@ -286,6 +298,8 @@ function AnimatedDropdown({ open, children, style }: { open: boolean; children: 
 export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSessionMatch, onSessionSearchShortcut, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
   const { locale, t } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
+  // Tracked in a ref only: the version is compared against the polled value to
+  // decide whether the list needs reloading, and no render reads it.
   const sessionListVersionRef = useRef<number | null>(null);
   const sessionLoadIdRef = useRef(0);
   const [loading, setLoading] = useState(true);
@@ -334,11 +348,45 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSes
   // Once polling has delivered a snapshot it is the source of truth for
   // running state; late /api/sessions responses must not overwrite it.
   const runningPollAuthoritativeRef = useRef(false);
+  const detailsHydrationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const explorerRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileExplorerRef = useRef<FileExplorerHandle>(null);
 
   // Virtualized session list: only the visible window of rows is mounted.
   const listScrollRef = useRef<HTMLDivElement>(null);
+  const sessionPaneRef = useRef<HTMLDivElement>(null);
+  const explorerSectionRef = useRef<HTMLDivElement>(null);
+  const sessionPaneHeightRef = useRef(SESSION_PANE_DEFAULT_HEIGHT);
+  const getDefaultSessionPaneHeight = useCallback(() => {
+    if (!explorerOpen) return SESSION_PANE_DEFAULT_HEIGHT;
+    const paneHeight = sessionPaneRef.current?.getBoundingClientRect().height;
+    const explorerHeight = explorerSectionRef.current?.getBoundingClientRect().height;
+    return paneHeight && explorerHeight
+      ? Math.round((paneHeight + explorerHeight) / 2)
+      : SESSION_PANE_DEFAULT_HEIGHT;
+  }, [explorerOpen]);
+  const getMaxSessionPaneHeight = useCallback(() => {
+    if (!explorerOpen || !(selectedCwdProp || selectedCwd)) return SESSION_PANE_MAX_HEIGHT;
+    const paneHeight = sessionPaneRef.current?.getBoundingClientRect().height ?? SESSION_PANE_DEFAULT_HEIGHT;
+    const explorerHeight = explorerSectionRef.current?.getBoundingClientRect().height ?? EXPLORER_PANE_MIN_HEIGHT;
+    return Math.max(
+      SESSION_PANE_MIN_HEIGHT,
+      paneHeight + explorerHeight - EXPLORER_PANE_MIN_HEIGHT,
+    );
+  }, [explorerOpen, selectedCwd, selectedCwdProp]);
+  const sessionPaneResizer = useResizablePanel({
+    ariaLabel: t("layout.resizeSidebarSections"),
+    axis: "vertical",
+    cssVariable: "--sidebar-session-pane-height",
+    defaultWidth: SESSION_PANE_DEFAULT_HEIGHT,
+    getDefaultWidth: getDefaultSessionPaneHeight,
+    getMaxWidth: getMaxSessionPaneHeight,
+    growthDirection: "down",
+    maxWidth: SESSION_PANE_MAX_HEIGHT,
+    minWidth: SESSION_PANE_MIN_HEIGHT,
+    storageKey: "pi-web:sidebar-session-pane-height",
+    widthRef: sessionPaneHeightRef,
+  });
   const [listViewportH, setListViewportH] = useState(0);
   const [listScrollTop, setListScrollTop] = useState(0);
   const [focusedSessionId, setFocusedSessionId] = useState<string | null>(null);
@@ -363,11 +411,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSes
     return () => ro.disconnect();
   }, [sessionSearchActive]);
 
-  const loadSessions = useCallback(async (showLoading = false, force = false) => {
+  const loadSessions = useCallback(async (showLoading = false, force = false, summary = false) => {
     const loadId = ++sessionLoadIdRef.current;
     try {
       if (showLoading) setLoading(true);
-      const res = await fetch(force ? "/api/sessions?force=1" : "/api/sessions", {
+      const res = await fetch(sessionListUrl(summary, force), {
         cache: "no-store",
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -412,7 +460,30 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSes
   useEffect(() => {
     const isFirst = !initialLoadDone.current;
     initialLoadDone.current = true;
-    loadSessions(isFirst, !isFirst);
+    let active = true;
+
+    if (isFirst) {
+      // Header/stat metadata is enough to select the URL session and paint the
+      // sidebar. Hydrate exact counts, names, and first messages once the
+      // selected chat has had a chance to start loading.
+      void loadSessions(true, false, true).then(() => {
+        if (!active) return;
+        detailsHydrationTimerRef.current = setTimeout(() => {
+          detailsHydrationTimerRef.current = null;
+          if (active) void loadSessions(false, true);
+        }, SESSION_DETAILS_HYDRATION_DELAY_MS);
+      });
+    } else {
+      void loadSessions(false, true);
+    }
+
+    return () => {
+      active = false;
+      if (detailsHydrationTimerRef.current) {
+        clearTimeout(detailsHydrationTimerRef.current);
+        detailsHydrationTimerRef.current = null;
+      }
+    };
   }, [loadSessions, refreshKey]);
 
   useEffect(() => {
@@ -988,7 +1059,16 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSes
   );
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+    <div
+      ref={sessionPaneResizer.panelRef}
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+        "--sidebar-session-pane-height": `${sessionPaneResizer.width}px`,
+      } as CSSProperties}
+    >
       {customPathOpen && (
         <DirectoryPicker
           initialPath={customPathValue}
@@ -1667,10 +1747,27 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSes
 
       {/* Session list */}
       <div
-        ref={listScrollRef}
-        onScroll={handleListScroll}
-        style={{ flex: explorerOpen && (selectedCwdProp || selectedCwd) ? "1 1 0" : "1 1 auto", overflowY: "auto", padding: "0", minHeight: 80 }}
+        ref={sessionPaneRef}
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          flex: explorerOpen && (selectedCwdProp || selectedCwd)
+            ? "0 1 var(--sidebar-session-pane-height, 320px)"
+            : "1 1 auto",
+          minHeight: SESSION_PANE_MIN_HEIGHT,
+          overflow: "hidden",
+        }}
       >
+        <div
+          ref={listScrollRef}
+          onScroll={handleListScroll}
+          style={{
+            flex: "1 1 auto",
+            minHeight: 0,
+            overflowY: "auto",
+            padding: "0",
+          }}
+        >
         {sessionSearchQuery.trim() ? (
           <>
             {sessionSearchLoading && (
@@ -1791,17 +1888,38 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSes
             )}
           </>
         )}
+        </div>
       </div>
+
+      {explorerOpen && (selectedCwdProp || selectedCwd) && (
+        <div
+          className={`sidebar-section-resize-handle${sessionPaneResizer.isResizing ? " is-resizing" : ""}`}
+          data-resize-handle="sidebar-sections"
+          title={`${t("layout.resizeSidebarSections")}: ${t("layout.resizeHeightHint")}`}
+          style={{
+            position: "relative",
+            zIndex: 20,
+            width: "100%",
+            height: 12,
+            margin: "-6px 0",
+            flex: "0 0 12px",
+            cursor: "row-resize",
+            touchAction: "none",
+          }}
+          {...sessionPaneResizer.separatorProps}
+        />
+      )}
 
       {/* File Explorer section */}
       {(selectedCwdProp || selectedCwd) && (
         <div
+          ref={explorerSectionRef}
           style={{
             borderTop: "1px solid var(--border)",
             display: "flex",
             flexDirection: "column",
             flex: explorerOpen ? "1 1 0" : "0 0 auto",
-            minHeight: 0,
+            minHeight: explorerOpen ? EXPLORER_PANE_MIN_HEIGHT : 0,
             overflow: "hidden",
           }}
         >
@@ -2290,7 +2408,9 @@ function SessionItem({
               ) : (
                 <span title={session.modified}>{formatRelativeTime(session.modified, locale)}</span>
               )}
-              <span>{t("sidebar.messagesCount", { count: session.messageCount })}</span>
+              <span>
+                {session.detailsPending ? "…" : t("sidebar.messagesCount", { count: session.messageCount })}
+              </span>
               {session.isWorktree && session.branch && (
                 <span
                   title={`Worktree: ${session.cwd}`}

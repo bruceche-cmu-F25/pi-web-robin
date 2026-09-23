@@ -15,6 +15,8 @@ export interface Tab {
   /** A terminal whose shell has ended. The server has already dropped its PTY. */
   terminalExited?: boolean;
   initialDisplayMode?: FileViewerDisplayMode;
+  /** PDF page requested by the link that opened this tab (`#page=N`). */
+  page?: number;
   viewerState?: FileViewerState;
   viewerRevision?: number;
 }

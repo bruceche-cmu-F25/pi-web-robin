@@ -19,6 +19,16 @@ const nextConfig: NextConfig = {
   // UI with, while the real server keeps running:
   //   PI_WEB_PASSWORD= PI_WEB_DIST_DIR=.next-preview npm run dev -- -p 30143
   distDir: process.env.PI_WEB_DIST_DIR || ".next",
+  experimental: {
+    // proxy.ts matches /api/:path*, and Next buffers the request body whenever
+    // a proxy is present, capped at 10 MB by default. The upload route accepts
+    // up to 100 MB per request, so raise the buffer above that or large uploads
+    // are truncated and fail with "Failed to parse body as FormData."
+    proxyClientMaxBodySize: "128mb",
+  },
+  // next/image is only used for the static logo, so the /_next/image optimizer
+  // (and its sharp/libheif attack surface, see GHSA-2xp9-vwfh-vxw4) is not needed.
+  images: { unoptimized: true },
   serverExternalPackages: [
     "node-pty",
     "undici",
