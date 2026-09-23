@@ -45,7 +45,10 @@ export async function searchAllSessions(
   query: string,
   limit = 50,
 ): Promise<{ results: GlobalSessionSearchHit[]; hasMore: boolean }> {
-  const sessions = await listAllSessions();
+  // `allowStale` keeps search off the catalogue rebuild path, which agent
+  // activity invalidates constantly; a session created seconds ago is picked
+  // up by the next search, since the stale read schedules the rebuild.
+  const sessions = await listAllSessions({ allowStale: true });
   const livePaths = new Set(sessions.filter((session) => !session.transient).map((session) => session.path));
   for (const path of cache().keys()) {
     if (!livePaths.has(path)) cache().delete(path);

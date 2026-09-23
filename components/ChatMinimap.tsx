@@ -7,8 +7,9 @@ import {
   markdownPreviewRemarkPlugins,
   normalizeDisplayMath,
 } from "@/lib/markdown";
-import { splitFinalAssistantBlocks } from "@/lib/message-display";
-import type { AgentMessage, AssistantMessage, TextContent, UserMessage } from "@/lib/types";
+import { isMessageGroupAnchor, splitFinalAssistantBlocks } from "@/lib/message-display";
+import type { AgentMessage, AssistantMessage, CustomMessage, TextContent, UserMessage } from "@/lib/types";
+import { useI18n } from "@/hooks/useI18n";
 import styles from "./ChatMinimap.module.css";
 
 interface Props {
@@ -31,9 +32,11 @@ interface AssistantPreview {
 }
 
 interface TurnInfo {
-  userMessage: UserMessage;
+  userMessage: UserMessage | CustomMessage;
   assistantPreviews: AssistantPreview[];
   scrollTop: number | null;
+  /** Tool calls issued anywhere in this turn's assistant replies. */
+  toolCount: number;
 }
 
 interface NodeInfo {
@@ -42,13 +45,23 @@ interface NodeInfo {
   index: number;
 }
 
-function getUserPreview(message: UserMessage): string {
+function getUserPreview(message: UserMessage | CustomMessage): string {
   if (typeof message.content === "string") return message.content.trim();
   return message.content
     .filter((block): block is TextContent => block.type === "text")
     .map((block) => block.text)
     .join("\n")
     .trim();
+}
+
+/** Tool calls in one assistant message. A reply can both answer and call
+ *  tools, so this counts blocks rather than text-less messages. */
+export function countToolCalls(message: AgentMessage | Partial<AgentMessage>): number {
+  if (message.role !== "assistant" || !Array.isArray(message.content)) return 0;
+  return message.content.reduce(
+    (total, block) => total + (block.type === "toolCall" ? 1 : 0),
+    0,
+  );
 }
 
 function getAssistantAnswerMarkdown(message: AgentMessage | Partial<AgentMessage>): string {
@@ -233,6 +246,7 @@ export function ChatMinimap({
   messageRefs,
   onRevealHistory,
 }: Props) {
+  const { t } = useI18n();
   const [visible, setVisible] = useState(false);
   const [allNodes, setAllNodes] = useState<NodeInfo[]>([]);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
@@ -328,25 +342,28 @@ export function ChatMinimap({
       let currentTurn: TurnInfo | null = null;
 
       for (const message of allMessagesRef.current) {
-        if (message.role !== "user" && message.role !== "assistant") continue;
+        const isAnchor = isMessageGroupAnchor(message);
+        if (!isAnchor && message.role !== "assistant") continue;
         const element = refs?.[refIndex];
         refIndex++;
 
-        if (message.role === "user") {
+        if (isAnchor) {
           currentTurn = null;
           const elementRect = element?.getBoundingClientRect();
           currentTurn = {
-            userMessage: message as UserMessage,
+            userMessage: message as UserMessage | CustomMessage,
             assistantPreviews: [],
             scrollTop: elementRect
               ? elementRect.top - containerRect.top + scrollEl.scrollTop
               : null,
+            toolCount: 0,
           };
           turns.push(currentTurn);
           continue;
         }
 
         if (!currentTurn) continue;
+        currentTurn.toolCount += countToolCalls(message);
         const answerMarkdown = getAssistantAnswerMarkdown(message);
         if (answerMarkdown) {
           currentTurn.assistantPreviews.push({
@@ -693,8 +710,20 @@ export function ChatMinimap({
                 data-minimap-preview-index={node.index}
                 data-located={isLocated ? "true" : undefined}
               >
-                <span className={styles.number} aria-hidden="true">
-                  {String(node.index + 1).padStart(2, "0")}
+                <span className={styles.number}>
+                  <span aria-hidden="true">
+                    {String(node.index + 1).padStart(2, "0")}
+                  </span>
+                  {node.targetTurn.toolCount > 0 && (
+                    <span
+                      className={styles.toolBadge}
+                      role="img"
+                      title={t("chatMinimap.toolCalls", { count: node.targetTurn.toolCount })}
+                      aria-label={t("chatMinimap.toolCalls", { count: node.targetTurn.toolCount })}
+                    >
+                      {node.targetTurn.toolCount > 99 ? "99+" : node.targetTurn.toolCount}
+                    </span>
+                  )}
                 </span>
                 <div className={styles.content}>
                   <button
@@ -720,8 +749,8 @@ export function ChatMinimap({
                         className={styles.assistantJump}
                         data-minimap-preview-assistant={`${node.index}-${assistantIndex}`}
                         onClick={() => scrollToAssistant(node, assistantIndex)}
-                        aria-label="Locate assistant message"
-                        title="Locate assistant message"
+                        aria-label={t("chatMinimap.locateAssistant")}
+                        title={t("chatMinimap.locateAssistant")}
                       >
                         A
                       </button>

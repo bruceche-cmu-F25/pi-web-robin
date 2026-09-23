@@ -15,6 +15,8 @@ export interface Tab {
   /** A terminal whose shell has ended. The server has already dropped its PTY. */
   terminalExited?: boolean;
   initialDisplayMode?: FileViewerDisplayMode;
+  /** PDF page requested by the link that opened this tab (`#page=N`). */
+  page?: number;
   viewerState?: FileViewerState;
   viewerRevision?: number;
 }
@@ -168,6 +170,7 @@ export function TabBar({ tabs, activeTabId, mobile = false, onSelectTab, onClose
 
   return (
     <div
+      role="tablist"
       style={{
         display: "flex",
         alignItems: "flex-end",
@@ -182,6 +185,24 @@ export function TabBar({ tabs, activeTabId, mobile = false, onSelectTab, onClose
         return (
           <div
             key={tab.id}
+            role="tab"
+            aria-label={tab.kind === "terminal" ? t("terminal.tabLabel", { name: tab.label }) : tab.label}
+            aria-selected={isActive}
+            tabIndex={isActive || (!activeTabId && tabs[0].id === tab.id) ? 0 : -1}
+            onKeyDown={(event) => {
+              if (event.target !== event.currentTarget) return;
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                onSelectTab(tab.id);
+              } else if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+                event.preventDefault();
+                const index = tabs.findIndex((item) => item.id === tab.id);
+                const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1
+                  : (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+                onSelectTab(tabs[next].id);
+                (event.currentTarget.parentElement?.children[next] as HTMLElement)?.focus();
+              }
+            }}
             onClick={() => onSelectTab(tab.id)}
             onMouseDown={(e) => {
               if (e.button === 1) e.preventDefault();

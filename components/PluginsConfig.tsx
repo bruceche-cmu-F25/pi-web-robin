@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { sendAgentCommand } from "@/lib/agent-client";
-import type { PluginPackageInfo, PluginsResponse } from "@/lib/api-types";
+import type { PluginPackageInfo, PluginStandaloneExtensionInfo, PluginUpdateResult, PluginsResponse } from "@/lib/api-types";
 import { useI18n } from "@/hooks/useI18n";
 import {
   getLastSettingsSelection,
@@ -46,6 +46,10 @@ function normalizePluginSourceInput(value: string): string {
 
 function packageKey(pkg: Pick<PluginPackageInfo, "source" | "scope">): string {
   return `${pkg.scope}\0${pkg.source}`;
+}
+
+function extensionKey(extension: PluginStandaloneExtensionInfo): string {
+  return `extension\0${extension.path}`;
 }
 
 function resourceSummary(pkg: PluginPackageInfo, t: ReturnType<typeof useI18n>["t"]): string {
@@ -406,7 +410,11 @@ function PackageDetail({
   actionError,
   actionMessage,
   sessionId,
+  updateStatus,
+  checkingUpdate,
+  updateError,
   onAction,
+  onCheckUpdate,
   onReloadSession,
 }: {
   pkg: PluginPackageInfo;
@@ -415,7 +423,11 @@ function PackageDetail({
   actionError: string | null;
   actionMessage: string | null;
   sessionId: string | null;
+  updateStatus?: PluginUpdateResult;
+  checkingUpdate: boolean;
+  updateError: string | null;
   onAction: (action: PluginAction, pkg: PluginPackageInfo) => void;
+  onCheckUpdate: () => void;
   onReloadSession: () => void;
 }) {
   const { t } = useI18n();
@@ -423,6 +435,9 @@ function PackageDetail({
   const busy = busyKey?.endsWith(key) ?? false;
   const reloadBusy = busyKey === "reload";
   const enabled = !pkg.disabled;
+  const canCheckForUpdates = pkg.canCheckForUpdates;
+  const updateAvailable = updateStatus?.state === "update-available";
+  const description = pkg.description?.trim();
 
   return (
     <ConfigDetailStack>
@@ -471,10 +486,20 @@ function PackageDetail({
         <ConfigDetailActions>
           <ConfigButton
             size="small"
-            onClick={() => onAction("update", pkg)}
-            disabled={busy || reloadBusy}
+            variant={updateAvailable ? "primary" : undefined}
+            onClick={updateAvailable || !canCheckForUpdates
+              ? () => onAction("update", pkg)
+              : onCheckUpdate}
+            disabled={busy || reloadBusy || checkingUpdate}
+            title={updateAvailable ? t("i18n.updateAvailable") : undefined}
           >
-             {busyKey === `update:${key}` ? t("i18n.updating") : t("i18n.update")}
+             {busyKey === `update:${key}`
+               ? t("i18n.updating")
+               : checkingUpdate
+                 ? t("i18n.checking")
+                 : updateAvailable || !canCheckForUpdates
+                   ? t("i18n.update")
+                   : t("i18n.check")}
           </ConfigButton>
           <ConfigButton
             size="small"
@@ -510,10 +535,49 @@ function PackageDetail({
           lineHeight: 1.45,
         }}
       >
+        {description && (
+          <>
+            <div style={{ color: "var(--text-dim)" }}>{t("i18n.description")}</div>
+            <div style={{ color: "var(--text-muted)", overflowWrap: "anywhere" }}>
+              {description}
+            </div>
+          </>
+        )}
         <div style={{ color: "var(--text-dim)" }}>{t("i18n.status")}</div>
         <div style={{ color: statusColor(pkg.status), textTransform: "capitalize" }}>{pkg.status}</div>
         <div style={{ color: "var(--text-dim)" }}>{t("i18n.version")}</div>
-         <div style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>{versionSummary(pkg, t)}</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
+          <div className="skill-version-row">
+            <span className="skill-version-value">{versionSummary(pkg, t)}</span>
+            {updateAvailable && (
+              <span className="skill-version-value is-update" title={updateStatus.displayName}>
+                {t("i18n.updateAvailable")}
+              </span>
+            )}
+            {canCheckForUpdates && (checkingUpdate || (updateStatus && !updateAvailable)) && (
+              <span
+                className={`skill-update-status ${checkingUpdate
+                  ? "is-checking"
+                  : updateStatus?.state === "up-to-date"
+                    ? "is-success"
+                    : updateStatus?.state === "error"
+                      ? "is-error"
+                      : "is-muted"}`}
+              >
+                {checkingUpdate
+                  ? t("i18n.checking")
+                  : updateStatus?.state === "up-to-date"
+                    ? t("i18n.upToDate")
+                    : updateStatus?.state === "unsupported"
+                      ? t("i18n.automaticChecksUnavailable")
+                      : updateStatus?.message || t("i18n.checkFailed")}
+              </span>
+            )}
+          </div>
+          {updateError && (
+            <span style={{ fontSize: 12, color: "#ef4444" }}>{updateError}</span>
+          )}
+        </div>
         <div style={{ color: "var(--text-dim)" }}>{t("i18n.package")}</div>
         <div style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", overflowWrap: "anywhere" }}>
           {pkg.packageName ?? t("i18n.unknown")}
@@ -555,6 +619,38 @@ function PackageDetail({
   );
 }
 
+function StandaloneExtensionDetail({ extension }: { extension: PluginStandaloneExtensionInfo }) {
+  const { t } = useI18n();
+  const status = extension.enabled ? "loaded" : "disabled";
+
+  return (
+    <ConfigDetailStack>
+      <ConfigDetailHeader>
+        <ConfigDetailHeaderInfo>
+          <ScopeTag scope={extension.scope} />
+          <ConfigDetailTitle>{extension.name}</ConfigDetailTitle>
+        </ConfigDetailHeaderInfo>
+      </ConfigDetailHeader>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "minmax(96px, 130px) minmax(0, 1fr)",
+          gap: "9px 14px",
+          fontSize: 12,
+          lineHeight: 1.45,
+        }}
+      >
+        <div style={{ color: "var(--text-dim)" }}>{t("i18n.status")}</div>
+        <div style={{ color: extension.enabled ? "var(--accent)" : "var(--text-dim)" }}>{status}</div>
+        <div style={{ color: "var(--text-dim)" }}>{t("i18n.installedPath")}</div>
+        <div style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", overflowWrap: "anywhere" }}>
+          {shortenPath(extension.path)}
+        </div>
+      </div>
+    </ConfigDetailStack>
+  );
+}
+
 export function PluginsConfig({
   cwd,
   sessionId,
@@ -579,13 +675,16 @@ export function PluginsConfig({
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [updateStatuses, setUpdateStatuses] = useState<Record<string, PluginUpdateResult>>({});
+  const [checkingUpdates, setCheckingUpdates] = useState<Set<string>>(new Set());
+  const [checkingAll, setCheckingAll] = useState(false);
+  const [updateError, setUpdateError] = useState<string | null>(null);
+  const [updatingAll, setUpdatingAll] = useState(false);
 
   const packages = useMemo(() => data?.packages ?? [], [data?.packages]);
-  const directExtensions = useMemo(
-    () => (data?.extensions ?? []).filter((extension) => extension.origin === "top-level"),
-    [data?.extensions],
-  );
+  const standaloneExtensions = useMemo(() => data?.standaloneExtensions ?? [], [data?.standaloneExtensions]);
   const selectedPackage = packages.find((pkg) => packageKey(pkg) === selected) ?? null;
+  const selectedExtension = standaloneExtensions.find((extension) => extensionKey(extension) === selected) ?? null;
   const projectResourcesLoaded = data?.projectResourcesLoaded ?? true;
 
   const groupedPackages = useMemo(() => {
@@ -602,10 +701,17 @@ export function PluginsConfig({
       const next = (await res.json()) as PluginsResponse & { error?: string };
       if (!res.ok || next.error) throw new Error(next.error ?? `HTTP ${res.status}`);
       setData(next);
-      setAddMode((current) => next.packages.length === 0 || current);
+      setAddMode((current) => (next.packages.length === 0 && next.standaloneExtensions.length === 0) || current);
       setSelected((current) => {
-        if (current && next.packages.some((pkg) => packageKey(pkg) === current)) return current;
-        return next.packages[0] ? packageKey(next.packages[0]) : null;
+        if (current && (
+          next.packages.some((pkg) => packageKey(pkg) === current)
+          || next.standaloneExtensions.some((extension) => extensionKey(extension) === current)
+        )) return current;
+        return next.packages[0]
+          ? packageKey(next.packages[0])
+          : next.standaloneExtensions[0]
+            ? extensionKey(next.standaloneExtensions[0])
+            : null;
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -615,12 +721,82 @@ export function PluginsConfig({
   }, [cwd]);
 
   useEffect(() => {
+    setUpdateStatuses({});
+    setUpdateError(null);
     void loadPlugins();
-  }, [loadPlugins]);
+  }, [cwd]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (selected) setLastSettingsSelection("plugins", selected, cwd);
   }, [cwd, selected]);
+
+  const checkForUpdates = useCallback(async (pkg?: PluginPackageInfo) => {
+    const targets = pkg ? [pkg] : packages.filter((item) => item.canCheckForUpdates);
+    const keys = targets.map(packageKey);
+    if (keys.length === 0) return;
+
+    setUpdateError(null);
+    setCheckingUpdates((current) => new Set([...current, ...keys]));
+    if (!pkg) setCheckingAll(true);
+    try {
+      const res = await fetch("/api/plugins/check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cwd,
+          source: pkg?.source,
+          scope: pkg?.scope,
+        }),
+      });
+      const data = (await res.json()) as {
+        updates?: PluginUpdateResult[];
+        error?: string;
+      };
+      if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+      setUpdateStatuses((current) => {
+        const next = { ...current };
+        for (const update of data.updates ?? []) {
+          next[packageKey(update)] = update;
+        }
+        return next;
+      });
+    } catch (err) {
+      setUpdateError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCheckingUpdates((current) => {
+        const next = new Set(current);
+        for (const key of keys) next.delete(key);
+        return next;
+      });
+      if (!pkg) setCheckingAll(false);
+    }
+  }, [cwd, packages]);
+
+  const updateAllPluginsAction = useCallback(async () => {
+    setUpdatingAll(true);
+    setActionError(null);
+    setActionMessage(null);
+    setUpdateError(null);
+    try {
+      const res = await fetch("/api/plugins", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "update", cwd }),
+      });
+      const next = (await res.json()) as PluginsResponse & { error?: string };
+      if (!res.ok || next.error) throw new Error(next.error ?? `HTTP ${res.status}`);
+      setData(next);
+      setUpdateStatuses({});
+      setActionMessage(t("i18n.packagesUpdated"));
+      if (sessionId) {
+        setActionMessage(`${t("i18n.packagesUpdated")} ${t("agents.reloadRequired")}`);
+      }
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setUpdatingAll(false);
+    }
+  }, [cwd, sessionId, t]);
 
   const runAction = useCallback(async (action: PluginAction, pkg: PluginPackageInfo) => {
     const key = packageKey(pkg);
@@ -637,9 +813,18 @@ export function PluginsConfig({
       if (!res.ok || next.error) throw new Error(next.error ?? `HTTP ${res.status}`);
       setData(next);
       if (action === "remove") {
-        setSelected(next.packages[0] ? packageKey(next.packages[0]) : null);
-        if (next.packages.length === 0) setAddMode(true);
+        setSelected(next.packages[0]
+          ? packageKey(next.packages[0])
+          : next.standaloneExtensions[0]
+            ? extensionKey(next.standaloneExtensions[0])
+            : null);
+        if (next.packages.length === 0 && next.standaloneExtensions.length === 0) setAddMode(true);
         setActionMessage("Package removed.");
+        setUpdateStatuses((current) => {
+          const nextStatuses = { ...current };
+          delete nextStatuses[key];
+          return nextStatuses;
+        });
       } else {
         const messages: Record<Exclude<PluginAction, "remove">, string> = {
           install: "Package installed.",
@@ -648,6 +833,13 @@ export function PluginsConfig({
           enable: "Package enabled.",
         };
         setActionMessage(messages[action]);
+        if (action === "update") {
+          setUpdateStatuses((current) => {
+            const nextStatuses = { ...current };
+            delete nextStatuses[key];
+            return nextStatuses;
+          });
+        }
       }
     } catch (err) {
       setActionError(err instanceof Error ? err.message : String(err));
@@ -703,6 +895,11 @@ export function PluginsConfig({
   }, [loadPlugins, onReloaded, sessionId]);
 
   const addBusy = busyKey?.startsWith("install:") ?? false;
+  const availableUpdateCount = Object.values(updateStatuses).filter(
+    (status) => status.state === "update-available",
+  ).length;
+  const hasCheckablePackages = packages.some((pkg) => pkg.canCheckForUpdates);
+  const footerBusy = loading || busyKey !== null || checkingUpdates.size > 0 || updatingAll;
 
   return (
     <ConfigPanelShell embedded={embedded} title={t("common.plugins")} subtitle={shortenPath(cwd)} closeLabel={t("i18n.close")} onClose={onClose}>
@@ -724,95 +921,72 @@ export function PluginsConfig({
                 <div className="config-sidebar-message is-error">
                   {error}
                 </div>
-              ) : packages.length === 0 && directExtensions.length === 0 ? (
+              ) : packages.length === 0 && standaloneExtensions.length === 0 ? (
                 <div className="config-sidebar-message is-empty">
                   No plugins configured
                 </div>
               ) : (
                 <>
-                {groupedPackages.map((group) => (
-                  <div key={group.scope} className="config-sidebar-group">
-                    <ConfigSidebarGroupLabel>
-                      {group.scope}
-                    </ConfigSidebarGroupLabel>
-                    {group.packages.map((pkg) => {
-                      const key = packageKey(pkg);
-                      const isSelected = !addMode && selected === key;
-                      return (
-                        <ConfigSidebarItem
-                          key={key}
-                          active={isSelected}
-                          onClick={() => {
-                            setSelected(key);
-                            setAddMode(false);
-                            setActionError(null);
-                            setActionMessage(null);
-                          }}
-                        >
-                          <ConfigStatusDot active={!pkg.disabled} color={statusColor(pkg.status)} />
-                          <ConfigSidebarText className={`is-grow${pkg.disabled ? " is-muted" : ""}`}>
-                            {pkg.source}
-                          </ConfigSidebarText>
-                        </ConfigSidebarItem>
-                      );
-                    })}
-                  </div>
-                ))}
-                {directExtensions.length > 0 && (
-                  <div style={{ marginBottom: 6 }}>
-                    <div style={{
-                      padding: "4px 8px 3px",
-                      fontSize: 10,
-                      fontWeight: 600,
-                      color: "var(--text-dim)",
-                      textTransform: "uppercase",
-                    }}>
-                      {t("i18n.directExtensions")}
-                    </div>
-                    {directExtensions.map((extension) => (
-                        <div key={`${extension.scope}:${extension.path}`} style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 7,
-                          minHeight: 42,
-                          padding: "7px 8px",
-                        }}>
-                          <span style={{
-                            flexShrink: 0,
-                            width: 7,
-                            height: 7,
-                            borderRadius: "50%",
-                            background: extension.enabled ? "var(--accent)" : "var(--border)",
-                          }} />
-                          <div style={{ minWidth: 0, flex: 1 }}>
-                            <div style={{
-                              fontSize: 12,
-                              color: extension.enabled ? "var(--text)" : "var(--text-dim)",
-                              fontFamily: "var(--font-mono)",
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                            }}>
+                  {standaloneExtensions.length > 0 && (
+                    <div className="config-sidebar-group">
+                      <ConfigSidebarGroupLabel>{t("i18n.extensions")}</ConfigSidebarGroupLabel>
+                      {standaloneExtensions.map((extension) => {
+                        const key = extensionKey(extension);
+                        return (
+                          <ConfigSidebarItem
+                            key={key}
+                            active={!addMode && selected === key}
+                            title={extension.path}
+                            onClick={() => {
+                              setSelected(key);
+                              setAddMode(false);
+                              setActionError(null);
+                              setActionMessage(null);
+                            }}
+                          >
+                            <ConfigStatusDot active={extension.enabled} />
+                            <ConfigSidebarText className={`is-grow${extension.enabled ? "" : " is-muted"}`}>
                               {extension.name}
-                            </div>
-                            <div
-                              title={extension.path}
-                              style={{
-                                marginTop: 2,
-                                fontSize: 10,
-                                color: "var(--text-dim)",
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                whiteSpace: "nowrap",
-                              }}
-                            >
-                              {extension.scope} · {shortenPath(extension.path)}
-                            </div>
-                          </div>
-                        </div>
-                    ))}
-                  </div>
-                )}
+                            </ConfigSidebarText>
+                          </ConfigSidebarItem>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {groupedPackages.map((group) => (
+                    <div key={group.scope} className="config-sidebar-group">
+                      <ConfigSidebarGroupLabel>
+                        {group.scope}
+                      </ConfigSidebarGroupLabel>
+                      {group.packages.map((pkg) => {
+                        const key = packageKey(pkg);
+                        const isSelected = !addMode && selected === key;
+                        return (
+                          <ConfigSidebarItem
+                            key={key}
+                            active={isSelected}
+                            title={pkg.description ?? pkg.source}
+                            onClick={() => {
+                              setSelected(key);
+                              setAddMode(false);
+                              setActionError(null);
+                              setActionMessage(null);
+                            }}
+                          >
+                            <ConfigStatusDot active={!pkg.disabled} color={statusColor(pkg.status)} />
+                            <ConfigSidebarText className={`is-grow${pkg.disabled ? " is-muted" : ""}`}>
+                              {pkg.source}
+                            </ConfigSidebarText>
+                            {updateStatuses[packageKey(pkg)]?.state === "update-available" && (
+                              <span title={t("i18n.updateAvailable")} className="skill-update-indicator">
+                                ↑
+                              </span>
+                            )}
+                          </ConfigSidebarItem>
+                        );
+                      })}
+                    </div>
+                  ))}
                 </>
               )}
             </ConfigSidebarList>
@@ -842,7 +1016,9 @@ export function PluginsConfig({
                 onScopeChange={setInstallScope}
                 onInstall={installPlugin}
               />
-            ) : loading ? null : selectedPackage ? (
+            ) : loading ? null : selectedExtension ? (
+              <StandaloneExtensionDetail extension={selectedExtension} />
+            ) : selectedPackage ? (
               <PackageDetail
                 key={packageKey(selectedPackage)}
                 pkg={selectedPackage}
@@ -851,7 +1027,11 @@ export function PluginsConfig({
                 actionError={actionError}
                 actionMessage={actionMessage}
                 sessionId={sessionId}
+                updateStatus={updateStatuses[packageKey(selectedPackage)]}
+                checkingUpdate={checkingUpdates.has(packageKey(selectedPackage))}
+                updateError={updateError}
                 onAction={runAction}
+                onCheckUpdate={() => void checkForUpdates(selectedPackage)}
                 onReloadSession={reloadSession}
               />
               ) : (
@@ -862,7 +1042,12 @@ export function PluginsConfig({
         </ConfigSplitView>
 
         <ConfigFooter status={
-            data?.diagnostics.length ? (
+            availableUpdateCount > 0 ? (
+              <span style={{ fontSize: 12, color: "var(--accent)" }}>
+                {availableUpdateCount}{" "}
+                {availableUpdateCount === 1 ? t("i18n.update") : t("i18n.updates")}
+              </span>
+            ) : data?.diagnostics.length ? (
               <span
                 title={data.diagnostics.map((d) => `${d.type}: ${d.source ? `${d.source}: ` : ""}${d.message}`).join("\n")}
                 style={{ color: data.diagnostics.some((d) => d.type === "error") ? "var(--danger)" : "var(--warning)" }}
@@ -876,7 +1061,23 @@ export function PluginsConfig({
             )}
         >
           {!embedded && <ConfigButton onClick={onClose}>{t("i18n.close")}</ConfigButton>}
-          <ConfigButton variant="secondary" onClick={() => void loadPlugins()} disabled={loading || busyKey !== null}>
+          {hasCheckablePackages && (
+            <ConfigButton
+              variant={availableUpdateCount > 0 ? "primary" : "secondary"}
+              onClick={() => void (availableUpdateCount > 0 ? updateAllPluginsAction() : checkForUpdates())}
+              disabled={footerBusy}
+              title={availableUpdateCount > 0 ? t("i18n.updateAllPluginsHint") : undefined}
+            >
+              {updatingAll
+                ? t("i18n.updating")
+                : checkingAll
+                  ? t("i18n.checking")
+                  : availableUpdateCount > 0
+                    ? `${t("i18n.updateAllPlugins")} (${availableUpdateCount})`
+                    : t("i18n.checkUpdates")}
+            </ConfigButton>
+          )}
+          <ConfigButton variant="secondary" onClick={() => void loadPlugins()} disabled={footerBusy}>
              {t("i18n.refresh")}
           </ConfigButton>
         </ConfigFooter>
