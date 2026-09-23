@@ -14,13 +14,13 @@ import { apiRoute } from "@/lib/api-route";
 import { getProjectTrustStatus } from "@/lib/project-trust";
 import { isPluginSourceCheckable } from "@/lib/plugin-updates";
 import type {
-  ExtensionResourceInfo,
   PluginDiagnostic,
   PluginPackageInfo,
   PluginResourceCounts,
   PluginResourceInfo,
   PluginResourceKind,
   PluginScope,
+  PluginStandaloneExtensionInfo,
   PluginsResponse,
 } from "@/lib/api-types";
 
@@ -117,6 +117,15 @@ function getRelativePath(resource: ResolvedResource): string {
   return rel && !rel.startsWith("..") ? rel : resource.path;
 }
 
+function toResourceInfo(resource: ResolvedResource, kind: PluginResourceKind): PluginResourceInfo {
+  return {
+    kind,
+    name: getResourceName(resource.path, kind),
+    path: resource.path,
+    relativePath: getRelativePath(resource),
+  };
+}
+
 function getConfiguredVersion(source: string): string | undefined {
   const npmSpec = source.startsWith("npm:") ? source.slice(4) : undefined;
   if (npmSpec) {
@@ -179,19 +188,14 @@ function collectResource(
       : kind === "prompts"
         ? "prompt"
         : "theme";
-  resources.push({
-    kind: resourceKind,
-    name: getResourceName(resource.path, resourceKind),
-    path: resource.path,
-    relativePath: getRelativePath(resource),
-  });
+  resources.push(toResourceInfo(resource, resourceKind));
   resourcesByPackage.set(key, resources);
 }
 
 function collectResources(paths: ResolvedPaths): {
   countsByPackage: Map<string, PluginResourceCounts>;
   resourcesByPackage: Map<string, PluginResourceInfo[]>;
-  extensions: ExtensionResourceInfo[];
+  standaloneExtensions: PluginStandaloneExtensionInfo[];
   totals: PluginResourceCounts;
 } {
   const countsByPackage = new Map<string, PluginResourceCounts>();
@@ -201,16 +205,16 @@ function collectResources(paths: ResolvedPaths): {
   for (const resource of paths.skills) collectResource(resource, "skills", countsByPackage, resourcesByPackage, totals);
   for (const resource of paths.prompts) collectResource(resource, "prompts", countsByPackage, resourcesByPackage, totals);
   for (const resource of paths.themes) collectResource(resource, "themes", countsByPackage, resourcesByPackage, totals);
-  const extensions = paths.extensions.map((resource) => ({
-    name: getResourceName(resource.path, "extension"),
-    path: resource.path,
-    relativePath: getRelativePath(resource),
-    scope: toPluginScope(resource.metadata.scope),
-    source: resource.metadata.source,
-    origin: resource.metadata.origin,
-    enabled: resource.enabled,
-  }));
-  return { countsByPackage, resourcesByPackage, extensions, totals };
+  const standaloneExtensions = paths.extensions
+    .filter((resource) => resource.metadata.origin === "top-level")
+    .map((resource): PluginStandaloneExtensionInfo => ({
+      ...toResourceInfo(resource, "extension"),
+      kind: "extension",
+      scope: toPluginScope(resource.metadata.scope),
+      enabled: resource.enabled,
+    }));
+  totals.extensions += standaloneExtensions.filter((extension) => extension.enabled).length;
+  return { countsByPackage, resourcesByPackage, standaloneExtensions, totals };
 }
 
 async function readPlugins(cwd: string): Promise<PluginsResponse> {
@@ -228,7 +232,7 @@ async function readPlugins(cwd: string): Promise<PluginsResponse> {
   const diagnostics: PluginDiagnostic[] = [];
   let countsByPackage = new Map<string, PluginResourceCounts>();
   let resourcesByPackage = new Map<string, PluginResourceInfo[]>();
-  let extensions: ExtensionResourceInfo[] = [];
+  let standaloneExtensions: PluginStandaloneExtensionInfo[] = [];
   let totals = emptyCounts();
   const disabledByPackage = getDisabledPackages(settingsManager);
 
@@ -241,7 +245,7 @@ async function readPlugins(cwd: string): Promise<PluginsResponse> {
       });
       return "skip";
     });
-    ({ countsByPackage, resourcesByPackage, extensions, totals } = collectResources(resolved));
+    ({ countsByPackage, resourcesByPackage, standaloneExtensions, totals } = collectResources(resolved));
   } catch (error) {
     diagnostics.push({
       type: "error",
@@ -282,7 +286,7 @@ async function readPlugins(cwd: string): Promise<PluginsResponse> {
 
   return {
     packages,
-    extensions,
+    standaloneExtensions,
     totals,
     diagnostics,
     projectResourcesLoaded: projectTrust.trusted,

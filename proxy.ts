@@ -4,8 +4,10 @@ import {
   isApiRequestHostAllowed,
 } from "@/lib/request-security";
 import {
+  isValidWebSessionToken,
   isValidBasicAuthorization,
   isWebPasswordEnabled,
+  PI_WEB_SESSION_COOKIE,
 } from "@/lib/web-auth";
 
 export function proxy(request: NextRequest) {
@@ -23,26 +25,36 @@ export function proxy(request: NextRequest) {
   }
 
   const password = process.env.PI_WEB_PASSWORD;
-  if (
-    isWebPasswordEnabled(password)
-    && !isValidBasicAuthorization(request.headers.get("authorization"), password)
-  ) {
-    if (isApiRequest) {
-      // A Basic challenge on a background fetch opens a browser-level login
-      // prompt that blocks the whole page, making every control look dead.
-      // Only document requests should be allowed to trigger that prompt.
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401, headers: { "Cache-Control": "no-store" } },
-      );
+  if (!isWebPasswordEnabled(password)) {
+    if (request.nextUrl.pathname === "/login") {
+      return NextResponse.redirect(new URL("/", request.url));
     }
-    return new NextResponse("Authentication required", {
-      status: 401,
-      headers: {
-        "Cache-Control": "no-store",
-        "WWW-Authenticate": 'Basic realm="Pi Web", charset="UTF-8"',
-      },
-    });
+    return NextResponse.next();
+  }
+
+  const authenticated = isValidWebSessionToken(request.cookies.get(PI_WEB_SESSION_COOKIE)?.value, password)
+    || (isApiRequest && isValidBasicAuthorization(request.headers.get("authorization"), password));
+  if (request.nextUrl.pathname === "/login") {
+    return authenticated
+      ? NextResponse.redirect(new URL("/", request.url))
+      : NextResponse.next();
+  }
+  if (request.nextUrl.pathname === "/api/web-auth") return NextResponse.next();
+
+  if (!authenticated) {
+    if (!isApiRequest) {
+      const loginUrl = new URL("/login", request.url);
+      if (request.nextUrl.pathname !== "/" || request.nextUrl.search) {
+        loginUrl.searchParams.set("next", `${request.nextUrl.pathname}${request.nextUrl.search}`);
+      }
+      return NextResponse.redirect(loginUrl);
+    }
+    // No Basic challenge: on a background fetch it opens a browser-level
+    // login prompt that blocks the whole page.
+    return NextResponse.json(
+      { error: "Authentication required" },
+      { status: 401, headers: { "Cache-Control": "no-store" } },
+    );
   }
 
   return NextResponse.next();

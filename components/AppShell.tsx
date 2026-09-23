@@ -8,6 +8,7 @@ import { useWorkspaceShortcuts } from "@/hooks/useWorkspaceShortcuts";
 import { SessionSidebar } from "./SessionSidebar";
 import { ChatWindow } from "./ChatWindow";
 import type { ChatScrollPosition } from "@/lib/chat-scroll-position";
+import { useTheme } from "@/hooks/useTheme";
 import { TabBar, type Tab } from "./TabBar";
 import { openFileTab, saveFileViewerState } from "./file-tab-state";
 import { SettingsPanel, SettingsSectionIcon } from "./SettingsPanel";
@@ -95,6 +96,8 @@ export function AppShell() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [initialNavigation] = useState(() => getInitialNavigation(searchParams));
+  // Keep the system-theme subscription mounted for the lifetime of the app.
+  useTheme();
   const { locale, t: translate } = useI18n();
   const isMobile = useIsMobile();
   const isNarrowMobile = useIsNarrowMobile();
@@ -191,7 +194,7 @@ export function AppShell() {
   const [panels, dispatchPanel] = useReducer(
     (state: ShellPanelState, event: ShellPanelEvent) =>
       shellPanelReducer(state, event, viewportRef.current),
-    INITIAL_SHELL_PANELS,
+    { ...INITIAL_SHELL_PANELS, sidebarOpen: !initialNavigation.sidebarCollapsed },
   );
   const { sidebarOpen, rightPanelOpen, activeTopPanel, mobileToolbarMoreOpen } = panels;
   const [mobileSidebarReady, setMobileSidebarReady] = useState(false);

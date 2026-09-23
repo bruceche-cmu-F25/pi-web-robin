@@ -1,6 +1,11 @@
 import { isIP } from "node:net";
 import { hasJsonContentType, isApiRequestAllowed } from "./request-security.ts";
-import { isValidBasicAuthorization, isWebPasswordEnabled } from "./web-auth.ts";
+import {
+  isValidBasicAuthorization,
+  isValidWebSessionToken,
+  isWebPasswordEnabled,
+  PI_WEB_SESSION_COOKIE,
+} from "./web-auth.ts";
 
 export interface TerminalAccessError {
   error: string;
@@ -15,6 +20,16 @@ function requestHostname(request: Request): string | null {
   } catch {
     return null;
   }
+}
+
+function readCookie(request: Request, name: string): string | undefined {
+  for (const part of request.headers.get("cookie")?.split(";") ?? []) {
+    const separator = part.indexOf("=");
+    if (separator !== -1 && part.slice(0, separator).trim() === name) {
+      return part.slice(separator + 1).trim();
+    }
+  }
+  return undefined;
 }
 
 export function isLoopbackTerminalRequest(request: Request): boolean {
@@ -44,7 +59,10 @@ export function getTerminalAccessError(
   if (!isWebPasswordEnabled()) {
     return { error: "Set PI_WEB_PASSWORD before enabling interactive terminals", status: 503 };
   }
-  if (!isValidBasicAuthorization(request.headers.get("authorization"))) {
+  if (
+    !isValidWebSessionToken(readCookie(request, PI_WEB_SESSION_COOKIE))
+    && !isValidBasicAuthorization(request.headers.get("authorization"))
+  ) {
     return { error: "Authentication required", status: 401 };
   }
   if (options.requireJson && !hasJsonContentType(request)) {

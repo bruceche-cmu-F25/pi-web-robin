@@ -7,6 +7,7 @@ export interface SubagentProfilesResponse {
 
 export interface SubagentSettingsResponse {
   enabled: boolean;
+  maxConcurrent: number;
 }
 
 export interface ShellToolSettingsResponse {
@@ -108,6 +109,12 @@ export interface PluginResourceInfo {
   relativePath: string;
 }
 
+export interface PluginStandaloneExtensionInfo extends PluginResourceInfo {
+  kind: "extension";
+  scope: PluginScope;
+  enabled: boolean;
+}
+
 export type PluginUpdateState =
   | "update-available"
   | "up-to-date"
@@ -138,19 +145,9 @@ export interface PluginPackageInfo {
   status: "loaded" | "installed" | "missing" | "disabled";
 }
 
-export interface ExtensionResourceInfo {
-  name: string;
-  path: string;
-  relativePath: string;
-  scope: PluginScope;
-  source: string;
-  origin: "package" | "top-level";
-  enabled: boolean;
-}
-
 export interface PluginsResponse {
   packages: PluginPackageInfo[];
-  extensions: ExtensionResourceInfo[];
+  standaloneExtensions: PluginStandaloneExtensionInfo[];
   totals: PluginResourceCounts;
   diagnostics: PluginDiagnostic[];
   projectResourcesLoaded: boolean;

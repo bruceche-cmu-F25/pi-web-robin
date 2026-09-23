@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useSyncExternalStore } from "react";
+import { isDarkTheme, isThemePreference, type ThemePreference, type ResolvedTheme } from "@/lib/theme";
 
-export type ThemePreference = "light" | "dark" | "auto";
-export type ResolvedTheme = "light" | "dark";
+export type { ThemePreference, ResolvedTheme } from "@/lib/theme";
 
 type ThemeState = {
   preference: ThemePreference;
@@ -31,7 +31,7 @@ function getSystemTheme(): ResolvedTheme {
 function readStoredPreference(): ThemePreference {
   try {
     const value = localStorage.getItem(STORAGE_KEY);
-    if (value === "light" || value === "dark" || value === "auto") return value;
+    if (isThemePreference(value)) return value;
   } catch {
     // ignore storage errors (private mode, quota, etc.)
   }
@@ -44,7 +44,8 @@ function resolveTheme(preference: ThemePreference): ResolvedTheme {
 
 function applyDomTheme(theme: ResolvedTheme): void {
   if (typeof document === "undefined") return;
-  document.documentElement.classList.toggle("dark", theme === "dark");
+  document.documentElement.dataset.theme = theme;
+  document.documentElement.classList.toggle("dark", isDarkTheme(theme));
 }
 
 function ensureState(): ThemeState {
@@ -163,6 +164,6 @@ export function useTheme() {
     theme: snapshot.theme,
     preference: snapshot.preference,
     setThemePreference,
-    isDark: snapshot.theme === "dark",
+    isDark: isDarkTheme(snapshot.theme),
   };
 }

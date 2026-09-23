@@ -87,6 +87,16 @@ test("keeps the mobile action layer open after using an expanded action", () => 
   assert.match(source, /onClick=\{\(\) => toggleTopPanel\("session"\)\}/);
 });
 
+test("keeps theme and language in settings instead of the chat toolbar", () => {
+  assert.doesNotMatch(source, /renderThemeButton/);
+  assert.doesNotMatch(source, /renderLanguageButton/);
+  assert.doesNotMatch(source, /toggleTopPanel\("language"/);
+  assert.doesNotMatch(source, /data-mobile-toolbar-action=\{mobile \? "theme"/);
+  assert.doesNotMatch(source, /data-mobile-toolbar-action=\{mobile \? "language"/);
+  assert.match(source, /import \{ useTheme \} from "@\/hooks\/useTheme"/);
+  assert.match(source, /useTheme\(\);/);
+});
+
 test("prioritizes context and cost when the mobile statistics area narrows", () => {
   assert.match(source, /\.mobile-session-stats \{[\s\S]*?container-type: inline-size/);
   assert.match(source, /@container \(max-width: 158px\)[\s\S]*?\.mobile-session-stat-io/);
