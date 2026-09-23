@@ -75,7 +75,9 @@ export async function checkChatAppearance(page) {
   await page.reload({ waitUntil: "networkidle" });
   await page.locator(".markdown-code-block pre").waitFor();
   assert.equal(await font(textarea), "18px");
-  assert.equal(await font(page.locator(".markdown-user-message")), "18px");
+  // The fork sets the reader's own words in the serif at a 15px base, one
+  // above the composer's 14px, so the same offset lands a pixel higher.
+  assert.equal(await font(page.locator(".markdown-user-message")), "19px");
   assert.equal(await font(page.locator(".markdown-code-block pre")), "16.5px");
 
   await openSettings();
