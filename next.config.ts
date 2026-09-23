@@ -20,8 +20,8 @@ const nextConfig: NextConfig = {
   //   PI_WEB_PASSWORD= PI_WEB_DIST_DIR=.next-preview npm run dev -- -p 30143
   distDir: process.env.PI_WEB_DIST_DIR || ".next",
   serverExternalPackages: [
-    "undici",
     "node-pty",
+    "undici",
     "web-push",
     "@earendil-works/pi-coding-agent",
     "@earendil-works/pi-agent-core",
@@ -37,12 +37,6 @@ const nextConfig: NextConfig = {
     "192.168.*.*",
     ...(process.env.PI_WEB_ALLOWED_HOSTS?.split(",").map((host) => host.trim()).filter(Boolean) ?? []),
   ],
-  experimental: {
-    // ModelsConfig imports 31 provider icons by deep path already, but the
-    // package barrel still gets pulled in transitively; this keeps the import
-    // graph to the icons actually referenced.
-    optimizePackageImports: ["@lobehub/icons"],
-  },
   async headers() {
     return [
       {

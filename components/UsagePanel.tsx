@@ -4,16 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { formatRelativeTime } from "@/lib/i18n/format";
 import { ConfigEmptyState, ConfigSectionTitle } from "./SettingsUi";
-import AnthropicIcon from "@lobehub/icons/es/Anthropic/components/Mono";
-import OpenAIIcon from "@lobehub/icons/es/OpenAI/components/Mono";
-import OpenCodeIcon from "@lobehub/icons/es/OpenCode/components/Mono";
-
-// Same rendering convention as ModelsConfig: mono icons inherit currentColor.
-const USAGE_PROVIDER_ICONS: Record<string, React.ComponentType<{ size?: number | string; style?: React.CSSProperties }>> = {
-  "openai-codex": OpenAIIcon,
-  "anthropic": AnthropicIcon,
-  "opencode": OpenCodeIcon,
-};
+import { ProviderIcon } from "./ProviderIcon";
 
 interface UsageWindowView {
   label: string;
@@ -77,11 +68,10 @@ export function UsageBar({ window: usageWindow, now }: { window: UsageWindowView
 
 function UsageCard({ usage, now }: { usage: ProviderUsageView; now: number }) {
   const { t } = useI18n();
-  const Icon = USAGE_PROVIDER_ICONS[usage.provider];
   return (
     <div style={{ border: "1px solid var(--border)", borderRadius: 0, background: "var(--bg-panel)", padding: "10px 12px", display: "flex", flexDirection: "column", gap: 10 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-        {Icon && <Icon size={16} style={{ color: "var(--text-muted)", flexShrink: 0 }} />}
+        <ProviderIcon id={usage.provider} size={16} />
         <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {usage.displayName}
         </span>

@@ -12,6 +12,7 @@ import {
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { apiRoute } from "@/lib/api-route";
 import { getProjectTrustStatus } from "@/lib/project-trust";
+import { isPluginSourceCheckable } from "@/lib/plugin-updates";
 import type {
   ExtensionResourceInfo,
   PluginDiagnostic,
@@ -266,6 +267,7 @@ async function readPlugins(cwd: string): Promise<PluginsResponse> {
     return {
       source: pkg.source,
       scope,
+      canCheckForUpdates: isPluginSourceCheckable(pkg.source),
       filtered: pkg.filtered,
       disabled,
       installedPath: pkg.installedPath,
@@ -350,6 +352,12 @@ export const POST = apiRoute(async (req) => {
       if (!source) return NextResponse.json({ error: "source required" }, { status: 400 });
       await packageManager.removeAndPersist(source, { local });
     } else if (body.action === "update") {
+      if (!source && !projectTrust.trusted && packageManager.listConfiguredPackages().some((pkg) => pkg.scope === "project")) {
+        return NextResponse.json(
+          { error: "Project resources must be trusted before updating project plugins" },
+          { status: 403 },
+        );
+      }
       await packageManager.update(source);
     } else if (body.action === "disable") {
       if (!source) return NextResponse.json({ error: "source required" }, { status: 400 });

@@ -35,6 +35,17 @@ function withoutPreBackground(theme: Record<string, CSSProperties>): Record<stri
 const LIGHT_SYNTAX_THEME = withoutPreBackground(vs);
 const DARK_SYNTAX_THEME = withoutPreBackground(vscDarkPlus);
 
+export function downloadMermaidSvg(svg: SVGSVGElement): void {
+  // Mermaid's HTML serialization can leave void tags such as <br> unclosed.
+  const xml = new XMLSerializer().serializeToString(svg);
+  const url = URL.createObjectURL(new Blob([xml], { type: "image/svg+xml;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "mermaid-diagram.svg";
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
 type RenderState =
   | { key: string; status: "loading" }
   | { key: string; status: "error" }
@@ -46,6 +57,7 @@ export function MermaidBlock({ code, isStreaming, defaultPreview = false }: Merm
   const [showPreview, setShowPreview] = useState(defaultPreview);
   const [renderState, setRenderState] = useState<RenderState | null>(null);
   const [zoomOpen, setZoomOpen] = useState(false);
+  const previewRef = useRef<HTMLButtonElement>(null);
   const currentKey = `${isDark ? "dark" : "light"}\n${code}`;
   const previewVisible = showPreview && !isStreaming;
 
@@ -110,6 +122,7 @@ export function MermaidBlock({ code, isStreaming, defaultPreview = false }: Merm
       <>
         {!zoomOpen && (
           <button
+            ref={previewRef}
             type="button"
             className="mermaid-block mermaid-preview-button"
             title={t("i18n.openMermaidViewer")}
@@ -126,7 +139,23 @@ export function MermaidBlock({ code, isStreaming, defaultPreview = false }: Merm
     <div className="markdown-code-block">
       <div className="markdown-code-header">
         <span className="markdown-code-lang">mermaid</span>
-        {previewButton}
+        <div className="markdown-code-actions">
+          {renderState?.key === currentKey && renderState.status === "ready" && (
+            <button
+              type="button"
+              className="markdown-code-action"
+              title={`${t("i18n.downloadFile")} (SVG)`}
+              aria-label={`${t("i18n.downloadFile")} (SVG)`}
+              onClick={() => {
+                const svg = previewRef.current?.querySelector("svg");
+                if (svg) downloadMermaidSvg(svg);
+              }}
+            >
+              SVG
+            </button>
+          )}
+          {previewButton}
+        </div>
       </div>
       {body}
     </div>
@@ -285,7 +314,7 @@ export const CodeBlock = memo(function CodeBlock({ code, lang, headerAction, isS
           style={{
             margin: 0,
             padding: "11px 13px",
-            fontSize: 12.5,
+            fontSize: "calc(12.5px + var(--chat-font-size-offset, 0px))",
             lineHeight: 1.62,
             overflowX: "auto",
             background: "color-mix(in srgb, var(--bg) 92%, var(--bg-panel))",
@@ -302,7 +331,7 @@ export const CodeBlock = memo(function CodeBlock({ code, lang, headerAction, isS
           customStyle={{
             margin: 0,
             padding: "11px 13px",
-            fontSize: 12.5,
+            fontSize: "calc(12.5px + var(--chat-font-size-offset, 0px))",
             lineHeight: 1.62,
             borderRadius: 0,
             backgroundColor: "color-mix(in srgb, var(--bg) 92%, var(--bg-panel))",

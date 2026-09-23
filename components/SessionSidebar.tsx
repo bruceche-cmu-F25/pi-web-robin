@@ -14,6 +14,22 @@ import { useI18n } from "@/hooks/useI18n";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
 
+// Fixed row height for the session list. SessionItem renders at exactly this
+// height, so the list can be windowed (only the visible slice is mounted).
+const SESSION_LIST_ITEM_HEIGHT = 54;
+
+export function getSessionListIndices(count: number, scrollTop: number, viewportHeight: number, focusedIndex = -1): number[] {
+  const overscan = 8;
+  const visibleCount = Math.ceil((viewportHeight || 600) / SESSION_LIST_ITEM_HEIGHT) + overscan * 2;
+  const start = Math.max(0, Math.min(Math.floor(scrollTop / SESSION_LIST_ITEM_HEIGHT) - overscan, count - visibleCount));
+  const end = Math.min(count, start + visibleCount);
+  const indices = Array.from({ length: end - start }, (_, offset) => start + offset);
+  // Keep a focused row mounted so scrolling cannot discard an inline rename.
+  if (focusedIndex >= 0 && focusedIndex < start) indices.unshift(focusedIndex);
+  if (focusedIndex >= end && focusedIndex < count) indices.push(focusedIndex);
+  return indices;
+}
+
 declare global {
   interface Window {
     piDesktop?: {
@@ -270,6 +286,8 @@ function AnimatedDropdown({ open, children, style }: { open: boolean; children: 
 export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSessionMatch, onSessionSearchShortcut, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
   const { locale, t } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
+  const sessionListVersionRef = useRef<number | null>(null);
+  const sessionLoadIdRef = useRef(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedCwd, setSelectedCwd] = useState<string | null>(null);
@@ -304,9 +322,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSes
   const [explorerKey, setExplorerKey] = useState(0);
   const [explorerUploadBusy, setExplorerUploadBusy] = useState(false);
   const [fileSearchOpen, setFileSearchOpen] = useState(false);
+  const sessionSearchActive = Boolean(sessionSearchQuery.trim());
   const [changesCount, setChangesCount] = useState(0);
   const [changesCollapsed, setChangesCollapsed] = useState(true);
-  const [sessionRefreshDone, setSessionRefreshDone] = useState(false);
   const [explorerRefreshDone, setExplorerRefreshDone] = useState(false);
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
   const [unreadSessionIds, setUnreadSessionIds] = useState<Set<string>>(() => loadUnreadSessionIds());
@@ -316,13 +334,37 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSes
   // Once polling has delivered a snapshot it is the source of truth for
   // running state; late /api/sessions responses must not overwrite it.
   const runningPollAuthoritativeRef = useRef(false);
-  const sessionRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const explorerRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const sessionLoadRequestIdRef = useRef(0);
   const fileExplorerRef = useRef<FileExplorerHandle>(null);
 
+  // Virtualized session list: only the visible window of rows is mounted.
+  const listScrollRef = useRef<HTMLDivElement>(null);
+  const [listViewportH, setListViewportH] = useState(0);
+  const [listScrollTop, setListScrollTop] = useState(0);
+  const [focusedSessionId, setFocusedSessionId] = useState<string | null>(null);
+  const listScrollRafRef = useRef<number | null>(null);
+  const handleListScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const top = e.currentTarget.scrollTop;
+    if (listScrollRafRef.current != null) return;
+    listScrollRafRef.current = requestAnimationFrame(() => {
+      listScrollRafRef.current = null;
+      setListScrollTop(top);
+    });
+  }, []);
+  useLayoutEffect(() => {
+    const el = listScrollRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) setListViewportH(entry.contentRect.height);
+    });
+    ro.observe(el);
+    setListViewportH(el.clientHeight);
+    setListScrollTop(el.scrollTop);
+    return () => ro.disconnect();
+  }, [sessionSearchActive]);
+
   const loadSessions = useCallback(async (showLoading = false, force = false) => {
-    const requestId = ++sessionLoadRequestIdRef.current;
+    const loadId = ++sessionLoadIdRef.current;
     try {
       if (showLoading) setLoading(true);
       const res = await fetch(force ? "/api/sessions?force=1" : "/api/sessions", {
@@ -331,10 +373,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSes
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json() as {
         sessions: SessionInfo[];
+        sessionListVersion: number;
         runningSessionIds?: string[];
         completionNotificationSuppressedSessionIds?: string[];
       };
-      if (requestId !== sessionLoadRequestIdRef.current) return;
+      if (loadId !== sessionLoadIdRef.current) return;
+      sessionListVersionRef.current = data.sessionListVersion;
       setAllSessions(data.sessions);
       // Treat the fetched running set as an initial fallback only. Once the
       // lightweight poll is live, a slow session-list fetch cannot overwrite it.
@@ -357,15 +401,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSes
         return next.size === prev.size ? prev : next;
       });
       setError(null);
-      if (!showLoading) {
-        setSessionRefreshDone(true);
-        if (sessionRefreshTimerRef.current) clearTimeout(sessionRefreshTimerRef.current);
-        sessionRefreshTimerRef.current = setTimeout(() => setSessionRefreshDone(false), 2000);
-      }
     } catch (e) {
-      if (requestId === sessionLoadRequestIdRef.current) setError(String(e));
+      if (loadId === sessionLoadIdRef.current) setError(String(e));
     } finally {
-      if (requestId === sessionLoadRequestIdRef.current) setLoading(false);
+      if (loadId === sessionLoadIdRef.current) setLoading(false);
     }
   }, []);
 
@@ -475,6 +514,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSes
         });
         if (!res.ok) return;
         const data = await res.json() as {
+          sessionListVersion: number;
           runningSessionIds?: string[];
           completionNotificationSuppressedSessionIds?: string[];
         };
@@ -484,6 +524,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSes
           data.completionNotificationSuppressedSessionIds ?? [],
         );
         setRunningSessionIds(new Set(data.runningSessionIds ?? []));
+        if (data.sessionListVersion !== sessionListVersionRef.current) {
+          // Reuse the invalidated cache; forcing a scan would change the version again.
+          await loadSessions();
+        }
       } catch {
         // Keep the last known state; the next visible-tab poll retries.
       } finally {
@@ -510,7 +554,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSes
       controller?.abort();
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, []);
+  }, [loadSessions]);
 
   useEffect(() => {
     onRunningSessionIdsChange?.(runningSessionIds);
@@ -861,6 +905,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSes
   // works when the prop value won't change — e.g. re-clicking the already
   // open session after manually switching worktrees.
   const handleSelectSessionFromList = useCallback((s: SessionInfo) => {
+    setAllSessions((current) => current.some((session) => session.id === s.id) ? current : [s, ...current]);
     if (s.cwd) setSelectedCwd(s.cwd);
     onSelectSession(s);
   }, [onSelectSession]);
@@ -935,6 +980,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSes
 
   const sessionFamilies = listSessionFamilies(filteredSessions);
 
+  const virtualIndices = getSessionListIndices(
+    sessionFamilies.length,
+    listScrollTop,
+    listViewportH,
+    sessionFamilies.findIndex((family) => family.root.id === focusedSessionId),
+  );
+
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
       {customPathOpen && (
@@ -987,32 +1039,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSes
               <line x1="1" y1="6" x2="11" y2="6" />
             </svg>
             {t("sidebar.new")}
-          </button>
-          <button
-            onClick={() => loadSessions(false, true)}
-            className="ui-action ui-action--chip"
-            data-state={sessionRefreshDone ? "success" : undefined}
-            data-surface={sessionRefreshDone ? "success" : undefined}
-            data-inert={sessionRefreshDone ? "true" : undefined}
-            style={{
-              display: "flex", alignItems: "center", justifyContent: "center",
-              width: 28, height: 28,
-              borderRadius: "var(--card-radius)",
-              padding: 0,
-              flexShrink: 0,
-            }}
-             title={t("sidebar.refresh")}
-          >
-            {sessionRefreshDone ? (
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-            ) : (
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-                <path d="M3 3v5h5" />
-              </svg>
-            )}
           </button>
         </div>
 
@@ -1640,7 +1666,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSes
       </div>
 
       {/* Session list */}
-      <div style={{ flex: explorerOpen && (selectedCwdProp || selectedCwd) ? "1 1 0" : "1 1 auto", overflowY: "auto", padding: "0", minHeight: 80 }}>
+      <div
+        ref={listScrollRef}
+        onScroll={handleListScroll}
+        style={{ flex: explorerOpen && (selectedCwdProp || selectedCwd) ? "1 1 0" : "1 1 auto", overflowY: "auto", padding: "0", minHeight: 80 }}
+      >
         {sessionSearchQuery.trim() ? (
           <>
             {sessionSearchLoading && (
@@ -1721,27 +1751,44 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSes
                 {t("sidebar.noSessions")}
               </div>
             )}
-            {sessionFamilies.map((family) => {
-              const familySessions = [family.root, ...family.subagents];
-              const displaySession = family.latestModified === family.root.modified
-                ? family.root
-                : { ...family.root, modified: family.latestModified };
-              return (
-                <SessionItem
-                  key={family.root.id}
-                  session={displaySession}
-                  isSelected={familySessions.some((session) => session.id === selectedSessionId)}
-                  isRunning={familySessions.some((session) => runningSessionIds.has(session.id))}
-                  isUnread={familySessions.some((session) => unreadSessionIds.has(session.id))}
-                  onClick={() => handleSelectSessionFromList(family.root)}
-                  onRenamed={loadSessions}
-                  onDeleted={(id) => {
-                    onSessionDeleted?.(id);
-                    loadSessions();
-                  }}
-                />
-              );
-            })}
+            {sessionFamilies.length > 0 && (
+              <div
+                style={{
+                  position: "relative",
+                  height: sessionFamilies.length * SESSION_LIST_ITEM_HEIGHT,
+                }}
+              >
+                {virtualIndices.map((index) => {
+                  const family = sessionFamilies[index];
+                  const familySessions = [family.root, ...family.subagents];
+                  const displaySession = family.latestModified === family.root.modified
+                    ? family.root
+                    : { ...family.root, modified: family.latestModified };
+                  // Bubble blur after the input's save handler before unpinning the row.
+                  return (
+                    <div
+                      key={family.root.id}
+                      onFocus={() => setFocusedSessionId(family.root.id)}
+                      onBlur={() => setFocusedSessionId(null)}
+                      style={{ position: "absolute", top: index * SESSION_LIST_ITEM_HEIGHT, left: 0, right: 0 }}
+                    >
+                      <SessionItem
+                        session={displaySession}
+                        isSelected={familySessions.some((session) => session.id === selectedSessionId)}
+                        isRunning={familySessions.some((session) => runningSessionIds.has(session.id))}
+                        isUnread={familySessions.some((session) => unreadSessionIds.has(session.id))}
+                        onClick={() => handleSelectSessionFromList(family.root)}
+                        onRenamed={loadSessions}
+                        onDeleted={(id) => {
+                          onSessionDeleted?.(id);
+                          loadSessions();
+                        }}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </>
         )}
       </div>
@@ -2115,8 +2162,6 @@ function SessionItem({
   }, [onRenamed, session.cwd, session.id, session.name, session.path]);
 
   // Fixed-height outer wrapper — content swaps in place so the list never reflows
-  const ITEM_HEIGHT = 54;
-
   return (
     <div
       onClick={confirmDelete || renaming ? undefined : onClick}
@@ -2124,7 +2169,7 @@ function SessionItem({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => { setHovered(false); }}
       style={{
-        height: ITEM_HEIGHT,
+        height: SESSION_LIST_ITEM_HEIGHT,
         display: "flex",
         alignItems: "center",
         paddingLeft: depth > 0 ? depth * 12 + 14 : 14,
@@ -2246,7 +2291,7 @@ function SessionItem({
                 <span title={session.modified}>{formatRelativeTime(session.modified, locale)}</span>
               )}
               <span>{t("sidebar.messagesCount", { count: session.messageCount })}</span>
-              {session.worktreeBranch && (
+              {session.isWorktree && session.branch && (
                 <span
                   title={`Worktree: ${session.cwd}`}
                   style={{ display: "flex", alignItems: "center", gap: 3, color: "var(--accent)", minWidth: 0, overflow: "hidden" }}
@@ -2257,7 +2302,7 @@ function SessionItem({
                     <circle cx="6" cy="18" r="3" />
                     <path d="M18 9a9 9 0 0 1-9 9" />
                   </svg>
-                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{session.worktreeBranch}</span>
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{session.branch}</span>
                 </span>
               )}
             </div>

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   attachSessionProjectInfo,
+  getSessionListVersion,
   invalidateSessionListCache,
   listAllSessions,
   mergeSessionLists,
@@ -18,8 +19,11 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   try {
     const force = new URL(req.url).searchParams.get("force") === "1";
+    const persistedSessionsPromise = listAllSessions({ force });
+    // Capture before awaiting: mutations during the scan still require a later refresh.
+    let sessionListVersion = getSessionListVersion();
     const [initialPersistedSessions, runtimeSessions] = await Promise.all([
-      listAllSessions({ force }),
+      persistedSessionsPromise,
       attachSessionProjectInfo(getRpcSessionInfos()),
     ]);
     const retention = await maybePruneExpiredSessionPayloads(
@@ -29,12 +33,15 @@ export async function GET(req: Request) {
     let persistedSessions = initialPersistedSessions;
     if (retention.filesChanged > 0) {
       invalidateSessionListCache();
-      persistedSessions = await listAllSessions();
+      const refreshedSessions = listAllSessions();
+      sessionListVersion = getSessionListVersion();
+      persistedSessions = await refreshedSessions;
     }
     const sessions = mergeSessionLists(persistedSessions, runtimeSessions);
     return NextResponse.json(
       {
         sessions,
+        sessionListVersion,
         runningSessionIds: getRunningRpcSessionIds(),
         completionNotificationSuppressedSessionIds: getCompletionNotificationSuppressedRpcSessionIds(),
       },
