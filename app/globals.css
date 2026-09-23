@@ -1439,8 +1439,8 @@ body {
   scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 /* The 10px box is the grab target; the thumb paints 6px of it through a
-   transparent border, so a scrollbar that is easy to catch does not also read
-   as a heavy rule down the side of every panel. */
+   transparent border. Subtle scrollbars stay transparent until their scroll
+   container is active, so long panels do not carry a permanent rule. */
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -1461,6 +1461,17 @@ body {
 }
 ::-webkit-scrollbar-corner {
   background: transparent;
+}
+
+.scrollbar-subtle::-webkit-scrollbar-thumb {
+  background-color: transparent;
+}
+.scrollbar-subtle.scrollbar-visible::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+}
+.scrollbar-subtle.scrollbar-visible::-webkit-scrollbar-thumb:hover,
+.scrollbar-subtle.scrollbar-visible::-webkit-scrollbar-thumb:active {
+  background-color: var(--scrollbar-thumb-hover);
 }
 
 /* A touch screen scrolls by dragging the content, so the extra width buys
@@ -4220,13 +4231,9 @@ span.token.table {
 .web-login-error {
   min-height: 17px;
   margin: 7px 4px 0;
-  color: #dc2626;
+  color: var(--danger);
   font-size: 11px;
   line-height: 17px;
-}
-
-html.dark .web-login-error {
-  color: #f87171;
 }
 
 .web-login-form button {

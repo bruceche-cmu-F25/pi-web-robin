@@ -12,6 +12,7 @@ import { workspaceKeyOf } from "@/lib/workspace-memory";
 import { formatRelativeTime } from "@/lib/i18n/format";
 import { useI18n } from "@/hooks/useI18n";
 import { useResizablePanel } from "@/hooks/useResizablePanel";
+import { useScrollbarVisibility } from "@/hooks/useScrollbarVisibility";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
 
@@ -354,6 +355,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSes
 
   // Virtualized session list: only the visible window of rows is mounted.
   const listScrollRef = useRef<HTMLDivElement>(null);
+  const explorerScrollRef = useRef<HTMLDivElement>(null);
+  useScrollbarVisibility(listScrollRef);
+  useScrollbarVisibility(explorerScrollRef, explorerOpen && Boolean(selectedCwdProp || selectedCwd));
   const sessionPaneRef = useRef<HTMLDivElement>(null);
   const explorerSectionRef = useRef<HTMLDivElement>(null);
   const sessionPaneHeightRef = useRef(SESSION_PANE_DEFAULT_HEIGHT);
@@ -391,12 +395,17 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSes
   const [listScrollTop, setListScrollTop] = useState(0);
   const [focusedSessionId, setFocusedSessionId] = useState<string | null>(null);
   const listScrollRafRef = useRef<number | null>(null);
+  const listScrollTopRef = useRef(0);
+  const renderedListScrollTopRef = useRef(0);
   const handleListScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    const top = e.currentTarget.scrollTop;
+    listScrollTopRef.current = e.currentTarget.scrollTop;
     if (listScrollRafRef.current != null) return;
     listScrollRafRef.current = requestAnimationFrame(() => {
       listScrollRafRef.current = null;
-      setListScrollTop(top);
+      const nextTop = Math.floor(listScrollTopRef.current / SESSION_LIST_ITEM_HEIGHT) * SESSION_LIST_ITEM_HEIGHT;
+      if (renderedListScrollTopRef.current === nextTop) return;
+      renderedListScrollTopRef.current = nextTop;
+      setListScrollTop(nextTop);
     });
   }, []);
   useLayoutEffect(() => {
@@ -407,7 +416,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSes
     });
     ro.observe(el);
     setListViewportH(el.clientHeight);
-    setListScrollTop(el.scrollTop);
+    listScrollTopRef.current = el.scrollTop;
+    renderedListScrollTopRef.current = Math.floor(el.scrollTop / SESSION_LIST_ITEM_HEIGHT) * SESSION_LIST_ITEM_HEIGHT;
+    setListScrollTop(renderedListScrollTopRef.current);
     return () => ro.disconnect();
   }, [sessionSearchActive]);
 
@@ -991,14 +1002,17 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSes
     onNewSession?.(tempId, selectedCwd);
   }, [selectedCwd, onNewSession]);
 
-  const recentProjects = getRecentProjects(allSessions);
+  const recentProjects = useMemo(() => getRecentProjects(allSessions), [allSessions]);
   const showProjectFilter = recentProjects.length > 8;
-  const visibleProjects = projectFilter.trim()
-    ? recentProjects.filter((project) => project.root.toLowerCase().includes(projectFilter.trim().toLowerCase()))
-    : recentProjects;
+  const visibleProjects = useMemo(() => {
+    const query = projectFilter.trim().toLowerCase();
+    return query
+      ? recentProjects.filter((project) => project.root.toLowerCase().includes(query))
+      : recentProjects;
+  }, [projectFilter, recentProjects]);
 
   // Sessions of every worktree in the selected project are shown together
-  const selectedProject = projectFor(selectedCwd);
+  const selectedProject = useMemo(() => projectFor(selectedCwd), [projectFor, selectedCwd]);
 
   // Per-project activity counts (running / unread) for the workspace selector.
   // Uses the same stable server key as the project list and filtering.
@@ -1017,9 +1031,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSes
     [projectActivity, selectedProject],
   );
 
-  const filteredSessions = selectedProject
-    ? sessionsForProject(allSessions, selectedProject.key)
-    : allSessions;
+  const filteredSessions = useMemo(
+    () => selectedProject ? sessionsForProject(allSessions, selectedProject.key) : allSessions,
+    [allSessions, selectedProject],
+  );
   const showWorktreeSwitcher = Boolean(
     worktreeState?.isGit
     && worktreeState.isTopLevel
@@ -1049,14 +1064,14 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSes
         }
       : null);
 
-  const sessionFamilies = listSessionFamilies(filteredSessions);
+  const sessionFamilies = useMemo(() => listSessionFamilies(filteredSessions), [filteredSessions]);
 
-  const virtualIndices = getSessionListIndices(
+  const virtualIndices = useMemo(() => getSessionListIndices(
     sessionFamilies.length,
     listScrollTop,
     listViewportH,
     sessionFamilies.findIndex((family) => family.root.id === focusedSessionId),
-  );
+  ), [focusedSessionId, listScrollTop, listViewportH, sessionFamilies]);
 
   return (
     <div
@@ -1761,6 +1776,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSes
         <div
           ref={listScrollRef}
           onScroll={handleListScroll}
+          className="scrollbar-subtle"
           style={{
             flex: "1 1 auto",
             minHeight: 0,
@@ -2027,7 +2043,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSes
             </ToolbarIconButton>
           </div>
           {explorerOpen && (
-            <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
+            <div ref={explorerScrollRef} className="scrollbar-subtle" style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
               <FileExplorer
                 ref={fileExplorerRef}
                 cwd={selectedCwd ?? selectedCwdProp!}
