@@ -1,0 +1,54 @@
+.page { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; color: var(--text); }
+.inner { max-width: 1400px; margin: 0 auto; padding: 24px; display: flex; flex-direction: column; gap: 24px; }
+.header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; }
+.header h1 { font-family: var(--font-serif); font-size: clamp(36px, 5vw, 56px); font-style: italic; font-weight: 400; margin: 8px 0; }
+.day { color: var(--text-muted); }
+.header p, .empty p { color: var(--text-muted); }
+.summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-block: 1px solid var(--border); }
+.summary > div { padding: 16px; display: flex; flex-direction: column; gap: 8px; border-inline-start: 1px solid var(--border); }
+.summary > div:first-child { border-inline-start: 0; }
+.summary strong { font-size: 32px; font-family: var(--font-serif); font-weight: 400; }
+.summary span { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); }
+.research { padding: 18px; display: flex; flex-wrap: wrap; gap: 16px; justify-content: space-between; align-items: center; }
+.research p { margin-top: 10px; color: var(--text-muted); }
+.full { flex-basis: 100%; overflow-wrap: anywhere; }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; font-size: 12px; }
+.actions > *, .inner > a { min-height: 44px; display: inline-flex; align-items: center; width: fit-content; }
+.cohorts { display: flex; flex-wrap: wrap; gap: 8px; }
+.cohorts button { padding: 8px 12px; min-height: 44px; border: 1px solid var(--border); font-size: 13px; }
+.cohorts button[aria-pressed=true] { border-color: var(--accent); color: var(--accent); background: var(--accent-faint); }
+.cohorts span { margin-left: 8px; font-variant-numeric: tabular-nums; }
+.filters { display: flex; flex-wrap: wrap; gap: 16px; }
+.filters label:first-child { flex: 1; min-width: 200px; }
+.filters label, .editor label { display: flex; flex-direction: column; gap: 8px; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); }
+.filters input, .filters select, .editor input, .editor textarea, .editor select { width: 100%; min-width: 0; min-height: 44px; padding: 10px; font-size: 14px; color: var(--text); }
+.editor textarea { resize: vertical; line-height: 1.65; }
+.workbench { display: grid; grid-template-columns: minmax(260px, .85fr) minmax(0, 1.4fr); gap: 24px; align-items: start; }
+.list { display: flex; flex-direction: column; min-width: 0; max-height: 85vh; overflow-y: auto; }
+.contact { padding: 18px; width: 100%; text-align: left; display: flex; flex-direction: column; align-items: stretch; gap: 9px; border: 1px solid var(--border); border-bottom: 0; background: var(--bg-panel); overflow-wrap: anywhere; }
+.contact:last-child { border-bottom: 1px solid var(--border); }
+.contact[aria-pressed=true] { box-shadow: inset 3px 0 var(--accent); background: var(--accent-faint); }
+.contactTop { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.contact strong { font-family: var(--font-serif); font-size: 20px; font-weight: 400; }
+.contact > span:not(:first-child), .contactTop > span { color: var(--text-muted); }
+.hypothesis { font-size: 13px; line-height: 1.65; }
+.detail { min-width: 0; }
+.empty { padding: 32px 24px; }
+.empty h2 { font-size: 24px; font-family: var(--font-serif); font-weight: 400; margin-bottom: 16px; }
+.editor { padding: 24px; display: flex; flex-direction: column; gap: 24px; overflow-wrap: anywhere; }
+.editor h2 { font-family: var(--font-serif); font-size: 30px; font-weight: 400; margin-block: 8px; }
+.editor section { display: flex; flex-direction: column; gap: 14px; border-top: 1px solid var(--border); padding-top: 24px; }
+.editor a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.editor blockquote { border-left: 2px solid var(--accent-line); padding-left: 14px; font-family: var(--font-serif); line-height: 1.7; }
+.editor p { color: var(--text-muted); line-height: 1.6; }
+.editor summary { cursor: pointer; min-height: 44px; padding-block: 12px; font-size: 13px; }
+.fields { display: grid; gap: 12px; }
+.error { color: var(--danger) !important; padding: 12px; border: 1px solid var(--danger); }
+@media (max-width: 800px) {
+  .inner { padding: 16px; gap: 20px; }
+  .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .summary > div:nth-child(3) { border-inline-start: 0; }
+  .workbench { grid-template-columns: minmax(0, 1fr); }
+  .list { max-height: 46vh; }
+  .editor { padding: 18px; }
+}

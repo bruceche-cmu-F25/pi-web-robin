@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { useI18n } from "@/hooks/useI18n";
 import { localDate } from "@/extension/robin/dates";
 import { PLAYBOOK, PLAYBOOK_STEPS, nextStep, playbookStep, type PlaybookStep, type StepId } from "@/extension/robin/product-playbook";
@@ -125,6 +126,10 @@ export function ProductIdeas() {
   return (
     <main className={`${styles.page} flex flex-1 flex-col overflow-y-auto`} style={{ minWidth: 0, minHeight: 0 }}>
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 p-4 desktop:p-6">
+        <Link href="/product/jarvis" className="pi-panel ui-action flex flex-wrap items-center justify-between gap-4 p-5" style={{ borderLeft: "3px solid var(--accent)" }}>
+          <div className="min-w-0"><span className="pi-eyebrow">JARVIS · MARKET DISCOVERY</span><h2 className="mt-2 text-lg">{zh ? "100 位潜在用户，一次真实的需求探索。" : "100 potential users. Real conversations."}</h2><p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>{zh ? "自动找人 · 来源与需求假设 · 邮件草稿 · 手动发送与状态追踪" : "Sourced contacts · need hypotheses · email drafts · manual outreach tracking"}</p></div>
+          <span className="pi-bracket text-xs">{zh ? "打开项目" : "Open project"}</span>
+        </Link>
         <section aria-labelledby="product-journey" className="flex flex-col gap-3">
           <header className="flex flex-wrap items-baseline justify-between gap-2">
             <h2 id="product-journey" className="pi-label">{copy.journey}</h2>

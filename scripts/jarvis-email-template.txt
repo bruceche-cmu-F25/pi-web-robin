@@ -1,0 +1,16 @@
+Subject: Quick question about information overload
+
+Hi {{firstName}},
+
+I’m Bruce, a master’s student in software engineering at Carnegie Mellon, and I’m working on a product around information overload.
+
+The idea is simple: a personalized TL;DR built around you, with very little setup. Instead of spending time searching through newsletters, news, papers, and industry updates, it would surface the few things most worth your attention.
+
+I came across {{work}}, and I’d genuinely value your reaction.
+
+Does this sound like it would solve a real problem for you, or more like a nice-to-have? And if it worked reliably and consistently saved you time, is it something you could imagine paying for?
+
+No need for a long reply — even a sentence or two would be incredibly helpful.
+
+Best,
+Bruce
