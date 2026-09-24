@@ -921,7 +921,7 @@ function BlockView({ block, searchTarget, toolResults, isStreaming, streamingDur
     const tc = block as ToolCallContent;
     const result = toolResults?.get(tc.toolCallId);
     const duration = toolCallDurations?.get(tc.toolCallId);
-    return <ToolCallBlock block={tc} result={result} duration={duration} onOpenSession={onOpenSession} />;
+    return <ToolCallBlock block={tc} result={result} duration={duration} onOpenSession={onOpenSession} sessionId={sessionId} />;
   }
   return null;
 }
@@ -1051,12 +1051,12 @@ function isSubagentToolDetails(value: unknown): value is SubagentToolDetails {
   return details.kind === "pi-web-subagent" && typeof details.sessionId === "string";
 }
 
-function ToolCallBlock({ block, result, duration, onOpenSession }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number; onOpenSession?: (sessionId: string) => void }) {
+function ToolCallBlock({ block, result, duration, onOpenSession, sessionId }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number; onOpenSession?: (sessionId: string) => void; sessionId?: string }) {
   const { t } = useI18n();
-  const [expanded, setExpanded] = useState(() => isToolCallExpanded(block.toolCallId));
+  const [expanded, setExpanded] = useState(() => isToolCallExpanded(sessionId, block.toolCallId));
   const toggleExpanded = () => {
     const next = !expanded;
-    setToolCallExpanded(block.toolCallId, next);
+    setToolCallExpanded(sessionId, block.toolCallId, next);
     setExpanded(next);
   };
   const inputStr = getToolCallInputText(block);
