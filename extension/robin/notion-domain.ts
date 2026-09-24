@@ -14,7 +14,8 @@ const UPLOAD_TIMEOUT_MS = 120_000;
 const MAX_READ_BLOCKS = 200;
 const MAX_READ_CHARS = 30_000;
 const MAX_WRITE_CHARS = 100_000;
-const MAX_WRITE_BLOCKS = 100;
+const MAX_WRITE_BLOCKS = 200;
+const MAX_BLOCKS_PER_REQUEST = 100;
 const RICH_TEXT_LIMIT = 1_900;
 
 interface NotionPageResponse {
@@ -376,13 +377,19 @@ function attachmentBlock(file: NotionAttachmentFile, uploadId: string): Record<s
   };
 }
 
+async function appendNotionBlocks(pageId: string, children: Record<string, unknown>[]): Promise<void> {
+  for (let offset = 0; offset < children.length; offset += MAX_BLOCKS_PER_REQUEST) {
+    await notionRequest(`/blocks/${pageId}/children`, {
+      method: "PATCH",
+      body: JSON.stringify({ children: children.slice(offset, offset + MAX_BLOCKS_PER_REQUEST) }),
+    });
+  }
+}
+
 export async function appendNotionPage(pageId: string, markdown: string): Promise<{ blocks: number }> {
   const id = normalizeNotionId(pageId);
   const children = notionBlocksFromMarkdown(markdown);
-  await notionRequest(`/blocks/${id}/children`, {
-    method: "PATCH",
-    body: JSON.stringify({ children }),
-  });
+  await appendNotionBlocks(id, children);
   return { blocks: children.length };
 }
 
@@ -413,11 +420,13 @@ export async function createNotionPage(
     body: JSON.stringify({
       parent: { page_id: parentId },
       properties: { title: { title: richText(cleanTitle) } },
-      children,
+      children: children.slice(0, MAX_BLOCKS_PER_REQUEST),
     }),
   });
+  const pageId = normalizeNotionId(page.id);
+  await appendNotionBlocks(pageId, children.slice(MAX_BLOCKS_PER_REQUEST));
   return {
-    id: normalizeNotionId(page.id),
+    id: pageId,
     title: cleanTitle,
     ...(page.url ? { url: page.url } : {}),
     ...(page.last_edited_time ? { lastEditedAt: page.last_edited_time } : {}),

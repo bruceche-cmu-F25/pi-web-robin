@@ -140,6 +140,27 @@ test("append and create send only additive Notion operations", async () => {
   assert.equal(requests[1].body.parent.page_id, id);
 });
 
+test("writes up to 200 blocks in Notion-sized batches", async () => {
+  const requests = [];
+  globalThis.fetch = async (url, init) => {
+    requests.push({ url: String(url), body: JSON.parse(init.body) });
+    if (String(url).endsWith("/pages")) {
+      return jsonResponse({ id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" });
+    }
+    return jsonResponse({});
+  };
+
+  const markdown = Array.from({ length: 200 }, (_, index) => `Line ${index + 1}`).join("\n");
+  assert.deepEqual(await appendNotionPage("374a5189545c80bf8e1bf848a1ecf11c", markdown), { blocks: 200 });
+  assert.equal(requests.length, 2);
+  assert.deepEqual(requests.map((request) => request.body.children.length), [100, 100]);
+
+  requests.length = 0;
+  const created = await createNotionPage("374a5189545c80bf8e1bf848a1ecf11c", "Large note", markdown);
+  assert.equal(created.blocks, 200);
+  assert.deepEqual(requests.map((request) => request.body.children.length), [100, 100]);
+});
+
 test("a note's files are uploaded and placed where the note references them", async () => {
   const calls = [];
   let uploads = 0;
