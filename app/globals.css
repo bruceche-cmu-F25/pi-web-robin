@@ -342,10 +342,6 @@
   --control-bg: rgb(37 47 61 / 0.03);
   --control-bg-hover: rgb(37 47 61 / 0.07);
   --selection-bg: rgb(139 81 60 / 0.24);
-  /* xterm parses this itself and its parser rejects any colour with alpha, so
-     the terminal gets an opaque selection of its own rather than the
-     translucent --bg-selected the rest of the app uses. */
-  --terminal-selection: #dcd8d4;
   --scrollbar-thumb: rgb(139 81 60 / 0.30);
   --scrollbar-thumb-hover: rgb(139 81 60 / 0.48);
 
@@ -499,7 +495,6 @@ html.dark {
   --control-bg: rgb(255 255 255 / 0.016);
   --control-bg-hover: rgb(255 255 255 / 0.035);
   --selection-bg: rgb(106 159 204 / 0.24);
-  --terminal-selection: #2b3441;
   --scrollbar-thumb: rgb(47 95 138 / 0.28);
   --scrollbar-thumb-hover: rgb(47 95 138 / 0.40);
 
@@ -4301,4 +4296,123 @@ span.token.table {
   .web-login-card {
     padding: 28px 20px 24px;
   }
+}
+
+/* Workspace terminal (components/TerminalPanel.tsx). It keeps a dark surface
+   in every theme, like the terminal it stands in for. */
+.terminal-panel {
+  display: grid;
+  grid-template-rows: 38px auto minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  background: #111318;
+}
+
+.terminal-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 0 10px 0 13px;
+  border-bottom: 1px solid #2f3540;
+  background: #181b21;
+  color: #9ca3af;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.terminal-panel-path {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+}
+
+.terminal-panel-path span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-status-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: #facc15;
+}
+
+.terminal-status-dot.is-ready { background: #4ade80; }
+.terminal-status-dot.is-exited,
+.terminal-status-dot.is-error { background: #f87171; }
+
+.terminal-panel-header button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 27px;
+  flex-shrink: 0;
+  padding: 0 8px;
+  border: 1px solid #343a46;
+  border-radius: 0;
+  background: transparent;
+  color: #9ca3af;
+  cursor: pointer;
+  font: inherit;
+}
+
+.terminal-panel-exit {
+  padding: 7px 12px;
+  color: #9ca3af;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.terminal-panel-header button:hover {
+  background: #242932;
+  color: #e5e7eb;
+}
+
+.terminal-panel-error {
+  padding: 7px 12px;
+  border-bottom: 1px solid #5f2424;
+  background: #321b1b;
+  color: #fca5a5;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.terminal-xterm {
+  grid-row: -2 / -1;
+  min-width: 0;
+  min-height: 0;
+  padding: 10px 8px 22px 12px;
+  overflow: hidden;
+}
+
+.terminal-xterm .xterm {
+  height: 100%;
+}
+
+.terminal-xterm-host {
+  width: 100%;
+  height: 100%;
+}
+
+.terminal-xterm .xterm-viewport {
+  background-color: #111318;
+}
+
+/* The terminal keeps its dark surface in every theme, so --text-dim (a dark
+   grey in the light themes) would disappear against it. */
+.terminal-xterm .xterm-viewport::-webkit-scrollbar-thumb {
+  background-color: rgba(156, 163, 175, 0.45);
+}
+.terminal-xterm .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(156, 163, 175, 0.72);
+}
+.terminal-xterm .xterm-viewport::-webkit-scrollbar-thumb:active {
+  background-color: rgb(156, 163, 175);
 }

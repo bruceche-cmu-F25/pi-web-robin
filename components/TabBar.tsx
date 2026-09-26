@@ -11,9 +11,8 @@ export interface Tab {
   filePath: string;
   kind?: "file" | "terminal";
   sourceSessionId?: string | null;
-  terminalId?: string;
-  /** A terminal whose shell has ended. The server has already dropped its PTY. */
-  terminalExited?: boolean;
+  /** A terminal tab waiting for its PTY to close or restart. */
+  closing?: boolean;
   initialDisplayMode?: FileViewerDisplayMode;
   /** PDF page requested by the link that opened this tab (`#page=N`). */
   page?: number;
@@ -211,7 +210,7 @@ export function TabBar({ tabs, activeTabId, mobile = false, onSelectTab, onClose
               if (e.button !== 1) return;
               e.preventDefault();
               e.stopPropagation();
-              onCloseTab(tab.id);
+              if (!tab.closing) onCloseTab(tab.id);
             }}
             style={{
               display: "flex",
@@ -249,6 +248,7 @@ export function TabBar({ tabs, activeTabId, mobile = false, onSelectTab, onClose
             </span>
             <button
               type="button"
+              disabled={tab.closing}
               onClick={(e) => { e.stopPropagation(); onCloseTab(tab.id); }}
               onMouseEnter={() => setHoveredClose(tab.id)}
               onMouseLeave={() => setHoveredClose(null)}
@@ -264,8 +264,8 @@ export function TabBar({ tabs, activeTabId, mobile = false, onSelectTab, onClose
                 flexShrink: 0,
                 transition: "background 0.1s, color 0.1s",
               }}
-              title={t("i18n.close")}
-              aria-label={`${t("i18n.close")} ${tab.label}`}
+              title={t(tab.kind === "terminal" ? "terminal.close" : "i18n.close")}
+              aria-label={`${t(tab.kind === "terminal" ? "terminal.close" : "i18n.close")} ${tab.label}`}
             >
               <CloseIcon />
             </button>

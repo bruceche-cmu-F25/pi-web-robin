@@ -56,7 +56,6 @@ app/api/
   sessions/[id]/entries/[entryId]/thinking/route.ts      GET one entry's thinking blocks
   sessions/[id]/entries/[entryId]/tool-result-image/route.ts GET an image out of a tool result
   sessions/search/route.ts        GET full-text search across session files
-  sessions/[id]/terminal/         authenticated loopback-only PTY create/input/events/close
   agent/new/route.ts              POST { cwd, message, toolNames?, provider?, modelId? }
   agent/[id]/route.ts             GET state | POST any command
   agent/[id]/events/route.ts      GET SSE stream
@@ -82,7 +81,7 @@ app/api/
   models-config/discover/route.ts POST fetch a configured provider's upstream model list
   models-config/test/route.ts     POST test a configured model/provider
   plugins/route.ts                GET/POST package plugin management
-  project-trust/route.ts          GET/POST per-project trust used by the terminal routes
+  project-trust/route.ts          GET/POST per-project trust for package, skill and extension loading
   skills/route.ts                 GET/PATCH loaded skills and disable-model-invocation
   skills/install/route.ts         POST install skills through npx skills add
   skills/search/route.ts          GET/POST skills.sh search
@@ -105,8 +104,9 @@ app/api/
   sessions/search/route.ts        GET session search
   sessions/[id]/state/route.ts    GET live wrapper state when the session is running
   sessions/[id]/auto-name/route.ts POST generate a session title
-  terminal/route.ts               POST create a terminal session
-  terminal/[id]/route.ts          GET stream | POST input/resize | DELETE kill
+  terminal/route.ts               POST create a workspace terminal for an allowed cwd
+  terminal/[id]/route.ts          GET cwd | POST input/resize | DELETE kill
+  terminal/[id]/events/route.ts   GET SSE output with Last-Event-ID replay
   cwd/browse/route.ts             GET browse allowed cwd directories
   app-update/route.ts             GET current vs latest published pi-web version
   file-index/route.ts             GET file list for @-mentions
@@ -146,8 +146,8 @@ lib/
   types.ts            shared TypeScript types
   normalize.ts        normalizeToolCalls() — field name mismatch between file format and our types
   worktree.ts         project/worktree resolution and git worktree operations
-  terminal-manager.ts bounded per-session PTY lifecycle, replay buffer, and cleanup
-  terminal-security.ts loopback + Basic Auth terminal route policy
+  terminal-manager.ts workspace PTY registry: connection lease, bounded replay, cleanup
+  terminal-client.ts  browser-side serialized input writer and terminal API requests
 
 components/
   AppShell.tsx        layout + URL state + tab management
@@ -168,6 +168,7 @@ components/
   FileViewer.tsx      file content in a tab
   TabBar.tsx          right-panel file + terminal tabs
   TerminalPanel.tsx  xterm.js client, SSE output, and serialized terminal input
+  terminal-tab-state.ts terminal tab ids and their sessionStorage restore
 
 hooks/
   useAgentSession.ts  messages + streaming + SSE + fork/navigate/reconciliation logic
@@ -308,11 +309,11 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - API-key routes store and remove keys through `AuthStorage`. Status endpoints must never return the raw key.
 - The model test route is `app/api/models-config/test/route.ts`; `app/api/models/test/` is not a real route.
 
-### Interactive terminal security
-- A terminal is direct host-user code execution, not a sandbox. Terminal routes therefore require `PI_WEB_PASSWORD`, a loopback `Host`, the normal same-origin guard, and session-bound random terminal ids.
-- The browser never supplies a cwd, shell executable, or startup argv. `terminal-manager.ts` resolves the session cwd server-side, canonicalizes it through the file allow-list, checks project trust, and spawns a fixed shell without startup files using a reduced environment.
-- One PTY is allowed per session and eight globally. Input, request bodies, replay memory, dimensions, idle lifetime, and disconnected lifetime are bounded. Closing a terminal tab kills its PTY; hiding the right panel keeps it connected.
-- Output uses SSE because it inherits the existing HTTP auth/origin controls; input and resize commands are serialized POSTs. Session deletion also closes its PTY.
+### Workspace terminals
+- The fork uses upstream's workspace terminal (see `docs/terminal.md`). A terminal is direct host-user code execution, not a sandbox; it is gated only by the same proxy as every other `/api/*` route — the browser login cookie or Basic Auth when `PI_WEB_PASSWORD` is set, plus the same-origin guard. It is **not** restricted to loopback, so any host that can reach Pi Web (LAN, Tailscale via `PI_WEB_ALLOWED_HOSTS`) can open one once logged in, and with no password set it is open to whoever can reach the port.
+- The browser supplies the cwd, which `/api/terminal` accepts only inside the file allow-list (`getAllowedFileRoots()`). The shell is the user's login shell with the server's environment minus `PI_WEB_PASSWORD`.
+- Terminal tabs belong to a workspace cwd, not a chat session: they are opened from the Explorer header or the chat toolbar, survive session and project switches, and are restored from `sessionStorage` after a refresh. A PTY with no subscriber is killed after a 120-second lease.
+- `node-pty` is a regular dependency; `bin/prepare-terminal.js` (postinstall) fixes the macOS spawn-helper executable bit.
 
 ### Completion sound
 - `hooks/useAudio.ts` stores the toggle in `localStorage` as `pi-sound-enabled` and reuses one `AudioContext`.

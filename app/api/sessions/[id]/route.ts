@@ -18,7 +18,6 @@ import { sessionPathKey } from "@/lib/session-path";
 import { abortSubagent, getRpcSession, getRpcSessionInfos } from "@/lib/rpc-manager";
 import { projectTreeForResponse, toSummaryTree } from "@/lib/project-tree";
 import { computeSessionTotalActiveMs } from "@/lib/session-timing";
-import { closeTerminalsForSession } from "@/lib/terminal-manager";
 import { computeSessionStats } from "@/lib/session-stats";
 import { startServerPerf } from "@/lib/perf";
 import { computeSessionRevision } from "@/lib/session-revision";
@@ -342,12 +341,10 @@ export async function DELETE(
 
     for (const deletedId of [...deletedSessionIds].reverse()) {
       if (deletedId === id) continue;
-      closeTerminalsForSession(deletedId);
       try { await abortSubagent(deletedId); } catch { /* idle or completed */ }
       await getRpcSession(deletedId)?.shutdown();
     }
     try { await abortSubagent(id); } catch { /* ordinary session */ }
-    closeTerminalsForSession(id);
     await getRpcSession(id)?.shutdown();
     for (const [deletedId, deletedPath] of deletedPaths) {
       try {
