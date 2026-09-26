@@ -3,7 +3,6 @@
 import React, { useRef, useState, useCallback, useEffect, useLayoutEffect, useImperativeHandle, forwardRef, KeyboardEvent } from "react";
 import type { BuiltinSlashCommandResult, CompactResultInfo, QueuedMessages, SlashCommandInfo } from "@/hooks/useAgentSession";
 import type { SkillsResponse } from "@/lib/api-types";
-import { formatLinkPaste } from "@/lib/clipboard";
 import type { TextContent, UserMessage } from "@/lib/types";
 import {
   clearDraft,
@@ -118,6 +117,32 @@ export function getUpwardMenuMaxHeight(menuBottom: number, visibleTop: number, g
 export function cycleListIndex(index: number, length: number, delta: number): number {
   if (length <= 0) return 0;
   return ((index + delta) % length + length) % length;
+}
+
+export function replaceLinksWithMarkdown(
+  text: string,
+  links: Iterable<{ label: string; href: string; occurrence: number }>,
+): string | null {
+  let result = "";
+  let searchFrom = 0;
+  let replaced = false;
+
+  for (const { label, href, occurrence } of links) {
+    if (!label || !href) continue;
+    let index = 0;
+    for (let match = 0; match <= occurrence; match++) {
+      index = text.indexOf(label, match ? index + label.length : 0);
+      if (index < 0) break;
+    }
+    if (index < searchFrom) continue;
+    const escapedLabel = label.replace(/([\\[\]])/g, "\\$1");
+    const escapedHref = href.replace(/([\\()])/g, "\\$1");
+    result += `${text.slice(searchFrom, index)}[${escapedLabel}](${escapedHref})`;
+    searchFrom = index + label.length;
+    replaced = true;
+  }
+
+  return replaced ? result + text.slice(searchFrom) : null;
 }
 
 function getVisibleTopBoundary(element: HTMLElement): number {
@@ -1367,37 +1392,44 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }, []);
 
   const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    if (compact) return;
     const items = Array.from(e.clipboardData?.items ?? []);
     const imageItems = items.filter((item) => item.type.startsWith("image/"));
-    if (imageItems.length > 0) {
+    if (!compact && imageItems.length) {
       e.preventDefault();
       const files = imageItems.map((item) => item.getAsFile()).filter((f): f is File => f !== null);
       processImageFiles(files);
       return;
     }
 
-    const textarea = e.currentTarget;
-    const start = textarea.selectionStart ?? textarea.value.length;
-    const end = textarea.selectionEnd ?? start;
-    const replacement = formatLinkPaste(
-      e.clipboardData.getData("text/plain") || e.clipboardData.getData("text"),
-      e.clipboardData.getData("text/html"),
-      textarea.value.slice(start, end),
-    );
-    if (!replacement) return;
+    const html = e.clipboardData.getData("text/html");
+    const text = e.clipboardData.getData("text/plain");
+    if (!html || !text) return;
+    const document = new DOMParser().parseFromString(html, "text/html");
+    const links = Array.from(document.querySelectorAll("a[href]"), (link) => {
+      const label = link.textContent ?? "";
+      const range = document.createRange();
+      range.setStart(document.body, 0);
+      range.setEndBefore(link);
+      return {
+        label,
+        href: link.getAttribute("href")?.trim() ?? "",
+        occurrence: label ? range.toString().split(label).length - 1 : 0,
+      };
+    });
+    const markdown = replaceLinksWithMarkdown(text, links);
+    if (markdown === null) return;
 
+    const ta = e.currentTarget;
+    const start = ta.selectionStart;
+    const nextValue = ta.value.slice(0, start) + markdown + ta.value.slice(ta.selectionEnd);
     e.preventDefault();
-    const nextValue = textarea.value.slice(0, start) + replacement + textarea.value.slice(end);
-    const nextCursor = start + replacement.length;
     valueRef.current = nextValue;
     setValue(nextValue);
     setHistoryMenuOpen(false);
-    updateAtQuery(nextValue, nextCursor);
+    updateAtQuery(nextValue, start + markdown.length);
     requestAnimationFrame(() => {
-      textarea.setSelectionRange(nextCursor, nextCursor);
-      textarea.style.height = "auto";
-      textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
+      ta.focus();
+      ta.setSelectionRange(start + markdown.length, start + markdown.length);
     });
   }, [compact, processImageFiles, updateAtQuery]);
 

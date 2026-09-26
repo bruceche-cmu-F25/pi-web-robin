@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Noto_Sans_Mono } from "next/font/google";
 import { PwaRegistration } from "@/components/PwaRegistration";
-import "@xterm/xterm/css/xterm.css";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import "./globals.css";
 import "./settings.css";

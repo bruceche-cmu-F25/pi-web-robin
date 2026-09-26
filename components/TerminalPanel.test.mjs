@@ -1,108 +1,87 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { setImmediate } from "node:timers/promises";
+import { createTerminalWriter, terminalRequest } from "../lib/terminal-client.ts";
 
-const source = await readFile(new URL("./TerminalPanel.tsx", import.meta.url), "utf8");
-
-/** Perceived brightness, 0 (black) to 255 (white). */
-function luminance(hex) {
-  const value = Number.parseInt(hex.slice(1), 16);
-  return 0.299 * ((value >> 16) & 0xff) + 0.587 * ((value >> 8) & 0xff) + 0.114 * (value & 0xff);
-}
-
-function palette(name) {
-  const block = new RegExp(`const ${name} = \\{([\\s\\S]*?)\\n\\} satisfies ITheme;`).exec(source);
-  assert.ok(block, `${name} must be declared`);
-  return Object.fromEntries(
-    [...block[1].matchAll(/(\w+):\s*"(#[0-9a-f]{6})"/g)].map((match) => [match[1], match[2]]),
-  );
-}
-
-test("terminal client uses xterm without link or clipboard addons", () => {
-  assert.match(source, /import\("@xterm\/xterm"\)/);
-  assert.match(source, /import\("@xterm\/addon-fit"\)/);
-  assert.doesNotMatch(source, /WebLinksAddon|ClipboardAddon|allowProposedApi:\s*true/);
-  // screenReaderMode rebuilds a live region per row; it is a real cost on a
-  // terminal that streams build output, so it stays off.
-  assert.doesNotMatch(source, /screenReaderMode:\s*true/);
-});
-
-test("both themes ship a full ANSI palette that contrasts with their background", () => {
-  const light = palette("LIGHT_ANSI");
-  const dark = palette("DARK_ANSI");
-  const names = [
-    "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
-    "brightBlack", "brightRed", "brightGreen", "brightYellow", "brightBlue",
-    "brightMagenta", "brightCyan", "brightWhite",
-  ];
-  assert.deepEqual(Object.keys(light).sort(), [...names].sort());
-  assert.deepEqual(Object.keys(dark).sort(), [...names].sort());
-
-  // xterm's stock palette puts near-white on the light theme's white --bg.
-  for (const [name, hex] of Object.entries(light)) {
-    assert.ok(luminance(hex) < 160, `light ${name} (${hex}) is too pale for a white background`);
+test("terminal errors preserve server diagnostics and explain non-JSON responses", async (t) => {
+  const fetch = t.mock.method(globalThis, "fetch");
+  for (const body of [null, "<html>Server error</html>", "null"]) {
+    fetch.mock.mockImplementation(async () => new Response(body, { status: 500 }));
+    await assert.rejects(terminalRequest("/api/terminal"), /HTTP 500.*pi-web server log/);
   }
-  // "black" is legitimately dark on a dark background; everything else must read.
-  for (const [name, hex] of Object.entries(dark)) {
-    if (name === "black") continue;
-    assert.ok(luminance(hex) > 100, `dark ${name} (${hex}) is too dark for a #1a1a1a background`);
-  }
+  fetch.mock.mockImplementation(async () => Response.json({ error: "Native module missing; run npm rebuild node-pty" }, { status: 500 }));
+  await assert.rejects(terminalRequest("/api/terminal"), /Native module missing; run npm rebuild node-pty/);
 });
 
-test("only the visible terminal holds a stream, and it resumes where it left off", () => {
-  // Browsers allow six concurrent HTTP/1.1 requests per origin and an SSE
-  // response never ends, so a stream per open terminal would deadlock the app.
-  assert.match(source, /if \(!ready \|\| !active \|\| exitedRef\.current\) return;/);
-  assert.match(source, /\/events\?after=\$\{lastSeqRef\.current\}/);
-  assert.match(source, /return \(\) => \{\s*closed = true;\s*source\.close\(\);/);
-  assert.equal(source.match(/new EventSource\(/g)?.length, 1);
+test("a delayed input request cannot be overtaken by typing or resize", async (t) => {
+  const received = [];
+  let finishFirst;
+  t.mock.method(globalThis, "fetch", async (_url, options) => {
+    received.push(JSON.parse(options.body));
+    if (received.length === 1) await new Promise((resolve) => { finishFirst = resolve; });
+    return Response.json({ success: true });
+  });
+  const writer = createTerminalWriter("id", assert.fail);
+  writer.write("a");
+  writer.resize(100, 30);
+  writer.write("b\r");
+  await setImmediate();
+  assert.equal(received.length, 1);
+  finishFirst();
+  await setImmediate();
+  assert.deepEqual(received, [
+    { type: "input", data: "a" },
+    { type: "resize", cols: 100, rows: 30 },
+    { type: "input", data: "b\r" },
+  ]);
+  await writer.stop();
 });
 
-test("a replay gap resets the screen instead of writing into a torn escape sequence", () => {
-  assert.match(source, /message\.type === "reset"/);
-  assert.match(source, /terminal\.reset\(\)/);
+test("large Unicode pastes preserve characters while bounding input requests", async (t) => {
+  const chunks = [];
+  t.mock.method(globalThis, "fetch", async (_url, options) => {
+    chunks.push(JSON.parse(options.body).data);
+    return Response.json({ success: true });
+  });
+  const writer = createTerminalWriter("id", assert.fail);
+  const text = "a".repeat(32767) + "\u{1f600}".repeat(40000);
+  writer.write(text);
+  await setImmediate();
+  assert.equal(chunks.join(""), text);
+  assert.ok(chunks.every((chunk) => chunk.length <= 65536 && chunk.isWellFormed()));
+  await writer.stop();
 });
 
-test("an ended shell stops accepting input", () => {
-  assert.match(source, /terminal\.options\.disableStdin = true/);
-  assert.match(source, /source\.readyState === EventSource\.CLOSED/);
-  assert.match(source, /onExitRef\.current\?\.\(\)/);
+test("typing during a slow request is batched into the next ordered write", async (t) => {
+  const received = [];
+  let release;
+  t.mock.method(globalThis, "fetch", async (_url, options) => {
+    received.push(JSON.parse(options.body).data);
+    if (received.length === 1) await new Promise((resolve) => { release = resolve; });
+    return Response.json({ success: true });
+  });
+  const writer = createTerminalWriter("id", assert.fail);
+  writer.write("first");
+  await setImmediate();
+  for (const character of "a long command\r") writer.write(character);
+  assert.deepEqual(received, ["first"]);
+  release();
+  await setImmediate();
+  assert.deepEqual(received, ["first", "a long command\r"]);
+  await writer.stop();
 });
 
-test("terminal commands are JSON, serialized, and bounded by the server", () => {
-  assert.match(source, /commandQueue = commandQueue\.then/);
-  assert.match(source, /headers: \{ "Content-Type": "application\/json" \}/);
-  assert.match(source, /send\(\{ type: "input", data: data\.slice\(0, end\) \}\)/);
-  assert.match(source, /Math\.min\(data\.length, 16_384\)/);
-  assert.match(source, /send\(\{ type: "resize", columns: cols, rows \}\)/);
-  // A recovered request has to clear the banner it raised, or one blip leaves
-  // the panel looking broken for the rest of its life.
-  assert.match(source, /if \(!disposed\) clearError\(\);/);
-});
-
-test("a soft keyboard can reach the keys a shell is driven with", () => {
-  // A phone keyboard has no Esc, Tab, Ctrl or arrows, which rules out most of
-  // what a shell needs. The sequences come from the agent's own key table so
-  // there is one definition of what "arrow up" means.
-  assert.match(source, /import \{ toTerminalKeyData \} from "@\/lib\/terminal-input"/);
-  for (const key of ["Escape", "Tab", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]) {
-    assert.match(source, new RegExp(`key: "${key}"`), `${key} must be reachable`);
-  }
-  assert.match(source, /\{ label: "\^C", key: "c", ctrl: true \}/);
-  // Routed through xterm so soft keys share the batching path with real ones.
-  assert.match(source, /terminalRef\.current\?\.input\(data\)/);
-});
-
-test("copy and paste use the shifted bindings, since Ctrl+C is SIGINT", () => {
-  assert.match(source, /attachCustomKeyEventHandler/);
-  assert.match(source, /!event\.ctrlKey \|\| !event\.shiftKey/);
-  assert.match(source, /terminal\.getSelection\(\)/);
-  assert.match(source, /terminal\.paste\(text\)/);
-});
-
-test("locale changes re-render labels without recreating the terminal", () => {
-  const streamEffect = /\}, \[sessionId, terminalId, active, ready, clearError, markExited, reportError\]\);/;
-  assert.match(source, streamEffect);
-  assert.match(source, /\}, \[sessionId, terminalId, clearError, reportError\]\);/);
-  assert.match(source, /translateRef\.current = t;/);
+test("failed or stopped delivery discards queued input without retrying commands", async (t) => {
+  const errors = [];
+  const fetch = t.mock.method(globalThis, "fetch", async () => Response.json({ error: "gone" }, { status: 404 }));
+  const writer = createTerminalWriter("id", (error) => errors.push(error.message));
+  writer.write("first");
+  writer.write("second");
+  await setImmediate();
+  assert.deepEqual(errors, ["gone"]);
+  assert.equal(fetch.mock.callCount(), 1);
+  await writer.stop();
+  writer.write("third");
+  await setImmediate();
+  assert.equal(fetch.mock.callCount(), 1);
 });
