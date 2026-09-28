@@ -17,6 +17,12 @@ export interface MailBoard {
   today: string;
   /** Today's review, or null — including when the stored one is from a past day. */
   review: MailReview | null;
+  /**
+   * When the stored review was saved, if it is not today's. A page that only
+   * said "not checked today" could not tell a quiet morning from a scheduled
+   * check that has been failing for days.
+   */
+  lastReviewedAt: string | null;
 }
 
 /**
@@ -29,11 +35,30 @@ export interface MailBoard {
 export function mailBoard(): MailBoard {
   const today = localDate();
   const review = readMailReview();
+  const current = review && review.day === today ? review : null;
   return {
     connected: isConnected(),
     today,
-    review: review && review.day === today ? review : null,
+    review: current,
+    lastReviewedAt: !current && review ? review.reviewedAt : null,
   };
+}
+
+/**
+ * Mark one of today's items handled, or undo that.
+ *
+ * The page is read-only towards Gmail; this only moves the item out of "needs
+ * you" so the page stops asking for attention it has already had.
+ */
+export function markMailDone(id: string, done: boolean): MailBoard | { error: string } {
+  const review = readMailReview();
+  if (!review || review.day !== localDate()) return { error: "There is no review for today." };
+  const item = review.items.find((entry) => entry.id === id);
+  if (!item) return { error: `No email "${id}" in today's review.` };
+  if (done) item.done = true;
+  else delete item.done;
+  writeMailReview(review);
+  return mailBoard();
 }
 
 /**
@@ -59,8 +84,25 @@ export function storedMailReview(): MailReview | null {
 }
 
 /** Replace today's review wholesale; a second check the same day overwrites the first. */
-export function saveMailReview(items: MailReview["items"]): MailReview {
-  const review: MailReview = { day: localDate(), reviewedAt: new Date().toISOString(), items };
+export function saveMailReview(
+  items: MailReview["items"],
+  brief: Pick<MailReview, "headline" | "skipped"> = {},
+): MailReview {
+  const headline = brief.headline?.trim();
+  const skipped = typeof brief.skipped === "number" && Number.isFinite(brief.skipped) && brief.skipped > 0
+    ? Math.floor(brief.skipped)
+    : undefined;
+  // A re-check re-reads mail the user already dealt with: newer_than:1d
+  // overlaps the previous run, and a second check the same day reads it all.
+  // Their "done" is a fact about the email, not about one review of it.
+  const handled = new Set((readMailReview()?.items ?? []).filter((item) => item.done).map((item) => item.id));
+  const review: MailReview = {
+    day: localDate(),
+    reviewedAt: new Date().toISOString(),
+    items: items.map((item) => (handled.has(item.id) ? { ...item, done: true } : item)),
+    ...(headline ? { headline } : {}),
+    ...(skipped ? { skipped } : {}),
+  };
   writeMailReview(review);
   return review;
 }

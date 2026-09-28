@@ -5,7 +5,7 @@ import { Fragment, type ComponentType, type SVGProps } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { FocusTimer } from "./FocusTimer";
 import { getInitialNavigation } from "@/lib/initial-navigation";
-import type { MailReview } from "@/extension/robin/mail";
+import { triageOf, type MailReview } from "@/extension/robin/mail";
 import type { Job } from "@/extension/robin/jobs";
 import type { PracticeRecord } from "@/extension/robin/practice";
 import { pressingAssessments, type Round } from "@/extension/robin/rounds";
@@ -63,8 +63,6 @@ interface NavItem {
    */
   covers?: string[];
 }
-
-const ATTENTION_MAIL_CATEGORIES = new Set(["important", "interview", "oa", "deadline"]);
 
 function isCurrent(pathname: string, item: NavItem): boolean {
   const under = (path: string) => pathname === path || pathname.startsWith(`${path}/`);
@@ -156,7 +154,8 @@ export function RobinMargin({ drawer, onClose, onNavigate, chatContext }: {
     (todo) => !todo.done && todo.due && todo.due <= todos!.today,
   ).length;
   const mailItems = gmail?.review?.items ?? [];
-  const gmailActions = mailItems.filter((item) => ATTENTION_MAIL_CATEGORIES.has(item.category)).length;
+  // The Email page's own "needs you" count, so the badge and the page never disagree.
+  const gmailActions = mailItems.filter((item) => triageOf(item) === "act").length;
   const jobItems = jobs?.jobs ?? [];
   const jobsActions = jobItems.filter((job) => job.status === "shortlist").length;
   const jobsNew = jobItems.some((job) => job.status === "new");

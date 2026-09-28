@@ -8,7 +8,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { getEmail as getGmailMessage, listRecentEmails as listGmailMessages } from "./gmail.ts";
-import { normalizeAction, normalizeCategory, type MailReviewItem } from "./mail.ts";
+import { normalizeDue } from "./dates.ts";
+import { normalizeAction, normalizeCategory, normalizeTriage, type MailReviewItem } from "./mail.ts";
 import { recordRound } from "./round-domain.ts";
 import { ROUND_FIELD_HINTS } from "./round-tools.ts";
 import { saveMailReview } from "./mail-domain.ts";
@@ -95,8 +96,14 @@ export function registerGmailTools(pi: ExtensionAPI): void {
     promptGuidelines: [
       "Only categorise emails you actually read. Never invent an email that gmail_list did not return.",
       "For every oa or interview item, fill in company and due (and role and detail when the email says), so it lands on the OA & interviews page.",
+      "Triage every item: act when the user still has to do something nobody tracks yet; tracked when a todo, event, or OA row (new or existing) already holds it; fyi when nothing is needed — rejections, receipts, notifications, expired events.",
+      "The headline is what the user reads instead of the inbox: lead with what needs them and by when, or say plainly that nothing does.",
     ],
     parameters: Type.Object({
+      headline: Type.Optional(Type.String({
+        description: "One or two sentences in the user's language: what needs the user today and by when, or that nothing does",
+      })),
+      skipped: Type.Optional(Type.Number({ description: "How many messages you skipped as ads, job alerts, or marketing" })),
       items: Type.Array(Type.Object({
         id: Type.String({ description: "Gmail message id from gmail_list" }),
         category: Type.String({
@@ -108,9 +115,15 @@ export function registerGmailTools(pi: ExtensionAPI): void {
         action: Type.String({
           description: 'What was auto-created: "none", "todo", "event", or "both"',
         }),
+        triage: Type.Optional(Type.String({ description: 'What it asks of the user: "act", "tracked", or "fyi"' })),
+        next: Type.Optional(Type.String({
+          description: "act and tracked items: the one next step, imperative, under ten words, e.g. \"Finish the HackerRank OA\"",
+        })),
         company: Type.Optional(Type.String({ description: `oa and interview items only. ${ROUND_FIELD_HINTS.company}` })),
         role: Type.Optional(Type.String({ description: `oa and interview items only. ${ROUND_FIELD_HINTS.role}` })),
-        due: Type.Optional(Type.String({ description: `oa and interview items only. ${ROUND_FIELD_HINTS.due}` })),
+        due: Type.Optional(Type.String({
+          description: `The deadline or start time the email states, for any item. ${ROUND_FIELD_HINTS.due}`,
+        })),
         detail: Type.Optional(Type.String({ description: `oa and interview items only. ${ROUND_FIELD_HINTS.detail}` })),
       })),
     }),
@@ -149,10 +162,11 @@ export function registerGmailTools(pi: ExtensionAPI): void {
           category: normalizeCategory(entry.category),
           summary: entry.summary.trim(),
           action: normalizeAction(entry.action),
+          ...optionalBrief(entry),
         };
       });
 
-      saveMailReview(items);
+      saveMailReview(items, { headline: params.headline, skipped: params.skipped });
 
       // The review is overwritten tomorrow; the rounds it names are not.
       let rounds = 0;
@@ -176,4 +190,17 @@ export function registerGmailTools(pi: ExtensionAPI): void {
       );
     },
   });
+}
+
+/** The triage fields of one review entry, dropping any the model left empty or unreadable. */
+function optionalBrief(entry: { triage?: string; next?: string; due?: string }): Pick<MailReviewItem, "triage" | "next" | "due"> {
+  const triage = normalizeTriage(entry.triage);
+  const next = entry.next?.trim();
+  let due: string | undefined;
+  try {
+    due = entry.due?.trim() ? normalizeDue(entry.due) : undefined;
+  } catch {
+    due = undefined;
+  }
+  return { ...(triage ? { triage } : {}), ...(next ? { next } : {}), ...(due ? { due } : {}) };
 }

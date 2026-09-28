@@ -141,6 +141,26 @@ test("round_add records without a mail id and rejects an unknown kind", async ()
   assert.match(wrong.content[0].text, /kind must be/);
 });
 
+test("gmail_review keeps the brief: headline, skipped count, and each item's triage, next step, and due day", async () => {
+  const { registerGmailTools } = await import("./gmail-tools.ts");
+  const { storedMailReview } = await import("./mail-domain.ts");
+  const tools = new Map();
+  registerGmailTools({ registerTool(tool) { tools.set(tool.name, tool); } });
+  await tools.get("gmail_review").execute("t", {
+    headline: "  Finish the IBM OA by Friday.  ",
+    skipped: 9,
+    items: [
+      { id: "m1", category: "oa", summary: "IBM OA", action: "todo", triage: "tracked", next: " Finish the OA ", due: "2026-09-26" },
+      { id: "m2", category: "other", summary: "Rejection", action: "none", triage: "later", due: "soon" },
+    ],
+  });
+  const review = storedMailReview();
+  assert.equal(review.headline, "Finish the IBM OA by Friday.");
+  assert.equal(review.skipped, 9);
+  assert.deepEqual([review.items[0].triage, review.items[0].next, review.items[0].due], ["tracked", "Finish the OA", "2026-09-26"]);
+  assert.deepEqual([review.items[1].triage, review.items[1].next, review.items[1].due], [undefined, undefined, undefined]);
+});
+
 test("gmail_review records its oa and interview items as rounds, and only those", async () => {
   const { registerGmailTools } = await import("./gmail-tools.ts");
   const tools = new Map();

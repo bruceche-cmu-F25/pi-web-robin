@@ -3,11 +3,9 @@
  *
  * Server-only. Nothing here writes to Google: messages are listed and fetched
  * per request, the same way the calendar integration never writes events. The
- * OAuth grant is shared with google-calendar.ts — both read-only scopes ride
- * the one refresh token, so there is a single connect flow and a single
- * disconnect for the whole Google surface.
- *
- * Read-only on purpose: this integration cannot send, delete, or modify mail.
+ * OAuth grant is shared with google-calendar.ts, so there is one connect flow
+ * and one disconnect for the whole Google surface. This inbox module remains
+ * read-only; the separately guarded Jarvis sender uses gmail.send.
  */
 import { getAccessToken } from "./google-calendar.ts";
 

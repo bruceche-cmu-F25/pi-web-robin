@@ -254,6 +254,22 @@ export function RoundsSection() {
 
   const rounds = useMemo(() => data?.rounds ?? [], [data]);
   const { assessments, interviews, history } = useMemo(() => docket(rounds, now), [rounds, now]);
+  // An OA past its deadline and still open is a question — did you do it? —
+  // not a task. Four of them used to fill the top of the page, a screen and a
+  // half above the job list. They fold into one line that asks the question.
+  const { owed, lapsed } = useMemo(() => {
+    const isLapsed = (round: Round) => {
+      const at = dueAt(round);
+      return at !== null && at < now;
+    };
+    return { owed: assessments.filter((round) => !isLapsed(round)), lapsed: assessments.filter(isLapsed) };
+  }, [assessments, now]);
+
+  const markAllMissed = () => void act("lapsed", async () => {
+    for (const round of lapsed) {
+      await mutate("/api/robin/rounds", "PATCH", { id: round.id, status: "missed" });
+    }
+  });
 
   const act = async (id: string, action: () => Promise<void>) => {
     setBusy(id);
@@ -401,7 +417,25 @@ export function RoundsSection() {
         <p className={styles.empty}>{t("robin.rounds.empty")} {t("robin.rounds.about", { days: String(data.scan?.days ?? 45) })}</p>
       )}
 
-      {group("oa", assessments, "robin.rounds.assessments")}
+      {group("oa", owed, "robin.rounds.assessments")}
+      {lapsed.length > 0 && (
+        <details className={styles.lapsed}>
+          <summary>
+            {t("robin.rounds.lapsed")} <span>{lapsed.length}</span>
+          </summary>
+          <ul>{lapsed.map(renderOpen)}</ul>
+          <p className={styles.lapsedActions}>
+            <button
+              type="button"
+              disabled={busy === "lapsed"}
+              onClick={markAllMissed}
+              className="ui-action pi-eyebrow disabled:opacity-40"
+            >
+              {t("robin.rounds.markAllMissed", { count: String(lapsed.length) })}
+            </button>
+          </p>
+        </details>
+      )}
       {group("interview", interviews, "robin.rounds.interviews")}
 
       {rounds.length > 0 && assessments.length === 0 && interviews.length === 0 && (

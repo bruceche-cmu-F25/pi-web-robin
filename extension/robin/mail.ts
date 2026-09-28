@@ -24,6 +24,17 @@ export type MailCategory = (typeof MAIL_CATEGORIES)[number];
 export const MAIL_ACTIONS = ["none", "todo", "event", "both"] as const;
 export type MailAction = (typeof MAIL_ACTIONS)[number];
 
+/**
+ * What an email asks of the user — the axis the page is organised on.
+ *
+ * Category says what kind of mail it is; triage says whether to spend
+ * attention on it. `act` still needs the user and nothing tracks it yet;
+ * `tracked` needs doing but a todo, event, or OA row already holds it, so it is
+ * handled as far as the inbox is concerned; `fyi` needs nothing.
+ */
+export const MAIL_TRIAGE = ["act", "tracked", "fyi"] as const;
+export type MailTriage = (typeof MAIL_TRIAGE)[number];
+
 export interface MailReviewItem {
   /** Gmail message id, used to link back into the thread. */
   id: string;
@@ -37,6 +48,14 @@ export interface MailReviewItem {
   /** One line, in the user's language: what this is and what (if anything) to do. */
   summary: string;
   action: MailAction;
+  /** Absent on reviews saved before triage existed; read it through `triageOf`. */
+  triage?: MailTriage;
+  /** The one concrete next step, imperative and short. Only for act/tracked. */
+  next?: string;
+  /** Local YYYY-MM-DD deadline or start date, when the email states one. */
+  due?: string;
+  /** The user marked it handled on the page. Survives a re-check; see `saveMailReview`. */
+  done?: boolean;
 }
 
 export interface MailReview {
@@ -45,6 +64,10 @@ export interface MailReview {
   /** UTC ISO instant the review was saved. */
   reviewedAt: string;
   items: MailReviewItem[];
+  /** One or two sentences: what, if anything, needs the user today. */
+  headline?: string;
+  /** Messages read but left out as ads, alerts, or marketing. */
+  skipped?: number;
   /** The assistant's plain report, in the user's language — rendered as markdown. */
   report?: string;
 }
@@ -74,4 +97,40 @@ export function countReviewActions(review: MailReview): { todos: number; events:
     if (item.action === "event" || item.action === "both") events += 1;
   }
   return { todos, events };
+}
+
+export function normalizeTriage(value: unknown): MailTriage | undefined {
+  return typeof value === "string" && (MAIL_TRIAGE as readonly string[]).includes(value)
+    ? value as MailTriage
+    : undefined;
+}
+
+/**
+ * An item's triage, inferred for reviews saved before the field existed:
+ * "other" mail is FYI, anything that auto-created something is tracked, and
+ * the rest is assumed to need the user — over-flagging costs a glance,
+ * under-flagging costs a missed deadline.
+ */
+export function triageOf(item: MailReviewItem): MailTriage {
+  // Handled by the user is handled: it leaves "needs you" whatever the review said.
+  if (item.done) return "tracked";
+  if (item.triage) return item.triage;
+  if (item.category === "other") return "fyi";
+  return item.action === "none" ? "act" : "tracked";
+}
+
+/**
+ * Items grouped by triage, each group soonest-due first. Undated items keep
+ * their review order after the dated ones, and anything the user already
+ * handled sinks below the rest — it is the one row that needs no reading.
+ */
+export function groupByTriage(items: readonly MailReviewItem[]): Record<MailTriage, MailReviewItem[]> {
+  const groups: Record<MailTriage, MailReviewItem[]> = { act: [], tracked: [], fyi: [] };
+  for (const item of items) groups[triageOf(item)].push(item);
+  for (const list of Object.values(groups)) {
+    list.sort((a, b) => Number(a.done ?? false) - Number(b.done ?? false)
+      || (a.due ? 0 : 1) - (b.due ? 0 : 1)
+      || (a.due ?? "").localeCompare(b.due ?? ""));
+  }
+  return groups;
 }

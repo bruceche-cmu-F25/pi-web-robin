@@ -15,7 +15,7 @@ async (page) => {
       };
       const over = (front, back) => front.slice(0, 3).map((value, i) => value * front[3] + back[i] * (1 - front[3]));
       const luminance = (rgb) => rgb.reduce((sum, value, i) => sum + (value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4) * [0.2126, 0.7152, 0.0722][i], 0);
-      return [...document.querySelectorAll('main .pi-card :is(p, h2, h3, time, .pi-eyebrow, summary), main a[href^="https://mail.google.com/"] span')].filter((el) => el.checkVisibility()).flatMap((el) => {
+      return [...document.querySelectorAll('main .pi-card :is(p, h2, h3, time, .pi-eyebrow, summary), #mail-brief :is(p, h2), main :is(h2, summary)[data-triage], main a[href^="https://mail.google.com/"] span')].filter((el) => el.checkVisibility()).flatMap((el) => {
         const ancestors = [];
         for (let node = el; node; node = node.parentElement) ancestors.unshift(node);
         const background = ancestors.reduce((back, node) => over(rgba(getComputedStyle(node).backgroundColor), back), [1, 1, 1]);
@@ -47,6 +47,12 @@ async (page) => {
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.route("**/api/robin/gmail", async (route) => {
+    if (route.request().method() === "PATCH") {
+      const { id, done } = route.request().postDataJSON();
+      response = { ...response, review: { ...response.review, items: response.review.items.map((item) => (item.id === id ? { ...item, done } : item)) } };
+      await route.fulfill({ json: response });
+      return;
+    }
     if (delayLoad) await new Promise((resolve) => { releaseLoad = resolve; });
     await route.fulfill(failLoad ? { status: 503, json: { error: "Test load unavailable" } } : { json: response });
   });
@@ -63,26 +69,35 @@ async (page) => {
   const links = main.locator('a[href^="https://mail.google.com/"]');
   await links.first().waitFor();
   check(await links.count() === 4, "All reviewed emails must be visible");
-  check(!await main.locator("details").evaluate((el) => el.open), "Report must start collapsed");
+  const report = main.locator("details").filter({ has: page.getByText("助手这次查到") });
+  const fyi = main.locator("details#mail-fyi");
+  check(!await report.evaluate((el) => el.open), "Report must start collapsed");
+  check(!await fyi.evaluate((el) => el.open), "FYI must start collapsed");
   check((await main.innerText()).includes("2 待办 · 1 日程"), "Created actions must count both correctly");
-  await main.locator("summary").click();
+  check(await main.locator("#mail-act a").count() === 1 && await main.locator("#mail-tracked a").count() === 2, "Items are grouped by triage");
+  await report.locator("summary").click();
   await main.getByRole("heading", { name: "Review details" }).waitFor();
-  await main.locator("summary").click();
-  await main.getByRole("combobox").selectOption("attention");
-  check(await links.count() === 3, "Attention excludes other");
+  await report.locator("summary").click();
   await main.getByRole("searchbox").fill("FRIDAY");
-  check(await links.count() === 1, "Search matches summary case-insensitively");
+  check(await links.filter({ visible: true }).count() === 1, "Search matches summary case-insensitively");
   await main.getByRole("searchbox").fill("no-match");
   await main.getByRole("heading", { name: "没有找到匹配邮件" }).waitFor();
   await main.getByRole("button", { name: "清除筛选" }).click();
-  check(await links.count() === 4, "Clear resets search and category");
+  check(await links.count() === 4, "Clear resets search");
   await main.getByRole("searchbox").fill("hello@example.com");
-  check(await links.count() === 1 && (await links.innerText()).includes("Fallback preview"), "Sender search and snippet fallback work");
+  check(await fyi.evaluate((el) => el.open), "Search opens FYI");
+  check(await links.count() === 1 && (await links.innerText()).includes("Community"), "Sender search reaches FYI");
   check(await links.getAttribute("href") === "https://mail.google.com/mail/u/0/#all/thread-other", "Link uses thread id");
   await main.getByRole("button", { name: "清除筛选" }).click();
-  await main.getByRole("combobox").selectOption("deadline");
-  check(await links.count() === 1, "Individual category filter works");
-  await main.getByRole("button", { name: "清除筛选" }).click();
+
+  // Done moves the only needs-you card into tracked, and the brief keeps count; undo restores it.
+  await main.getByRole("button", { name: /标为已处理/ }).click();
+  await main.getByText("已处理 1 件 · 还剩 0 件").waitFor();
+  check(await main.locator("#mail-act").count() === 0, "Done empties needs-you");
+  check(await main.locator("#mail-tracked a").count() === 3, "Done items join tracked");
+  await main.getByRole("button", { name: /放回需要你处理/ }).click();
+  await main.locator("#mail-act").waitFor();
+  check(await main.locator("#mail-act a").count() === 1, "Undo restores the card");
   await checkContrast("light");
   await page.screenshot({ path: "/tmp/email-desktop.png", fullPage: true });
 
@@ -113,7 +128,8 @@ async (page) => {
   await checkContrast("dark");
   await page.screenshot({ path: "/tmp/email-dark.png", fullPage: true });
   await links.first().focus();
-  check(await links.first().evaluate((el) => getComputedStyle(el).outlineStyle !== "none"), "Mail links have visible keyboard focus");
+  // A card's title link draws its focus ring on the ::after that covers the card.
+  check(await links.first().evaluate((el) => getComputedStyle(el).outlineStyle !== "none" || getComputedStyle(el, "::after").outlineStyle !== "none"), "Mail links have visible keyboard focus");
 
   const categories = ["important", "interview", "oa", "appointment", "delivery", "deadline", "document", "other"];
   response = { ...response, review: { ...review, items: categories.map((category) => mail(category, category)) } };
@@ -121,17 +137,19 @@ async (page) => {
     await page.evaluate((value) => localStorage.setItem("pi-theme", value), theme);
     await page.reload();
     await links.first().waitFor();
-    const colors = await main.locator("h2[data-category]").evaluateAll((headings) => headings.map((el) => getComputedStyle(el).color));
-    check(colors.length === categories.length && new Set(colors).size === categories.length, `${theme}: every category needs its own heading color`);
+    // "other" is FYI, so every other category renders as a Needs-you card.
+    const colors = await main.locator("#mail-act article[data-category]").evaluateAll((cards) => cards.map((el) => getComputedStyle(el).borderLeftColor));
+    check(colors.length === categories.length - 1 && new Set(colors).size === colors.length, `${theme}: every category needs its own card color`);
     await checkContrast(`${theme} all categories`);
   }
 
   response = { ...response, review: { ...review, items: [], report: "" } };
   await page.reload();
   await main.getByRole("heading", { name: "本次没有需要整理的邮件" }).waitFor();
-  response = { ...response, review: null };
+  response = { ...response, review: null, lastReviewedAt: "2020-01-01T15:00:00.000Z" };
   await page.reload();
   await main.getByRole("heading", { name: "从今天的邮件开始" }).waitFor();
+  check((await main.innerText()).includes("上次检查："), "A stale review says when the last check ran");
   response = { ...response, connected: false };
   await page.reload();
   await main.getByRole("heading", { name: "连接 Google，开始整理邮件" }).waitFor();
@@ -157,5 +175,5 @@ async (page) => {
     check(!(await main.innerText()).includes("robin.gmail."), `No missing translations in ${locale}`);
   }
   check(errors.length === 0, `Browser errors: ${errors.join("; ")}`);
-  console.log("PASS: email filters, summaries, states, retry, read-only links, keyboard focus, responsive layouts and locales");
+  console.log("PASS: email triage, brief, done/undo, search, states, retry, read-only links, keyboard focus, responsive layouts and locales");
 }

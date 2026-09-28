@@ -5,8 +5,9 @@ import { join } from "node:path";
 import { after, test } from "node:test";
 import { claimJobs, deleteJob, dropJobs, scoreJob, updateJob } from "./job-domain.ts";
 import { deleteLink, updateLink } from "./link-domain.ts";
+import { mailBoard, markMailDone, saveMailReview } from "./mail-domain.ts";
 import { addTodo, completeTodo, listTodos, updateTodo } from "./todo-domain.ts";
-import { readJobs, readLinks, writeJobs, writeLinks } from "./store.ts";
+import { readJobs, readLinks, writeJobs, writeLinks, writeMailReview } from "./store.ts";
 
 const previousDataDir = process.env.ROBIN_DATA_DIR;
 const dataDir = mkdtempSync(join(tmpdir(), "robin-domain-writes-"));
@@ -70,4 +71,29 @@ test("job writes share applied timestamps, scoring, notes and deletion", () => {
   assert.equal(dropJobs(["job-1"]), 1);
   assert.equal(deleteJob("job-1")?.id, "job-1");
   assert.deepEqual(readJobs(), []);
+});
+
+const mailItem = (id) => ({ id, threadId: id, from: "", subject: id, snippet: "", date: "", category: "oa", summary: "", action: "none", triage: "act" });
+
+test("marking mail done moves it out of needs-you and survives a re-check", () => {
+  saveMailReview([mailItem("m1"), mailItem("m2")]);
+  const board = markMailDone("m1", true);
+  assert.equal("error" in board, false);
+  assert.deepEqual(board.review.items.map((item) => item.done ?? false), [true, false]);
+
+  // The next check re-reads m1; the user's "done" is about the email, not the review.
+  saveMailReview([mailItem("m1"), mailItem("m3")]);
+  assert.deepEqual(mailBoard().review.items.map((item) => [item.id, item.done ?? false]), [["m1", true], ["m3", false]]);
+
+  markMailDone("m1", false);
+  assert.equal(mailBoard().review.items[0].done, undefined);
+  assert.match(markMailDone("nope", true).error, /No email/);
+});
+
+test("a review from a past day is not today's, but the board still says when it ran", () => {
+  writeMailReview({ day: "2020-01-01", reviewedAt: "2020-01-01T15:00:00.000Z", items: [mailItem("old")] });
+  const board = mailBoard();
+  assert.equal(board.review, null);
+  assert.equal(board.lastReviewedAt, "2020-01-01T15:00:00.000Z");
+  assert.match(markMailDone("old", true).error, /no review for today/);
 });

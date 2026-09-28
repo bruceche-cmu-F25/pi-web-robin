@@ -24,7 +24,7 @@
   line-height: 1.2;
 }
 
-.meta, .results, .mailMeta, .mailFooter, .connection > p {
+.meta, .results, .connection > p {
   color: var(--text-muted);
   font-family: var(--font-mono);
   font-size: 12px;
@@ -38,34 +38,13 @@
 .page button, .report summary { cursor: pointer; }
 .page button:disabled { cursor: not-allowed; }
 
-.page button:focus-visible, .mail:focus-visible, .report summary:focus-visible {
+.page button:focus-visible, a.row:focus-visible, .stretch:focus-visible::after, .report summary:focus-visible, summary.groupTitle:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
 
 .search { display: flex; flex-direction: column; gap: 12px; }
 .search input { width: 100%; min-width: 0; }
-
-/* The category index: rows in the margin, chips once the page stacks. */
-.index { display: flex; flex-direction: column; margin-top: 12px; }
-.page .index button {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  width: 100%;
-  min-height: 36px;
-  padding: 4px 10px;
-  border: 0;
-  border-left: 2px solid transparent;
-  background: transparent;
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  text-align: left;
-}
-.page .index button:hover { background: var(--bg-hover); color: var(--text); }
-.page .index button[aria-pressed="true"] { border-left-color: var(--accent); background: var(--accent-faint); color: var(--text); }
-.index button span:last-child { margin-left: auto; font-variant-numeric: tabular-nums; }
 
 /* Stays display: list-item — flex would drop the disclosure marker. */
 .report summary {
@@ -78,51 +57,184 @@
 .report summary:hover { color: var(--text); }
 .reportBody { padding-top: 8px; font-size: 14px; overflow-wrap: anywhere; }
 
-.results { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 44px; padding: 0 24px; }
+.results { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 44px; }
 .results button { color: var(--accent); }
 
-.category {
-  --category-tone: var(--text-muted);
-  /* Calendar hues are surface colors; mix in ink for small heading text. */
-  --category-ink: color-mix(in srgb, var(--category-tone) 60%, var(--text));
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  border-block: 1px solid var(--border);
-  padding: 10px 24px;
-  background: var(--bg-subtle);
-  color: var(--category-ink);
-  box-shadow: inset 3px 0 var(--category-ink);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 500;
-}
+.list { display: flex; flex-direction: column; gap: 36px; }
 
-.category[data-category="important"] { --category-tone: var(--event-rose); }
-.category[data-category="interview"] { --category-tone: var(--event-slate); }
-.category[data-category="oa"] { --category-tone: var(--event-iris); }
-.category[data-category="appointment"] { --category-tone: var(--event-plum); }
-.category[data-category="delivery"] { --category-tone: var(--event-clay); }
-.category[data-category="deadline"] { --category-tone: var(--event-honey); }
-.category[data-category="document"] { --category-tone: var(--event-fern); }
-.category span { color: var(--text-muted); font-variant-numeric: tabular-nums; }
-.inbox ul { list-style: none; padding: 0; margin: 0; }
-.inbox li + li { border-top: 1px solid var(--border); }
-.mail { display: flex; flex-direction: column; gap: 5px; padding: 14px 24px; border-left: 3px solid transparent; color: var(--text); text-decoration: none; }
-.mail:hover, .mail:focus-visible { background: var(--accent-faint); border-left-color: var(--accent); }
-.mailMeta { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
-.sender { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.stamp { display: flex; align-items: baseline; gap: 12px; flex-shrink: 0; }
-.mail h3 { font-size: 18px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
-.summary { max-width: 80ch; color: var(--copy); font-size: 15px; line-height: 1.65; overflow-wrap: anywhere; }
-.mailFooter { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin-top: 3px; }
-.badge {
-  border: 1px solid color-mix(in srgb, var(--success) 40%, transparent);
-  padding: 2px 8px;
-  color: color-mix(in srgb, var(--success) 85%, var(--text));
-  background: color-mix(in srgb, var(--success) 6%, transparent);
+/* The lede. Set on the paper rather than in a card, so it reads as the page's
+   opening sentence and the cards below read as the evidence for it. Sizes
+   come from the dashboard ruler: 11 / 13 / 15 / 22. */
+.brief { display: flex; flex-direction: column; gap: 10px; max-width: 64ch; padding-top: 2px; }
+.brief h2 { display: flex; align-items: center; gap: 8px; }
+.brief[data-clear="true"] h2 { color: color-mix(in srgb, var(--success) 65%, var(--text)); }
+.brief[data-clear="true"] h2::before { content: "✓"; }
+.headline {
+  font-family: var(--font-serif);
+  font-size: 22px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
 }
-.openMail { color: var(--accent); }
+.progress { color: var(--text-muted); font-family: var(--font-mono); font-size: 13px; }
+
+.group { display: flex; flex-direction: column; gap: 12px; scroll-margin-top: 16px; }
+
+/* A section heading is a ruled line: name, count, a hairline to the edge,
+   and what the section asks of you at the far end. */
+.groupTitle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+}
+.groupTitle > span { color: var(--text-muted); font-weight: 400; font-variant-numeric: tabular-nums; }
+.groupTitle[data-triage="act"] > span { color: var(--accent); }
+.groupTitle::after { content: ""; flex: 1; order: 1; min-width: 16px; border-bottom: 1px solid var(--border); }
+.groupTitle em { order: 2; color: var(--text-dim); font-style: normal; font-weight: 400; font-size: 11px; white-space: nowrap; }
+summary.groupTitle { min-height: 44px; cursor: pointer; list-style: none; }
+summary.groupTitle::-webkit-details-marker { display: none; }
+/* Flex drops the native disclosure marker, so the summary draws its own. */
+summary.groupTitle::before { content: "▸"; color: var(--text-muted); font-weight: 400; transition: transform 0.18s ease; }
+details[open] > summary.groupTitle::before { transform: rotate(90deg); }
+summary.groupTitle:hover { color: var(--accent); }
+
+/* Needs you: one card per email, the next step as its title. Colour is the
+   edge, never the fill — the category rides the left spine. */
+.cards { display: flex; flex-direction: column; gap: 12px; list-style: none; margin: 0; padding: 0; }
+.card {
+  --category-tone: var(--text-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 18px 22px 12px;
+  color: var(--text);
+  transition: background-color 0.15s ease;
+}
+.page .card { border-left: 3px solid var(--category-tone); }
+.card:hover { background: color-mix(in srgb, var(--accent) 4%, var(--bg-panel)); }
+.cardTop { display: flex; align-items: baseline; justify-content: space-between; gap: 20px; }
+.card h3 { font-family: var(--font-serif); font-size: 17px; font-weight: 600; line-height: 1.45; overflow-wrap: anywhere; }
+.summary { max-width: 72ch; color: var(--copy); font-family: var(--font-serif); font-size: 15px; line-height: 1.65; overflow-wrap: anywhere; }
+
+.cardFoot { display: flex; align-items: center; justify-content: space-between; gap: 8px 16px; margin-top: 2px; }
+.cardActions { display: flex; align-items: center; flex-shrink: 0; margin-right: -8px; }
+
+/* Meta reads as one sentence of data, dot-separated, not a row of chips. */
+.mailMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  min-width: 0;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.8;
+}
+.mailMeta > * + *::before { content: "·"; margin-inline: 8px; color: var(--text-dim); }
+.mailMeta time { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.sender { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; max-width: 32ch; }
+
+.tag {
+  --category-tone: var(--text-muted);
+  color: color-mix(in srgb, var(--category-tone) 60%, var(--text));
+}
+.card[data-category="important"], .tag[data-category="important"] { --category-tone: var(--event-rose); }
+.card[data-category="interview"], .tag[data-category="interview"] { --category-tone: var(--event-slate); }
+.card[data-category="oa"], .tag[data-category="oa"] { --category-tone: var(--event-iris); }
+.card[data-category="appointment"], .tag[data-category="appointment"] { --category-tone: var(--event-plum); }
+.card[data-category="delivery"], .tag[data-category="delivery"] { --category-tone: var(--event-clay); }
+.card[data-category="deadline"], .tag[data-category="deadline"] { --category-tone: var(--event-honey); }
+.card[data-category="document"], .tag[data-category="document"] { --category-tone: var(--event-fern); }
+
+/* A deadline is data until it is urgent; only then does it earn a surface. */
+.due {
+  flex-shrink: 0;
+  padding: 1px 0;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.due[data-urgent="true"] {
+  padding: 1px 8px;
+  color: color-mix(in srgb, var(--danger) 85%, var(--text));
+  background: var(--danger-soft);
+}
+.created { color: color-mix(in srgb, var(--success) 65%, var(--text)); font-family: var(--font-mono); font-size: 11px; white-space: nowrap; }
+
+/* The title link covers its card or row, so the whole thing opens the email
+   while the done/undo buttons, lifted above it, stay separately clickable. */
+.card, .row { position: relative; }
+.stretch { color: inherit; text-decoration: none; }
+.stretch::after { content: ""; position: absolute; inset: 0; }
+.stretch:focus-visible { outline: none; }
+.card button, .row button { position: relative; z-index: 1; }
+.opener {
+  display: inline-block;
+  margin-left: 0.4em;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 0.8em;
+  font-weight: 400;
+  opacity: 0;
+  transform: translate(-3px, 2px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.card:hover .opener, .row:hover .opener, .stretch:focus-visible .opener, a.row:focus-visible .opener {
+  opacity: 1;
+  transform: translate(0, 0);
+}
+/* 32px sits in the meta line; a coarse pointer gets the full 44px target back. */
+.page .doneButton { min-height: 32px; padding-inline: 8px; color: var(--text-muted); }
+@media (pointer: coarse) { .page .doneButton, .page .undoButton { min-height: 44px; } }
+.page .doneButton:hover { color: var(--text); }
+.page .undoButton {
+  min-height: 32px;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-decoration: underline;
+  text-decoration-color: var(--text-dim);
+  text-underline-offset: 3px;
+}
+.page .undoButton:hover { color: var(--text); }
+
+/* Tracked and FYI: one ruled row each, readable at a glance and skippable. */
+.rows { list-style: none; margin: 0; padding: 0; }
+.rows li + li { border-top: 1px solid var(--border); }
+.row {
+  display: flex;
+  align-items: baseline;
+  gap: 20px;
+  min-height: 44px;
+  padding: 12px 4px;
+  color: var(--text);
+  text-decoration: none;
+  transition: background-color 0.15s ease;
+}
+.row:hover { background: var(--accent-faint); }
+.rowText { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
+.rowText strong { font-family: var(--font-serif); font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.rowText > span { max-width: 80ch; color: var(--copy); font-family: var(--font-serif); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.rowMeta { display: flex; align-items: baseline; gap: 12px; flex-shrink: 0; }
+.row[data-done="true"] strong { color: var(--text-muted); text-decoration: line-through; text-decoration-color: var(--text-dim); }
+.row[data-done="true"] .rowText > span { color: var(--text-muted); }
+.fyiLine { display: block; color: var(--copy); font-family: var(--font-serif); font-size: 15px; line-height: 1.6; overflow-wrap: anywhere; }
+.fyiLine b { margin-right: 10px; color: var(--text); font-family: var(--font-mono); font-size: 11px; font-weight: 400; }
+
+.lastSeen { margin-top: 12px; font-family: var(--font-mono); font-size: 11px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .opener, .card, .row, summary.groupTitle::before { transition: none; }
+}
 
 .empty { padding: 36px 24px; text-align: center; }
 .empty h2 { font-size: 22px; font-weight: 400; margin-bottom: 8px; }
@@ -134,16 +246,19 @@
 .connection h2 { font-size: 20px; }
 .connect { max-width: 640px; padding: 16px 24px; }
 
+/* Stacked, the worksheet would put the overview and search above the brief.
+   On one column the lede leads; the overview only repeats the section counts. */
 @media (max-width: 959px) {
-  .index { flex-direction: row; flex-wrap: wrap; gap: 8px; }
-  .page .index button { width: auto; min-height: 44px; align-items: center; padding: 4px 12px; border: 1px solid var(--border); }
-  .page .index button[aria-pressed="true"] { border-color: var(--accent); }
+  .list { order: -1; }
 }
 
 @media (max-width: 600px) {
-  .results, .connect { padding-inline: 16px; }
-  .category { padding-inline: 16px; }
-  .mail { padding: 16px 13px; }
-  .mailMeta { flex-wrap: wrap; gap: 2px 12px; }
-  .sender { flex-basis: 100%; }
+  .connect { padding-inline: 16px; }
+  .list { gap: 28px; }
+  .headline { font-size: 18px; }
+  .card { padding: 16px 16px 10px; }
+  .cardTop { flex-direction: column; gap: 6px; }
+  .row { flex-wrap: wrap; gap: 6px 12px; }
+  .rowMeta { width: 100%; }
+  .groupTitle em { display: none; }
 }

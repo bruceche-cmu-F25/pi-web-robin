@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { mailBoard } from "@/extension/robin/mail-domain";
-import { apiRoute } from "@/lib/api-route";
+import { mailBoard, markMailDone } from "@/extension/robin/mail-domain";
+import { apiError, apiRoute } from "@/lib/api-route";
 
 export const dynamic = "force-dynamic";
 
@@ -13,3 +13,14 @@ export const dynamic = "force-dynamic";
  * page renders instantly and works even when Gmail is unreachable.
  */
 export const GET = apiRoute(async () => NextResponse.json(mailBoard()));
+
+/** `{ id, done }`: mark one of today's items handled, or undo it. Never touches Gmail. */
+export const PATCH = apiRoute(async (req) => {
+  const body = await req.json() as { id?: unknown; done?: unknown };
+  if (typeof body.id !== "string" || typeof body.done !== "boolean") {
+    return apiError(new Error("id and done are required"));
+  }
+  const result = markMailDone(body.id, body.done);
+  if ("error" in result) return NextResponse.json({ error: result.error }, { status: 404 });
+  return NextResponse.json(result);
+});

@@ -59,7 +59,8 @@ const SCORING_TIMEOUT_MS = 300_000;
  * a full inbox day, short enough not to hang the page forever.
  */
 const MAIL_TIMEOUT_MS = 180_000;
-const MAIL_MODEL = { provider: "deepseek", modelId: "deepseek-v4-flash" } as const;
+// pi renamed deepseek-v4-flash to deepseek-flash; the old id is out of scope and fails every turn.
+const MAIL_MODEL = { provider: "deepseek", modelId: "deepseek-flash" } as const;
 
 const TOOL_NAMES = [...ROBIN_TOOL_NAMES];
 

@@ -27,6 +27,7 @@ export function registerCalendarTools(pi: ExtensionAPI): void {
     promptSnippet: "calendar_create_event — put an event on the user's calendar",
     promptGuidelines: [
       "An appointment with a time goes on the calendar with calendar_create_event; a task to finish goes on the todo list with todo_add.",
+      "Once an event has enough information to create, create it and only confirm what was saved. Do not call the user's title a placeholder or ask for optional details such as a more specific title, end time, or location after creation.",
       "A date range — a trip, a conference, time off — is ONE event with endDate set, never one event per day.",
       "Events you create are stored locally. The Google calendar is read-only: you can see its events but cannot add to, change, or delete them.",
     ],
