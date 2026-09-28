@@ -21,7 +21,7 @@ import {
   providerById,
   type FetchContext,
 } from "./job-providers.ts";
-import { readJobProfile, writeJobScanState, type JobScanState } from "./store.ts";
+import { readJobProfile, readJobScanState, writeJobScanState, type JobScanState } from "./store.ts";
 
 /**
  * Six at a time. Several of these providers serve their whole customer base
@@ -30,6 +30,13 @@ import { readJobProfile, writeJobScanState, type JobScanState } from "./store.ts
  * rather than failing loudly.
  */
 const CONCURRENCY = 6;
+
+/**
+ * A little under seven days, because the scan runs at roughly the same hour
+ * each day and a run that starts minutes early must not push the weekly read
+ * to the eighth day.
+ */
+const WEEKLY_INTERVAL_MS = 6.5 * 86_400_000;
 
 export interface ScanSourceResult {
   id: string;
@@ -65,12 +72,14 @@ interface ScanSource {
 }
 
 /** The sources a profile turns on, as (label, fetcher) pairs. */
-function enabledSources(profile: JobProfile): ScanSource[] {
+function enabledSources(profile: JobProfile, weekly: boolean): ScanSource[] {
   const sources: ScanSource[] = [];
 
   for (const company of profile.companies) {
     if (!company.enabled) continue;
     const provider = resolveProvider(company);
+    // Not due this run: absent from the report rather than a failure in it.
+    if (provider?.weekly && !weekly) continue;
     if (!provider) {
       sources.push({
         key: company.id,
@@ -93,7 +102,7 @@ function enabledSources(profile: JobProfile): ScanSource[] {
 
   for (const id of profile.boards) {
     const provider = providerById(id);
-    if (!provider?.board) continue;
+    if (!provider?.board || (provider.weekly && !weekly)) continue;
     // Board feeds carry their own employer names, so the placeholder company
     // here is only a label the provider is free to ignore.
     const placeholder: TrackedCompany = { id, name: provider.label, url: "", enabled: true };
@@ -114,11 +123,16 @@ function enabledSources(profile: JobProfile): ScanSource[] {
  * A source that fails is recorded and skipped: one board being down or having
  * changed its URL must not cost you the other twenty.
  */
-export async function runJobScan(options: { fetchImpl?: typeof fetch; profile?: JobProfile } = {}): Promise<ScanResult> {
-  const startedAt = new Date().toISOString();
+export async function runJobScan(
+  options: { fetchImpl?: typeof fetch; profile?: JobProfile; now?: number } = {},
+): Promise<ScanResult> {
+  const now = options.now ?? Date.now();
+  const startedAt = new Date(now).toISOString();
   const profile = options.profile ?? readJobProfile();
   const ctx = makeFetchContext(options.fetchImpl ?? fetch);
-  const sources = enabledSources(profile);
+  const lastWeekly = readJobScanState()?.weeklyAt;
+  const weeklyDue = !lastWeekly || now - Date.parse(lastWeekly) >= WEEKLY_INTERVAL_MS;
+  const sources = enabledSources(profile, weeklyDue);
 
   const results = await pooled(sources, CONCURRENCY, async (source): Promise<{ result: ScanSourceResult; postings: ScannedPosting[] }> => {
     try {
@@ -157,6 +171,7 @@ export async function runJobScan(options: { fetchImpl?: typeof fetch; profile?: 
     matched: matched.length,
     added,
     closed,
+    ...(weeklyDue ? { weeklyAt: startedAt } : lastWeekly ? { weeklyAt: lastWeekly } : {}),
     sources: results.map((entry) => entry.result),
   };
   writeJobScanState(state);

@@ -303,6 +303,9 @@ async function runTurn(
 ): Promise<{ reply: string; final: string; usedTools: string[] }> {
   const chunks: string[] = [];
   const usedTools: string[] = [];
+  // A provider failure (quota, auth) ends the run with an error message and no
+  // text; surfacing it beats callers guessing from an empty reply.
+  let modelError = "";
   recordRobinSessionActivity(session.sessionId, session.sessionFile);
 
   return await new Promise<{ reply: string; final: string; usedTools: string[] }>((resolve, reject) => {
@@ -332,6 +335,8 @@ async function runTurn(
       if (event.type === "message_end") {
         const text = textFromMessage(event.message);
         if (text) chunks.push(text);
+        const ended = event.message as { stopReason?: unknown; errorMessage?: unknown } | undefined;
+        if (ended?.stopReason === "error" && typeof ended.errorMessage === "string") modelError = ended.errorMessage;
         return;
       }
       if (event.type === "tool_execution_end" && typeof event.toolName === "string") {
@@ -341,7 +346,8 @@ async function runTurn(
       // `prompt_done` is the wrapper's own end-of-run signal; `agent_settled`
       // also covers runs an extension injected without one.
       if (event.type === "prompt_done" || event.type === "agent_settled") {
-        finish(() => resolve({ reply: chunks.join("\n\n").trim(), final: (chunks.at(-1) ?? "").trim(), usedTools }));
+        if (!chunks.length && modelError) finish(() => reject(new Error(`Model error: ${modelError}`)));
+        else finish(() => resolve({ reply: chunks.join("\n\n").trim(), final: (chunks.at(-1) ?? "").trim(), usedTools }));
       }
     });
 
@@ -380,7 +386,8 @@ async function runModeTurn(
 ): Promise<{ reply: string; usedTools: string[]; sessionId: string }> {
   const mode = MODES[modeName];
   const stateless = "stateless" in mode && mode.stateless === true;
-  const model = modelOverride ?? (modeName === "scoring"
+  // `null` is an explicit "pi's default", distinct from no override at all.
+  const model = modelOverride !== undefined ? modelOverride : (modeName === "scoring"
     ? readJobProfile().scoreModel
     : modeName === "mail" ? MAIL_MODEL : null);
   const { session, sessionId, fresh } = await acquireSession(

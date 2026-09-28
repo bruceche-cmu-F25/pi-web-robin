@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
-import { claimJobs, deleteJob, dropJobs, scoreJob, updateJob } from "./job-domain.ts";
+import { claimJobs, deleteJob, dropJobs, scoreJob, setJobsStatus, updateJob } from "./job-domain.ts";
 import { deleteLink, updateLink } from "./link-domain.ts";
 import { mailBoard, markMailDone, saveMailReview } from "./mail-domain.ts";
 import { addTodo, completeTodo, listTodos, updateTodo } from "./todo-domain.ts";
@@ -71,6 +71,16 @@ test("job writes share applied timestamps, scoring, notes and deletion", () => {
   assert.equal(dropJobs(["job-1"]), 1);
   assert.equal(deleteJob("job-1")?.id, "job-1");
   assert.deepEqual(readJobs(), []);
+});
+
+test("a bulk status change touches only the named rows and can be undone", () => {
+  const row = (id, status = "new") => ({ id, url: `https://example.com/job/${id}`, company: "Acme", title: id, location: "", source: "test", discoveredAt: "2026-08-01T00:00:00.000Z", status });
+  writeJobs([row("low-1"), row("low-2"), row("kept"), row("gone", "dropped")]);
+  assert.equal(setJobsStatus(["low-1", "low-2", "gone", "missing"], "dropped"), 2);
+  assert.deepEqual(readJobs().map((job) => job.status), ["dropped", "dropped", "new", "dropped"]);
+  assert.equal(setJobsStatus(["low-1", "low-2"], "new"), 2);
+  assert.deepEqual(readJobs().map((job) => job.status), ["new", "new", "new", "dropped"]);
+  assert.throws(() => setJobsStatus(["low-1"], "archived"), /status must be one of/);
 });
 
 const mailItem = (id) => ({ id, threadId: id, from: "", subject: id, snippet: "", date: "", category: "oa", summary: "", action: "none", triage: "act" });

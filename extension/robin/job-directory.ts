@@ -266,6 +266,73 @@ export async function loadDirectory(
   return { slugs: [], status: "empty" };
 }
 
+/* ─────────────────────────── dead boards ─────────────────────────── */
+
+/**
+ * Boards that answered "this does not exist", keyed `directory:slug`.
+ *
+ * Nearly half the dataset is dead on any night — 10,359 of 22,362 boards on
+ * 2026-09-24 — and every one of them used to cost a request again the next
+ * night. A dead board is set aside for a week per consecutive miss, up to four
+ * weeks, and one good answer clears it. Only a definite 404/410/422 counts: a
+ * timeout or a 5xx says the server is having a bad night, not that the
+ * employer left, and parking a live board for a week would hide its postings
+ * for longer than the freshness window.
+ */
+export type DeadBoards = Record<string, { misses: number; retryAfter: string }>;
+
+const DEAD_BOARD_WEEKS_MAX = 4;
+
+export function isDeadBoardError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  if (/^HTTP (?:404|410|422)$/.test(error.message)) return true;
+  // iCIMS and Workday tenants are hostnames of their own; a tenant that left
+  // stops resolving instead of answering 404.
+  return (error.cause as { code?: unknown } | undefined)?.code === "ENOTFOUND";
+}
+
+export function isParked(dead: DeadBoards, key: string, now: number = Date.now()): boolean {
+  const entry = dead[key];
+  return entry !== undefined && Date.parse(entry.retryAfter) > now;
+}
+
+export function recordBoardOutcome(
+  dead: DeadBoards,
+  key: string,
+  outcome: "ok" | "dead" | "error",
+  now: number = Date.now(),
+): void {
+  if (outcome === "ok") {
+    delete dead[key];
+  } else if (outcome === "dead") {
+    const misses = (dead[key]?.misses ?? 0) + 1;
+    const weeks = Math.min(misses, DEAD_BOARD_WEEKS_MAX);
+    dead[key] = { misses, retryAfter: new Date(now + weeks * 7 * 86_400_000).toISOString() };
+  }
+  // A transient error leaves the record as it was.
+}
+
+function deadBoardsPath(): string {
+  return join(dataDir(), "cache", "dead-boards.json");
+}
+
+function readDeadBoards(): DeadBoards {
+  try {
+    const parsed = JSON.parse(readFileSync(deadBoardsPath(), "utf8")) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as DeadBoards : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeDeadBoards(dead: DeadBoards): void {
+  const file = deadBoardsPath();
+  mkdirSync(dirname(file), { recursive: true });
+  const temporary = `${file}.${process.pid}.tmp`;
+  writeFileSync(temporary, JSON.stringify(dead), "utf8");
+  renameSync(temporary, file);
+}
+
 export interface SweepOptions {
   profile: JobProfile;
   /** Directory ids to walk. Defaults to all of them. */
@@ -318,6 +385,7 @@ export async function runDirectorySweep(options: SweepOptions): Promise<JobSweep
     boardsTotal: 0,
     boardsDone: 0,
     unreachable: 0,
+    parked: 0,
     scanned: 0,
     matched: 0,
     added: 0,
@@ -359,6 +427,7 @@ export async function runDirectorySweep(options: SweepOptions): Promise<JobSweep
   };
   publish();
 
+  const dead = readDeadBoards();
   let pending: ScannedPosting[] = [];
   // `boardsDone % FLUSH_EVERY` fires once per concurrent worker at the same
   // milestone, so the same state was written six times. Track the last flush
@@ -411,8 +480,11 @@ export async function runDirectorySweep(options: SweepOptions): Promise<JobSweep
           // Providers that page in date order can stop early with this; the
           // rest ignore it and are filtered downstream exactly as before.
           const company = base && cutoff ? { ...base, since: cutoff } : base;
+          const deadKey = `${plan.directory.id}:${slug}`;
           if (!company) {
             state.unreachable += 1;
+          } else if (isParked(dead, deadKey)) {
+            state.parked = (state.parked ?? 0) + 1;
           } else {
             try {
               const postings = await provider.fetch(company, ctx);
@@ -429,7 +501,9 @@ export async function runDirectorySweep(options: SweepOptions): Promise<JobSweep
                 state.matched += 1;
                 record.matched += 1;
               }
-            } catch {
+              recordBoardOutcome(dead, deadKey, "ok");
+            } catch (error) {
+              recordBoardOutcome(dead, deadKey, isDeadBoardError(error) ? "dead" : "error");
               // A dead slug is the common case here, not an anomaly: roughly a
               // third of the dataset points at boards that no longer exist.
               // Counting them separately keeps a real outage visible.
@@ -463,6 +537,11 @@ export async function runDirectorySweep(options: SweepOptions): Promise<JobSweep
   }
 
   await flush();
+  try {
+    writeDeadBoards(dead);
+  } catch {
+    // Losing the list costs one night of extra requests, not the sweep.
+  }
   state.running = false;
   state.finishedAt = new Date().toISOString();
   publish();

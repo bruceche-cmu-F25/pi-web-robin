@@ -1,0 +1,153 @@
+/* One discovery as a document entry: the score in a left gutter, the role as a
+   serif headline, a mono dateline, the reason as prose. Compact by default (the
+   dashboard panel, a phone); roomier once an @container ancestor is 640px+ —
+   the jobs page, where it sits beside the OA cards and matches their 18px. */
+
+.row {
+  display: grid;
+  grid-template-columns: 2.25rem minmax(0, 1fr);
+  column-gap: 10px;
+  padding: 8px 8px 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.row:last-child { border-bottom: 0; }
+.row[data-active] {
+  background: var(--bg-hover);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+/* The ladder from Worksheet's rule: 4.5+ solid, 4.0+ filled, floor–4 the
+   accent alone, below the floor plain data. */
+.score {
+  align-self: start;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  line-height: 1.6;
+  text-align: right;
+  color: var(--text-dim);
+}
+.score[data-band="floor"] { color: var(--accent); }
+.score[data-band="high"],
+.score[data-band="top"] { text-align: center; padding: 0 2px; }
+.score[data-band="high"] { background: var(--accent-line); color: var(--text); }
+.score[data-band="top"] { background: var(--accent); color: var(--on-accent); }
+
+.body { min-width: 0; }
+
+.title {
+  font-family: var(--font-serif);
+  font-size: 15px;
+  line-height: 1.35;
+  color: var(--text);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.title:hover { text-decoration: underline; text-decoration-color: var(--accent-line); text-underline-offset: 3px; }
+.title b { font-weight: 600; }
+.dash { color: var(--text-muted); }
+
+.metaRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 16px;
+  margin-top: 2px;
+}
+.meta {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  color: var(--text-dim);
+}
+.meta a { color: var(--text-muted); text-decoration: none; border-bottom: 1px dotted var(--border); }
+.meta a:hover { color: var(--accent); }
+.status { color: var(--text-muted); }
+
+.reason {
+  margin-top: 4px;
+  max-width: 74ch;
+  font-family: var(--font-serif);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--copy);
+}
+.note { margin-top: 4px; font-size: 13px; font-style: italic; color: var(--text-muted); }
+
+.foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 16px;
+  margin-top: 6px;
+}
+.flag { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
+.flag::before { content: "◦ "; color: var(--text-dim); }
+.flag[data-blocking] { color: var(--danger); }
+.flag[data-blocking]::before { content: "■ "; color: var(--danger); }
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 16px;
+  margin-left: auto;
+  opacity: 0.6;
+  transition: opacity 0.15s ease;
+}
+/* Where there is a pointer, a hundred rows of five buttons are noise until
+   you reach for one: they come up on hover, focus, or the keyboard cursor.
+   A phone has no hover, so there they stay dimmed but visible. */
+@media (hover: hover) {
+  .actions { opacity: 0; }
+  .row:hover .actions,
+  .row:focus-within .actions,
+  .row[data-active] .actions { opacity: 1; }
+}
+
+/* Without hover the actions are always there, so they go to the end of the
+   entry rather than between its dateline and its reason. */
+@media (hover: none) {
+  .body { display: flex; flex-direction: column; }
+  .metaRow { display: contents; }
+  .actions { order: 1; margin-left: 0; margin-top: 8px; }
+}
+
+@container (min-width: 640px) {
+  .row { grid-template-columns: 3rem minmax(0, 1fr); column-gap: 14px; padding: 12px 12px 12px 0; }
+  .score { font-size: 15px; }
+  .title { font-size: 18px; }
+  .reason { font-size: 15px; margin-top: 6px; }
+  .foot { margin-top: 8px; }
+}
+
+/* ── Used by JobsBoard around the rows ────────────────────────────────── */
+
+/* A dated section head: serif italic dateline, count, hairline to the edge. */
+.day {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 20px 0 2px;
+}
+.day:first-child { margin-top: 4px; }
+.day h3 {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 20px;
+  color: var(--text);
+  white-space: nowrap;
+}
+.day span { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.day i { flex: 1; border-bottom: 1px solid var(--border); transform: translateY(-5px); }
+
+/* The page's lede under its title: one sentence of what today holds. */
+.lede {
+  margin-top: 6px;
+  font-family: var(--font-serif);
+  font-size: 17px;
+  line-height: 1.4;
+  color: var(--copy);
+}
+.lede b { font-weight: 600; color: var(--text); }

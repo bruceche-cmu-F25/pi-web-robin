@@ -92,6 +92,14 @@ export interface Provider {
   detect?: (company: TrackedCompany) => boolean;
   /** Aggregator feeds need no company and are enabled by id instead. */
   board?: boolean;
+  /**
+   * Read once a week by the forward scan instead of on every run.
+   *
+   * The big employers: thousands of openings, a handful of new-grad ones, and
+   * a scoring bill for everything their title matches. A week is also the
+   * freshness window, so a weekly read still sees each posting while it is new.
+   */
+  weekly?: boolean;
   fetch: (company: TrackedCompany, ctx: FetchContext) => Promise<RawPosting[]>;
   /**
    * Fill in `description` on postings the filters already accepted.
@@ -1040,7 +1048,7 @@ const workingnomads: Provider = {
 /* ────────────────── community new-grad lists ────────────────── */
 
 /**
- * Two crowd-maintained GitHub repositories of new-grad and early-career
+ * Crowd-maintained GitHub repositories of new-grad and early-career
  * openings, read as the JSON their maintainers already publish.
  *
  * These are not an ATS and they are not an aggregator scrape — they are lists
@@ -1131,6 +1139,46 @@ const listingFeedProviders: Provider[] = LISTING_FEEDS.map((feed) => ({
   },
 }));
 
+/**
+ * harrycodingnow/new-grad-2027-tracker: a bot-maintained 2027 new-grad list
+ * that publishes its matches as `data/active_jobs.json`.
+ *
+ * A different schema from the listings.json feeds above, and one that carries
+ * the full description, so these postings reach the scorer without a hydrate
+ * pass. Rows the tracker itself disqualified or stopped seeing are dropped.
+ */
+const NEW_GRAD_TRACKER_URL = "https://raw.githubusercontent.com/harrycodingnow/new-grad-2027-tracker/main/data/active_jobs.json";
+
+/** Exported for tests. */
+export function parseNewGradTracker(data: unknown): RawPosting[] {
+  const jobs = (data as Record<string, unknown> | null)?.jobs;
+  if (!Array.isArray(jobs)) throw new Error("new-grad-tracker: expected { jobs: [] }");
+  return usable(jobs.flatMap((raw) => {
+    const job = (raw ?? {}) as Record<string, unknown>;
+    if (job.disqualified === true || (job.status !== undefined && job.status !== "active")) return [];
+    const description = str(job.description);
+    const posted = toDateString(job.date_posted);
+    return [{
+      title: str(job.title),
+      url: str(job.application_url) || str(job.source_url),
+      company: str(job.company) || "New-Grad tracker",
+      location: str(job.location) || str(job.country),
+      ...(posted ? { postedAt: posted } : {}),
+      ...(description ? { description: cleanDescription(description) } : {}),
+    }];
+  }));
+}
+
+const newGradTracker: Provider = {
+  id: "newgrad-tracker",
+  label: "New-Grad 2027 tracker (harrycodingnow)",
+  board: true,
+  async fetch(_company, ctx) {
+    const api = assertHost(NEW_GRAD_TRACKER_URL, (host) => host === GITHUB_RAW_HOST, "newgrad-tracker");
+    return parseNewGradTracker(await ctx.fetchJson(api, { timeoutMs: 60_000 }));
+  },
+};
+
 /* ─────────────────── proprietary big-tech boards ─────────────────── */
 
 /**
@@ -1143,12 +1191,11 @@ const listingFeedProviders: Provider[] = LISTING_FEEDS.map((feed) => ({
  * when every company below is enabled.
  */
 const BIG_TECH_COMPANIES = new Map<string, string>([
+  // Amazon, Microsoft and Netflix have public search endpoints and their own
+  // providers below; everything left here is read through the index.
   ["www.google.com", "Google"],
-  ["www.amazon.jobs", "Amazon"],
   ["www.metacareers.com", "Meta"],
   ["jobs.apple.com", "Apple"],
-  ["apply.careers.microsoft.com", "Microsoft"],
-  ["explore.jobs.netflix.net", "Netflix"],
   ["www.uber.com", "Uber"],
   ["www.linkedin.com", "LinkedIn"],
   ["lifeattiktok.com", "TikTok"],
@@ -1181,12 +1228,216 @@ function bigTechListings(ctx: FetchContext): Promise<RawPosting[]> {
 const bigTechIndex: Provider = {
   id: "bigtech-index",
   label: "Big Tech via SimplifyJobs",
+  weekly: true,
   detect: (company) => bigTechCompany(company.url) !== null,
   async fetch(company, ctx) {
     const expected = bigTechCompany(company.url);
     if (!expected) throw new Error(`bigtech-index: unsupported careers URL ${company.url}`);
     const key = expected.toLowerCase();
     return (await bigTechListings(ctx)).filter((posting) => posting.company.trim().toLowerCase() === key);
+  },
+};
+
+/**
+ * How far back a big-employer search pages when the caller gives no cutoff.
+ *
+ * These boards list thousands of openings newest first; the forward scan
+ * passes no `since`, and the admission filter downstream applies the real
+ * freshness rule anyway. This only bounds how many pages are worth asking for.
+ */
+const BIG_BOARD_LOOKBACK_DAYS = 14;
+
+function lookbackCutoff(company: TrackedCompany): string {
+  return company.since ?? new Date(Date.now() - BIG_BOARD_LOOKBACK_DAYS * 86_400_000).toISOString().slice(0, 10);
+}
+
+/* ─────────────────────────── Amazon ─────────────────────────── */
+
+/**
+ * amazon.jobs serves its own search as JSON. Four job families cover every
+ * role the profile's titles can match; the rest (warehouse, retail, finance)
+ * run to tens of thousands of postings that the title filter would discard.
+ * The payload carries the qualifications, so postings arrive scoreable and the
+ * years extractor sees Amazon's "3+ years of non-internship" line.
+ */
+const AMAZON_ORIGIN = "https://www.amazon.jobs";
+const AMAZON_CATEGORIES = [
+  "software-development",
+  "machine-learning-science",
+  "solutions-architect",
+  "project-program-product-management-technical",
+];
+const AMAZON_PAGE = 100;
+const AMAZON_MAX_PAGES = 10;
+
+export function normalizeAmazonJob(job: Record<string, unknown>): RawPosting | null {
+  const path = str(job.job_path);
+  if (!path.startsWith("/")) return null;
+  const description = [
+    str(job.description),
+    str(job.basic_qualifications) && `Basic qualifications:\n${str(job.basic_qualifications)}`,
+    str(job.preferred_qualifications) && `Preferred qualifications:\n${str(job.preferred_qualifications)}`,
+  ].filter(Boolean).join("\n\n");
+  const postedAt = toDateString(job.posted_date);
+  return {
+    title: str(job.title),
+    url: `${AMAZON_ORIGIN}${path}`,
+    company: "Amazon",
+    location: str(job.normalized_location) || str(job.location),
+    ...(postedAt ? { postedAt } : {}),
+    ...(description ? { description: cleanDescription(description) } : {}),
+  };
+}
+
+const amazon: Provider = {
+  id: "amazon",
+  label: "Amazon Jobs",
+  weekly: true,
+  detect: (company) => parseUrl(company.url)?.hostname === "www.amazon.jobs",
+  async fetch(company, ctx) {
+    const cutoff = lookbackCutoff(company);
+    const postings: RawPosting[] = [];
+    for (let page = 0; page < AMAZON_MAX_PAGES; page += 1) {
+      const query = new URLSearchParams({
+        base_query: "",
+        result_limit: String(AMAZON_PAGE),
+        offset: String(page * AMAZON_PAGE),
+        sort: "recent",
+      });
+      query.append("normalized_country_code[]", "USA");
+      for (const category of AMAZON_CATEGORIES) query.append("category[]", category);
+      const api = assertHost(`${AMAZON_ORIGIN}/en/search.json?${query}`, (host) => host === "www.amazon.jobs", "amazon");
+      const batch = rows(await ctx.fetchJson(api, { timeoutMs: 30_000 }), "jobs")
+        .map(normalizeAmazonJob)
+        .filter((posting): posting is RawPosting => posting !== null);
+      postings.push(...batch);
+      // Newest first, but only roughly: a reposted opening can sort among
+      // today's. A page with nothing inside the window ends the walk.
+      if (batch.length < AMAZON_PAGE || batch.every((posting) => (posting.postedAt ?? cutoff) < cutoff)) break;
+    }
+    return usable(postings);
+  },
+};
+
+/* ────────────────────────── Eightfold ────────────────────────── */
+
+/**
+ * Microsoft and Netflix both run their careers sites on Eightfold, whose
+ * public listing API is the same product under two paths and two field
+ * spellings. Pages are fixed at ten, so each tenant is searched with a few
+ * role queries newest first and stops at the cutoff rather than walking a
+ * few thousand openings ten at a time.
+ */
+interface EightfoldTenant {
+  host: string;
+  company: string;
+  domain: string;
+  path: string;
+  /** Field holding the posting's creation time, in epoch seconds. */
+  createdKey: string;
+  /** Microsoft's search refuses requests without a same-site referer. */
+  referer?: string;
+  /** Gap between requests. Microsoft answers 429 to a dozen in a row. */
+  pauseMs?: number;
+}
+
+const EIGHTFOLD_TENANTS: readonly EightfoldTenant[] = [
+  {
+    host: "apply.careers.microsoft.com",
+    company: "Microsoft",
+    domain: "microsoft.com",
+    path: "/api/pcsx/search",
+    createdKey: "postedTs",
+    referer: "https://apply.careers.microsoft.com/careers",
+    pauseMs: 2_000,
+  },
+  {
+    host: "explore.jobs.netflix.net",
+    company: "Netflix",
+    domain: "netflix.com",
+    path: "/api/apply/v2/jobs",
+    createdKey: "t_create",
+  },
+];
+
+const EIGHTFOLD_QUERIES = ["software engineer", "machine learning", "product manager"];
+const EIGHTFOLD_PAGE = 10;
+const EIGHTFOLD_MAX_PAGES = 8;
+
+function eightfoldTenant(url: string): EightfoldTenant | undefined {
+  const host = parseUrl(url)?.hostname;
+  return EIGHTFOLD_TENANTS.find((tenant) => tenant.host === host);
+}
+
+export function normalizeEightfoldPosition(tenant: EightfoldTenant, position: Record<string, unknown>): RawPosting | null {
+  const id = str(String(position.id ?? ""));
+  if (!/^\d+$/.test(id)) return null;
+  const locations = Array.isArray(position.locations)
+    ? position.locations.map((entry) => str(entry)).filter(Boolean)
+    : [];
+  const created = position[tenant.createdKey];
+  const postedAt = typeof created === "number" ? toDateString(created * 1000) : undefined;
+  return {
+    title: str(position.name) || str(position.posting_name),
+    url: `https://${tenant.host}/careers/job/${id}`,
+    company: tenant.company,
+    location: locations.join(" · ") || str(position.location),
+    ...(postedAt ? { postedAt } : {}),
+  };
+}
+
+const eightfold: Provider = {
+  id: "eightfold",
+  label: "Eightfold (Microsoft, Netflix)",
+  weekly: true,
+  detect: (company) => eightfoldTenant(company.url) !== undefined,
+  async fetch(company, ctx) {
+    const tenant = eightfoldTenant(company.url);
+    if (!tenant) throw new Error(`eightfold: unsupported careers URL ${company.url}`);
+    const cutoff = lookbackCutoff(company);
+    const seen = new Set<string>();
+    const postings: RawPosting[] = [];
+    for (const term of EIGHTFOLD_QUERIES) {
+      for (let page = 0; page < EIGHTFOLD_MAX_PAGES; page += 1) {
+        const query = new URLSearchParams({
+          domain: tenant.domain,
+          query: term,
+          location: "United States",
+          start: String(page * EIGHTFOLD_PAGE),
+          num: String(EIGHTFOLD_PAGE),
+          sort_by: tenant.createdKey === "postedTs" ? "timestamp" : "new",
+        });
+        const api = assertHost(`https://${tenant.host}${tenant.path}?${query}`, (host) => host === tenant.host, "eightfold");
+        if (tenant.pauseMs && (page > 0 || term !== EIGHTFOLD_QUERIES[0])) {
+          await new Promise((resolve) => setTimeout(resolve, tenant.pauseMs));
+        }
+        let json: Record<string, unknown>;
+        try {
+          json = await ctx.fetchJson(api, {
+            timeoutMs: 30_000,
+            ...(tenant.referer ? { headers: { Referer: tenant.referer } } : {}),
+          }) as Record<string, unknown>;
+        } catch (error) {
+          // Microsoft allows about ten requests a minute however they are
+          // spaced. What arrived before the limit is still a good scan; only
+          // a tenant that refused the very first page has nothing to report.
+          if (postings.length > 0 && error instanceof Error && error.message === "HTTP 429") return usable(postings);
+          throw error;
+        }
+        // Netflix answers at the top level, Microsoft under `data`.
+        const body = (json.data && typeof json.data === "object" ? json.data : json) as Record<string, unknown>;
+        const batch = rows(body, "positions")
+          .map((position) => normalizeEightfoldPosition(tenant, position))
+          .filter((posting): posting is RawPosting => posting !== null);
+        for (const posting of batch) {
+          if (seen.has(posting.url)) continue;
+          seen.add(posting.url);
+          postings.push(posting);
+        }
+        if (batch.length < EIGHTFOLD_PAGE || batch.every((posting) => (posting.postedAt ?? cutoff) < cutoff)) break;
+      }
+    }
+    return usable(postings);
   },
 };
 
@@ -1208,38 +1459,53 @@ export function ageToDate(age: string, now: number = Date.now()): string | undef
   return unit ? toDateString(now - Number(match[1]) * unit) : undefined;
 }
 
-const speedyapply: Provider = {
-  id: "speedyapply",
-  label: "SpeedyApply New Grad (US)",
-  board: true,
-  async fetch(_company, ctx) {
-    const api = assertHost(SPEEDYAPPLY_URL, (host) => host === GITHUB_RAW_HOST, "speedyapply");
-    const markdown = await ctx.fetchText(api, { timeoutMs: 60_000 });
-    const postings: RawPosting[] = [];
-    for (const cells of markdownRows(markdown)) {
-      // Two table shapes in the same file: the FAANG and Quant sections carry
-      // Company | Position | Location | Salary | Posting | Age, and the much
-      // larger "Other" section drops Salary. Reading Company/Position/Location
-      // from the left and Posting/Age from the right lands both without having
-      // to know which section a row came from.
-      if (cells.length < 5) continue;
-      const company = cellText(cells[0] ?? "");
-      const title = cellText(cells[1] ?? "");
-      const location = cellText(cells[2] ?? "");
-      const url = cellLink(cells[cells.length - 2] ?? "");
-      const posted = ageToDate(cellText(cells[cells.length - 1] ?? ""));
-      if (!title || !url) continue;
-      postings.push({
-        title,
-        url,
-        company: company || "SpeedyApply",
-        location,
-        ...(posted ? { postedAt: posted } : {}),
-      });
-    }
-    return usable(postings);
-  },
-};
+function speedyapplyProvider(id: string, label: string, url: string): Provider {
+  return {
+    id,
+    label,
+    board: true,
+    async fetch(_company, ctx) {
+      const api = assertHost(url, (host) => host === GITHUB_RAW_HOST, id);
+      const markdown = await ctx.fetchText(api, { timeoutMs: 60_000 });
+      const postings: RawPosting[] = [];
+      for (const cells of markdownRows(markdown)) {
+        // Two table shapes in the same file: the FAANG and Quant sections carry
+        // Company | Position | Location | Salary | Posting | Age, and the much
+        // larger "Other" section drops Salary. Reading Company/Position/Location
+        // from the left and Posting/Age from the right lands both without having
+        // to know which section a row came from.
+        if (cells.length < 5) continue;
+        const company = cellText(cells[0] ?? "");
+        const title = cellText(cells[1] ?? "");
+        const location = cellText(cells[2] ?? "");
+        const url = cellLink(cells[cells.length - 2] ?? "");
+        const posted = ageToDate(cellText(cells[cells.length - 1] ?? ""));
+        if (!title || !url) continue;
+        postings.push({
+          title,
+          url,
+          company: company || "SpeedyApply",
+          location,
+          ...(posted ? { postedAt: posted } : {}),
+        });
+      }
+      return usable(postings);
+    },
+  };
+}
+
+const speedyapply = speedyapplyProvider("speedyapply", "SpeedyApply New Grad (US)", SPEEDYAPPLY_URL);
+
+/**
+ * The same maintainers' AI list: same tables, a different slice. It is where
+ * "University Graduate - AI Forward Deployed Engineer" and LLM new-grad roles
+ * land, which the SWE list files under neither.
+ */
+const speedyapplyAi = speedyapplyProvider(
+  "speedyapply-ai",
+  "SpeedyApply AI New Grad (US)",
+  "https://raw.githubusercontent.com/speedyapply/2027-AI-College-Jobs/main/NEW_GRAD_USA.md",
+);
 
 const remoteok: Provider = {
   id: "remoteok",
@@ -1982,13 +2248,16 @@ export async function findDeadPostings(
 /** Alphabetical, so detect() precedence is the same on every machine. */
 const PROVIDERS: readonly Provider[] = [
   agenticJobs,
+  amazon,
   ashby,
   bigTechIndex,
   builtInSf,
+  eightfold,
   greenhouse,
   hackernews,
   icims,
   lever,
+  newGradTracker,
   recruitee,
   remoteok,
   remotive,
@@ -1996,6 +2265,7 @@ const PROVIDERS: readonly Provider[] = [
   smartrecruiters,
   solidjobs,
   speedyapply,
+  speedyapplyAi,
   workable,
   workday,
   workingnomads,

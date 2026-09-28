@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { deleteJob, jobBoard, updateJob } from "@/extension/robin/job-domain";
+import { deleteJob, jobBoard, setJobsStatus, updateJob } from "@/extension/robin/job-domain";
 import { JOB_STATUSES, type JobStatus } from "@/extension/robin/jobs";
 import { apiError, apiRoute } from "@/lib/api-route";
 
@@ -39,6 +39,19 @@ export const PATCH = apiRoute(async (req) => {
   });
   if (!job) return apiError(new Error(`No job with id "${body.id}"`), 404);
   return NextResponse.json({ job });
+}, { errorStatus: 500 });
+
+/** Set one status on many jobs at once — a bulk drop, and the undo of one. */
+export const POST = apiRoute(async (req) => {
+  const body = await req.json() as { ids?: unknown; status?: unknown };
+  if (!Array.isArray(body.ids) || body.ids.length === 0 || body.ids.length > 5000
+    || !body.ids.every((id) => typeof id === "string" && id)) {
+    return apiError(new Error("ids must be a non-empty list of job ids"));
+  }
+  if (typeof body.status !== "string" || !JOB_STATUSES.includes(body.status as JobStatus)) {
+    return apiError(new Error(`status must be one of: ${JOB_STATUSES.join(", ")}`));
+  }
+  return NextResponse.json({ changed: setJobsStatus(body.ids as string[], body.status as JobStatus) });
 }, { errorStatus: 500 });
 
 export const DELETE = apiRoute(async (req) => {

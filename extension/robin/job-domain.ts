@@ -80,16 +80,29 @@ export function deleteJob(id: string): Job | null {
 }
 
 export function dropJobs(ids: Iterable<string>): number {
+  return setJobsStatus(ids, "dropped");
+}
+
+/**
+ * One status for many rows, in one write: the page's "drop everything below
+ * the floor" and the undo that puts them back. Same applied-timestamp rule as
+ * `updateJob`. Returns how many rows actually changed.
+ */
+export function setJobsStatus(ids: Iterable<string>, status: JobStatus): number {
+  if (!JOB_STATUSES.includes(status)) {
+    throw new Error(`status must be one of: ${JOB_STATUSES.join(", ")}`);
+  }
   const selected = new Set(ids);
   return updateJobs((jobs) => {
-    let dropped = 0;
+    const now = new Date().toISOString();
+    let changed = 0;
     for (const job of jobs) {
-      if (selected.has(job.id) && job.status !== "dropped") {
-        job.status = "dropped";
-        dropped += 1;
-      }
+      if (!selected.has(job.id) || job.status === status) continue;
+      if (status === "applied" && !job.appliedAt) job.appliedAt = now;
+      job.status = status;
+      changed += 1;
     }
-    return { value: dropped, changed: dropped > 0 };
+    return { value: changed, changed: changed > 0 };
   });
 }
 

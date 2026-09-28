@@ -174,7 +174,7 @@ test("the blacklist matches loosely and ignores blank entries", () => {
 
 test("scored jobs sort above unscored ones rather than below a bad score", () => {
   const sorted = sortJobs([
-    job({ id: "unscored", discoveredAt: "2026-08-01T00:00:00.000Z" }),
+    job({ id: "unscored", title: "unscored", discoveredAt: "2026-08-01T00:00:00.000Z" }),
     job({ id: "low", score: 1.2 }),
     job({ id: "high", score: 4.6 }),
   ]);
@@ -196,15 +196,30 @@ test("pendingJobs skips dropped jobs and returns the oldest first", () => {
 test("only new, unsent jobs at or above the floor are pushed", () => {
   const profile = { ...DEFAULT_JOB_PROFILE, minScore: 3.5 };
   const batch = digestCandidates([
-    job({ id: "good", score: 3.8 }),
-    job({ id: "exactly-floor", score: 3.5 }),
-    job({ id: "below", score: 3.4 }),
+    job({ id: "good", title: "good", score: 3.8 }),
+    job({ id: "exactly-floor", title: "exactly-floor", score: 3.5 }),
+    job({ id: "below", title: "below", score: 3.4 }),
     job({ id: "unscored" }),
-    job({ id: "already-sent", score: 5, notifiedAt: "2026-08-18T08:00:00.000Z" }),
-    job({ id: "dropped", score: 5, status: "dropped" }),
+    job({ id: "already-sent", title: "already-sent", score: 5, notifiedAt: "2026-08-18T08:00:00.000Z" }),
+    job({ id: "dropped", title: "dropped", score: 5, status: "dropped" }),
   ], profile);
 
   assert.deepEqual(batch.map((entry) => entry.id), ["good", "exactly-floor"]);
+});
+
+test("a repost of a role pushed or applied this month is held back", () => {
+  const now = Date.parse("2026-09-24T12:00:00.000Z");
+  const batch = digestCandidates([
+    job({ id: "sent", company: "MintMCP", title: "Software Engineer", url: "https://a.example/1", notifiedAt: "2026-09-20T08:00:00.000Z" }),
+    job({ id: "repost", company: "Mintmcp", title: "Software  Engineer", url: "https://a.example/2", score: 3.9 }),
+    job({ id: "old-applied", company: "Beta", title: "PM", url: "https://b.example/1", status: "applied", appliedAt: "2026-07-01T08:00:00.000Z" }),
+    job({ id: "reopened", company: "Beta", title: "PM", url: "https://b.example/2", score: 3.8 }),
+    job({ id: "twin-a", company: "Gamma", title: "FDE", url: "https://c.example/1", score: 3.9 }),
+    job({ id: "twin-b", company: "Gamma", title: "FDE", url: "https://c.example/2", score: 3.8 }),
+    job({ id: "other-role", company: "MintMCP", title: "Applied AI Engineer", url: "https://a.example/3", score: 3.8 }),
+  ], { ...DEFAULT_JOB_PROFILE, minScore: 3.5 }, now);
+
+  assert.deepEqual(batch.map((entry) => entry.id).sort(), ["other-role", "reopened", "twin-a"]);
 });
 
 test("the digest carries every apply link verbatim", () => {
@@ -400,10 +415,10 @@ test("the push gate drops postings asking for more years than the profile allows
   const profile = { ...DEFAULT_JOB_PROFILE, minScore: 3, maxYears: 3 };
   const base = { status: "new", score: 3.5, url: "https://x/1", company: "A", title: "T", location: "", source: "s", discoveredAt: "2026-01-01" };
   const jobs = [
-    { ...base, id: "fits", url: "https://x/fits", yearsRequired: 3 },
-    { ...base, id: "over", url: "https://x/over", yearsRequired: 5 },
+    { ...base, id: "fits", url: "https://x/fits", title: "Fits", yearsRequired: 3 },
+    { ...base, id: "over", url: "https://x/over", title: "Over", yearsRequired: 5 },
     // Silent postings stay in: not saying is not the same as asking for seven.
-    { ...base, id: "silent", url: "https://x/silent" },
+    { ...base, id: "silent", url: "https://x/silent", title: "Silent" },
   ];
   assert.deepEqual(digestCandidates(jobs, profile).map((job) => job.id).sort(), ["fits", "silent"]);
   // Zero is the off switch, not a ceiling of zero.

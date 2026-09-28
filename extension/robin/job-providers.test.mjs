@@ -14,10 +14,13 @@ import {
   isPublicWebHost,
   looksLikeJobDescription,
   normalizeAgenticJob,
+  normalizeAmazonJob,
+  normalizeEightfoldPosition,
   parseBuiltInPage,
   parseHnHiringComment,
   parseIcimsSearchPage,
   parseListings,
+  parseNewGradTracker,
   proseRatio,
   providerById,
   readUnknownBoard,
@@ -55,7 +58,9 @@ test("each supported board is recognised from its public URL", () => {
     ["https://apply.workable.com/acme", "workable"],
     ["https://careers-acme.icims.com/jobs/search?ss=1", "icims"],
     ["https://www.google.com/about/careers/applications/jobs/results/", "bigtech-index"],
-    ["https://www.amazon.jobs/en/search", "bigtech-index"],
+    ["https://www.amazon.jobs/en/search", "amazon"],
+    ["https://apply.careers.microsoft.com/careers", "eightfold"],
+    ["https://explore.jobs.netflix.net/careers", "eightfold"],
     ["https://www.metacareers.com/jobsearch/", "bigtech-index"],
   ];
   for (const [url, expected] of cases) {
@@ -96,6 +101,36 @@ test("big-tech company entries share one index fetch and keep only their own job
   assert.deepEqual(google.map((posting) => posting.company), ["Google"]);
   assert.deepEqual(meta.map((posting) => posting.company), ["Meta"]);
   assert.equal(urls.length, 1, "the large shared index is downloaded once per scan");
+});
+
+test("an Amazon posting carries its qualifications, so the years rule can read them", () => {
+  const posting = normalizeAmazonJob({
+    title: "Software Development Engineer I, Early Career - 2027",
+    job_path: "/en/jobs/10558915/sde-i",
+    normalized_location: "Cupertino, California, USA",
+    posted_date: "September 24, 2026",
+    description: "Build things.",
+    basic_qualifications: "- 3+ years of non-internship professional software development experience",
+  });
+  assert.equal(posting.url, "https://www.amazon.jobs/en/jobs/10558915/sde-i");
+  assert.equal(posting.company, "Amazon");
+  assert.equal(posting.postedAt, "2026-09-24");
+  assert.match(posting.description, /3\+ years of non-internship/);
+  assert.equal(normalizeAmazonJob({ title: "x", job_path: "https://evil.example/1" }), null);
+});
+
+test("Eightfold timestamps are seconds and the posting link stays on the tenant host", () => {
+  const netflix = { host: "explore.jobs.netflix.net", company: "Netflix", domain: "netflix.com", path: "/api/apply/v2/jobs", createdKey: "t_create" };
+  const posting = normalizeEightfoldPosition(netflix, {
+    id: 790318597004,
+    name: "Software Engineer 4 - Revenue Infrastructure",
+    locations: ["USA - Remote"],
+    t_create: 1790035200,
+  });
+  assert.equal(posting.url, "https://explore.jobs.netflix.net/careers/job/790318597004");
+  assert.equal(posting.postedAt, "2026-09-22");
+  assert.equal(posting.location, "USA - Remote");
+  assert.equal(normalizeEightfoldPosition(netflix, { id: "../1", name: "x" }), null);
 });
 
 test("aggregator feeds are offered separately from company boards", () => {
@@ -323,6 +358,21 @@ test("a listing row with no company falls back to the feed's own name", () => {
   );
   assert.equal(postings[0].company, "SimplifyJobs");
   assert.equal(postings[0].postedAt, undefined);
+});
+
+test("the new-grad tracker drops rows it disqualified or stopped seeing", () => {
+  const postings = parseNewGradTracker({ jobs: [
+    { company: "Acme", title: "SWE New Grad", application_url: "https://jobs.ashbyhq.com/acme/1", location: "San Francisco", status: "active", disqualified: false, date_posted: "2026-09-20", description: "Build agents." },
+    { company: "Gone", title: "SWE", application_url: "https://x.test/2", status: "archived" },
+    { company: "Nope", title: "SWE", application_url: "https://x.test/3", status: "active", disqualified: true },
+    { company: "Bare", title: "SWE", source_url: "https://x.test/4", country: "United States of America", status: "active" },
+  ] });
+  assert.deepEqual(postings.map((posting) => posting.company), ["Acme", "Bare"]);
+  assert.equal(postings[0].postedAt, "2026-09-20");
+  assert.equal(postings[0].description, "Build agents.");
+  // No application link and no city: the source page and the country stand in.
+  assert.equal(postings[1].url, "https://x.test/4");
+  assert.equal(postings[1].location, "United States of America");
 });
 
 /* ── Career-Ops discovery feeds ── */

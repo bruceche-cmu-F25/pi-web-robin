@@ -766,11 +766,22 @@ export function sortJobs(jobs: Job[]): Job[] {
  * scored the job before a description was available. A posting whose stated
  * requirement the candidate cannot meet is not a 3.9 — it is not a push.
  */
-export function digestCandidates(jobs: Job[], profile: JobProfile): Job[] {
+export function digestCandidates(jobs: Job[], profile: JobProfile, now: number = Date.now()): Job[] {
   const maxYears = profile.maxYears > 0 ? profile.maxYears : null;
   // Existing duplicate rows stay intact (they may carry distinct user notes),
   // but a requisition already sent or applied must never get another slot.
-  const seen = new Set(jobs.filter((job) => job.status === "applied" || job.notifiedAt).map((job) => jobKey(job.url)));
+  const sent = jobs.filter((job) => job.status === "applied" || job.notifiedAt);
+  const seen = new Set(sent.map((job) => jobKey(job.url)));
+  // Reposts are the other half. Some employers re-open the same role under a
+  // fresh requisition every few days, and BuiltIn mirrors it with its own id:
+  // one "Software Engineer" at MintMCP reached the phone fourteen times in a
+  // month. Intake keeps those rows apart on purpose (identity is the
+  // requisition), so the push is where the same company+title is held back —
+  // for a window, since a role re-opened next quarter is news again.
+  const repostCutoff = new Date(now - REPOST_WINDOW_DAYS * 86_400_000).toISOString();
+  const seenRoles = new Set(sent
+    .filter((job) => (job.notifiedAt ?? job.appliedAt ?? repostCutoff) >= repostCutoff)
+    .map(roleKey));
   return sortJobs(
     jobs.filter((job) =>
       job.status === "new"
@@ -785,10 +796,21 @@ export function digestCandidates(jobs: Job[], profile: JobProfile): Job[] {
       && (maxYears === null || job.yearsRequired === undefined || job.yearsRequired <= maxYears)),
   ).filter((job) => {
     const key = jobKey(job.url);
-    if (seen.has(key)) return false;
+    const role = roleKey(job);
+    if (seen.has(key) || seenRoles.has(role)) return false;
     seen.add(key);
+    seenRoles.add(role);
     return true;
   });
+}
+
+/** How long a pushed or applied role holds back its reposts. */
+const REPOST_WINDOW_DAYS = 30;
+
+/** Company and title with case, spacing and punctuation folded: "Mintmcp" is "MintMCP". */
+export function roleKey(job: Pick<Job, "company" | "title">): string {
+  const fold = (text: string) => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  return `${fold(job.company).replace(/ /g, "")}|${fold(job.title)}`;
 }
 
 /**

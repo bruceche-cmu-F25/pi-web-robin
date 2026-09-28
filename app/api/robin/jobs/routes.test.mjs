@@ -17,7 +17,7 @@ after(() => {
   delete globalThis.__jobRouteTest;
 });
 const stub = join(dir, "stub.mjs");
-writeFileSync(stub, `export async function runAssistantTurn() { return globalThis.__jobRouteTest.score(); }
+writeFileSync(stub, `export async function runAssistantTurn(...args) { return globalThis.__jobRouteTest.score(...args); }
 export function makeFetchContext() { return {}; }`);
 const jiti = createJiti(import.meta.url, { alias: {
   "@/lib/robin-assistant": stub,
@@ -51,6 +51,25 @@ test("a no-progress scoring round stops once, reports an error and leaves the pi
   assert.match(state.error, /no progress/);
   assert.equal(state.remaining, 2);
   assert.equal(readJobs().every(job => job.status === "new" && job.score === undefined), true);
+});
+
+test("a pinned scorer that went out of scope falls back to pi's default once and says so", async () => {
+  writeJobProfile({ ...DEFAULT_JOB_PROFILE, scoreBatch: 1, scoreModel: { provider: "deepseek", modelId: "deepseek-v4-flash" } });
+  writeJobs([posting]);
+  const models = [];
+  globalThis.__jobRouteTest = { score(_mode, _prompt, _images, model) {
+    models.push(model);
+    if (model === undefined) throw new Error("Model is not available in the enabled scope: deepseek/deepseek-v4-flash");
+    writeJobs(readJobs().map(job => ({ ...job, score: 2, reason: "scored", scoredAt: new Date().toISOString() })));
+    return { reply: "done", usedTools: [] };
+  } };
+  assert.equal((await (await scoreRoute.POST(request())).json()).started, true);
+  const state = await waitForRun();
+  assert.deepEqual(models, [undefined, null]);
+  assert.equal(state.error, null);
+  assert.equal(state.remaining, 0);
+  assert.equal(state.model, null);
+  assert.equal(state.fallbackFrom, "deepseek/deepseek-v4-flash");
 });
 
 test("profile API keeps work facts, stretch policy and scan ceiling separate", async () => {

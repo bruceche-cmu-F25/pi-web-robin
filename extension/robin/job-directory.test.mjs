@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { DIRECTORIES, directoryById, prettifySlug } from "./job-directory.ts";
+import { DIRECTORIES, directoryById, isDeadBoardError, isParked, prettifySlug, recordBoardOutcome } from "./job-directory.ts";
 
 test("dataset slugs are refused unless they are safe to put in a URL", () => {
   // The board list is third-party crowd-sourced input that ends up
@@ -80,4 +80,36 @@ test("large directories are budgeted across nights", () => {
   for (const directory of DIRECTORIES.filter((entry) => !["workday", "icims"].includes(entry.id))) {
     assert.equal(directory.nightlyLimit, undefined, directory.id);
   }
+});
+
+test("a board that said it does not exist is parked a week per miss, and one good answer clears it", () => {
+  const now = Date.parse("2026-09-24T00:00:00.000Z");
+  const day = 86_400_000;
+  const dead = {};
+  recordBoardOutcome(dead, "greenhouse:gone", "dead", now);
+  assert.ok(isParked(dead, "greenhouse:gone", now + 6 * day));
+  assert.ok(!isParked(dead, "greenhouse:gone", now + 8 * day));
+
+  recordBoardOutcome(dead, "greenhouse:gone", "dead", now);
+  assert.ok(isParked(dead, "greenhouse:gone", now + 13 * day));
+  for (let miss = 0; miss < 10; miss += 1) recordBoardOutcome(dead, "greenhouse:gone", "dead", now);
+  // Capped: a board that comes back is found within a month.
+  assert.ok(!isParked(dead, "greenhouse:gone", now + 29 * day));
+
+  // A bad night on the server is not a verdict on the board.
+  recordBoardOutcome(dead, "lever:flaky", "error", now);
+  assert.ok(!isParked(dead, "lever:flaky", now));
+
+  recordBoardOutcome(dead, "greenhouse:gone", "ok", now);
+  assert.equal(dead["greenhouse:gone"], undefined);
+});
+
+test("only a definite not-found counts as a dead board", () => {
+  assert.ok(isDeadBoardError(new Error("HTTP 404")));
+  assert.ok(isDeadBoardError(new Error("HTTP 422")));
+  assert.ok(isDeadBoardError(new TypeError("fetch failed", { cause: { code: "ENOTFOUND" } })));
+  assert.ok(!isDeadBoardError(new Error("HTTP 429")));
+  assert.ok(!isDeadBoardError(new Error("HTTP 503")));
+  assert.ok(!isDeadBoardError(new TypeError("fetch failed", { cause: { code: "ECONNRESET" } })));
+  assert.ok(!isDeadBoardError(new Error("The operation was aborted due to timeout")));
 });

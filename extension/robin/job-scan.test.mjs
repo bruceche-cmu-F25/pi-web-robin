@@ -81,3 +81,32 @@ test("one board being down does not cost you the others", async () => {
 test("the shipped defaults come with sources, so the first scan is not a no-op", () => {
   assert.ok(DEFAULT_JOB_PROFILE.boards.length > 0);
 });
+
+test("the big employers are read once a week, not on every scan", async () => {
+  const urls = [];
+  const fetchImpl = async (url) => {
+    urls.push(String(url));
+    return new Response(JSON.stringify({ jobs: [], hits: 0 }), { headers: { "Content-Type": "application/json" } });
+  };
+  const weeklyProfile = profile({
+    companies: [
+      { id: "amazon", name: "Amazon", url: "https://www.amazon.jobs/en/search", enabled: true },
+      { id: "up", name: "Up", url: "https://job-boards.greenhouse.io/up", enabled: true },
+    ],
+    boards: [],
+  });
+  const day = 86_400_000;
+  // Later than any scan the tests above ran with the real clock.
+  const start = Date.now() + 30 * day;
+  const scan = async (at) => {
+    urls.length = 0;
+    const result = await runJobScan({ profile: weeklyProfile, fetchImpl, now: at });
+    return { names: result.sources.map((source) => source.name), amazon: urls.some((url) => url.includes("amazon.jobs")) };
+  };
+
+  assert.deepEqual(await scan(start), { names: ["Amazon", "Up"], amazon: true });
+  assert.deepEqual(await scan(start + day), { names: ["Up"], amazon: false });
+  assert.deepEqual(await scan(start + 6 * day), { names: ["Up"], amazon: false });
+  // The same hour a week later, give or take the scheduler's drift.
+  assert.deepEqual(await scan(start + 7 * day - 3_600_000), { names: ["Amazon", "Up"], amazon: true });
+});

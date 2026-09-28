@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import {
   DEFAULT_JOB_PROFILE,
   JOB_STATUSES,
   appliedJobs,
+  roleKey,
   type Job,
   type JobProfile,
   type JobStatus,
@@ -13,6 +14,7 @@ import {
 import { JobFilterDialog, type FilterCatalogue } from "./JobFilterDialog";
 import { JobLinks } from "./JobLinks";
 import { JobRow } from "./JobRow";
+import rowStyles from "./JobRow.module.css";
 import type { JobsResponse } from "./JobsPanel";
 import { RoundsSection } from "./RoundsSection";
 import { mutate, usePolledResource } from "./usePolledResource";
@@ -23,6 +25,8 @@ interface SweepState {
   boardsTotal: number;
   boardsDone: number;
   unreachable: number;
+  /** Known-dead boards the sweep skipped without a request. */
+  parked?: number;
   scanned: number;
   matched: number;
   added: number;
@@ -38,6 +42,7 @@ interface ScoringState {
   startedWith: number;
   remaining: number;
   model: string | null;
+  fallbackFrom?: string;
   finishedAt: string | null;
   error: string | null;
 }
@@ -63,6 +68,57 @@ function Section({ title, children, actions }: { title: string; children: React.
   );
 }
 
+/** The viewer's calendar day for an instant, as YYYY-MM-DD. */
+function localDay(iso: string | undefined): string {
+  if (!iso) return "";
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString("en-CA");
+}
+
+/** Put `values` in bold where a translated string carries \u0001<index> markers. */
+function rich(text: string, values: string[]): React.ReactNode[] {
+  return text.split(/\u0001(\d)/).map((part, index) =>
+    index % 2 === 1 ? <b key={index}>{values[Number(part)]}</b> : part);
+}
+
+function ProgressBar({ done, total, label }: { done: number; total: number; label: string }) {
+  return (
+    <div
+      className="h-1.5 w-full overflow-hidden"
+      role="progressbar"
+      aria-valuemin={0}
+      aria-valuemax={total || 1}
+      aria-valuenow={done}
+      aria-label={label}
+      style={{ background: "var(--bg-subtle)", border: "1px solid var(--border)" }}
+    >
+      <div
+        style={{
+          width: `${Math.min(100, (done / Math.max(total, 1)) * 100)}%`,
+          height: "100%",
+          background: "var(--accent)",
+          transition: "width 0.4s linear",
+        }}
+      />
+    </div>
+  );
+}
+
+/** A finished run as dotted-leader rows: label, leader, figure (Worksheet's margin idiom). */
+function Leaders({ rows }: { rows: [label: string, value: string, accent?: boolean][] }) {
+  return (
+    <dl className={sheet.leaders} style={{ marginTop: 0 }}>
+      {rows.map(([label, value, accent]) => (
+        <div key={label} data-accent={accent ? "true" : undefined}>
+          <dt>{label}</dt>
+          <span className={sheet.leader} aria-hidden />
+          <dd>{value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 /** First few entries, then a count — the bar summarises, the dialog details. */
 function summarise(values: string[], limit: number): string {
   if (values.length === 0) return "—";
@@ -81,6 +137,9 @@ function summarise(values: string[], limit: number): string {
  */
 export function JobsBoard() {
   const { t, locale } = useI18n();
+  const when = (iso: string) => new Date(iso).toLocaleString(locale, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  const number = (value: number) => value.toLocaleString(locale);
+  const dayLabel = (day: string) => new Date(`${day}T12:00:00`).toLocaleDateString(locale, { weekday: "long", month: "long", day: "numeric" });
   const { data, error, refresh } = usePolledResource<JobsResponse>("/api/robin/jobs", 30000);
 
   const [profile, setProfile] = useState<JobProfile | null>(null);
@@ -94,6 +153,20 @@ export function JobsBoard() {
   const [shown, setShown] = useState(PAGE_SIZE);
   const [preview, setPreview] = useState<string | null>(null);
   const [sweeping, setSweeping] = useState(false);
+  /** In "New", rows below the push floor stay folded until asked for. */
+  const [showBelow, setShowBelow] = useState(false);
+  /**
+   * The last reversible action, offered back for ten seconds. `commit` is the
+   * half that has not happened yet — a delete waits here rather than running,
+   * because a deleted row cannot be put back — and it runs when the offer
+   * lapses or is replaced by the next one.
+   */
+  const [undo, setUndo] = useState<{ message: string; run: () => Promise<void>; commit?: () => Promise<void> } | null>(null);
+  const undoRef = useRef(undo);
+  /** Rows deleted on screen whose DELETE is still waiting out its undo window. */
+  const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set());
+  /** Keyboard cursor over the visible cards; null until a key is used, so nothing is highlighted by default. */
+  const [cursor, setCursor] = useState<number | null>(null);
 
   // Polled fast only while a sweep is live — it is a progress bar, and at rest
   // it is one stale line nobody is watching.
@@ -274,11 +347,228 @@ export function JobsBoard() {
   }, [jobs]);
   // The applied list is a log, not a ranking: you browse it by when you sent
   // things, and the score that got it there stopped mattering the moment you did.
-  const visible = filter === "all"
-    ? jobs
-    : filter === "applied"
-      ? appliedJobs(jobs)
-      : jobs.filter((job) => job.status === filter);
+  const visible = useMemo(() => {
+    const shown = jobs.filter((job) => !hidden.has(job.id));
+    return filter === "all"
+      ? shown
+      : filter === "applied"
+        ? appliedJobs(shown)
+        : shown.filter((job) => job.status === filter);
+  }, [jobs, filter, hidden]);
+
+  // "New" runs to a thousand rows, three quarters of them under 3: the few
+  // worth a look were buried. Below-floor rows fold into one line that can be
+  // opened or cleared in bulk. Unscored rows are not "below" — they are unknown.
+  const minScore = data?.minScore ?? DEFAULT_JOB_PROFILE.minScore;
+  const { below, listed } = useMemo(() => {
+    const isBelow = (job: Job) => typeof job.score === "number" && job.score < minScore;
+    const low = filter === "new" ? visible.filter(isBelow) : [];
+    return { below: low, listed: low.length > 0 && !showBelow ? visible.filter((job) => !isBelow(job)) : visible };
+  }, [visible, filter, minScore, showBelow]);
+
+  // One card per role. The same opening arrives as a repost under a new
+  // requisition and again through BuiltIn's mirror; showing each as its own
+  // card made one MintMCP role three rows. The best-ranked copy leads, the
+  // others ride along as links, and a status change applies to all of them.
+  //
+  // "New" and "Shortlist" then read as dated sections, newest day first and
+  // best score inside a day: most of the list sits at 3.9, so score order alone
+  // was one undivided wall, and what you come back for is what arrived since.
+  // Below-floor rows, when opened, follow undated.
+  const groups = useMemo(() => {
+    const byRole = new Map<string, { job: Job; also: Job[]; day?: string }>();
+    for (const job of listed) {
+      const key = roleKey(job);
+      const group = byRole.get(key);
+      if (group) group.also.push(job);
+      else byRole.set(key, { job, also: [] });
+    }
+    const all = [...byRole.values()];
+    if (filter !== "new" && filter !== "shortlist") return all;
+    const isBelow = (job: Job) => typeof job.score === "number" && job.score < minScore;
+    const dated = all
+      .filter((group) => !isBelow(group.job))
+      .map((group) => ({ ...group, day: localDay(group.job.discoveredAt) }))
+      .sort((a, b) => b.day.localeCompare(a.day) || (b.job.score ?? -1) - (a.job.score ?? -1));
+    return [...dated, ...all.filter((group) => isBelow(group.job))];
+  }, [listed, filter, minScore]);
+  const datedCount = groups.filter((group) => group.day !== undefined).length;
+  const dayCounts = useMemo(() => {
+    const tally = new Map<string, number>();
+    for (const group of groups) if (group.day) tally.set(group.day, (tally.get(group.day) ?? 0) + 1);
+    return tally;
+  }, [groups]);
+
+  // The page's lede, independent of the tab: what today brought and what waits.
+  const lede = useMemo(() => {
+    const today = localDay(new Date().toISOString());
+    const roles = new Map<string, Job>();
+    let lastPush = "";
+    for (const job of jobs) {
+      if (job.notifiedAt && job.notifiedAt > lastPush) lastPush = job.notifiedAt;
+      if (job.status !== "new" || typeof job.score !== "number" || job.score < minScore) continue;
+      if (!roles.has(roleKey(job))) roles.set(roleKey(job), job);
+    }
+    const waiting = [...roles.values()];
+    return {
+      today: waiting.filter((job) => localDay(job.discoveredAt) === today).length,
+      waiting: waiting.length,
+      lastPush,
+    };
+  }, [jobs, minScore]);
+
+  const fail = (caught: unknown) => setActionError(caught instanceof Error ? caught.message : String(caught));
+
+  /** Offer an undo, first settling whatever the previous offer still owed. */
+  const offerUndo = useCallback((next: NonNullable<typeof undo> | null) => {
+    const previous = undoRef.current;
+    undoRef.current = next;
+    setUndo(next);
+    previous?.commit?.().catch((caught: unknown) =>
+      setActionError(caught instanceof Error ? caught.message : String(caught)));
+  }, []);
+
+  useEffect(() => {
+    if (!undo) return;
+    const timer = setTimeout(() => offerUndo(null), 10_000);
+    return () => clearTimeout(timer);
+  }, [undo, offerUndo]);
+
+  // Leaving the page settles a pending delete rather than silently keeping the row.
+  useEffect(() => () => { undoRef.current?.commit?.().catch(() => {}); }, []);
+
+  const takeUndo = () => {
+    const current = undoRef.current;
+    if (!current) return;
+    undoRef.current = null;
+    setUndo(null);
+    current.run().catch(fail);
+  };
+
+  const label = (job: Job) => `${job.company} — ${job.title}`;
+
+  /** Change a card's status (and its duplicates'), with an undo back to where each was. */
+  const changeStatus = (job: Job, also: Job[], status: JobStatus) => void act(job.id, async () => {
+    const rows = [job, ...also];
+    await setStatuses(rows.map((row) => row.id), status);
+    const before = new Map<JobStatus, string[]>();
+    for (const row of rows) before.set(row.status, [...(before.get(row.status) ?? []), row.id]);
+    offerUndo({
+      message: t("robin.jobs.statusChanged", { job: label(job), status: t(`robin.jobs.status.${status}`) }),
+      run: async () => {
+        for (const [previous, ids] of before) await setStatuses(ids, previous);
+        await refresh();
+      },
+    });
+  });
+
+  /** Hide now, delete when the undo window closes. */
+  const removeJob = (job: Job) => {
+    setHidden((current) => new Set(current).add(job.id));
+    const unhide = () => setHidden((current) => {
+      const next = new Set(current);
+      next.delete(job.id);
+      return next;
+    });
+    offerUndo({
+      message: t("robin.jobs.deleted", { job: label(job) }),
+      run: async () => unhide(),
+      commit: async () => {
+        await mutate("/api/robin/jobs", "DELETE", { id: job.id });
+        await refresh();
+        unhide();
+      },
+    });
+  };
+
+  const setStatuses = (ids: string[], status: JobStatus) =>
+    mutate("/api/robin/jobs", "POST", { ids, status });
+
+  /** Drop every row below the floor, with an undo that puts exactly those back. */
+  const dropBelow = async () => {
+    const ids = below.map((job) => job.id);
+    if (ids.length === 0) return;
+    setActionError(null);
+    try {
+      await setStatuses(ids, "dropped");
+      await refresh();
+      setShowBelow(false);
+      offerUndo({
+        message: t("robin.jobs.bulkDropped", { count: String(ids.length) }),
+        run: async () => { await setStatuses(ids, "new"); await refresh(); },
+      });
+    } catch (caught) {
+      setActionError(caught instanceof Error ? caught.message : String(caught));
+    }
+  };
+
+  // Triage from the keyboard: a thousand rows is a lot of mouse travel.
+  const onScreen = Math.min(groups.length, shown);
+  const activeIndex = cursor === null || onScreen === 0 ? null : Math.min(cursor, onScreen - 1);
+  const keyHandler = useRef<(event: KeyboardEvent) => void>(() => {});
+  keyHandler.current = (event) => {
+    if (event.metaKey || event.ctrlKey || event.altKey || editing) return;
+    const target = event.target as HTMLElement | null;
+    if (target && (target.isContentEditable || /^(?:INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+    const current = activeIndex === null ? null : groups[activeIndex];
+    switch (event.key) {
+      case "j":
+        setCursor(activeIndex === null ? 0 : Math.min(activeIndex + 1, onScreen - 1));
+        break;
+      case "k":
+        setCursor(activeIndex === null ? 0 : Math.max(activeIndex - 1, 0));
+        break;
+      case "o":
+        if (!current) return;
+        window.open(current.job.url, "_blank", "noopener,noreferrer");
+        break;
+      case "s":
+      case "a":
+      case "d": {
+        if (!current) return;
+        const status: JobStatus = event.key === "s" ? "shortlist" : event.key === "a" ? "applied" : "dropped";
+        if (current.job.status === status) return;
+        changeStatus(current.job, current.also, status);
+        break;
+      }
+      case "z":
+        takeUndo();
+        break;
+      default:
+        return;
+    }
+    event.preventDefault();
+  };
+  useEffect(() => {
+    const listener = (event: KeyboardEvent) => keyHandler.current(event);
+    window.addEventListener("keydown", listener);
+    return () => window.removeEventListener("keydown", listener);
+  }, []);
+
+  // Folded below-floor rows: one line that can open them or clear them all.
+  const foldBar = below.length > 0 ? (
+    <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-t pt-2" style={{ borderColor: "var(--border)" }}>
+      <span className="text-xs" style={{ color: "var(--text-dim)" }}>
+        {t("robin.jobs.belowFloor", { count: String(below.length), score: minScore.toFixed(2).replace(/0$/, "") })}
+      </span>
+      <button
+        type="button"
+        onClick={() => setShowBelow((current) => !current)}
+        className="ui-action pi-eyebrow"
+        aria-expanded={showBelow}
+      >
+        {showBelow ? t("robin.jobs.hideBelow") : t("robin.jobs.showBelow")}
+      </button>
+      <button
+        type="button"
+        onClick={() => void dropBelow()}
+        className="ui-action pi-eyebrow"
+        data-hover="danger"
+      >
+        {t("robin.jobs.dropBelow", { count: String(below.length) })}
+      </button>
+    </div>
+  ) : null;
 
   const enabledCompanies = profile?.companies.filter((company) => company.enabled).length ?? 0;
 
@@ -292,6 +582,19 @@ export function JobsBoard() {
               {t("robin.jobs.title")}
             </h1>
             <p className="pi-eyebrow">{t("robin.jobs.subtitle")}</p>
+            {data && (
+              <p className={rowStyles.lede}>
+                {rich(t(lede.lastPush ? "robin.jobs.lede" : "robin.jobs.ledeNoPush", {
+                  today: "\u00010",
+                  waiting: "\u00011",
+                  last: "\u00012",
+                }), [
+                  String(lede.today),
+                  String(lede.waiting),
+                  lede.lastPush ? when(lede.lastPush) : "",
+                ])}
+              </p>
+            )}
           </div>
           <nav className="flex flex-wrap items-baseline gap-3">
             <button
@@ -404,34 +707,36 @@ export function JobsBoard() {
             {scoringState && (scoringState.running || scoringState.startedWith > 0) && (
               <Section title={t("robin.jobs.scoringTitle")}>
                 <div className="flex flex-col gap-2">
-                  <div
-                    className="h-1.5 w-full overflow-hidden"
-                    role="progressbar"
-                    aria-valuemin={0}
-                    aria-valuemax={scoringState.startedWith || 1}
-                    aria-valuenow={scoringState.startedWith - scoringState.remaining}
-                    aria-label={t("robin.jobs.scoringTitle")}
-                    style={{ background: "var(--bg-subtle)", border: "1px solid var(--border)" }}
-                  >
-                    <div
-                      style={{
-                        width: `${Math.min(100, ((scoringState.startedWith - scoringState.remaining)
-                          / Math.max(scoringState.startedWith, 1)) * 100)}%`,
-                        height: "100%",
-                        background: "var(--accent)",
-                        transition: "width 0.4s linear",
-                      }}
-                    />
-                  </div>
-                  <p className="pi-eyebrow tabular-nums">
-                    {t(scoringState.running ? "robin.jobs.scoringProgress" : "robin.jobs.scoringFinished", {
-                      done: String(scoringState.startedWith - scoringState.remaining),
-                      total: String(scoringState.startedWith),
-                      round: String(scoringState.round),
-                      rounds: String(scoringState.totalRounds),
-                      model: scoringState.model ?? t("robin.jobs.scoreModelDefault"),
-                    })}
-                  </p>
+                  {/* A bar is a live thing; at rest it was a full stripe that said nothing. */}
+                  {scoringState.running ? (
+                    <>
+                      <ProgressBar
+                        done={scoringState.startedWith - scoringState.remaining}
+                        total={scoringState.startedWith}
+                        label={t("robin.jobs.scoringTitle")}
+                      />
+                      <p className="pi-eyebrow tabular-nums">
+                        {t("robin.jobs.scoringProgress", {
+                          done: String(scoringState.startedWith - scoringState.remaining),
+                          total: String(scoringState.startedWith),
+                          round: String(scoringState.round),
+                          rounds: String(scoringState.totalRounds),
+                          model: scoringState.model ?? t("robin.jobs.scoreModelDefault"),
+                        })}
+                      </p>
+                    </>
+                  ) : (
+                    <Leaders rows={[
+                      [t("robin.jobs.leader.lastRun"), scoringState.finishedAt ? when(scoringState.finishedAt) : "—"],
+                      [t("robin.jobs.leader.scored"), `${scoringState.startedWith - scoringState.remaining} / ${scoringState.startedWith}`],
+                      [t("robin.jobs.leader.model"), (scoringState.model ?? t("robin.jobs.scoreModelDefault")).replace(/^[^/]+\//, "")],
+                    ]} />
+                  )}
+                  {scoringState.fallbackFrom && (
+                    <p className="text-xs" style={{ color: "var(--text-dim)" }}>
+                      {t("robin.jobs.scoreModelFallback", { model: scoringState.fallbackFrom })}
+                    </p>
+                  )}
                   {scoringState.error && (
                     <p className="text-xs" style={{ color: "var(--danger)" }}>{scoringState.error}</p>
                   )}
@@ -443,33 +748,28 @@ export function JobsBoard() {
             {sweepState && (sweepState.running || sweepState.boardsDone > 0) && (
               <Section title={t("robin.jobs.sweepTitle")}>
                 <div className="flex flex-col gap-2">
-                  <div
-                    className="h-1.5 w-full overflow-hidden"
-                    role="progressbar"
-                    aria-valuemin={0}
-                    aria-valuemax={sweepState.boardsTotal || 1}
-                    aria-valuenow={sweepState.boardsDone}
-                    aria-label={t("robin.jobs.sweepTitle")}
-                    style={{ background: "var(--bg-subtle)", border: "1px solid var(--border)" }}
-                  >
-                    <div
-                      style={{
-                        width: `${Math.min(100, (sweepState.boardsDone / Math.max(sweepState.boardsTotal, 1)) * 100)}%`,
-                        height: "100%",
-                        background: "var(--accent)",
-                        transition: "width 0.4s linear",
-                      }}
-                    />
-                  </div>
-                  <p className="pi-eyebrow tabular-nums">
-                    {t(sweepState.running ? "robin.jobs.sweepProgress" : "robin.jobs.sweepFinished", {
-                      done: String(sweepState.boardsDone),
-                      total: String(sweepState.boardsTotal),
-                      scanned: String(sweepState.scanned),
-                      matched: String(sweepState.matched),
-                      dead: String(sweepState.unreachable),
-                    })}
-                  </p>
+                  {sweepState.running ? (
+                    <>
+                      <ProgressBar done={sweepState.boardsDone} total={sweepState.boardsTotal} label={t("robin.jobs.sweepTitle")} />
+                      <p className="pi-eyebrow tabular-nums">
+                        {t("robin.jobs.sweepProgress", {
+                          done: String(sweepState.boardsDone),
+                          total: String(sweepState.boardsTotal),
+                          scanned: String(sweepState.scanned),
+                          matched: String(sweepState.matched),
+                          dead: String(sweepState.unreachable + (sweepState.parked ?? 0)),
+                        })}
+                      </p>
+                    </>
+                  ) : (
+                    <Leaders rows={[
+                      [t("robin.jobs.leader.lastRun"), sweepState.finishedAt ? when(sweepState.finishedAt) : "—"],
+                      [t("robin.jobs.leader.boards"), number(sweepState.boardsDone)],
+                      [t("robin.jobs.leader.postings"), number(sweepState.scanned)],
+                      [t("robin.jobs.leader.matched"), number(sweepState.matched), true],
+                      [t("robin.jobs.leader.dead"), number(sweepState.unreachable + (sweepState.parked ?? 0))],
+                    ]} />
+                  )}
                   {sweepState.error && (
                     <p className="text-xs" style={{ color: "var(--danger)" }}>{sweepState.error}</p>
                   )}
@@ -503,7 +803,7 @@ export function JobsBoard() {
                   <button
                     key={option}
                     type="button"
-                    onClick={() => { setFilter(option); setShown(PAGE_SIZE); }}
+                    onClick={() => { setFilter(option); setShown(PAGE_SIZE); setShowBelow(false); setCursor(null); }}
                     className="ui-action ui-action--chip pi-eyebrow px-2 py-1"
                     data-state={filter === option ? "accent" : "muted"}
                     aria-pressed={filter === option}
@@ -536,40 +836,71 @@ export function JobsBoard() {
                   // A container, so JobRow can switch to ruled one-line-meta rows
                   // when it has the width. The dashboard panel is not one.
                   <div className="@container flex flex-col gap-3">
-                    <div className="flex flex-col gap-1 @min-[640px]:gap-0">
-                      {visible.slice(0, shown).map((job: Job) => (
-                        <JobRow
-                          key={job.id}
-                          job={job}
-                          minScore={data?.minScore ?? DEFAULT_JOB_PROFILE.minScore}
-                          busy={busyJob === job.id}
-                          onStatus={(status) => void act(job.id, () =>
-                            mutate("/api/robin/jobs", "PATCH", { id: job.id, status }))}
-                          onNote={(note) => void act(job.id, () =>
-                            mutate("/api/robin/jobs", "PATCH", { id: job.id, note }))}
-                          onDelete={() => void act(job.id, () =>
-                            mutate("/api/robin/jobs", "DELETE", { id: job.id }))}
-                        />
+                    <div className="flex flex-col">
+                      {groups.slice(0, shown).map(({ job, also, day }, index, visibleGroups) => (
+                        <Fragment key={job.id}>
+                          {day && day !== visibleGroups[index - 1]?.day && (
+                            <div className={rowStyles.day}>
+                              <h3>{dayLabel(day)}</h3>
+                              <span>{dayCounts.get(day)}</span>
+                              <i aria-hidden />
+                            </div>
+                          )}
+                          {showBelow && index === datedCount && datedCount > 0 && foldBar}
+                          <JobRow
+                            job={job}
+                            also={also}
+                            minScore={minScore}
+                            busy={busyJob === job.id}
+                            active={index === activeIndex}
+                            onStatus={(status) => changeStatus(job, also, status)}
+                            onNote={(note) => void act(job.id, () =>
+                              mutate("/api/robin/jobs", "PATCH", { id: job.id, note }))}
+                            onDelete={() => removeJob(job)}
+                          />
+                        </Fragment>
                       ))}
                     </div>
-                    {visible.length > shown && (
+                    {groups.length > shown && (
                       <button
                         type="button"
                         onClick={() => setShown((current) => current + PAGE_SIZE)}
                         className="ui-action pi-chrome-label pi-bracket self-start text-xs"
                       >
                         {t("robin.jobs.showMore", {
-                          count: String(Math.min(PAGE_SIZE, visible.length - shown)),
-                          remaining: String(visible.length - shown),
+                          count: String(Math.min(PAGE_SIZE, groups.length - shown)),
+                          remaining: String(groups.length - shown),
                         })}
                       </button>
                     )}
+                    {below.length > 0 && !(showBelow && shown > datedCount && datedCount > 0) && foldBar}
+                    <p className="pi-eyebrow hidden desktop:block" style={{ color: "var(--text-dim)" }}>
+                      {t("robin.jobs.keysHint")}
+                    </p>
                   </div>
                 )}
             </Section>
           </div>
         </div>
       </main>
+
+      {undo && (
+        <div
+          role="status"
+          className="fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-baseline gap-4 px-4 py-2 text-sm shadow-lg"
+          style={{ background: "var(--bg-panel)", border: "1px solid var(--border)", color: "var(--text)" }}
+        >
+          <span>{undo.message}</span>
+          <button
+            type="button"
+            onClick={takeUndo}
+            className="ui-action pi-eyebrow"
+            data-state="accent"
+          >
+            {t("robin.jobs.undo")}
+          </button>
+        </div>
+      )}
 
       {editing && profile && catalogue && (
         <JobFilterDialog

@@ -1,29 +1,95 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
+import styles from "./JobRow.module.css";
 import type { Job, JobStatus } from "@/extension/robin/jobs";
 
 /**
- * The score badge is a ladder on the one accent hue, not a red/amber/green
- * traffic light: those are reserved for alarm states, and a 3.2 is not a
- * warning — it is a job that scored 3.2. Three steps are worth applying to and
- * each reads differently at a glance: 4.5+ solid, 4.0+ filled, and the band
- * from the push floor up to 4.0 outlined only. Below the floor the badge drops
- * out of the accent entirely and reads as ordinary data.
+ * The score's place on the ladder. Not a red/amber/green traffic light: those
+ * are reserved for alarm states, and a 3.2 is not a warning — it is a job that
+ * scored 3.2. 4.5+ solid, 4.0+ filled, the push floor up to 4.0 in the accent
+ * alone; below the floor the number is ordinary data. Drawn by JobRow.module.css.
  */
-function scoreSurface(score: number | undefined, minScore: number) {
-  const plain = { background: "transparent", color: "var(--text-dim)", border: "1px solid var(--border)" };
-  if (typeof score !== "number" || score < minScore) return plain;
-  if (score >= 4.5) return { background: "var(--accent)", color: "var(--on-accent)", border: "1px solid var(--accent)" };
-  // --accent-line as a fill, not --accent-fill: the lighter tint all but
-  // vanished against the outlined band in the dark theme.
-  if (score >= 4) return { background: "var(--accent-line)", color: "var(--text)", border: "1px solid var(--accent-line-strong)" };
-  return { background: "transparent", color: "var(--accent)", border: "1px solid var(--accent-line)" };
+function scoreBand(score: number | undefined, minScore: number): "top" | "high" | "floor" | undefined {
+  if (typeof score !== "number" || score < minScore) return undefined;
+  if (score >= 4.5) return "top";
+  if (score >= 4) return "high";
+  return "floor";
+}
+
+/**
+ * Provider ids as a person would say them. The ids are storage keys
+ * ("bigtech-index", "builtinsf"); an unknown one falls through unchanged.
+ */
+const SOURCE_LABELS: Record<string, string> = {
+  amazon: "Amazon Jobs",
+  ashby: "Ashby",
+  "bigtech-index": "SimplifyJobs",
+  builtinsf: "Built In SF",
+  eightfold: "Careers site",
+  greenhouse: "Greenhouse",
+  hackernews: "HN Who's Hiring",
+  ibm: "IBM Careers",
+  icims: "iCIMS",
+  lever: "Lever",
+  newgradlist: "New-Grad list",
+  recruitee: "Recruitee",
+  remoteok: "RemoteOK",
+  remotive: "Remotive",
+  simplify: "SimplifyJobs",
+  smartrecruiters: "SmartRecruiters",
+  speedyapply: "SpeedyApply",
+  "speedyapply-ai": "SpeedyApply AI",
+  workable: "Workable",
+  workday: "Workday",
+  workingnomads: "Working Nomads",
+};
+
+export function sourceLabel(source: string): string {
+  return SOURCE_LABELS[source] ?? source;
+}
+
+/**
+ * Flags are written by the scorer and the intake rules, so they arrive as
+ * storage slugs in a dozen spellings. The ones that mean "you cannot take this
+ * job" stay in the danger colour; everything else is a caveat and reads as
+ * one. Red on every card had stopped meaning anything.
+ */
+const BLOCKING_FLAG = /^(?:blocked-|security-clearance$|clearance$|export-control$|itar|us-citizenship$|defense$)/;
+
+type Translate = ReturnType<typeof useI18n>["t"];
+
+const FLAG_KEYS = new Set([
+  "needs-review", "stretch-experience", "experience-stretch", "experience-gap", "unknown-experience",
+  "unsupported-evidence", "score-stale", "blocked-experience", "security-clearance", "clearance",
+  "export-control", "itar/export-control", "us-citizenship", "internship", "duplicate",
+]);
+
+function flagLabel(flag: string, t: Translate): string {
+  if (FLAG_KEYS.has(flag)) return t(`robin.jobs.flag.${flag.replace("/", "-")}`);
+  const years = flag.match(/^asks (\d+)\+ yrs$/);
+  if (years) return t("robin.jobs.flag.asksYears", { years: years[1] ?? "" });
+  const idle = flag.match(/^inactive-(\d+)d$/);
+  if (idle) return t("robin.jobs.flag.inactive", { days: idle[1] ?? "" });
+  if (flag.startsWith("blocked-")) return t("robin.jobs.flag.blocked", { what: flag.slice(8) });
+  return flag.replace(/-/g, " ");
+}
+
+/**
+ * `scoreJob` leads a capped reason with "Caveat (flag): " so the Telegram push
+ * carries it. On the page the flag is already its own label, so the lead-in
+ * is dropped when it names a flag the row shows.
+ */
+function displayReason(reason: string, flags: string[]): string {
+  const lead = reason.match(/^[^:：()]{1,40} \(([a-z0-9/-]+)\): /);
+  return lead && flags.includes(lead[1] ?? "") ? reason.slice(lead[0].length) : reason;
 }
 
 export function JobRow({
   job,
+  also = [],
+  active = false,
   minScore,
   onStatus,
   onNote,
@@ -31,164 +97,154 @@ export function JobRow({
   busy = false,
 }: {
   job: Job;
+  /** Other listings of the same role, shown as links under this one. */
+  also?: Job[];
+  /** The keyboard cursor is on this card. */
+  active?: boolean;
   minScore: number;
   onStatus?: (status: JobStatus) => void;
   onNote?: (note: string) => void;
   onDelete?: () => void;
   busy?: boolean;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [editingNote, setEditingNote] = useState(false);
   const [draftNote, setDraftNote] = useState("");
-  // Date first: on the title line the tail is what gets truncated.
-  const meta = [
-    job.postedAt ? t("robin.jobs.posted", { date: job.postedAt }) : "",
-    job.location,
-    job.source,
-  ].filter(Boolean).join(" · ");
-  const flags = job.flags && job.flags.length > 0
-    ? <p className="text-xs" style={{ color: "var(--danger)" }}>{job.flags.join(" · ")}</p>
-    : null;
+  const rowRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (active) rowRef.current?.scrollIntoView({ block: "nearest" });
+  }, [active]);
+  const posted = job.postedAt
+    ? t("robin.jobs.posted", { date: new Date(`${job.postedAt}T12:00:00`).toLocaleDateString(locale, { month: "short", day: "numeric" }) })
+    : "";
+  const flagList = job.flags ?? [];
+  const reason = job.reason ? displayReason(job.reason, flagList) : "";
+  const alsoSources = [...new Map(also.map((copy) => [sourceLabel(copy.source), copy])).entries()];
 
-  // Two shapes, chosen by the width of the list rather than the viewport: a
-  // tinted block in a narrow panel, and a ruled row with the meta on the title
-  // line once an @container ancestor (the jobs page) is 640px or wider.
   return (
-    <div className="group flex flex-col gap-1 rounded bg-[var(--bg-subtle)] px-2 py-1.5 @min-[640px]:rounded-none @min-[640px]:border-b @min-[640px]:border-[color:var(--border)] @min-[640px]:bg-transparent @min-[640px]:px-3 @min-[640px]:py-2.5">
-      <div className="flex items-baseline gap-2">
-        <span
-          className="shrink-0 px-1.5 py-0.5 text-xs tabular-nums"
-          style={{ ...scoreSurface(job.score, minScore), fontFamily: "var(--font-mono)" }}
-          title={typeof job.score === "number" ? undefined : t("robin.jobs.unscored")}
-        >
-          {typeof job.score === "number" ? job.score.toFixed(1) : "—"}
-        </span>
+    <div ref={rowRef} data-active={active || undefined} className={styles.row}>
+      <span
+        className={styles.score}
+        data-band={scoreBand(job.score, minScore)}
+        title={typeof job.score === "number" ? undefined : t("robin.jobs.unscored")}
+      >
+        {typeof job.score === "number" ? job.score.toFixed(1) : "—"}
+      </span>
+
+      <div className={styles.body}>
         {/* noreferrer matters: these URLs come from third-party job boards. */}
-        <a
-          href={job.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="min-w-0 flex-1 truncate text-sm hover:underline"
-          style={{ color: "var(--text)" }}
-          title={job.url}
-        >
-          <span style={{ color: "var(--text-muted)" }}>{job.company}</span>
-          {" — "}
+        <a href={job.url} target="_blank" rel="noopener noreferrer" className={styles.title} title={job.url}>
+          <b>{job.company}</b>
+          <span className={styles.dash}> — </span>
           {job.title}
         </a>
-        {meta && (
-          <span className="pi-eyebrow hidden max-w-[40%] shrink-0 truncate @min-[640px]:block" title={meta}>{meta}</span>
-        )}
-        {job.status !== "new" && (
-          <span className="pi-eyebrow shrink-0">
-            {job.appliedAt && job.status === "applied"
-              ? t("robin.jobs.appliedOn", { date: new Date(job.appliedAt).toLocaleDateString() })
-              : t(`robin.jobs.status.${job.status}`)}
-          </span>
+
+        {/* Actions share the dateline: a row without flags then ends with its
+            reason, instead of a blank strip where hidden buttons wait. */}
+        <div className={styles.metaRow}>
+          <p className={styles.meta}>
+            {job.status !== "new" && (
+              <span className={styles.status}>
+                {job.appliedAt && job.status === "applied"
+                  ? t("robin.jobs.appliedOn", { date: new Date(job.appliedAt).toLocaleDateString(locale) })
+                  : t(`robin.jobs.status.${job.status}`)}
+                {" · "}
+              </span>
+            )}
+            {[posted, job.location, sourceLabel(job.source)].filter(Boolean).join(" · ")}
+            {alsoSources.length > 0 && (
+              <>
+                {" · "}{t("robin.jobs.alsoListed")}{" "}
+                {alsoSources.map(([label, copy], index) => (
+                  <span key={copy.id}>
+                    {index > 0 && ", "}
+                    <a href={copy.url} target="_blank" rel="noopener noreferrer" title={copy.url}>{label}</a>
+                  </span>
+                ))}
+              </>
+            )}
+          </p>
+          {onStatus && (
+            <div className={styles.actions}>
+              {job.status !== "shortlist" && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => onStatus("shortlist")}
+                  className="ui-action pi-eyebrow disabled:opacity-40"
+                  data-state="accent"
+                >
+                  {t("robin.jobs.action.shortlist")}
+                </button>
+              )}
+              {job.status !== "applied" && (
+                <button type="button" disabled={busy} onClick={() => onStatus("applied")} className="ui-action pi-eyebrow disabled:opacity-40">
+                  {t("robin.jobs.action.applied")}
+                </button>
+              )}
+              {job.status !== "dropped" && (
+                <button type="button" disabled={busy} onClick={() => onStatus("dropped")} className="ui-action pi-eyebrow disabled:opacity-40">
+                  {t("robin.jobs.action.drop")}
+                </button>
+              )}
+              {job.status !== "new" && (
+                <button type="button" disabled={busy} onClick={() => onStatus("new")} className="ui-action pi-eyebrow disabled:opacity-40">
+                  {t("robin.jobs.action.reopen")}
+                </button>
+              )}
+              {onNote && (editingNote ? (
+                <input
+                  value={draftNote}
+                  onChange={(event) => setDraftNote(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") { onNote(draftNote); setEditingNote(false); }
+                    if (event.key === "Escape") setEditingNote(false);
+                  }}
+                  onBlur={() => { onNote(draftNote); setEditingNote(false); }}
+                  placeholder={t("robin.jobs.notePlaceholder")}
+                  aria-label={t("robin.jobs.note")}
+                  autoFocus
+                  className="min-w-0 flex-1 rounded px-1 py-0.5 text-xs outline-none"
+                  style={{ background: "var(--bg)", border: "1px solid var(--accent)", color: "var(--text)" }}
+                />
+              ) : (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => { setDraftNote(job.note ?? ""); setEditingNote(true); }}
+                  className="ui-action pi-eyebrow disabled:opacity-40"
+                >
+                  {job.note ? t("robin.jobs.editNote") : t("robin.jobs.addNote")}
+                </button>
+              ))}
+              {onDelete && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={onDelete}
+                  className="ui-action pi-eyebrow disabled:opacity-40"
+                  data-hover="danger"
+                >
+                  {t("robin.jobs.action.delete")}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        {reason && <p className={styles.reason}>{reason}</p>}
+        {job.note && !editingNote && <p className={styles.note}>{job.note}</p>}
+
+        {flagList.length > 0 && (
+          <div className={styles.foot}>
+            {flagList.map((flag) => (
+              <span key={flag} className={styles.flag} data-blocking={BLOCKING_FLAG.test(flag) || undefined} title={flag}>
+                {flagLabel(flag, t)}
+              </span>
+            ))}
+          </div>
         )}
       </div>
-
-      {(meta || job.reason) && (
-        <div className="flex max-w-[88ch] flex-col gap-0.5 pl-9">
-          {job.reason && (
-            <p className="text-xs" style={{ color: "var(--copy)" }}>{job.reason}</p>
-          )}
-          {meta && <p className="pi-eyebrow truncate @min-[640px]:hidden" title={meta}>{meta}</p>}
-          {job.note && !editingNote && (
-            <p className="text-xs" style={{ color: "var(--text-muted)", fontStyle: "italic" }}>{job.note}</p>
-          )}
-          {!onStatus && flags}
-        </div>
-      )}
-
-      {onStatus && (
-        // Dimmed rather than hover-revealed: a hover-only control cannot be
-        // reached on a phone, and this dashboard is used on one.
-        <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 pl-9">
-          {/* Flags share the action line rather than taking one of their own,
-              and stay at full strength while the actions are dimmed. */}
-          {flags}
-          <div className="flex flex-1 flex-wrap gap-x-4 gap-y-1 opacity-60 transition-opacity group-hover:opacity-100">
-            {job.status !== "shortlist" && (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => onStatus("shortlist")}
-                className="ui-action pi-eyebrow disabled:opacity-40"
-                data-state="accent"
-              >
-                {t("robin.jobs.action.shortlist")}
-              </button>
-            )}
-            {job.status !== "applied" && (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => onStatus("applied")}
-                className="ui-action pi-eyebrow disabled:opacity-40"
-              >
-                {t("robin.jobs.action.applied")}
-              </button>
-            )}
-            {job.status !== "dropped" && (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => onStatus("dropped")}
-                className="ui-action pi-eyebrow disabled:opacity-40"
-              >
-                {t("robin.jobs.action.drop")}
-              </button>
-            )}
-            {job.status !== "new" && (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => onStatus("new")}
-                className="ui-action pi-eyebrow disabled:opacity-40"
-              >
-                {t("robin.jobs.action.reopen")}
-              </button>
-            )}
-            {onNote && (editingNote ? (
-              <input
-                value={draftNote}
-                onChange={(event) => setDraftNote(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") { onNote(draftNote); setEditingNote(false); }
-                  if (event.key === "Escape") setEditingNote(false);
-                }}
-                onBlur={() => { onNote(draftNote); setEditingNote(false); }}
-                placeholder={t("robin.jobs.notePlaceholder")}
-                aria-label={t("robin.jobs.note")}
-                autoFocus
-                className="min-w-0 flex-1 rounded px-1 py-0.5 text-xs outline-none"
-                style={{ background: "var(--bg)", border: "1px solid var(--accent)", color: "var(--text)" }}
-              />
-            ) : (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => { setDraftNote(job.note ?? ""); setEditingNote(true); }}
-                className="ui-action pi-eyebrow disabled:opacity-40"
-              >
-                {job.note ? t("robin.jobs.editNote") : t("robin.jobs.addNote")}
-              </button>
-            ))}
-            {onDelete && (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={onDelete}
-                className="ui-action pi-eyebrow ml-auto disabled:opacity-40"
-                data-hover="danger"
-              >
-                {t("robin.jobs.action.delete")}
-              </button>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

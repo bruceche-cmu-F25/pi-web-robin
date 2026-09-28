@@ -21,6 +21,10 @@ export const dynamic = "force-dynamic";
  */
 const MAX_ROUNDS = 8;
 
+function isOutOfScope(error: unknown): boolean {
+  return error instanceof Error && error.message.startsWith("Model is not available in the enabled scope");
+}
+
 /** One run at a time per process — two would bill twice for the same queue. */
 let running: Promise<unknown> | null = null;
 
@@ -60,13 +64,26 @@ export const POST = apiRoute(async () => {
   saveScoringState(state);
 
   const task = (async () => {
+    // Undefined means "the profile's pin"; null means pi's default model.
+    let model: null | undefined;
     for (let round = 1; round <= state.totalRounds; round += 1) {
       state.round = round;
       saveScoringState(state);
       const beforeIds = pendingJobIds();
       try {
-        await runAssistantTurn("scoring", scoringPrompt(batch, profile.rubricLocale));
+        await runAssistantTurn("scoring", scoringPrompt(batch, profile.rubricLocale), [], model);
       } catch (error) {
+        // A pinned model goes out of scope when pi renames it (deepseek-v4-flash
+        // became deepseek-flash) and every run then failed on its first turn
+        // until someone noticed the queue had stopped moving. Fall back to the
+        // default once, say so on the page, and leave the pin for the user.
+        if (model === undefined && state.model && isOutOfScope(error)) {
+          model = null;
+          state.fallbackFrom = state.model;
+          state.model = null;
+          round -= 1;
+          continue;
+        }
         // Keep whatever earlier rounds scored; a failed round is not a failed run.
         state.error = error instanceof Error ? error.message : String(error);
         break;

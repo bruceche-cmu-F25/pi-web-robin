@@ -242,6 +242,8 @@ export interface JobScanState {
   added: number;
   /** Rows retired because the board no longer lists them. Absent on old state files. */
   closed?: number;
+  /** When the weekly sources (the big employers) were last read. */
+  weeklyAt?: string;
   sources: { id: string; name: string; count: number; error?: string }[];
 }
 
@@ -275,6 +277,8 @@ export interface JobScoringState {
   remaining: number;
   /** Which model did the work, so a bad batch can be traced to it. */
   model: string | null;
+  /** The pinned model that was out of scope, when the run fell back to pi's default. */
+  fallbackFrom?: string;
   error: string | null;
 }
 
@@ -302,6 +306,8 @@ export interface JobSweepState {
   boardsDone: number;
   /** Dead slugs and failed boards. About a third of the dataset is expected. */
   unreachable: number;
+  /** Boards skipped because they answered "does not exist" recently. See job-directory.ts. */
+  parked?: number;
   scanned: number;
   matched: number;
   added: number;
