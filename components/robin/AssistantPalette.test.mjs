@@ -16,7 +16,10 @@ const appShellSource = await readFile(new URL("../AppShell.tsx", import.meta.url
 test("dashboard commands resolve to their workspace routes", () => {
   assert.equal(dashboardCommandPath("daily"), "/dashboard");
   assert.equal(dashboardCommandPath("JOB"), "/dashboard/jobs");
-  assert.equal(dashboardCommandPath(" gmail "), "/dashboard/gmail");
+  assert.equal(dashboardCommandPath(" email "), "/dashboard/gmail");
+  assert.equal(dashboardCommandPath("mail"), "/dashboard/gmail");
+  // "gmail" is a service the user keeps a link to, so it must reach link search.
+  assert.equal(dashboardCommandPath("gmail"), null);
   assert.equal(dashboardCommandPath("events"), "/dashboard/events");
   assert.equal(dashboardCommandPath("learn"), "/learn");
   assert.equal(dashboardCommandPath("research"), "/research");

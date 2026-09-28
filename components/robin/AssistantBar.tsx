@@ -19,11 +19,18 @@ interface AssistantResponse {
   usedTools: string[];
 }
 
+/**
+ * Exact-match page shortcuts. An exact match skips link search entirely, so a
+ * shortcut must be named after the page, never after a service the user keeps
+ * a link to: `gmail` used to land on this app's Email page and hide the saved
+ * Gmail link that the user was actually looking for.
+ */
 const COMMAND_ROUTES: Record<string, string> = {
   daily: "/dashboard",
   job: "/dashboard/jobs",
   jobs: "/dashboard/jobs",
-  gmail: "/dashboard/gmail",
+  email: "/dashboard/gmail",
+  mail: "/dashboard/gmail",
   events: "/dashboard/events",
   learn: "/learn",
   research: "/research",
@@ -147,6 +154,15 @@ export function AssistantBar({
         router.push(commandHref, { scroll: false });
         onNavigate?.();
       } else {
+        // A link whose title is exactly what was typed is the destination, not a
+        // candidate: "gmail" + Enter opens Gmail. Anything else lands on the list.
+        const top = searchResults[0];
+        if (top?.kind === "link" && top.item.title.trim().toLocaleLowerCase() === text.toLocaleLowerCase()) {
+          window.open(top.item.url, "_blank", "noopener,noreferrer");
+          setMessage("");
+          onNavigate?.();
+          return;
+        }
         const results = searchResultsRef.current;
         (results?.querySelector<HTMLAnchorElement>("a") ?? results)?.focus();
       }

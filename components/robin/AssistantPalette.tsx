@@ -70,7 +70,7 @@ export function AssistantPalette({
         </button>
         <AssistantBar sessionId={sessionId} cwd={cwd} onNavigate={close} />
         <p className="robin-command-dialog__hint">
-          daily · job · gmail · events · learn · research · product · chat
+          daily · job · email · events · learn · research · product · chat
         </p>
       </div>
     </dialog>
