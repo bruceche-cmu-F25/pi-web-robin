@@ -17,7 +17,7 @@ function page(title: string, detail: string): Response {
     `<!doctype html><meta charset="utf-8"><title>${title}</title>`
     + `<body style="font:14px system-ui;padding:2rem;max-width:34rem">`
     + `<h1 style="font-size:1rem">${title}</h1><p>${detail}</p>`
-    + `<p><a href="/dashboard">Back to the dashboard</a></p>`,
+    + `<p><a href="/dashboard">Back to the dashboard</a> · <a href="/product/jarvis">Back to Jarvis</a></p>`,
     { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } },
   );
 }
@@ -45,7 +45,7 @@ export async function GET(req: Request) {
 
   try {
     await exchangeCode(code, redirectUriFor(req));
-    return page("Google Calendar connected", "Your events will appear on the dashboard.");
+    return page("Google connected", "Calendar and inbox access is ready. If you granted Gmail send access, Jarvis can now send individually confirmed messages.");
   } catch (caught) {
     return page("Connection failed", escapeHtml(caught instanceof Error ? caught.message : String(caught)));
   }

@@ -1,16 +1,14 @@
-Subject: Quick question about information overload
+Subject: A question about what deserves your attention
 
 Hi {{firstName}},
 
-I’m Bruce, a master’s student in software engineering at Carnegie Mellon, and I’m working on a product around information overload.
+{{opener}}
 
-The idea is simple: a personalized TL;DR built around you, with very little setup. Instead of spending time searching through newsletters, news, papers, and industry updates, it would surface the few things most worth your attention.
+I'm Bruce Cheng, a CMU software engineering master's student exploring information overload for people who have to stay on top of fast-moving fields. The idea is a personalized TL;DR built around you — with very little setup, it filters the noise and surfaces the few news, papers, and updates actually worth your attention.
 
-I came across {{work}}, and I’d genuinely value your reaction.
+Not selling anything — we're still trying to understand the problem. I'd love your honest take: how do you currently decide what's worth your attention each day, and does the filtering part feel like a real pain or more of a nice-to-have?
 
-Does this sound like it would solve a real problem for you, or more like a nice-to-have? And if it worked reliably and consistently saved you time, is it something you could imagine paying for?
-
-No need for a long reply — even a sentence or two would be incredibly helpful.
+Even a one-line reply would be really helpful.
 
 Best,
-Bruce
+Bruce Cheng

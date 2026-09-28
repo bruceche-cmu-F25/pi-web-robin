@@ -18,7 +18,7 @@ async (page) => {
     const body = req.postDataJSON();
     if (req.method() === "PATCH") {
       if (failSave) return route.fulfill({ status: 500, json: { error: "Test save failure" } });
-      leads = leads.map((lead) => lead.id === body.id ? { ...lead, ...body.patch, ...(body.patch.status === "sent" ? { sentAt: at } : {}), ...(body.patch.status === "replied" ? { repliedAt: at } : {}) } : lead);
+      leads = leads.map((lead) => lead.id === body.id ? { ...lead, ...body.patch, ...(body.patch.status === "sent" ? { sentAt: at } : {}), ...(body.patch.status === "replied" ? { repliedAt: at } : {}), ...(body.patch.followUp ? { followedUpAt: new Date().toISOString() } : {}) } : lead);
       return route.fulfill({ json: { lead: leads.find((lead) => lead.id === body.id) } });
     }
     run = { id: "mock", status: body.action === "stop" ? "cancelled" : "running", message: "Mock research only", target: body.target ?? 7, added: 0, batches: 1, startedAt: at };
@@ -28,10 +28,15 @@ async (page) => {
   await page.reload();
   const list = page.getByRole("region", { name: "候选人名单", exact: true });
   await list.getByRole("button", { name: /Ada Example/ }).waitFor();
-  await page.getByRole("button", { name: /找下一批 5 人/ }).click();
+  const queue = page.locator("summary", { hasText: "研究队列" });
+  await queue.click();
+  await page.getByRole("button", { name: /找下一批 3 人/ }).click();
   await page.getByRole("button", { name: /停止搜索/ }).click();
-  await page.getByRole("button", { name: /找下一批 5 人/ }).waitFor();
+  if (!await page.getByRole("button", { name: /找下一批 3 人/ }).isVisible()) await queue.click();
+  await page.getByRole("button", { name: /找下一批 3 人/ }).waitFor();
+  const tab = (name) => page.getByRole("tab", { name, exact: true }).click();
   await list.getByRole("button", { name: /Bob Example/ }).click();
+  await tab("邮件");
   check(await page.getByRole("button", { name: /已核对身份/ }).isDisabled(), "Missing email cannot be approved");
   await list.getByRole("button", { name: /Ada Example/ }).click();
   const detail = page.getByRole("region", { name: "联系人详情与邮件", exact: true });
@@ -51,9 +56,23 @@ async (page) => {
   const params = await gmail.evaluate((link) => Object.fromEntries(new URL(link.href).searchParams));
   check(params.to === "ada@example.com" && params.body === "Edited body & question\nSecond line", "Compose must use reviewed, encoded draft");
   check(leads[0].status === "ready" && !leads[0].sentAt, "Opening a composer must not mark sent");
+  check((await list.getByRole("button").first().textContent()).includes("Ada Example"), "Unsent contact with email must sort before missing email");
   await detail.getByRole("button", { name: /^\[ 已发送 \]$/ }).click();
   await page.waitForFunction(() => document.querySelector('select option[value="sent"]:checked'));
   check(leads[0].status === "sent", "Sent button must persist");
+  check((await list.getByRole("button").first().textContent()).includes("Bob Example"), "Sent contact must sort below unsent contacts, even without email");
+  leads[0].sentAt = new Date(Date.now() - 8 * 86400000).toISOString();
+  await page.reload();
+  await page.getByRole("button", { name: /查看待跟进/ }).waitFor();
+  await page.getByRole("button", { name: /查看待跟进/ }).click();
+  check(await list.getByRole("button", { name: /Ada Example/ }).count() === 1, "Overdue sent contact must be filterable");
+  await list.getByRole("button", { name: /Ada Example/ }).click();
+  await tab("进度与笔记");
+  await page.evaluate(() => { window.confirm = () => true; });
+  await detail.getByRole("button", { name: /已手动跟进/ }).click();
+  await detail.getByRole("status").filter({ hasText: "已记录手动跟进" }).waitFor();
+  check(!!leads[0].followedUpAt, "Manual follow-up must persist without sending");
+  await page.getByRole("button", { name: /显示全部/ }).click();
   await detail.getByRole("button", { name: /^\[ 已回复 \]$/ }).click();
   await page.waitForFunction(() => document.querySelector('select option[value="replied"]:checked'));
   await detail.getByRole("textbox", { name: /真实需求/ }).fill("I spend two hours reading every morning.");
@@ -71,11 +90,13 @@ async (page) => {
   await page.waitForFunction(() => !document.querySelector('a[href^="mailto:"]'));
   check(leads[0].status === "do_not_contact", "Suppression must persist and remove compose links");
   await page.getByRole("searchbox").fill("does not exist");
+  await list.getByRole("button").first().waitFor({ state: "detached", timeout: 2000 }).catch(() => {});
   check(await list.getByRole("button").count() === 0, "Search must filter contacts");
   await page.getByRole("searchbox").fill("");
+  await list.getByRole("button").first().waitFor();
   await page.getByRole("group", { name: "人群", exact: true }).getByRole("button", { name: /^专业服务/ }).click();
   check(await list.getByRole("button").count() === 1, "Cohort filter must work");
   check(errors.length === 0, `Browser exceptions: ${errors.join(", ")}`);
   check(writes > 0, "Tests must exercise writes through the mock");
-  return "PASS: research/stop, review gating, encoded compose, no auto-send, failed-save preservation, dirty-switch guard, sent/replied/suppression, interview notes, filters, 375/768/1440px in both themes";
+  return "PASS: tabs, research/stop, review gating, encoded compose, no auto-send, overdue follow-up/filter/manual mark, failed-save preservation, dirty-switch guard, sent/replied/suppression, interview notes, filters, 375/768/1440px in both themes";
 }

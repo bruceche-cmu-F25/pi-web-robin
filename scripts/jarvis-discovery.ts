@@ -1,12 +1,13 @@
 /**
  * Run from the repo root with the existing Pi Web server running:
  * node --env-file-if-exists=.env.local --experimental-strip-types scripts/jarvis-discovery.ts status
- * ... discover 100 | stop | export | report [file.html] | template [file.txt] [--apply] | template [file.txt] [--apply] | update <id> <status> | note <id> "interview notes"
- * Uses the same guarded HTTP/domain interface as the page. Never sends email.
+ * ... discover 100 | personas <+N> | rescore | stop | stop-rescore | export | report [file.html] | template [file.txt] [--apply] | update <id> <status> | note <id> "interview notes"
+ * Uses the same guarded HTTP/domain interface as the page. Never sends or queues email:
+ * only the page's batch approval puts contacts in the outbox.
  */
 import { piWeb } from "./telegram/pi-web.ts";
 import { readFileSync, writeFileSync } from "node:fs";
-import { isSendableCore, type JarvisState } from "../extension/robin/jarvis-shape.ts";
+import { isQualifiedInfoExec, isResearchedTargetUser, isSendableCore, type JarvisState } from "../extension/robin/jarvis-shape.ts";
 import { renderJarvisReport } from "../lib/jarvis-report.ts";
 
 const ctx = { url: process.env.PI_WEB_URL || "http://127.0.0.1:30141", password: process.env.PI_WEB_PASSWORD, fetch };
@@ -17,6 +18,18 @@ try {
     const result = await piWeb(ctx, api, { action: "discover", target: Number(argument ?? 100) });
     console.log(JSON.stringify(result, null, 2));
     console.log(`Research started on the server. Track it at ${ctx.url}/product/jarvis or run status. No mail is sent.`);
+  } else if (command === "personas") {
+    // Target personas are uncapped: +N more qualified people than today.
+    const state = await piWeb<JarvisState>(ctx, api, undefined, 30000, "GET");
+    const target = state.leads.filter(isResearchedTargetUser).length + Number(argument ?? 30);
+    console.log(JSON.stringify(await piWeb(ctx, api, { action: "discover", target, focus: "info_exec" }), null, 2));
+    console.log(`Persona research started toward ${target} qualified target users. No mail is sent.`);
+  } else if (command === "rescore") {
+    console.log(JSON.stringify(await piWeb(ctx, api, { action: "rescore" }), null, 2));
+    console.log("Rescoring started on the server. No mail is sent.");
+  } else if (command === "stop-rescore") {
+    await piWeb(ctx, api, { action: "stop-rescore" });
+    console.log("Rescoring stop requested; saved assessments remain.");
   } else if (command === "stop") {
     await piWeb(ctx, api, { action: "stop" });
     console.log("Stop requested; saved contacts remain.");
@@ -40,16 +53,16 @@ try {
     const state = await piWeb<JarvisState>(ctx, api, undefined, 30000, "GET");
     const file = argument ?? `jarvis-outreach-${new Date().toISOString().slice(0, 10)}.html`;
     writeFileSync(file, renderJarvisReport(state));
-    console.log(`Wrote ${file}: ${state.leads.filter(isSendableCore).length}/100 sendable core contacts.`);
+    console.log(`Wrote ${file}: ${state.leads.length} contacts, ${state.leads.filter(isQualifiedInfoExec).length} qualified target users, ${state.leads.filter(isSendableCore).length} sendable core.`);
   } else if (command === "export" || command === "status") {
     const state = await piWeb<JarvisState>(ctx, api, undefined, 30000, "GET");
     if (command === "export") console.log(JSON.stringify(state, null, 2));
     else {
       const core = state.leads.filter((lead) => lead.audienceFit === "core");
-      console.log(JSON.stringify({ sendableCore: state.leads.filter(isSendableCore).length, coreContacts: core.length, adjacentContacts: state.leads.length - core.length, coreEmails: core.filter((l) => l.email).length, coreSent: core.filter((l) => l.sentAt).length, coreReplied: core.filter((l) => l.repliedAt).length, run: state.run }, null, 2));
+      console.log(JSON.stringify({ qualifiedTargetUsers: state.leads.filter(isQualifiedInfoExec).length, rescore: state.rescore, outbox: state.outbox, sendableCore: state.leads.filter(isSendableCore).length, coreContacts: core.length, adjacentContacts: state.leads.length - core.length, coreEmails: core.filter((l) => l.email).length, coreSent: core.filter((l) => l.sentAt).length, coreReplied: core.filter((l) => l.repliedAt).length, run: state.run }, null, 2));
       console.table(state.leads.map(({ id, name, company, industry, seniority, status }) => ({ id, name, company, industry, seniority, status })));
     }
-  } else throw new Error("Commands: status | discover [sendable total up to 100] | stop | export | report [file.html] | template [file.txt] [--apply] | update <id> <status> | note <id> <notes>");
+  } else throw new Error("Commands: status | discover [sendable total up to 100] | personas [+N, default 30] | rescore | stop | stop-rescore | export | report [file.html] | template [file.txt] [--apply] | update <id> <status> | note <id> <notes>");
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;

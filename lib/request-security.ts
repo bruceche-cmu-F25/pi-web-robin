@@ -93,9 +93,14 @@ function isUserInitiatedSessionExportNavigation(request: Request): boolean {
  * minutes. That is precisely the job `state` exists to do in OAuth, and the
  * callback route rejects anything without a recognised one.
  *
+ * The same nonce is why proxy.ts also lets it past the site password: the
+ * redirect can land on a host whose login cookie the browser does not hold
+ * (localhost vs 127.0.0.1), and the nonce could only have been minted by a
+ * logged-in request.
+ *
  * Deliberately narrow: GET, and exactly this path.
  */
-function isOAuthCallbackNavigation(request: Request): boolean {
+export function isOAuthCallbackNavigation(request: Request): boolean {
   if (request.method !== "GET") return false;
   try {
     return new URL(request.url).pathname === "/api/robin/google/callback";

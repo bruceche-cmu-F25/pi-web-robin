@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { authorizeUrl, disconnect, isConnected, readCredentials } from "@/extension/robin/google-calendar";
+import { authorizeUrl, canSendGmail, disconnect, isConnected, readCredentials } from "@/extension/robin/google-calendar";
 // Next asserts that a route file exports nothing but handlers and a few config
 // keys, so the handshake helpers this and the callback both need live outside.
 import { issueState, redirectUriFor } from "@/lib/google-oauth-state";
@@ -12,6 +12,7 @@ export const GET = apiRoute(async (req) => {
   return NextResponse.json({
     configured,
     connected: configured && isConnected(),
+    canSendGmail: configured && canSendGmail(),
     redirectUri: redirectUriFor(req),
     ...(configured
       ? {}

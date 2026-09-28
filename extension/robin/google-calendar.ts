@@ -29,14 +29,15 @@ const CALENDAR_ENDPOINT = "https://www.googleapis.com/calendar/v3";
 /**
  * Read-only on purpose: this integration cannot modify the user's data.
  *
- * Calendar and Gmail share the one OAuth grant, so a single refresh token
- * covers both and reconnecting (after the scopes here change) adds mail
- * without a second consent flow.
+ * Calendar and Gmail share the one OAuth grant. Jarvis may send one
+ * individually confirmed message; the calendar and inbox remain read-only.
  */
 const SCOPES = [
   "https://www.googleapis.com/auth/calendar.readonly",
   "https://www.googleapis.com/auth/gmail.readonly",
+  "https://www.googleapis.com/auth/gmail.send",
 ];
+const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 const REQUEST_TIMEOUT_MS = 10_000;
 
 interface StoredTokens {
@@ -45,6 +46,7 @@ interface StoredTokens {
   accessToken?: string;
   accessTokenExpiresAt?: number;
   connectedAt: string;
+  scopes?: string[];
 }
 
 export interface GoogleCredentials {
@@ -81,6 +83,11 @@ function writeTokens(tokens: StoredTokens): void {
 
 export function isConnected(): boolean {
   return readTokens() !== null;
+}
+
+/** Existing read-only grants must be re-authorized before Jarvis can send. */
+export function canSendGmail(): boolean {
+  return readTokens()?.scopes?.includes(GMAIL_SEND_SCOPE) ?? false;
 }
 
 export function disconnect(): void {
@@ -149,6 +156,7 @@ export async function exchangeCode(code: string, redirectUri: string): Promise<v
   }
   writeTokens({
     refreshToken,
+    scopes: typeof result.scope === "string" ? result.scope.split(/\s+/) : [],
     ...(typeof result.access_token === "string" ? { accessToken: result.access_token } : {}),
     ...(typeof result.expires_in === "number"
       ? { accessTokenExpiresAt: Date.now() + result.expires_in * 1000 }

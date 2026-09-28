@@ -7,6 +7,7 @@ import {
 import {
   isApiRequestAllowed,
   isApiRequestHostAllowed,
+  isOAuthCallbackNavigation,
 } from "@/lib/request-security";
 import {
   isValidWebSessionToken,
@@ -67,6 +68,8 @@ export function proxy(request: NextRequest) {
       : NextResponse.next();
   }
   if (request.nextUrl.pathname === "/api/web-auth") return NextResponse.next();
+  // Authenticated by its single-use state nonce; see isOAuthCallbackNavigation.
+  if (isOAuthCallbackNavigation(request)) return NextResponse.next();
 
   if (!authenticated) {
     if (!isApiRequest) {
