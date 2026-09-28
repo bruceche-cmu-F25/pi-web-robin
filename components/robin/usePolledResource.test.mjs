@@ -30,7 +30,7 @@ function resourceHarness() {
     visibility(value) { visibility = value; events.get("visibilitychange")?.(); },
   };
 }
-const respond = (request, data) => request.resolve({ ok: true, json: async () => data });
+const respond = (request, data) => request.resolve({ ok: true, text: async () => JSON.stringify(data), json: async () => data });
 
 test("older responses and failures cannot overwrite the newest refresh", async () => {
   const h = resourceHarness();
@@ -50,6 +50,24 @@ test("older responses and failures cannot overwrite the newest refresh", async (
     await stale;
     assert.equal(h.render().error, null);
     assert.equal(h.render().data.version, 3);
+  } finally { h.unmount(); }
+});
+
+test("an unchanged poll keeps the same data object", async () => {
+  const h = resourceHarness();
+  try {
+    const resource = h.render();
+    respond(h.requests[0], { rows: [{ id: 1 }] });
+    await settle();
+    const first = h.render().data;
+    const again = resource.refresh();
+    respond(h.requests[1], { rows: [{ id: 1 }] });
+    await again;
+    assert.equal(h.render().data, first);
+    const changed = resource.refresh();
+    respond(h.requests[2], { rows: [{ id: 2 }] });
+    await changed;
+    assert.equal(h.render().data.rows[0].id, 2);
   } finally { h.unmount(); }
 });
 

@@ -32,6 +32,7 @@ export function usePolledResource<T>(url: string, intervalMs = 60_000): PolledRe
   const [loading, setLoading] = useState(true);
   const sequenceRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
+  const lastTextRef = useRef<string | null>(null);
 
   const refresh = useCallback(async () => {
     const sequence = ++sequenceRef.current;
@@ -40,9 +41,18 @@ export function usePolledResource<T>(url: string, intervalMs = 60_000): PolledRe
     abortRef.current = controller;
     try {
       const response = await fetch(url, { signal: controller.signal });
-      const body = await response.json().catch(() => null) as { error?: string } | null;
+      const text = await response.text();
+      if (response.ok && text === lastTextRef.current) {
+        // An unchanged poll keeps the same object: no parse and no re-render of
+        // every row below it.
+        if (sequence === sequenceRef.current) setError(null);
+        return;
+      }
+      let body: { error?: string } | null = null;
+      try { body = JSON.parse(text) as { error?: string } | null; } catch { /* non-JSON error page */ }
       if (!response.ok) throw new Error(body?.error ?? `Request failed (${response.status})`);
       if (sequence !== sequenceRef.current) return;
+      lastTextRef.current = text;
       setData(body as T);
       setError(null);
     } catch (caught) {
@@ -58,6 +68,7 @@ export function usePolledResource<T>(url: string, intervalMs = 60_000): PolledRe
   useEffect(() => {
     abortRef.current?.abort();
     sequenceRef.current += 1;
+    lastTextRef.current = null;
     setData(null);
     setError(null);
     setLoading(true);
