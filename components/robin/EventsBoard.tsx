@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import type { DashboardEvent } from "@/extension/robin/events";
 import {
@@ -13,6 +14,15 @@ import {
 } from "@/extension/robin/tech-events";
 import { useI18n } from "@/hooks/useI18n";
 import { mutate, usePolledResource } from "./usePolledResource";
+import {
+  Chip,
+  EventCover,
+  TOPIC_TONE,
+  eventHref,
+  formatDay,
+  formatTime,
+  localDay,
+} from "./techEventView";
 import styles from "./EventsBoard.module.css";
 
 interface EventsResponse {
@@ -30,89 +40,32 @@ interface ScheduleResponse {
 type TopicFilter = TechEventTopic | "all";
 type RatedEvent = TechEvent & { rating: TechEventRating };
 
-function localDay(event: TechEvent): string {
-  try {
-    return new Intl.DateTimeFormat("en-CA", {
-      ...(event.timezone ? { timeZone: event.timezone } : {}),
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }).format(new Date(event.startAt));
-  } catch {
-    return event.startAt.slice(0, 10);
-  }
-}
+/** How far ahead the day ribbon looks. Two weeks is as far as an evening gets planned. */
+const RIBBON_DAYS = 14;
 
-function formatTime(event: TechEvent, locale: string): string {
-  try {
-    return new Intl.DateTimeFormat(locale, {
-      ...(event.timezone ? { timeZone: event.timezone } : {}),
-      hour: "numeric",
-      minute: "2-digit",
-      timeZoneName: "short",
-    }).format(new Date(event.startAt));
-  } catch {
-    return "";
-  }
-}
-
-function formatDay(day: string, locale: string, compact = false): string {
+function addDays(day: string, count: number): string {
   const date = new Date(`${day}T12:00:00Z`);
-  if (Number.isNaN(date.getTime())) return day;
-  return date.toLocaleDateString(locale, {
-    timeZone: "UTC",
-    ...(compact ? { month: "short", day: "numeric" } : { weekday: "long", month: "short", day: "numeric" }),
-  });
+  date.setUTCDate(date.getUTCDate() + count);
+  return date.toISOString().slice(0, 10);
 }
 
-function Chip({ label, tone }: { label: string; tone?: "accent" | "danger" | "success" | "muted" }) {
-  const color = tone === "accent"
-    ? "var(--accent)"
-    : tone === "danger"
-      ? "color-mix(in srgb, var(--danger) 80%, var(--text))"
-      : tone === "success"
-        ? "color-mix(in srgb, var(--success) 65%, var(--text))"
-        : "var(--text-muted)";
-  return (
-    <span
-      className="pi-eyebrow inline-flex shrink-0 items-center gap-1 border px-1.5 py-0.5"
-      style={{
-        color,
-        borderColor: tone ? `color-mix(in srgb, ${color} 45%, var(--border))` : "var(--border)",
-        background: tone ? `color-mix(in srgb, ${color} 8%, transparent)` : "var(--bg-panel)",
-      }}
-    >
-      {label}
-    </span>
-  );
-}
-
-function Score({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="min-w-0">
-      <span className="pi-eyebrow block" title={label}>{label}</span>
-      <strong
-        className="mt-0.5 block text-lg tabular-nums"
-        style={{ color: "var(--text)", fontWeight: 600 }}
-      >
-        {value.toFixed(1)}
-      </strong>
-      <div className="mt-1 h-1 overflow-hidden" style={{ background: "var(--border)" }} aria-hidden="true">
-        <div
-          className="h-full"
-          style={{ width: `${value * 20}%`, background: "var(--accent)" }}
-        />
-      </div>
-    </div>
-  );
-}
-
-function SignalChips({ signals }: { signals: TechEventSignal[] }) {
+function SignalChips({ signals, limit = 3 }: { signals: TechEventSignal[]; limit?: number }) {
   const { t } = useI18n();
   return (
     <>
-      {signals.filter((signal) => !["approval", "sold-out", "schedule-conflict"].includes(signal)).slice(0, 3).map((signal) => (
+      {signals.filter((signal) => !["approval", "sold-out", "schedule-conflict"].includes(signal)).slice(0, limit).map((signal) => (
         <Chip key={signal} label={t(`robin.events.signal.${signal}`)} tone={signal === "fullstack-ai" ? "accent" : undefined} />
+      ))}
+    </>
+  );
+}
+
+function TopicChips({ topics }: { topics: TechEventTopic[] }) {
+  const { t } = useI18n();
+  return (
+    <>
+      {topics.slice(0, 3).map((topic) => (
+        <Chip key={topic} label={t(`robin.events.topic.${topic}`)} color={TOPIC_TONE[topic]} />
       ))}
     </>
   );
@@ -123,138 +76,195 @@ function ScheduleStatus({ rating, ready, unavailable }: { rating: TechEventRatin
   if (!ready) return <Chip label={t(unavailable ? "robin.events.scheduleUnavailable" : "robin.events.scheduleChecking")} />;
   if (rating.conflicts.length === 0) return <Chip label={t("robin.events.noConflict")} tone="success" />;
   return (
-    <div className="flex min-w-0 flex-wrap items-center gap-2">
-      <Chip
-        label={t("robin.events.conflictCount", { count: String(rating.conflicts.length) })}
-        tone="danger"
-      />
+    <span className="flex min-w-0 flex-wrap items-center gap-2">
+      <Chip label={t("robin.events.conflictCount", { count: String(rating.conflicts.length) })} tone="danger" />
       <span className="min-w-0 text-xs break-words" style={{ color: "var(--danger)" }} title={rating.conflicts.map((item) => item.title).join(", ")}>
         {t("robin.events.conflictsWith", { title: rating.conflicts.map((item) => item.title).slice(0, 2).join("、") })}
       </span>
+    </span>
+  );
+}
+
+function ScoreBadge({ value, large = false }: { value: number; large?: boolean }) {
+  const { t } = useI18n();
+  return (
+    <span className={styles.scoreBadge} data-size={large ? "large" : undefined} title={t("robin.events.scoreMethod")}>
+      <strong>{value.toFixed(1)}</strong>
+      <small>{t("robin.events.overallScore")}</small>
+    </span>
+  );
+}
+
+function StatusChips({ event }: { event: RatedEvent }) {
+  const { t } = useI18n();
+  return (
+    <>
+      {event.saved && <Chip label={t("robin.events.savedMark")} tone="accent" />}
+      {event.hidden && <Chip label={t("robin.events.hiddenMark")} />}
+      {event.free && <Chip label={t("robin.events.free")} />}
+      {event.soldOut && <Chip label={t("robin.events.soldOut")} tone="danger" />}
+      {event.requiresApproval && <Chip label={t("robin.events.approval")} />}
+    </>
+  );
+}
+
+function placeLine(event: TechEvent, online: string): string {
+  return event.online ? online : [event.venue, event.city].filter(Boolean).join(" · ");
+}
+
+interface CardActions {
+  busy: boolean;
+  pending: boolean;
+  onSave: () => void;
+  onHide: () => void;
+}
+
+function Actions({ event, busy, pending, onSave, onHide }: CardActions & { event: RatedEvent }) {
+  const { t } = useI18n();
+  return (
+    <div className={styles.cardActions}>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={onSave}
+        className="ui-action pi-eyebrow min-h-11 min-w-11 disabled:opacity-40"
+        data-state={event.saved ? "accent" : undefined}
+        aria-pressed={!!event.saved}
+        aria-label={`${event.saved ? t("robin.events.unsave") : t("robin.events.save")}: ${event.title}`}
+      >
+        {pending ? t("robin.events.saving") : event.saved ? `★ ${t("robin.events.unsave")}` : `☆ ${t("robin.events.save")}`}
+      </button>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={onHide}
+        className="ui-action pi-eyebrow min-h-11 min-w-11 disabled:opacity-40"
+        data-hover={event.hidden ? undefined : "danger"}
+        aria-label={`${event.hidden ? t("robin.events.unhide") : t("robin.events.hide")}: ${event.title}`}
+      >
+        {event.hidden ? t("robin.events.unhide") : t("robin.events.hide")}
+      </button>
     </div>
   );
 }
 
-function EventCard({
+/** A recommendation: cover first, because the shortlist is where you decide. */
+function FeaturedCard({
+  event,
+  rank,
+  locale,
+  scheduleReady,
+  scheduleUnavailable,
+  ...actions
+}: CardActions & {
+  event: RatedEvent;
+  rank: number;
+  locale: string;
+  scheduleReady: boolean;
+  scheduleUnavailable: boolean;
+}) {
+  const { t } = useI18n();
+  const place = placeLine(event, t("robin.events.online"));
+  return (
+    <article className={styles.featured} data-rank={rank} data-saved={event.saved || undefined} aria-busy={actions.pending}>
+      <Link href={eventHref(event.id)} className={styles.featuredMedia} tabIndex={-1} aria-hidden="true">
+        <EventCover event={event} eager={rank === 1} />
+        <span className={styles.rank} aria-hidden="true">{rank}</span>
+      </Link>
+      <div className={styles.featuredBody}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <time className="pi-eyebrow" dateTime={event.startAt} style={{ color: "var(--accent)" }}>
+            {formatDay(localDay(event), locale, "weekday")} · {formatDay(localDay(event), locale, "compact")} · {formatTime(event, event.startAt, locale)}
+          </time>
+          <ScoreBadge value={event.rating.overall} large={rank === 1} />
+        </div>
+        <h3 className={styles.featuredTitle}>
+          <Link href={eventHref(event.id)} className={styles.eventLink} aria-label={t("robin.events.rank", { rank: String(rank) }) + ": " + event.title}>
+            {event.title}
+          </Link>
+        </h3>
+        <p className={styles.meta}>{[event.host, place].filter(Boolean).join(" · ")}</p>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <TopicChips topics={event.topics} />
+          <SignalChips signals={event.rating.signals} limit={2} />
+          <StatusChips event={event} />
+        </div>
+        <div className={styles.featuredFooter}>
+          <ScheduleStatus rating={event.rating} ready={scheduleReady} unavailable={scheduleUnavailable} />
+          <Actions event={event} {...actions} />
+        </div>
+      </div>
+    </article>
+  );
+}
+
+/** One row of the full list: dense, scannable, and a link to the event's page. */
+function EventRow({
   event,
   locale,
   scheduleReady,
   scheduleUnavailable,
-  busy,
-  pending,
-  rank,
-  onSave,
-  onHide,
-}: {
+  ...actions
+}: CardActions & {
   event: RatedEvent;
   locale: string;
   scheduleReady: boolean;
   scheduleUnavailable: boolean;
-  busy: boolean;
-  pending: boolean;
-  rank?: number;
-  onSave: () => void;
-  onHide: () => void;
 }) {
   const { t } = useI18n();
-  const place = event.online
-    ? t("robin.events.online")
-    : [event.venue, event.city].filter(Boolean).join(" · ");
+  const place = placeLine(event, t("robin.events.online"));
+  const tone = TOPIC_TONE[event.topics[0] ?? "swe"];
   return (
     <article
-      className={styles.card}
-      data-recommended={rank ? "true" : undefined}
+      className={styles.row}
       data-saved={event.saved || undefined}
-      aria-busy={pending}
+      data-hidden={event.hidden || undefined}
+      aria-busy={actions.pending}
+      style={{ "--row-tone": tone } as React.CSSProperties}
     >
-      <div className={styles.cardBody}>
-        <div className="flex min-w-0 flex-1 gap-3">
-          {rank && (
-            <span
-              className="flex size-8 shrink-0 items-center justify-center border text-sm tabular-nums"
-              style={{
-                borderColor: "var(--accent-line-strong)",
-                background: "var(--accent-soft)",
-                color: "var(--accent)",
-                fontWeight: 700,
-              }}
-              aria-label={t("robin.events.rank", { rank: String(rank) })}
-            >
-              {rank}
-            </span>
+      <time className={styles.rowTime} dateTime={event.startAt}>
+        <strong>{formatTime(event, event.startAt, locale, false)}</strong>
+        <span>{event.online ? t("robin.events.online") : event.city?.split(",")[0] ?? ""}</span>
+      </time>
+      <Link href={eventHref(event.id)} className={styles.rowThumb} tabIndex={-1} aria-hidden="true">
+        <EventCover event={event} />
+      </Link>
+      <div className={styles.rowMain}>
+        <h4 className={styles.rowTitle}>
+          <Link href={eventHref(event.id)} className={styles.eventLink}>{event.title}</Link>
+        </h4>
+        <p className={styles.meta} title={[event.host, place].filter(Boolean).join(" · ")}>
+          {[event.host, place].filter(Boolean).join(" · ")}
+          {typeof event.guests === "number" && event.guests >= 25 && (
+            <span className="tabular-nums"> · {t("robin.events.guests", { count: String(event.guests) })}</span>
           )}
-          <div className="min-w-0 flex-1">
-            <div className="mb-2 flex flex-wrap items-center gap-2">
-              <time className="pi-eyebrow" dateTime={event.startAt} style={{ color: "var(--accent)" }}>
-                {formatDay(localDay(event), locale, true)} · {formatTime(event, locale)}
-              </time>
-              {event.saved && <Chip label={t("robin.events.savedMark")} tone="accent" />}
-              {event.hidden && <Chip label={t("robin.events.hiddenMark")} />}
-            </div>
-            <h3 className={styles.eventTitle}><a
-              href={event.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={styles.eventLink}
-              style={{ color: "var(--text)", fontWeight: 550 }}
-              title={event.url}
-            >
-              {event.title}
-            </a></h3>
-            <p className="mt-2 text-xs break-words" style={{ color: "var(--text-muted)" }} title={[event.host, place].filter(Boolean).join(" · ")}>
-              {[event.host, place].filter(Boolean).join(" · ")}
-            </p>
-            <div className="mt-3 flex flex-wrap items-center gap-1.5">
-              <SignalChips signals={event.rating.signals} />
-              {event.free && <Chip label={t("robin.events.free")} />}
-              {event.soldOut && <Chip label={t("robin.events.soldOut")} tone="danger" />}
-              {event.requiresApproval && <Chip label={t("robin.events.approval")} />}
-              {typeof event.guests === "number" && event.guests >= 25 && (
-                <Chip label={t("robin.events.guests", { count: String(event.guests) })} />
-              )}
-            </div>
-          </div>
+        </p>
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <TopicChips topics={event.topics} />
+          <SignalChips signals={event.rating.signals} limit={2} />
+          <StatusChips event={event} />
         </div>
-
-        <details className={styles.scoreDetails}>
-          <summary className={styles.scoreSummary}>
-            <span className="pi-eyebrow">{t("robin.events.overallScore")}</span>
-            <strong className={styles.scoreValue}>{event.rating.overall.toFixed(1)}<small> / 5</small></strong>
-            <span className="pi-eyebrow">{t("robin.events.scoreDetails")}</span>
-          </summary>
-          <div className="grid grid-cols-2 gap-3 pt-3" aria-label={t("robin.events.scores")}>
-            <Score label={t("robin.events.relevanceScore")} value={event.rating.relevance} />
-            <Score label={t("robin.events.fitScore")} value={event.rating.suitability} />
-            <p className="col-span-2 text-xs" style={{ color: "var(--text-muted)" }}>{t("robin.events.scoreMethod")}</p>
-          </div>
-        </details>
+        <div className={styles.rowFooter}>
+          <ScheduleStatus rating={event.rating} ready={scheduleReady} unavailable={scheduleUnavailable} />
+          <a href={event.url} target="_blank" rel="noopener noreferrer" className="ui-action pi-eyebrow min-h-11" title={event.url}>
+            {t("robin.events.openOnLuma")} ↗
+          </a>
+          <Actions event={event} {...actions} />
+        </div>
       </div>
-
-      <div className={styles.cardFooter}>
-        <ScheduleStatus rating={event.rating} ready={scheduleReady} unavailable={scheduleUnavailable} />
-        <div className={styles.cardActions}>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={onSave}
-            className="ui-action pi-eyebrow min-h-11 min-w-11 disabled:opacity-40"
-            data-state={event.saved ? "accent" : undefined}
-            aria-pressed={!!event.saved}
-          >
-            {pending ? t("robin.events.saving") : event.saved ? t("robin.events.unsave") : t("robin.events.save")}
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={onHide}
-            className="ui-action pi-eyebrow min-h-11 min-w-11 disabled:opacity-40"
-            data-hover={event.hidden ? undefined : "danger"}
-          >
-            {event.hidden ? t("robin.events.unhide") : t("robin.events.hide")}
-          </button>
-        </div>
+      <div className={styles.rowScore}>
+        <ScoreBadge value={event.rating.overall} />
       </div>
     </article>
+  );
+}
+
+function Stat({ value, label, accent }: { value: string; label: string; accent?: boolean }) {
+  return (
+    <div className={styles.stat}>
+      <strong style={accent ? { color: "var(--accent)" } : undefined}>{value}</strong>
+      <span className="pi-eyebrow">{label}</span>
+    </div>
   );
 }
 
@@ -266,6 +276,7 @@ export function EventsBoard() {
 
   const [query, setQuery] = useState("");
   const [topic, setTopic] = useState<TopicFilter>("all");
+  const [day, setDay] = useState<string | null>(null);
   const [savedOnly, setSavedOnly] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -276,23 +287,27 @@ export function EventsBoard() {
   const scheduleReady = scheduleResource.data !== null && !scheduleUnavailable;
   const schedule = useMemo(() => scheduleResource.data?.events ?? [], [scheduleResource.data]);
   const events = useMemo(() => eventResource.data?.events ?? [], [eventResource.data]);
+  const today = eventResource.data?.today ?? null;
   const rated = useMemo<RatedEvent[]>(() => events.map((event) => ({
     ...event,
     rating: rateTechEventForFullStackAi(event, schedule),
   })), [events, schedule]);
+  const shown = useMemo(() => rated.filter((event) => !event.hidden), [rated]);
 
   const visible = useMemo(() => rated.filter((event) => {
     if (event.hidden && !showHidden) return false;
     if (savedOnly && !event.saved) return false;
     if (topic !== "all" && !event.topics.includes(topic)) return false;
+    if (day && localDay(event) !== day) return false;
     const text = [event.title, event.host, event.city, event.venue, ...event.matched].join(" ").toLocaleLowerCase(locale);
     return text.includes(query.trim().toLocaleLowerCase(locale));
-  }), [rated, showHidden, savedOnly, topic, query, locale]);
+  }), [rated, showHidden, savedOnly, topic, day, query, locale]);
 
-  const hasFilters = query !== "" || topic !== "all" || savedOnly || showHidden;
+  const hasFilters = query !== "" || topic !== "all" || savedOnly || showHidden || day !== null;
   const clearFilters = () => {
     setQuery("");
     setTopic("all");
+    setDay(null);
     setSavedOnly(false);
     setShowHidden(false);
   };
@@ -304,17 +319,42 @@ export function EventsBoard() {
       .slice(0, 3)
     : [], [rated, scheduleReady]);
 
+  const topicCounts = useMemo(() => {
+    const counts = new Map<TopicFilter, number>([["all", shown.length]]);
+    for (const event of shown) for (const candidate of event.topics) counts.set(candidate, (counts.get(candidate) ?? 0) + 1);
+    return counts;
+  }, [shown]);
+
+  const ribbon = useMemo(() => {
+    if (!today) return [];
+    const perDay = new Map<string, { count: number; saved: number }>();
+    for (const event of shown) {
+      const key = localDay(event);
+      const entry = perDay.get(key) ?? { count: 0, saved: 0 };
+      entry.count += 1;
+      if (event.saved) entry.saved += 1;
+      perDay.set(key, entry);
+    }
+    return Array.from({ length: RIBBON_DAYS }, (_, index) => {
+      const key = addDays(today, index);
+      return { day: key, ...(perDay.get(key) ?? { count: 0, saved: 0 }) };
+    });
+  }, [shown, today]);
+  const ribbonMax = Math.max(1, ...ribbon.map((entry) => entry.count));
+  const thisWeek = ribbon.slice(0, 7).reduce((sum, entry) => sum + entry.count, 0);
+  const savedCount = shown.filter((event) => event.saved).length;
+
   const days = useMemo(() => {
     const grouped = new Map<string, RatedEvent[]>();
     for (const event of visible) {
-      const day = localDay(event);
-      const list = grouped.get(day) ?? [];
+      const key = localDay(event);
+      const list = grouped.get(key) ?? [];
       list.push(event);
-      grouped.set(day, list);
+      grouped.set(key, list);
     }
-    return [...grouped.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([day, items]) => [
-      day,
-      items.sort((a, b) => b.rating.overall - a.rating.overall || a.startAt.localeCompare(b.startAt)),
+    return [...grouped.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([key, items]) => [
+      key,
+      items.sort((a, b) => a.startAt.localeCompare(b.startAt) || b.rating.overall - a.rating.overall),
     ] as const);
   }, [visible]);
 
@@ -344,24 +384,33 @@ export function EventsBoard() {
     }
   };
 
+  const pickDay = (key: string) => {
+    setDay((current) => current === key ? null : key);
+    document.getElementById("all-upcoming-events")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
   const scan = eventResource.data?.scan ?? null;
   const running = scanning || eventResource.data?.scanning === true;
   const failures = (scan?.sources ?? []).filter((source) => source.error);
   const error = actionError ?? eventResource.error ?? scheduleResource.error ?? scheduleResource.data?.google?.error;
+  const loaded = !!eventResource.data;
+  const cardProps = (event: RatedEvent) => ({
+    busy: busyId !== null,
+    pending: busyId === event.id,
+    onSave: () => void patch(event, { saved: !event.saved }),
+    onHide: () => void patch(event, { hidden: !event.hidden }),
+  });
 
   return (
     <div className={`robin-page robin-dashboard flex-1 overflow-y-auto ${styles.page}`} style={{ minHeight: 0 }}>
-      <main className="mx-auto flex w-full max-w-6xl flex-col gap-5 p-4 desktop:p-6">
-        <header className="flex flex-wrap items-baseline justify-between gap-4">
-          <div className="flex flex-col gap-2">
+      <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 p-4 desktop:p-6">
+        <header className={styles.hero}>
+          <div className="flex min-w-0 flex-col gap-2">
             <span className="pi-eyebrow" style={{ color: "var(--accent)" }}>{t("robin.events.kicker")}</span>
-            <h1 className="text-3xl" style={{ fontStyle: "italic", fontWeight: 400, color: "var(--text)" }}>
-              {t("robin.events.title")}
-            </h1>
-            <p className="text-sm" style={{ color: "var(--text-muted)" }}>{t("robin.events.subtitle")}</p>
+            <h1 className={styles.pageTitle}>{t("robin.events.title")}</h1>
+            <p className="max-w-xl text-sm" style={{ color: "var(--text-muted)" }}>{t("robin.events.subtitle")}</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <a href="#all-upcoming-events" className={`ui-action pi-eyebrow ${styles.listShortcut}`}>{t("robin.events.allUpcoming")} ↓</a>
             <span className="pi-eyebrow">
               {scan?.finishedAt
                 ? t("robin.events.lastScan", { date: new Date(scan.finishedAt).toLocaleDateString(locale) })
@@ -377,6 +426,12 @@ export function EventsBoard() {
               {running ? t("robin.events.scanning") : t("robin.events.scan")}
             </button>
           </div>
+          <div className={styles.stats}>
+            <Stat value={loaded ? String(shown.length) : "—"} label={t("robin.events.statUpcoming")} />
+            <Stat value={loaded ? String(thisWeek) : "—"} label={t("robin.events.statThisWeek")} />
+            <Stat value={loaded ? String(savedCount) : "—"} label={t("robin.events.statSaved")} accent={savedCount > 0} />
+            <Stat value={loaded && scheduleReady ? String(recommendations.length) : "—"} label={t("robin.events.noConflictPicks")} accent />
+          </div>
         </header>
 
         {error && (
@@ -389,21 +444,39 @@ export function EventsBoard() {
         )}
         {running && <p role="status" className={styles.notice}>{t("robin.events.scanningNote")}</p>}
 
-        <section className="pi-card flex flex-col gap-3 p-4" aria-labelledby="event-recommendations">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="flex flex-col gap-2">
-              <h2 id="event-recommendations" className="pi-label">{t("robin.events.shortlistTitle")}</h2>
-              <p className="text-xs" style={{ color: "var(--text-muted)" }}>{t("robin.events.shortlistExplain")}</p>
-            </div>
-            <div className="flex items-center gap-4 text-right">
-              <div>
-                <strong className="block text-2xl tabular-nums" style={{ color: "var(--accent)" }}>{scheduleReady && eventResource.data ? recommendations.length : "—"}</strong>
-                <span className="pi-eyebrow">{t("robin.events.noConflictPicks")}</span>
-              </div>
-              <div className="hidden h-9 w-px desktop:block" style={{ background: "var(--border)" }} />
-              <p className="hidden max-w-52 text-xs desktop:block" style={{ color: "var(--text-muted)" }}>
-                {t("robin.events.scoreMethod")}
-              </p>
+        {ribbon.length > 0 && (
+          <nav className={styles.ribbon} aria-label={t("robin.events.ribbonLabel")}>
+            {ribbon.map((entry) => (
+              <button
+                key={entry.day}
+                type="button"
+                className={styles.ribbonDay}
+                data-today={entry.day === today || undefined}
+                data-selected={entry.day === day || undefined}
+                data-empty={entry.count === 0 || undefined}
+                data-weekend={[0, 6].includes(new Date(`${entry.day}T12:00:00Z`).getUTCDay()) || undefined}
+                aria-pressed={entry.day === day}
+                disabled={entry.count === 0}
+                onClick={() => pickDay(entry.day)}
+                aria-label={t("robin.events.ribbonDay", { day: formatDay(entry.day, locale), count: String(entry.count) })}
+              >
+                <span className="pi-eyebrow">{entry.day === today ? t("robin.events.today") : formatDay(entry.day, locale, "weekday")}</span>
+                <strong>{Number(entry.day.slice(8))}</strong>
+                <span className={styles.ribbonBar} aria-hidden="true">
+                  <span style={{ height: `${(entry.count / ribbonMax) * 100}%` }} />
+                </span>
+                <span className={styles.ribbonCount}>{entry.count || "·"}{entry.saved > 0 ? " ★" : ""}</span>
+              </button>
+            ))}
+          </nav>
+        )}
+
+        <section className="flex flex-col gap-3" aria-labelledby="event-recommendations">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div className="flex flex-col gap-1">
+              <span className="pi-eyebrow" style={{ color: "var(--accent)" }}>{t("robin.events.shortlistKicker")}</span>
+              <h2 id="event-recommendations" className={styles.sectionTitle}>{t("robin.events.shortlistTitle")}</h2>
+              <p className="text-xs" style={{ color: "var(--text-muted)" }}>{t("robin.events.shortlistExplain")} {t("robin.events.scoreMethod")}</p>
             </div>
           </div>
 
@@ -414,23 +487,18 @@ export function EventsBoard() {
           ) : !eventResource.data && eventResource.error ? (
             <p className={styles.empty}>{t("robin.events.loadFailed")}</p>
           ) : recommendations.length === 0 ? (
-            <div className="border p-4 text-sm" style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}>
-              {t("robin.events.noRecommendations")}
-            </div>
+            <div className={styles.empty}>{t("robin.events.noRecommendations")}</div>
           ) : (
-            <div className={styles.recommendations}>
+            <div className={styles.recommendations} data-count={recommendations.length}>
               {recommendations.map((event, index) => (
-                <EventCard
+                <FeaturedCard
                   key={`recommended:${event.id}`}
                   event={event}
+                  rank={index + 1}
                   locale={locale}
                   scheduleReady={scheduleReady}
                   scheduleUnavailable={scheduleUnavailable}
-                  busy={busyId !== null}
-                  pending={busyId === event.id}
-                  rank={index + 1}
-                  onSave={() => void patch(event, { saved: !event.saved })}
-                  onHide={() => void patch(event, { hidden: !event.hidden })}
+                  {...cardProps(event)}
                 />
               ))}
             </div>
@@ -439,12 +507,12 @@ export function EventsBoard() {
 
         <section className="pi-card flex flex-col gap-3 p-4" aria-labelledby="all-upcoming-events">
           <header className="flex flex-wrap items-baseline justify-between gap-2">
-            <h2 id="all-upcoming-events" tabIndex={-1} className="pi-label">{t("robin.events.allUpcoming")}</h2>
-            <span className="pi-eyebrow" role="status">{t("robin.events.resultCount", { count: eventResource.data ? String(visible.length) : "—" })}</span>
+            <h2 id="all-upcoming-events" tabIndex={-1} className={styles.sectionTitle}>{t("robin.events.allUpcoming")}</h2>
+            <span className="pi-eyebrow" role="status">{t("robin.events.resultCount", { count: loaded ? String(visible.length) : "—" })}</span>
           </header>
 
           <label className="flex flex-col gap-2">
-            <span className="pi-eyebrow">{t("robin.events.search")}</span>
+            <span className="sr-only">{t("robin.events.search")}</span>
             <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("robin.events.searchPlaceholder")} className="min-h-11 w-full px-3 text-sm" />
           </label>
           <div className={styles.filters} role="group" aria-label={t("robin.events.filters")}>
@@ -457,7 +525,9 @@ export function EventsBoard() {
                 data-state={candidate === topic ? "accent" : "muted"}
                 aria-pressed={candidate === topic}
               >
+                {candidate !== "all" && <span aria-hidden="true" className={styles.topicDot} style={{ background: TOPIC_TONE[candidate] }} />}
                 {t(`robin.events.topic.${candidate}`)}
+                <span className="tabular-nums" style={{ opacity: 0.7 }}> {topicCounts.get(candidate) ?? 0}</span>
               </button>
             ))}
             <span className="flex flex-wrap items-center gap-2 desktop:ml-auto">
@@ -482,10 +552,14 @@ export function EventsBoard() {
             </span>
           </div>
 
-          <div className="flex min-h-11 flex-wrap items-center justify-between gap-2">
-            <span className="pi-eyebrow">{t("robin.events.sortedWithinDay")}</span>
-            {hasFilters && <button type="button" className="ui-action pi-eyebrow min-h-11" onClick={clearFilters}>{t("robin.events.clearFilters")}</button>}
-          </div>
+          {(day || hasFilters) && (
+            <div className="flex min-h-11 flex-wrap items-center justify-between gap-2">
+              {day ? (
+                <span className="pi-eyebrow" style={{ color: "var(--accent)" }}>{t("robin.events.dayFilter", { day: formatDay(day, locale) })}</span>
+              ) : <span className="pi-eyebrow">{t("robin.events.sortedWithinDay")}</span>}
+              {hasFilters && <button type="button" className="ui-action pi-eyebrow min-h-11" onClick={clearFilters}>{t("robin.events.clearFilters")}</button>}
+            </div>
+          )}
 
           {eventResource.loading ? (
             <p className={styles.empty} role="status">{t("robin.events.loading")}</p>
@@ -496,28 +570,21 @@ export function EventsBoard() {
               <p>{running ? t("robin.events.scanningNote") : hasFilters ? t("robin.events.emptyFiltered") : t("robin.events.empty")}</p>
               <p className="mt-2 text-xs">{hasFilters ? t("robin.events.filterHint") : t("robin.events.cadence")}</p>
             </div>
-          ) : days.map(([day, dayEvents]) => (
-            <section key={day} className="flex flex-col gap-1" aria-labelledby={`events-${day}`}>
-              <h3
-                id={`events-${day}`}
-                className="pi-eyebrow flex items-center gap-2 border-b py-3"
-                style={{ background: "var(--bg-panel)", borderColor: "var(--border)", color: "var(--text)" }}
-              >
-                {day === eventResource.data?.today ? t("robin.events.today") : formatDay(day, locale)}
-                <span className="tabular-nums" style={{ color: "var(--text-muted)" }}>{dayEvents.length}</span>
+          ) : days.map(([key, dayEvents]) => (
+            <section key={key} className={styles.dayGroup} aria-labelledby={`events-${key}`}>
+              <h3 id={`events-${key}`} className={styles.dayHeader} data-today={key === today || undefined}>
+                <span>{key === today ? t("robin.events.today") : formatDay(key, locale)}</span>
+                <span className="tabular-nums" style={{ color: "var(--text-muted)" }}>{t("robin.events.resultCount", { count: String(dayEvents.length) })}</span>
               </h3>
               <div className={styles.eventList}>
                 {dayEvents.map((event) => (
-                  <EventCard
+                  <EventRow
                     key={event.id}
                     event={event}
                     locale={locale}
                     scheduleReady={scheduleReady}
                     scheduleUnavailable={scheduleUnavailable}
-                    busy={busyId !== null}
-                    pending={busyId === event.id}
-                    onSave={() => void patch(event, { saved: !event.saved })}
-                    onHide={() => void patch(event, { hidden: !event.hidden })}
+                    {...cardProps(event)}
                   />
                 ))}
               </div>

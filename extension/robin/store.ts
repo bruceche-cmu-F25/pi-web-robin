@@ -16,6 +16,7 @@ import { DEFAULT_JOB_PROFILE, type Job, type JobProfile } from "./jobs.ts";
 import type { Link } from "./links.ts";
 import { normalizePracticeRecord, type PracticeList, type PracticeRecord } from "./practice.ts";
 import type { TechEvent, TechEventScanState } from "./tech-events.ts";
+import type { TechEventDetail } from "./tech-event-detail.ts";
 import { createDeliveryLedger } from "./delivery-ledger.ts";
 import {
   dataPath,
@@ -92,6 +93,7 @@ const LINKS_FILE = "links.json";
 const EVENTS_FILE = "events.json";
 const TECH_EVENTS_FILE = "tech-events.json";
 const TECH_EVENT_SCAN_FILE = "tech-event-scan.json";
+const TECH_EVENT_DETAILS_FILE = "tech-event-details.json";
 const TELEGRAM_STATE_FILE = "telegram-state.json";
 const JOBS_FILE = "jobs.json";
 const JOB_PROFILE_FILE = "job-profile.json";
@@ -176,6 +178,22 @@ export function readTechEventScanState(): TechEventScanState | null {
 
 export function writeTechEventScanState(state: TechEventScanState): void {
   writeJsonObject(TECH_EVENT_SCAN_FILE, state);
+}
+
+/** Event pages read on demand, keyed by event id. A cache: losing it costs a refetch. */
+export function readTechEventDetails(): Record<string, TechEventDetail> {
+  return readJsonObject<Record<string, TechEventDetail>>(TECH_EVENT_DETAILS_FILE) ?? {};
+}
+
+/** Rewrite the cache under its lock; `update` returns the next map. */
+export function updateTechEventDetails(
+  update: (details: Record<string, TechEventDetail>) => Record<string, TechEventDetail>,
+): void {
+  updateJsonObject<Record<string, TechEventDetail>, void>(TECH_EVENT_DETAILS_FILE, (current) => ({
+    result: undefined,
+    value: update(current ?? {}),
+    changed: true,
+  }));
 }
 
 /* ──────────────────────────── jobs ──────────────────────────── */

@@ -121,6 +121,7 @@ app/api/robin/        Robin dashboard — HTTP adapters over extension/robin/*-d
                       Most are plain CRUD onto the matching domain; the rest:
   jobs/{scan,score,sweep,digest}  discovery, scoring run, directory sweep, Telegram push
   rounds/scan  tech-events/scan  gmail/check  product-classify   turns that cost tokens
+  tech-events/[id]                one event + its Luma page (intro, hosts), cached a day
   assistant/route.ts              a scoped assistant turn (see "Robin tool scoping")
   settings/route.ts               ~/.pi/robin/secrets.json
   google/{route,callback}         OAuth; the callback is exempt from the origin guard

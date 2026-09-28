@@ -25,6 +25,7 @@
  */
 import { makeFetchContext, type FetchContext } from "./job-providers.ts";
 import { classifyTechEvent, inBayArea, type TechEvent } from "./tech-events.ts";
+import { parseLumaEventPage, type TechEventDetail } from "./tech-event-detail.ts";
 
 const SITE_HOST = "luma.com";
 const API_HOST = "api.lu.ma";
@@ -283,4 +284,21 @@ export async function harvestSource(
   }
 
   return { seen, events, ...(name ? { name } : {}) };
+}
+
+/**
+ * Read one event's own page, for the introduction the feeds do not carry.
+ *
+ * The URL is the one the scan stored, and it is re-checked here rather than
+ * trusted: it came off disk, and this is the one request the page can cause
+ * on demand.
+ */
+export async function fetchTechEventDetail(
+  event: Pick<TechEvent, "id" | "url">,
+  ctx: FetchContext = makeFetchContext(),
+  now = new Date().toISOString(),
+): Promise<TechEventDetail> {
+  const url = onLumaHost(event.url, SITE_HOST);
+  const html = await ctx.fetchText(url, { timeoutMs: 20_000, maxBytes: MAX_PAGE_BYTES });
+  return parseLumaEventPage(html, event.id, now);
 }

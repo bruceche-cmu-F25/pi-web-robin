@@ -10,6 +10,7 @@ const pageSource = await read("../../app/dashboard/events/page.tsx");
 const listRoute = await read("../../app/api/robin/tech-events/route.ts");
 const scanRoute = await read("../../app/api/robin/tech-events/scan/route.ts");
 const domain = await read("../../extension/robin/tech-event-domain.ts");
+const detailSource = await read("./EventDetail.tsx");
 
 test("the events page lives under the dashboard shell", () => {
   // /dashboard has a layout that wraps children in <RobinShell>, so the page
@@ -85,4 +86,15 @@ test("every label the board asks for exists in the locale packs", () => {
     assert.ok(enLocale.messages[`robin.events.signal.${signal}`], `missing signal label: ${signal}`);
   }
   assert.ok(enLocale.messages["robin.nav.events"]);
+});
+
+test("an event's introduction is rendered from the parsed tree, never as HTML", () => {
+  // Hosts write the description; extension/robin/tech-event-detail.ts reduces
+  // it to text, bold, italic and http(s) links, and the page builds elements.
+  assert.doesNotMatch(detailSource, /dangerouslySetInnerHTML/);
+  for (const match of detailSource.matchAll(/target="_blank"[^>]*/g)) {
+    assert.match(match[0], /rel="noopener noreferrer"/);
+  }
+  const keys = [...detailSource.matchAll(/\bt\("([a-zA-Z0-9._]+)"/g)].map((m) => m[1]);
+  for (const key of keys) assert.ok(enLocale.messages[key], `missing message: ${key}`);
 });

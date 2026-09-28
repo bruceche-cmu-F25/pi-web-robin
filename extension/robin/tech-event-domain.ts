@@ -14,7 +14,16 @@ import {
   type TechEventScanState,
 } from "./tech-events.ts";
 import { localDate } from "./dates.ts";
-import { readTechEventScanState, readTechEvents, writeTechEvents } from "./store.ts";
+import { isDetailFresh, type TechEventDetail } from "./tech-event-detail.ts";
+import { fetchTechEventDetail } from "./tech-event-sources.ts";
+import type { FetchContext } from "./job-providers.ts";
+import {
+  readTechEventDetails,
+  readTechEventScanState,
+  readTechEvents,
+  updateTechEventDetails,
+  writeTechEvents,
+} from "./store.ts";
 
 export interface TechEventBoard {
   /** Upcoming events, soonest first; past ones are already gone. */
@@ -113,4 +122,72 @@ export function setTechEventFlags(id: string, flags: TechEventFlags): TechEventR
   events[index] = updated;
   writeTechEvents(events);
   return updated;
+}
+
+export interface TechEventPage {
+  event: TechEvent;
+  /** Null only when the page has never been read successfully. */
+  detail: TechEventDetail | null;
+  /** Why the latest read failed; a stale `detail` may still be present. */
+  detailError?: string;
+  today: string;
+}
+
+export interface TechEventPageOptions {
+  /** Skip the day-long cache and read Luma again. */
+  refresh?: boolean;
+  now?: number;
+  ctx?: FetchContext;
+}
+
+/** Two tabs opening the same event share one request. */
+const inflight = ((globalThis as { __robinTechEventDetail?: Map<string, Promise<TechEventDetail>> })
+  .__robinTechEventDetail ??= new Map());
+
+/**
+ * One event plus its introduction, read from its own page.
+ *
+ * Only events already on the board can be opened: the id is looked up in the
+ * stored list and the request goes to the URL the scan stored, so this can
+ * never be turned into a fetch of an arbitrary page. A failed read falls back
+ * to the last good copy — a description does not stop being true because
+ * Luma timed out once.
+ */
+export async function techEventPage(id: string, options: TechEventPageOptions = {}): Promise<TechEventResult<TechEventPage>> {
+  const now = options.now ?? Date.now();
+  const event = readTechEvents().find((candidate) => candidate.id === id);
+  if (!event) return { error: `No event with id "${id}"` };
+
+  const cached = readTechEventDetails()[id];
+  if (!options.refresh && cached && isDetailFresh(cached, now)) {
+    return { event, detail: cached, today: localDate() };
+  }
+
+  let pending = inflight.get(id);
+  if (!pending) {
+    pending = fetchTechEventDetail(event, options.ctx, new Date(now).toISOString());
+    inflight.set(id, pending);
+    void pending.catch(() => {}).finally(() => inflight.delete(id));
+  }
+
+  try {
+    const detail = await pending;
+    // Prune to what is still on the board while holding the lock anyway, so
+    // the cache can never outgrow the list it describes.
+    const live = new Set(readTechEvents().map((candidate) => candidate.id));
+    updateTechEventDetails((details) => {
+      const next: Record<string, TechEventDetail> = {};
+      for (const [key, value] of Object.entries(details)) if (live.has(key)) next[key] = value;
+      next[id] = detail;
+      return next;
+    });
+    return { event, detail, today: localDate() };
+  } catch (error) {
+    return {
+      event,
+      detail: cached ?? null,
+      detailError: error instanceof Error ? error.message : String(error),
+      today: localDate(),
+    };
+  }
 }

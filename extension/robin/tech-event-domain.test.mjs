@@ -8,9 +8,9 @@ const previousDataDir = process.env.ROBIN_DATA_DIR;
 const dataDir = mkdtempSync(join(tmpdir(), "robin-tech-events-"));
 process.env.ROBIN_DATA_DIR = dataDir;
 
-const { setTechEventFlags, techEventBoard, techEventScanStatus } =
+const { setTechEventFlags, techEventBoard, techEventPage, techEventScanStatus } =
   await import("./tech-event-domain.ts");
-const { readTechEvents, writeTechEvents, writeTechEventScanState } = await import("./store.ts");
+const { readTechEventDetails, readTechEvents, writeTechEvents, writeTechEventScanState } = await import("./store.ts");
 const { SCAN_INTERVAL_MS } = await import("./tech-events.ts");
 
 after(() => {
@@ -121,4 +121,67 @@ test("the scan status is readable without touching the event list", () => {
   const status = techEventScanStatus();
   assert.equal(status.scan.startedAt, startedAt);
   assert.equal(status.scanning, false);
+});
+
+/** A fetch context that serves one Luma event page and records what it was asked for. */
+function stubPage(body = "Build night.") {
+  const calls = [];
+  const html = `<script id="__NEXT_DATA__" type="application/json">${JSON.stringify({
+    props: { pageProps: { initialData: { data: {
+      event: {},
+      hosts: [{ name: "Ada" }],
+      description_mirror: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: body }] }] },
+    } } } },
+  })}</script>`;
+  return {
+    calls,
+    ctx: {
+      fetchJson: async () => ({}),
+      fetchText: async (url) => {
+        calls.push(url);
+        if (body === null) throw new Error("HTTP 503");
+        return html;
+      },
+    },
+  };
+}
+
+test("an event page reads the stored Luma URL once, then serves the cached copy", async () => {
+  writeTechEvents([event("luma:a", at(DAY), { url: "https://luma.com/abc" })]);
+  const first = stubPage();
+  const page = await techEventPage("luma:a", { now: NOW, ctx: first.ctx });
+  assert.deepEqual(first.calls, ["https://luma.com/abc"]);
+  assert.equal(page.detail.hosts[0].name, "Ada");
+
+  const second = stubPage("Changed.");
+  const cached = await techEventPage("luma:a", { now: NOW + 60_000, ctx: second.ctx });
+  assert.equal(second.calls.length, 0, "a fresh copy is not refetched");
+  assert.equal(cached.detail.description[0].inlines[0].text, "Build night.");
+});
+
+test("a failed read keeps the last good copy and says why", async () => {
+  writeTechEvents([event("luma:b", at(DAY), { url: "https://luma.com/b" })]);
+  await techEventPage("luma:b", { now: NOW, ctx: stubPage().ctx });
+  const failed = await techEventPage("luma:b", { now: NOW, refresh: true, ctx: stubPage(null).ctx });
+  assert.match(failed.detailError, /503/);
+  assert.equal(failed.detail.hosts[0].name, "Ada");
+});
+
+test("only events on the board can be opened, and only on Luma's host", async () => {
+  writeTechEvents([event("luma:c", at(DAY), { url: "https://evil.example/c" })]);
+  assert.deepEqual(await techEventPage("luma:missing", { now: NOW, ctx: stubPage().ctx }), {
+    error: 'No event with id "luma:missing"',
+  });
+  const stub = stubPage();
+  const page = await techEventPage("luma:c", { now: NOW, ctx: stub.ctx });
+  assert.equal(stub.calls.length, 0);
+  assert.match(page.detailError, /untrusted hostname/);
+});
+
+test("the detail cache is pruned to what is still on the board", async () => {
+  writeTechEvents([event("luma:d", at(DAY), { url: "https://luma.com/d" }), event("luma:e", at(DAY), { url: "https://luma.com/e" })]);
+  await techEventPage("luma:d", { now: NOW, ctx: stubPage().ctx });
+  writeTechEvents([event("luma:e", at(DAY), { url: "https://luma.com/e" })]);
+  await techEventPage("luma:e", { now: NOW, ctx: stubPage().ctx });
+  assert.deepEqual(Object.keys(readTechEventDetails()), ["luma:e"]);
 });
