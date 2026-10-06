@@ -100,6 +100,46 @@ test("aborting a concurrent sweep does not checkpoint boards that were never vis
   assert.ok(calls < 50);
 });
 
+test("a sweep whose durable owner is replaced stops and cannot keep publishing", async () => {
+  const asked = [];
+  const fake = async (url) => {
+    if (String(url).includes("raw.githubusercontent.com")) return Response.json(Array.from({ length: 800 }, (_,i) => `lease-${i}`));
+    asked.push(String(url));
+    return Response.json({ jobs: [] });
+  };
+  let publishes = 0;
+  const result = await runDirectorySweep({
+    profile: rules.profile, directories: ["greenhouse"], limit: 300, fetchImpl: fake,
+    persist: () => ++publishes === 1,
+  });
+  assert.match(result.error, /lease was replaced/);
+  assert.equal(result.running, false);
+  assert.ok(asked.length < 300, "workers stop after the owner-checked checkpoint is rejected");
+});
+
+test("a replaced sweep owner cannot flush discovered jobs", async () => {
+  writeJobs([]);
+  const fake = async (url) => {
+    if (String(url).includes("raw.githubusercontent.com")) return Response.json(["lease-write"]);
+    return Response.json({ jobs: [{
+      id: 1,
+      title: "Software Engineer",
+      absolute_url: "https://job-boards.greenhouse.io/lease-write/jobs/1",
+      location: { name: "San Francisco, CA" },
+      content: "Build software.",
+    }] });
+  };
+  const result = await runDirectorySweep({
+    profile: rules.profile,
+    directories: ["greenhouse"],
+    limit: 1,
+    fetchImpl: fake,
+    commit: () => ({ owned: false }),
+  });
+  assert.match(result.error, /ownership was lost/);
+  assert.deepEqual(readJobs(), []);
+});
+
 test("a better description enriches an existing row without changing user state", async () => {
   writeJobs([stored({ status: "applied", score: 4.5, appliedAt: "2026-09-01", notifiedAt: "2026-09-01", note: "referral" })]);
   await absorb([posting({ description: "Requirements: 6 years of software engineering experience." })], rules, offline);

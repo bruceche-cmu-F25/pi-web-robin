@@ -267,6 +267,10 @@ export function writeJobScanState(state: JobScanState): void {
  * counted down, so it stays true even when something else scores in parallel.
  */
 export interface JobScoringState {
+  /** Durable ownership fields; absent on states written before cross-process leases. */
+  id?: string;
+  ownerId?: string;
+  heartbeatAt?: string;
   startedAt: string;
   finishedAt: string | null;
   running: boolean;
@@ -290,6 +294,10 @@ export function writeJobScoringState(state: JobScoringState): void {
   writeJsonObject(JOB_SCORING_FILE, state);
 }
 
+export function updateJobScoringState<R>(updater: (state: JobScoringState | null) => { value: JobScoringState; result: R; changed: boolean }): R {
+  return updateJsonObject<JobScoringState, R>(JOB_SCORING_FILE, updater);
+}
+
 /**
  * Progress of a directory sweep.
  *
@@ -299,6 +307,10 @@ export function writeJobScoringState(state: JobScoringState): void {
  * instead of a spinner that never resolves.
  */
 export interface JobSweepState {
+  /** Durable ownership fields; absent on states written before cross-process leases. */
+  id?: string;
+  ownerId?: string;
+  heartbeatAt?: string;
   startedAt: string;
   finishedAt: string | null;
   running: boolean;
@@ -331,6 +343,10 @@ export function readJobSweepState(): JobSweepState | null {
 
 export function writeJobSweepState(state: JobSweepState): void {
   writeJsonObject(JOB_SWEEP_FILE, state);
+}
+
+export function updateJobSweepState<R>(updater: (state: JobSweepState | null) => { value: JobSweepState; result: R; changed: boolean }): R {
+  return updateJsonObject<JobSweepState, R>(JOB_SWEEP_FILE, updater);
 }
 
 /**

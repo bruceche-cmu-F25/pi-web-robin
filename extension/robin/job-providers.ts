@@ -148,49 +148,45 @@ const DEFAULT_TIMEOUT_MS = 15_000;
  */
 const USER_AGENT = "robin-jobs/1.0 (+https://github.com/agegr/pi-web)";
 
-export function makeFetchContext(fetchImpl: typeof fetch = fetch): FetchContext {
+export function makeFetchContext(fetchImpl: typeof fetch = fetch, parentSignal?: AbortSignal): FetchContext {
   const send = async (url: string, accept: string, options: FetchRequest) => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+    const timeout = AbortSignal.timeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+    const signal = parentSignal ? AbortSignal.any([parentSignal, timeout]) : timeout;
     const hops = options.redirects ?? 0;
-    try {
-      let target = url;
-      for (let hop = 0; ; hop += 1) {
-        const response = await fetchImpl(target, {
-          signal: controller.signal,
-          // A server-side redirect would land on a host the allow-list never
-          // saw. Refusing to follow it is what keeps that check meaningful;
-          // "manual" plus the re-check below is the same promise, kept a hop
-          // at a time.
-          redirect: hops > 0 ? "manual" : "error",
-          ...(options.body === undefined
-            ? {}
-            : { method: "POST", body: JSON.stringify(options.body) }),
-          headers: {
-            Accept: accept,
-            "User-Agent": USER_AGENT,
-            ...(options.body === undefined ? {} : { "Content-Type": "application/json" }),
-            ...options.headers,
-          },
-        });
+    let target = url;
+    for (let hop = 0; ; hop += 1) {
+      const response = await fetchImpl(target, {
+        signal,
+        // A server-side redirect would land on a host the allow-list never
+        // saw. Refusing to follow it is what keeps that check meaningful;
+        // "manual" plus the re-check below is the same promise, kept a hop
+        // at a time.
+        redirect: hops > 0 ? "manual" : "error",
+        ...(options.body === undefined
+          ? {}
+          : { method: "POST", body: JSON.stringify(options.body) }),
+        headers: {
+          Accept: accept,
+          "User-Agent": USER_AGENT,
+          ...(options.body === undefined ? {} : { "Content-Type": "application/json" }),
+          ...options.headers,
+        },
+      });
 
-        const location = response.status >= 300 && response.status < 400
-          ? response.headers.get("location")
-          : null;
-        if (!location || hop >= hops) {
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          return response;
-        }
-
-        const next = new URL(location, target);
-        if (next.protocol !== "https:") throw new Error(`redirect left HTTPS: ${next.href}`);
-        if (!options.allowHost?.(next.hostname)) {
-          throw new Error(`redirect to untrusted host "${next.hostname}"`);
-        }
-        target = next.toString();
+      const location = response.status >= 300 && response.status < 400
+        ? response.headers.get("location")
+        : null;
+      if (!location || hop >= hops) {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response;
       }
-    } finally {
-      clearTimeout(timer);
+
+      const next = new URL(location, target);
+      if (next.protocol !== "https:") throw new Error(`redirect left HTTPS: ${next.href}`);
+      if (!options.allowHost?.(next.hostname)) {
+        throw new Error(`redirect to untrusted host "${next.hostname}"`);
+      }
+      target = next.toString();
     }
   };
 

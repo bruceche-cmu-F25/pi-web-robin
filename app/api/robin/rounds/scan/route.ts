@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { isConnected } from "@/extension/robin/google-calendar";
 import { listRounds, writeRoundScanState } from "@/extension/robin/round-domain";
 import { runAssistantTurn } from "@/lib/robin-assistant";
+import { executeBackgroundRun } from "@/extension/robin/background-run-domain";
 import { apiRoute } from "@/lib/api-route";
 
 export const dynamic = "force-dynamic";
@@ -9,6 +10,7 @@ export const maxDuration = 360;
 
 /** How far back a scan looks. Long enough to catch an OA sent before the mail review existed. */
 const SCAN_DAYS = 45;
+const ROUND_SCAN_RUN = "hiring-round-mail-scan";
 
 /**
  * Subjects and senders an OA or interview arrives under. Narrow on purpose:
@@ -74,9 +76,19 @@ export const POST = apiRoute(async (req) => {
   try {
     const body = await req.json() as { locale?: unknown };
     const locale = body.locale === "zh" ? "zh" : "en";
-    const { reply } = await runAssistantTurn("mail", scanPrompt(locale));
-    writeRoundScanState({ finishedAt: new Date().toISOString(), days: SCAN_DAYS });
-    return NextResponse.json({ reply, rounds: listRounds() });
+    const execution = await executeBackgroundRun(ROUND_SCAN_RUN, async ({ signal, commit }) => {
+      const { reply } = await runAssistantTurn("mail", scanPrompt(locale), [], undefined, signal);
+      const published = commit(() => {
+        writeRoundScanState({ finishedAt: new Date().toISOString(), days: SCAN_DAYS });
+        return { reply, rounds: listRounds() };
+      });
+      if (!published.owned) throw new Error("Round scan ownership was lost before its final write.");
+      return published.value;
+    });
+    if (!execution.started) {
+      return NextResponse.json({ error: "A hiring-round scan is already running.", reason: "already-running" }, { status: 409 });
+    }
+    return NextResponse.json(execution.value);
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : String(error) },

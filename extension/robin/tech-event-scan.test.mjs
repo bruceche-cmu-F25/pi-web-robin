@@ -3,7 +3,13 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
-import { runTechEventScan } from "./tech-event-scan.ts";
+import {
+  runTechEventScan,
+  startTechEventScan,
+  TECH_EVENT_SCAN_RUN,
+  techEventScanRunning,
+} from "./tech-event-scan.ts";
+import { claimBackgroundRun, releaseBackgroundRun } from "./background-run-domain.ts";
 
 // Classification, the region filter and the merge are tested against
 // ./tech-events.ts, and the feed reading against ./tech-event-sources.ts. What
@@ -135,4 +141,33 @@ test("a scan persists the merged list and its own state", async () => {
   const state = readTechEventScanState();
   assert.equal(state.added, 1);
   assert.ok(state.finishedAt);
+});
+
+test("a durable owner in another process blocks a duplicate event scan", () => {
+  const owner = "another-runtime:event-scan";
+  assert.equal(claimBackgroundRun(TECH_EVENT_SCAN_RUN, owner), true);
+  try {
+    assert.equal(startTechEventScan({ sources: [] }), false);
+    assert.equal(techEventScanRunning(), true);
+  } finally {
+    releaseBackgroundRun(TECH_EVENT_SCAN_RUN, owner);
+  }
+  assert.equal(techEventScanRunning(), false);
+});
+
+test("a rejected event commit cannot overwrite the stored scan", async () => {
+  const { readTechEventScanState, readTechEvents } = await import("./store.ts");
+  const eventsBefore = readTechEvents();
+  const scanBefore = readTechEventScanState();
+  let commits = 0;
+  await runTechEventScan({
+    sources: [],
+    commit: () => {
+      commits += 1;
+      return false;
+    },
+  });
+  assert.equal(commits, 1);
+  assert.deepEqual(readTechEvents(), eventsBefore);
+  assert.deepEqual(readTechEventScanState(), scanBefore);
 });

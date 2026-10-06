@@ -36,9 +36,11 @@ import {
   absorb,
   compileAdmission,
   freshnessCutoff,
+  type JobStoreWrite,
   type ScannedPosting,
 } from "./job-intake.ts";
 import { makeFetchContext, providerById, type FetchContext } from "./job-providers.ts";
+import type { RunOwnershipFence } from "./run-lease.ts";
 import { readJobSweepState, writeJobSweepState, type JobSweepState } from "./store.ts";
 
 const DATASET_BASE = "https://raw.githubusercontent.com/Feashliaa/job-board-aggregator/main/data";
@@ -223,6 +225,7 @@ function cachePath(id: string): string {
 export async function loadDirectory(
   directory: Directory,
   fetchImpl: typeof fetch = fetch,
+  parentSignal?: AbortSignal,
 ): Promise<{ slugs: string[]; status: "ok" | "stale" | "empty" }> {
   const file = cachePath(directory.id);
   if (existsSync(file)) {
@@ -239,7 +242,9 @@ export async function loadDirectory(
   try {
     const response = await fetchImpl(directory.dataset, {
       redirect: "error",
-      signal: AbortSignal.timeout(60_000),
+      signal: parentSignal
+        ? AbortSignal.any([parentSignal, AbortSignal.timeout(60_000)])
+        : AbortSignal.timeout(60_000),
       headers: { Accept: "application/json" },
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -344,6 +349,12 @@ export interface SweepOptions {
   fetchImpl?: typeof fetch;
   signal?: AbortSignal;
   onProgress?: (state: JobSweepState) => void;
+  /** Durable owner attached by the HTTP runner; direct/domain tests may omit it. */
+  ownership?: Pick<JobSweepState, "id" | "ownerId" | "heartbeatAt" | "startedAt">;
+  /** Owner-checked persistence supplied by the runner. Defaults to the store. */
+  persist?: (state: JobSweepState) => boolean;
+  /** Fences job and cache writes against takeover by another runner. */
+  commit?: RunOwnershipFence;
 }
 
 /**
@@ -361,9 +372,19 @@ export async function runDirectorySweep(options: SweepOptions): Promise<JobSweep
     fetchImpl = fetch,
     signal,
     onProgress,
+    ownership,
+    persist,
+    commit,
   } = options;
 
-  const ctx: FetchContext = makeFetchContext(fetchImpl);
+  const ctx: FetchContext = makeFetchContext(fetchImpl, signal);
+  const write: JobStoreWrite = commit
+    ? (action) => {
+        const result = commit(action);
+        if (!result.owned) throw new Error("Directory sweep ownership was lost before its store write.");
+        return result.value;
+      }
+    : (action) => action();
   // "drop": here the question is "what appeared recently", and twenty thousand
   // boards' worth of undated backlog would bury the answer. The forward scan
   // passes "keep" for the opposite and equally good reason.
@@ -379,7 +400,8 @@ export async function runDirectorySweep(options: SweepOptions): Promise<JobSweep
   const cutoff = freshnessCutoff(profile.sinceDays);
 
   const state: JobSweepState = {
-    startedAt: new Date().toISOString(),
+    ...ownership,
+    startedAt: ownership?.startedAt ?? new Date().toISOString(),
     finishedAt: null,
     running: true,
     boardsTotal: 0,
@@ -406,7 +428,7 @@ export async function runDirectorySweep(options: SweepOptions): Promise<JobSweep
   for (const id of directories) {
     const directory = directoryById(id);
     if (!directory) continue;
-    const { slugs, status } = await loadDirectory(directory, fetchImpl);
+    const { slugs, status } = await loadDirectory(directory, fetchImpl, signal);
     // A cursor past the end means that directory finished; start it over
     // rather than silently scanning nothing.
     const cursor = previous[directory.id] ?? 0;
@@ -421,11 +443,16 @@ export async function runDirectorySweep(options: SweepOptions): Promise<JobSweep
     state.boardsTotal += window.length;
   }
 
-  const publish = () => {
-    writeJobSweepState(state);
-    onProgress?.(state);
+  const publish = (): boolean => {
+    const saved = persist ? persist(state) : (writeJobSweepState(state), true);
+    if (saved) onProgress?.(state);
+    else {
+      state.running = false;
+      state.error ??= "Directory sweep lease was replaced; stopped local work.";
+    }
+    return saved;
   };
-  publish();
+  if (!publish()) return state;
 
   const dead = readDeadBoards();
   let pending: ScannedPosting[] = [];
@@ -450,7 +477,7 @@ export async function runDirectorySweep(options: SweepOptions): Promise<JobSweep
     const batch = pending;
     pending = [];
     flushing = flushing.then(async () => {
-      state.added += (await absorb(batch, rules, ctx)).added;
+      state.added += (await absorb(batch, rules, ctx, write)).added;
     }).catch((error) => {
       // A failed flush loses its batch, not the sweep. The next one still runs.
       state.error = error instanceof Error ? error.message : String(error);
@@ -538,7 +565,7 @@ export async function runDirectorySweep(options: SweepOptions): Promise<JobSweep
 
   await flush();
   try {
-    writeDeadBoards(dead);
+    write(() => writeDeadBoards(dead));
   } catch {
     // Losing the list costs one night of extra requests, not the sweep.
   }

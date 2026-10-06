@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import { scoringPrompt } from "@/extension/robin/job-rubric";
 import {
+  claimJobScoringRun,
+  heartbeatJobScoringRun,
   pendingJobCount,
   pendingJobIds,
   saveScoringState,
@@ -9,6 +12,7 @@ import {
   scorerName,
 } from "@/extension/robin/job-domain";
 import { jobProfile } from "@/extension/robin/job-profile";
+import { RUN_LEASE_MS, RUNTIME_OWNER_ID, startRunHeartbeat } from "@/extension/robin/run-lease";
 import type { JobScoringState } from "@/extension/robin/job-domain";
 import { runAssistantTurn } from "@/lib/robin-assistant";
 import { apiRoute } from "@/lib/api-route";
@@ -25,7 +29,7 @@ function isOutOfScope(error: unknown): boolean {
   return error instanceof Error && error.message.startsWith("Model is not available in the enabled scope");
 }
 
-/** One run at a time per process — two would bill twice for the same queue. */
+/** Local fast path; the store-backed lease below owns cross-process exclusion. */
 let running: Promise<unknown> | null = null;
 
 export const GET = apiRoute(async () => NextResponse.json(scoringStatus()));
@@ -51,6 +55,9 @@ export const POST = apiRoute(async () => {
 
   const batch = Math.max(1, profile.scoreBatch);
   const state: JobScoringState = {
+    id: randomUUID(),
+    ownerId: RUNTIME_OWNER_ID,
+    heartbeatAt: new Date().toISOString(),
     startedAt: new Date().toISOString(),
     finishedAt: null,
     running: true,
@@ -61,14 +68,24 @@ export const POST = apiRoute(async () => {
     model: scorerName(profile.scoreModel),
     error: null,
   };
-  saveScoringState(state);
+  if (!claimJobScoringRun(state, Date.now() - RUN_LEASE_MS)) {
+    return NextResponse.json({ started: false, reason: "already-running", scoring: scoringState() });
+  }
 
+  const controller = new AbortController();
+  const heartbeatTimer = startRunHeartbeat(() => heartbeatJobScoringRun(state.id!, state.ownerId!), controller);
+  const publish = (): boolean => {
+    const owned = saveScoringState(state);
+    if (!owned) controller.abort();
+    return owned;
+  };
   const task = (async () => {
     // Undefined means "the profile's pin"; null means pi's default model.
     let model: null | undefined;
     for (let round = 1; round <= state.totalRounds; round += 1) {
+      if (controller.signal.aborted) return;
       state.round = round;
-      saveScoringState(state);
+      if (!publish()) return;
       const beforeIds = pendingJobIds();
       try {
         await runAssistantTurn("scoring", scoringPrompt(batch, profile.rubricLocale), [], model);
@@ -91,18 +108,20 @@ export const POST = apiRoute(async () => {
       // Counted from the store, not decremented, so a round the model half
       // finished is reflected honestly.
       const remainingIds = new Set(pendingJobIds());
+      if (controller.signal.aborted) return;
       state.remaining = remainingIds.size;
       if (beforeIds.length > 0 && beforeIds.every(id => remainingIds.has(id))) {
         state.error = "Scoring made no progress; stopped rather than spending another model round on the same jobs.";
       }
-      saveScoringState(state);
+      if (!publish()) return;
       if (state.remaining === 0 || state.error) break;
     }
     state.remaining = pendingJobCount();
     state.running = false;
     state.finishedAt = new Date().toISOString();
-    saveScoringState(state);
+    publish();
   })().finally(() => {
+    clearInterval(heartbeatTimer);
     running = null;
   });
   running = task;

@@ -12,6 +12,7 @@ import {
   invalidateSessionListCache, invalidateSessionPathCache, readSessionHeader, resolveSessionPath,
 } from "@/lib/session-reader";
 import { samePath } from "@/lib/paths";
+import { executeBackgroundRun } from "@/extension/robin/background-run-domain";
 
 export const ROBIN_IDLE_MS = 30 * 60 * 1000;
 export const ROBIN_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
@@ -184,8 +185,8 @@ export function startRobinSessionCleanup(): void {
 }
 
 /**
- * One turn per mode at a time, so dashboard and Telegram never acquire or
- * rotate the same persona concurrently.
+ * One turn per mode at a time across every server process, so dashboard and
+ * Telegram never acquire or rotate the same persona concurrently.
  *
  * A conversation refuses a second message while one is in flight: it would
  * land in the same session behind a reply nobody has read yet. A one-shot job
@@ -195,7 +196,7 @@ export function startRobinSessionCleanup(): void {
  */
 export async function withRobinTurnLock<T>(
   mode: string,
-  turn: () => Promise<T>,
+  turn: (signal: AbortSignal, deferRelease: (until: Promise<unknown>) => void) => Promise<T>,
   options: { queue?: boolean } = {},
 ): Promise<T> {
   // Not the old `__robinTurnLocks` Set: a hot reload must not pick that up.
@@ -204,10 +205,18 @@ export async function withRobinTurnLock<T>(
   if (previous && !options.queue) {
     throw new Error("Robin is still working on the previous message. Please wait for it to finish.");
   }
-  const run = (previous ?? Promise.resolve()).then(turn);
+  const run = (previous ?? Promise.resolve()).then(async () => {
+    const execution = await executeBackgroundRun(
+      `assistant-turn:${mode}`,
+      ({ signal, deferRelease }) => turn(signal, deferRelease),
+    );
+    if (!execution.started) {
+      throw new Error("Robin is still working on the previous message. Please wait for it to finish.");
+    }
+    return execution.value;
+  });
   const settled = run.then(() => undefined, () => undefined);
   queues.set(mode, settled);
   try { return await run; }
   finally { if (queues.get(mode) === settled) queues.delete(mode); }
 }
-

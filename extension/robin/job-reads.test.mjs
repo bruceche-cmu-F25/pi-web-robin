@@ -8,11 +8,11 @@ const previous = process.env.ROBIN_DATA_DIR;
 const dir = mkdtempSync(join(tmpdir(), "robin-job-reads-"));
 process.env.ROBIN_DATA_DIR = dir;
 
-const { jobBoard, pendingJobCount, pendingJobIds, scorerName, scoringStatus } =
+const { claimJobScoringRun, claimJobSweepRun, heartbeatJobScoringRun, heartbeatJobSweepRun, jobBoard, pendingJobCount, pendingJobIds, saveJobSweepState, saveScoringState, scorerName, scoringState, scoringStatus, sweepState } =
   await import("./job-domain.ts");
 const { jobProfile, saveJobProfile } = await import("./job-profile.ts");
 const { DEFAULT_JOB_PROFILE } = await import("./jobs.ts");
-const { writeJobProfile, writeJobs } = await import("./store.ts");
+const { readJobScoringState, readJobSweepState, writeJobProfile, writeJobScoringState, writeJobSweepState, writeJobs } = await import("./store.ts");
 
 after(() => {
   rmSync(dir, { recursive: true, force: true });
@@ -82,6 +82,45 @@ test("scoringStatus pairs the published run with the live backlog", () => {
   assert.equal(status.scoring, null);
   assert.equal(status.pending, 1);
   assert.equal(status.model, null);
+});
+
+test("scoring leases reject a fresh owner, expire cleanly, and reject late progress", () => {
+  const base = { startedAt: "2026-10-04T10:00:00.000Z", finishedAt: null, running: true, round: 0, totalRounds: 1, startedWith: 1, remaining: 1, model: null, error: null };
+  const first = { ...base, id: "first", ownerId: "runtime-one", heartbeatAt: "2026-10-04T10:00:00.000Z" };
+  assert.equal(claimJobScoringRun(first, Date.parse("2026-10-04T09:58:00.000Z")), true);
+  assert.equal(claimJobScoringRun({ ...first, id: "second", ownerId: "runtime-two" }, Date.parse("2026-10-04T09:59:00.000Z")), false);
+  assert.equal(heartbeatJobScoringRun("first", "runtime-two", "2026-10-04T10:01:00.000Z"), false);
+  assert.equal(heartbeatJobScoringRun("first", "runtime-one", "2026-10-04T10:01:00.000Z"), true);
+  assert.equal(saveScoringState({ ...first, round: 1 }), true);
+  assert.equal(readJobScoringState().heartbeatAt, "2026-10-04T10:01:00.000Z", "progress cannot regress a newer heartbeat");
+  const second = { ...base, id: "second", ownerId: "runtime-two", heartbeatAt: "2026-10-04T10:04:00.000Z", startedAt: "2026-10-04T10:04:00.000Z" };
+  assert.equal(claimJobScoringRun(second, Date.parse("2026-10-04T10:02:00.000Z")), true);
+  assert.equal(saveScoringState({ ...first, round: 1 }), false, "a replaced scorer cannot overwrite the new run");
+  assert.equal(readJobScoringState().id, "second");
+
+  writeJobScoringState({ ...base, id: "abandoned", ownerId: "gone", heartbeatAt: "2020-01-01T00:00:00.000Z" });
+  assert.equal(scoringState().running, false);
+  assert.match(scoringState().error, /lease expired/);
+  assert.equal(readJobScoringState().running, true, "GET projection does not rewrite recovery state");
+});
+
+test("directory sweep leases preserve cursors and reject a replaced writer", () => {
+  const base = { startedAt: "2026-10-04T10:00:00.000Z", finishedAt: null, running: true, boardsTotal: 10, boardsDone: 4, unreachable: 0, scanned: 4, matched: 1, added: 1, directories: [], cursors: { greenhouse: 4 }, cursorVersion: 2, error: null };
+  const first = { ...base, id: "sweep-one", ownerId: "runtime-one", heartbeatAt: "2026-10-04T10:00:00.000Z" };
+  assert.equal(claimJobSweepRun(first, Date.parse("2026-10-04T09:58:00.000Z")), true);
+  assert.equal(claimJobSweepRun({ ...first, id: "sweep-two", ownerId: "runtime-two" }, Date.parse("2026-10-04T09:59:00.000Z")), false);
+  assert.equal(heartbeatJobSweepRun("sweep-one", "runtime-one", "2026-10-04T10:01:00.000Z"), true);
+  assert.equal(saveJobSweepState({ ...first, boardsDone: 5, cursors: { greenhouse: 5 } }), true);
+  assert.equal(readJobSweepState().heartbeatAt, "2026-10-04T10:01:00.000Z");
+  const second = { ...base, id: "sweep-two", ownerId: "runtime-two", heartbeatAt: "2026-10-04T10:04:00.000Z", startedAt: "2026-10-04T10:04:00.000Z" };
+  assert.equal(claimJobSweepRun(second, Date.parse("2026-10-04T10:02:00.000Z")), true);
+  assert.equal(saveJobSweepState({ ...first, boardsDone: 6 }), false);
+  assert.equal(readJobSweepState().id, "sweep-two");
+
+  writeJobSweepState({ ...base, id: "abandoned-sweep", ownerId: "gone", heartbeatAt: "2020-01-01T00:00:00.000Z" });
+  assert.equal(sweepState().running, false);
+  assert.match(sweepState().error, /lease expired/);
+  assert.equal(readJobSweepState().running, true, "read projection leaves the interrupted evidence intact");
 });
 
 test("a pinned scorer is reported as provider/modelId", () => {

@@ -14,7 +14,13 @@
  * Server-only: reaches node:fs through ./job-intake.ts and ./store.ts.
  */
 import { type JobProfile, type TrackedCompany } from "./jobs.ts";
-import { absorb, admitPostings, expireClosedPostings, type ScannedPosting } from "./job-intake.ts";
+import {
+  absorb,
+  admitPostings,
+  expireClosedPostings,
+  type JobStoreWrite,
+  type ScannedPosting,
+} from "./job-intake.ts";
 import {
   makeFetchContext,
   resolveProvider,
@@ -22,6 +28,7 @@ import {
   type FetchContext,
 } from "./job-providers.ts";
 import { readJobProfile, readJobScanState, writeJobScanState, type JobScanState } from "./store.ts";
+import type { RunOwnershipFence } from "./run-lease.ts";
 
 /**
  * Six at a time. Several of these providers serve their whole customer base
@@ -123,13 +130,27 @@ function enabledSources(profile: JobProfile, weekly: boolean): ScanSource[] {
  * A source that fails is recorded and skipped: one board being down or having
  * changed its URL must not cost you the other twenty.
  */
-export async function runJobScan(
-  options: { fetchImpl?: typeof fetch; profile?: JobProfile; now?: number } = {},
-): Promise<ScanResult> {
+export interface JobScanOptions {
+  fetchImpl?: typeof fetch;
+  profile?: JobProfile;
+  now?: number;
+  signal?: AbortSignal;
+  /** Fences every store mutation after network work. */
+  commit?: RunOwnershipFence;
+}
+
+export async function runJobScan(options: JobScanOptions = {}): Promise<ScanResult> {
   const now = options.now ?? Date.now();
   const startedAt = new Date(now).toISOString();
   const profile = options.profile ?? readJobProfile();
-  const ctx = makeFetchContext(options.fetchImpl ?? fetch);
+  const ctx = makeFetchContext(options.fetchImpl ?? fetch, options.signal);
+  const write: JobStoreWrite = options.commit
+    ? (action) => {
+        const result = options.commit!(action);
+        if (!result.owned) throw new Error("Job scan ownership was lost before its store write.");
+        return result.value;
+      }
+    : (action) => action();
   const lastWeekly = readJobScanState()?.weeklyAt;
   const weeklyDue = !lastWeekly || now - Date.parse(lastWeekly) >= WEEKLY_INTERVAL_MS;
   const sources = enabledSources(profile, weeklyDue);
@@ -159,10 +180,10 @@ export async function runJobScan(
   // dropping undated postings here would switch that employer off entirely.
   const rules = { profile, undated: "keep" as const };
   const matched = admitPostings(postings, rules);
-  const { added } = await absorb(matched, rules, ctx);
+  const { added } = await absorb(matched, rules, ctx, write);
   // A scan is also the moment to notice what closed. Discovery only ever sees
   // what a board still lists, so nothing else in this pipeline would.
-  const { closed } = await expireClosedPostings(profile, ctx);
+  const { closed } = await expireClosedPostings(profile, ctx, write);
 
   const state: ScanResult = {
     startedAt,
@@ -174,6 +195,6 @@ export async function runJobScan(
     ...(weeklyDue ? { weeklyAt: startedAt } : lastWeekly ? { weeklyAt: lastWeekly } : {}),
     sources: results.map((entry) => entry.result),
   };
-  writeJobScanState(state);
+  write(() => writeJobScanState(state));
   return state;
 }

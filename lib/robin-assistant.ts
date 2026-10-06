@@ -59,6 +59,8 @@ const SCORING_TIMEOUT_MS = 300_000;
  * a full inbox day, short enough not to hang the page forever.
  */
 const MAIL_TIMEOUT_MS = 180_000;
+/** A detached turn gets this long to settle before it is aborted and unlocked. */
+const DETACHED_TURN_MAX_MS = 15 * 60_000;
 // pi renamed deepseek-v4-flash to deepseek-flash; the old id is out of scope and fails every turn.
 const MAIL_MODEL = { provider: "deepseek", modelId: "deepseek-flash" } as const;
 
@@ -368,12 +370,20 @@ export async function runAssistantTurn(
   message: string,
   images: Array<{ type: "image"; data: string; mimeType: string }> = [],
   modelOverride?: { provider: string; modelId: string } | null,
+  signal?: AbortSignal,
 ): Promise<{ reply: string; usedTools: string[]; sessionId: string }> {
   const mode = MODES[modeName];
   const oneShot = "stateless" in mode && mode.stateless === true;
   return withRobinTurnLock(
     modeName,
-    () => runModeTurn(modeName, message, images, modelOverride),
+    (leaseSignal, deferRelease) => runModeTurn(
+      modeName,
+      message,
+      images,
+      modelOverride,
+      signal ? AbortSignal.any([signal, leaseSignal]) : leaseSignal,
+      deferRelease,
+    ),
     { queue: oneShot },
   );
 }
@@ -383,7 +393,10 @@ async function runModeTurn(
   message: string,
   images: Array<{ type: "image"; data: string; mimeType: string }>,
   modelOverride?: { provider: string; modelId: string } | null,
+  signal?: AbortSignal,
+  deferRelease?: (until: Promise<unknown>) => void,
 ): Promise<{ reply: string; usedTools: string[]; sessionId: string }> {
+  signal?.throwIfAborted();
   const mode = MODES[modeName];
   const stateless = "stateless" in mode && mode.stateless === true;
   // `null` is an explicit "pi's default", distinct from no override at all.
@@ -409,11 +422,15 @@ async function runModeTurn(
       images,
       mode.timeoutMs,
       "timeContext" in mode && mode.timeContext === true,
+      signal,
     );
     // A mail turn ends in a report that is stored and pushed to a phone; the
     // narration between its tool calls ("I'll start by checking…") is not part
     // of it. Chat modes keep every message, since their answer can span them.
     return { reply: modeName === "mail" && final ? final : reply, usedTools, sessionId };
+  } catch (error) {
+    if (!stateless && session.isRunning()) deferRelease?.(waitForSessionSettled(session));
+    throw error;
   } finally {
     if (stateless) await endOneShot(session);
   }
@@ -435,7 +452,7 @@ async function endOneShot(session: AgentSessionWrapper): Promise<void> {
  * classification, a summary): the session is aborted and destroyed when the
  * turn ends, so a timed-out request does not leave a model running behind it.
  */
-export async function runScopedAssistantTurn(options: {
+export interface ScopedAssistantTurnOptions {
   remembered: string | null;
   remember: (sessionId: string) => void;
   toolNames: string[];
@@ -452,7 +469,28 @@ export async function runScopedAssistantTurn(options: {
    */
   thinkingLevel?: ThinkingLevel;
   signal?: AbortSignal;
-}): Promise<{ reply: string; usedTools: string[]; sessionId: string }> {
+  /** Durable serialization key when this turn resumes a data-scoped session. */
+  lockKey?: string;
+}
+
+export async function runScopedAssistantTurn(
+  options: ScopedAssistantTurnOptions,
+): Promise<{ reply: string; usedTools: string[]; sessionId: string }> {
+  if (options.lockKey) {
+    return withRobinTurnLock(`scoped:${options.lockKey}`, (leaseSignal, deferRelease) =>
+      runScopedAssistantTurnUnlocked({
+        ...options,
+        lockKey: undefined,
+        signal: options.signal ? AbortSignal.any([options.signal, leaseSignal]) : leaseSignal,
+      }, deferRelease));
+  }
+  return runScopedAssistantTurnUnlocked(options);
+}
+
+async function runScopedAssistantTurnUnlocked(
+  options: ScopedAssistantTurnOptions,
+  deferRelease?: (until: Promise<unknown>) => void,
+): Promise<{ reply: string; usedTools: string[]; sessionId: string }> {
   const { session, sessionId, fresh } = await acquireSession(
     options.toolNames,
     options.oneShot ? null : options.remembered,
@@ -464,7 +502,36 @@ export async function runScopedAssistantTurn(options: {
     if (options.thinkingLevel) await session.send({ type: "set_thinking_level", level: options.thinkingLevel });
     const { reply, usedTools } = await runTurn(session, prompt, options.images ?? [], options.timeoutMs ?? TURN_TIMEOUT_MS, false, options.signal);
     return { reply, usedTools, sessionId };
+  } catch (error) {
+    if (!options.oneShot && session.isRunning()) deferRelease?.(waitForSessionSettled(session));
+    throw error;
   } finally {
     if (options.oneShot) await endOneShot(session);
   }
+}
+
+/** Keep a durable conversation lock while a timed-out session finishes off-request. */
+function waitForSessionSettled(session: AgentSessionWrapper): Promise<void> {
+  if (!session.isRunning()) return Promise.resolve();
+  return new Promise((resolve) => {
+    let unsubscribe = () => {};
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      unsubscribe();
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      void session.send({ type: "abort" }).catch(() => {}).finally(finish);
+    }, DETACHED_TURN_MAX_MS);
+    timer.unref?.();
+    unsubscribe = session.onEvent((event) => {
+      if (event.type === "prompt_done" || event.type === "agent_settled") finish();
+    });
+    // Close the subscribe/check race if the terminal event landed just before
+    // the listener was attached.
+    if (!session.isRunning()) finish();
+  });
 }

@@ -8,7 +8,16 @@ const dir = mkdtempSync(join(tmpdir(), "robin-podcasts-"));
 process.env.ROBIN_DATA_DIR = dir;
 after(() => rmSync(dir, { recursive: true, force: true }));
 
-const { scanPodcasts } = await import("./podcast-scan.ts");
+const {
+  PODCAST_SCAN_RUN,
+  podcastSummaryRun,
+  podcastScanRunning,
+  scanPodcasts,
+  startPodcastScan,
+  summariesRunning,
+  summarizeEpisode,
+} = await import("./podcast-scan.ts");
+const { claimBackgroundRun, releaseBackgroundRun, RUN_LEASE_MS } = await import("./background-run-domain.ts");
 
 const feed = (id) => `<feed><entry><yt:videoId>${id}</yt:videoId><title>${id}</title>
   <link rel="alternate" href="https://www.youtube.com/watch?v=${id}"/>
@@ -87,4 +96,84 @@ test("when every feed 404s, uploads come from the browse endpoint and reuse know
   players.length = 0;
   await scanPodcasts({ fetchImpl, channels, now });
   assert.deepEqual(players, [], "details the store already holds are not fetched again");
+});
+
+test("a rejected podcast commit does not fall through to an unfenced write", async () => {
+  const before = JSON.stringify((await import("./podcast-scan.ts")).readPodcastStore());
+  let commits = 0;
+  await scanPodcasts({
+    channels: [],
+    now: Date.parse("2026-09-20T00:00:00Z"),
+    commit: () => {
+      commits += 1;
+      return null;
+    },
+  });
+  assert.equal(commits, 1);
+  assert.equal(JSON.stringify((await import("./podcast-scan.ts")).readPodcastStore()), before);
+});
+
+test("a durable owner in another process blocks duplicate YouTube traffic", async () => {
+  const owner = "another-runtime:podcast-scan";
+  assert.equal(claimBackgroundRun(PODCAST_SCAN_RUN, owner), true);
+  let requests = 0;
+  try {
+    await startPodcastScan({
+      fetchImpl: async () => {
+        requests += 1;
+        throw new Error("should not fetch");
+      },
+    });
+    assert.equal(requests, 0);
+    assert.equal(podcastScanRunning(), true);
+  } finally {
+    releaseBackgroundRun(PODCAST_SCAN_RUN, owner);
+  }
+  assert.equal(podcastScanRunning(), false);
+});
+
+test("a remote episode summary blocks duplicate model and transcript work", async () => {
+  const videoId = "remoteVid01";
+  const runName = podcastSummaryRun(videoId);
+  assert.equal(claimBackgroundRun(runName, "another-runtime"), true);
+  let requests = 0;
+  let asks = 0;
+  try {
+    await assert.rejects(
+      summarizeEpisode(videoId, async () => { asks += 1; return ""; }, async () => {
+        requests += 1;
+        throw new Error("should not fetch");
+      }),
+      /already being summarised/,
+    );
+    assert.equal(requests, 0);
+    assert.equal(asks, 0);
+    assert.ok(summariesRunning().includes(videoId));
+  } finally {
+    releaseBackgroundRun(runName, "another-runtime");
+  }
+});
+
+test("a replaced episode summarizer cannot publish its late model result", async () => {
+  const videoId = "lateVideo01";
+  const runName = podcastSummaryRun(videoId);
+  let answer;
+  const ask = () => new Promise((resolve) => { answer = resolve; });
+  const fetchImpl = async (url) => String(url).includes("/player")
+    ? Response.json({ captions: { playerCaptionsTracklistRenderer: { captionTracks: [
+      { baseUrl: `https://www.youtube.com/api/timedtext?v=${videoId}`, languageCode: "en" },
+    ] } } })
+    : new Response('<transcript><text start="0">hello world</text></transcript>', { status: 200 });
+
+  const pending = summarizeEpisode(videoId, ask, fetchImpl);
+  while (!answer) await new Promise((resolve) => setImmediate(resolve));
+  const replacementAt = Date.now() + RUN_LEASE_MS;
+  assert.equal(claimBackgroundRun(runName, "replacement-owner", replacementAt), true);
+  answer(JSON.stringify({
+    tldr: { en: "A late summary.", zh: "迟到的总结。" },
+    points: [{ at: "[0:00]", en: "Late point.", zh: "迟到的观点。" }],
+  }));
+  await assert.rejects(pending, /ownership was lost/);
+  assert.equal((await import("./podcast-scan.ts")).readPodcastStore().summaries[videoId], undefined);
+  assert.equal(releaseBackgroundRun(runName, "replacement-owner"), true);
 });

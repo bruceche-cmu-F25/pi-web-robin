@@ -15,6 +15,18 @@ export interface PiWebContext {
   fetch: typeof fetch;
 }
 
+/** Preserve a route's machine-readable refusal without making callers parse prose. */
+export class PiWebHttpError extends Error {
+  readonly name = "PiWebHttpError";
+  readonly status: number;
+  readonly reason?: string;
+  constructor(status: number, message: string, reason?: string) {
+    super(message);
+    this.status = status;
+    this.reason = reason;
+  }
+}
+
 /** A dashboard command is a sentence, not a coding task; well under a minute. */
 export const AGENT_TIMEOUT_MS = 120_000;
 /** Must outlast the assistant route's own scoring budget so the route reports first. */
@@ -53,8 +65,8 @@ export async function piWeb<T>(
       headers: authHeaders(ctx),
       ...(method === "GET" ? {} : { body: JSON.stringify(body ?? {}) }),
     });
-    const parsed = await response.json().catch(() => null) as (T & { error?: string }) | null;
-    if (!response.ok) throw new Error(parsed?.error ?? `pi-web returned HTTP ${response.status}`);
+    const parsed = await response.json().catch(() => null) as (T & { error?: string; reason?: string }) | null;
+    if (!response.ok) throw new PiWebHttpError(response.status, parsed?.error ?? `pi-web returned HTTP ${response.status}`, parsed?.reason);
     return parsed as T;
   } finally {
     clearTimeout(timer);

@@ -41,7 +41,7 @@ export const POST = apiRoute(async (req) => {
 
   if (body.action === "refresh") {
     await startPodcastScan();
-    return NextResponse.json({ ...podcastView(readPodcastStore()), scanning: false, summarizing: summariesRunning() });
+    return NextResponse.json({ ...podcastView(readPodcastStore()), scanning: podcastScanRunning(), summarizing: summariesRunning() });
   }
 
   if (body.action !== "summarize") return apiError("Unknown action");
@@ -54,7 +54,7 @@ export const POST = apiRoute(async (req) => {
   const details = store.details[videoId];
   const heading = details ? `Episode: "${details.title}" — ${details.author}` : `Episode: ${videoId}`;
   try {
-    const summary = await summarizeEpisode(videoId, async (instructions, transcript) => {
+    const summary = await summarizeEpisode(videoId, async (instructions, transcript, signal) => {
       const { reply } = await runScopedAssistantTurn({
         // One throwaway session per summary: nothing to remember between
         // episodes, and a timed-out summary must stop reading the transcript.
@@ -65,6 +65,7 @@ export const POST = apiRoute(async (req) => {
         preamble: instructions,
         message: `${heading}\n\nTranscript:\n${transcript}`,
         timeoutMs: SUMMARY_TIMEOUT_MS,
+        signal,
       });
       return reply;
     });

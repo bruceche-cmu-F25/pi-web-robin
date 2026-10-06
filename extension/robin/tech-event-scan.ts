@@ -10,7 +10,16 @@
  *
  * Server-only: reaches node:fs through ./store.ts.
  */
+import {
+  backgroundRunActive,
+  claimBackgroundRun,
+  heartbeatBackgroundRun,
+  newBackgroundRunOwner,
+  releaseBackgroundRun,
+  withBackgroundRunOwnership,
+} from "./background-run-domain.ts";
 import { makeFetchContext } from "./job-providers.ts";
+import { startRunHeartbeat } from "./run-lease.ts";
 import {
   DEFAULT_SOURCES,
   harvestSource,
@@ -54,6 +63,10 @@ export interface TechEventScanOptions {
   stored?: TechEvent[];
   persist?: boolean;
   now?: number;
+  /** Cancels outbound reads when a durable owner is replaced. */
+  signal?: AbortSignal;
+  /** Transaction seam used by the durable runner to fence the final write. */
+  commit?: (events: TechEvent[], state: TechEventScanState) => boolean;
 }
 
 /**
@@ -72,7 +85,7 @@ export async function runTechEventScan(
   const startedAt = new Date(now).toISOString();
   const sources = options.sources ?? DEFAULT_SOURCES;
   const persist = options.persist ?? true;
-  const ctx = makeFetchContext(options.fetchImpl ?? fetch);
+  const ctx = makeFetchContext(options.fetchImpl ?? fetch, options.signal);
 
   const harvested = await pooled(sources, CONCURRENCY, async (source): Promise<{
     result: TechEventSourceResult;
@@ -113,14 +126,18 @@ export async function runTechEventScan(
   };
 
   if (persist) {
-    writeTechEvents(events);
-    writeTechEventScanState(state);
+    const commit = options.commit ?? ((nextEvents: TechEvent[], nextState: TechEventScanState) => {
+      writeTechEvents(nextEvents);
+      writeTechEventScanState(nextState);
+      return true;
+    });
+    commit(events, state);
   }
   return { ...state, events };
 }
 
 /**
- * At most one scan at a time, per server process.
+ * At most one scan at a time across every server process.
  *
  * The guard lives here rather than in a route because two routes reach it: the
  * page's own GET starts a scan when the week is up, and the refresh button
@@ -129,10 +146,12 @@ export async function runTechEventScan(
  * pressing refresh would put two scans on the same host, interleaving their
  * writes to one file.
  */
+export const TECH_EVENT_SCAN_RUN = "tech-event-scan";
+
 let running: Promise<unknown> | null = null;
 
 export function techEventScanRunning(): boolean {
-  return running !== null;
+  return backgroundRunActive(TECH_EVENT_SCAN_RUN);
 }
 
 /**
@@ -143,7 +162,29 @@ export function techEventScanRunning(): boolean {
  */
 export function startTechEventScan(options: TechEventScanOptions = {}): boolean {
   if (running) return false;
-  const task = runTechEventScan(options).finally(() => {
+  const ownerId = newBackgroundRunOwner();
+  if (!claimBackgroundRun(TECH_EVENT_SCAN_RUN, ownerId)) return false;
+
+  const controller = new AbortController();
+  const heartbeat = startRunHeartbeat(
+    () => heartbeatBackgroundRun(TECH_EVENT_SCAN_RUN, ownerId),
+    controller,
+  );
+  const task = runTechEventScan({
+    ...options,
+    signal: options.signal
+      ? AbortSignal.any([options.signal, controller.signal])
+      : controller.signal,
+    commit: (events, state) => {
+      const result = withBackgroundRunOwnership(TECH_EVENT_SCAN_RUN, ownerId, () => {
+        writeTechEvents(events);
+        writeTechEventScanState(state);
+      });
+      return result.owned;
+    },
+  }).finally(() => {
+    clearInterval(heartbeat);
+    releaseBackgroundRun(TECH_EVENT_SCAN_RUN, ownerId);
     running = null;
   });
   running = task;

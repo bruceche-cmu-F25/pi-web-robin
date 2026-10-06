@@ -43,6 +43,13 @@ import { readJobs, updateJobs } from "./store.ts";
 /** A posting plus the provider that produced it — providers do not label themselves. */
 export type ScannedPosting = RawPosting & { source: string };
 
+/** Optional ownership fence for a store mutation after network work. */
+export interface JobStoreWrite {
+  <T>(action: () => T): T;
+}
+
+const directWrite: JobStoreWrite = (action) => action();
+
 /**
  * How a posting with no publish date is treated.
  *
@@ -255,20 +262,21 @@ export async function absorb(
   postings: ScannedPosting[],
   rules: IntakeRules,
   ctx: FetchContext,
+  write: JobStoreWrite = directWrite,
 ): Promise<{ added: number }> {
   if (postings.length > 0) {
     await hydrateDescriptions(postings, ctx, {
       readUnknownBoards: rules.profile.readUnknownBoards,
     });
   }
-  const added = updateJobs((jobs) => {
+  const added = write(() => updateJobs((jobs) => {
     const autoDropped = autoDropUnactedJobs(jobs);
     const pruned = pruneJobs(jobs);
     const merged = mergePostings(pruned, postings, rules.profile);
     const changed = autoDropped > 0 || pruned.length !== jobs.length || merged.added > 0 || merged.updated;
     if (changed) jobs.splice(0, jobs.length, ...merged.jobs);
     return { value: merged.added, changed };
-  });
+  }));
   return { added };
 }
 
@@ -294,6 +302,7 @@ export async function absorb(
 export async function expireClosedPostings(
   profile: JobProfile,
   ctx: FetchContext = makeFetchContext(),
+  write: JobStoreWrite = directWrite,
 ): Promise<{ checked: number; closed: number }> {
   const jobs = readJobs();
   const worth = jobs.filter((job) =>
@@ -307,7 +316,7 @@ export async function expireClosedPostings(
   // The probes above perform network I/O. Merge their verdicts into the latest
   // store so scores, notes, statuses, and newly discovered jobs written while
   // the board was answering are not replaced by the earlier snapshot.
-  const closed = updateJobs((latest) => {
+  const closed = write(() => updateJobs((latest) => {
     let count = 0;
     for (const job of latest) {
       if (job.status !== "dropped" && dead.has(job.url)) {
@@ -316,6 +325,6 @@ export async function expireClosedPostings(
       }
     }
     return { value: count, changed: count > 0 };
-  });
+  }));
   return { checked: worth.length, closed };
 }

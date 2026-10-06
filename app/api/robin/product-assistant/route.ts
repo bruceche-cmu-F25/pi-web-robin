@@ -89,6 +89,7 @@ export const POST = apiRoute(async (req) => {
       images,
       preamble: product ? productPreamble(product.id, product.name) : INCUBATOR_PREAMBLE,
       timeoutMs: RESEARCH_TIMEOUT_MS,
+      lockKey: `product:${productId ?? "incubator"}`,
     });
     return NextResponse.json(result);
   } catch (error) {

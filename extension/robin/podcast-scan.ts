@@ -14,7 +14,17 @@
  *
  * Server-only: reaches node:fs through ./paths.ts.
  */
+import {
+  activeBackgroundRunNames,
+  backgroundRunActive,
+  claimBackgroundRun,
+  heartbeatBackgroundRun,
+  newBackgroundRunOwner,
+  releaseBackgroundRun,
+  withBackgroundRunOwnership,
+} from "./background-run-domain.ts";
 import { readJsonObject, updateJsonObject } from "./paths.ts";
+import { startRunHeartbeat } from "./run-lease.ts";
 import {
   EMPTY_PODCAST_STORE,
   INTERVIEW_IDS,
@@ -65,9 +75,15 @@ async function pooled<T, R>(items: T[], limit: number, worker: (item: T) => Prom
   return results;
 }
 
-async function request(fetchImpl: typeof fetch, url: string, body?: unknown): Promise<Response> {
+async function request(
+  fetchImpl: typeof fetch,
+  url: string,
+  body?: unknown,
+  parentSignal?: AbortSignal,
+): Promise<Response> {
+  const timeout = AbortSignal.timeout(TIMEOUT_MS);
   const response = await fetchImpl(url, {
-    signal: AbortSignal.timeout(TIMEOUT_MS),
+    signal: parentSignal ? AbortSignal.any([parentSignal, timeout]) : timeout,
     headers: {
       "Accept-Language": "en-US,en;q=0.9",
       ...(body === undefined ? {} : { "Content-Type": "application/json" }),
@@ -78,8 +94,14 @@ async function request(fetchImpl: typeof fetch, url: string, body?: unknown): Pr
   return response;
 }
 
-function player(fetchImpl: typeof fetch, videoId: string, client: { clientName: string; clientVersion: string }) {
-  return request(fetchImpl, PLAYER_URL, { context: { client }, videoId }).then((response) => response.json() as Promise<Record<string, unknown>>);
+function player(
+  fetchImpl: typeof fetch,
+  videoId: string,
+  client: { clientName: string; clientVersion: string },
+  signal?: AbortSignal,
+) {
+  return request(fetchImpl, PLAYER_URL, { context: { client }, videoId }, signal)
+    .then((response) => response.json() as Promise<Record<string, unknown>>);
 }
 
 /**
@@ -92,14 +114,15 @@ async function fetchFeed(
   fetchImpl: typeof fetch,
   channel: PodcastChannel,
   details: Map<string, VideoDetails>,
+  signal?: AbortSignal,
 ): Promise<FeedEpisode[]> {
   const longForm = `https://www.youtube.com/feeds/videos.xml?playlist_id=UULF${channel.youtubeId.slice(2)}`;
   try {
-    const response = await request(fetchImpl, longForm)
-      .catch(() => request(fetchImpl, `https://www.youtube.com/feeds/videos.xml?channel_id=${channel.youtubeId}`));
+    const response = await request(fetchImpl, longForm, undefined, signal)
+      .catch(() => request(fetchImpl, `https://www.youtube.com/feeds/videos.xml?channel_id=${channel.youtubeId}`, undefined, signal));
     return parseYouTubeFeed(await response.text(), channel.id);
   } catch (feedError) {
-    const episodes = await fetchUploads(fetchImpl, channel, details).catch(() => []);
+    const episodes = await fetchUploads(fetchImpl, channel, details, signal).catch(() => []);
     if (episodes.length === 0) throw feedError;
     return episodes;
   }
@@ -114,14 +137,15 @@ async function fetchUploads(
   fetchImpl: typeof fetch,
   channel: PodcastChannel,
   details: Map<string, VideoDetails>,
+  signal?: AbortSignal,
 ): Promise<FeedEpisode[]> {
   const response = await request(fetchImpl, BROWSE_URL, {
     context: { client: WEB_CLIENT },
     browseId: `VLUULF${channel.youtubeId.slice(2)}`,
-  });
+  }, signal);
   const ids = parseBrowseVideoIds(await response.json());
   const found = await pooled(ids, DETAIL_CONCURRENCY, async (id) => {
-    const known = details.get(id) ?? await fetchVideoDetails(id, fetchImpl).catch(() => null);
+    const known = details.get(id) ?? await fetchVideoDetails(id, fetchImpl, signal).catch(() => null);
     if (known) details.set(id, known);
     return known;
   });
@@ -138,8 +162,12 @@ async function fetchUploads(
  * Title, length, publish date and full description. The WEB client answers
  * these even for videos it will not play, which is all we need from it.
  */
-export async function fetchVideoDetails(videoId: string, fetchImpl: typeof fetch = fetch): Promise<VideoDetails | null> {
-  const data = await player(fetchImpl, videoId, WEB_CLIENT);
+export async function fetchVideoDetails(
+  videoId: string,
+  fetchImpl: typeof fetch = fetch,
+  signal?: AbortSignal,
+): Promise<VideoDetails | null> {
+  const data = await player(fetchImpl, videoId, WEB_CLIENT, signal);
   const video = data.videoDetails as Record<string, unknown> | undefined;
   if (!video || typeof video.title !== "string") return null;
   const micro = (data.microformat as { playerMicroformatRenderer?: { publishDate?: unknown } } | undefined)?.playerMicroformatRenderer;
@@ -153,8 +181,12 @@ export async function fetchVideoDetails(videoId: string, fetchImpl: typeof fetch
   };
 }
 
-export async function fetchTranscript(videoId: string, fetchImpl: typeof fetch = fetch): Promise<TranscriptSegment[]> {
-  const data = await player(fetchImpl, videoId, { clientName: "ANDROID", clientVersion: "20.10.38" });
+export async function fetchTranscript(
+  videoId: string,
+  fetchImpl: typeof fetch = fetch,
+  signal?: AbortSignal,
+): Promise<TranscriptSegment[]> {
+  const data = await player(fetchImpl, videoId, { clientName: "ANDROID", clientVersion: "20.10.38" }, signal);
   const status = (data.playabilityStatus as { status?: string; reason?: string } | undefined);
   if (status?.status && status.status !== "OK") throw new Error(status.reason || `YouTube says ${status.status}`);
   const tracks = ((data.captions as { playerCaptionsTracklistRenderer?: { captionTracks?: unknown } } | undefined)
@@ -166,7 +198,7 @@ export async function fetchTranscript(videoId: string, fetchImpl: typeof fetch =
   // The URL comes out of YouTube's response; still refuse to follow it anywhere else.
   if (url.protocol !== "https:" || !/(^|\.)youtube\.com$/.test(url.hostname)) throw new Error("Unexpected caption host");
   url.searchParams.delete("fmt");
-  const response = await request(fetchImpl, url.toString());
+  const response = await request(fetchImpl, url.toString(), undefined, signal);
   return parseCaptionXml(await response.text());
 }
 
@@ -174,21 +206,57 @@ export async function fetchTranscript(videoId: string, fetchImpl: typeof fetch =
 // Scan
 
 let running: Promise<void> | null = null;
+export const PODCAST_SCAN_RUN = "podcast-scan";
 
 export function podcastScanRunning(): boolean {
-  return running !== null;
+  return backgroundRunActive(PODCAST_SCAN_RUN);
 }
 
 /** Start a scan unless one is already going. Never rejects. */
-export function startPodcastScan(): Promise<void> {
-  running ??= scanPodcasts()
+export function startPodcastScan(options: PodcastScanOptions = {}): Promise<void> {
+  if (running) return running;
+  const ownerId = newBackgroundRunOwner();
+  if (!claimBackgroundRun(PODCAST_SCAN_RUN, ownerId)) return Promise.resolve();
+
+  const controller = new AbortController();
+  const heartbeat = startRunHeartbeat(
+    () => heartbeatBackgroundRun(PODCAST_SCAN_RUN, ownerId),
+    controller,
+  );
+  running = scanPodcasts({
+    ...options,
+    signal: options.signal
+      ? AbortSignal.any([options.signal, controller.signal])
+      : controller.signal,
+    commit: (write) => {
+      const result = withBackgroundRunOwnership(PODCAST_SCAN_RUN, ownerId, write);
+      return result.owned ? result.value : null;
+    },
+  })
     .then(() => undefined)
-    .catch((error: unknown) => console.error("[robin] podcast scan failed:", error instanceof Error ? error.message : error))
-    .finally(() => { running = null; });
+    .catch((error: unknown) => {
+      if (!controller.signal.aborted) {
+        console.error("[robin] podcast scan failed:", error instanceof Error ? error.message : error);
+      }
+    })
+    .finally(() => {
+      clearInterval(heartbeat);
+      releaseBackgroundRun(PODCAST_SCAN_RUN, ownerId);
+      running = null;
+    });
   return running;
 }
 
-export async function scanPodcasts(options: { fetchImpl?: typeof fetch; now?: number; channels?: PodcastChannel[] } = {}): Promise<PodcastStore> {
+export interface PodcastScanOptions {
+  fetchImpl?: typeof fetch;
+  now?: number;
+  channels?: PodcastChannel[];
+  signal?: AbortSignal;
+  /** Transaction seam used by the durable runner to fence the final write. */
+  commit?: (write: () => PodcastStore) => PodcastStore | null;
+}
+
+export async function scanPodcasts(options: PodcastScanOptions = {}): Promise<PodcastStore> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const now = options.now ?? Date.now();
   const channels = options.channels ?? PODCAST_CHANNELS;
@@ -199,7 +267,7 @@ export async function scanPodcasts(options: { fetchImpl?: typeof fetch; now?: nu
   const seen = new Map(Object.entries(known));
   const feeds = await pooled(channels, FEED_CONCURRENCY, async (channel) => {
     try {
-      return await fetchFeed(fetchImpl, channel, seen);
+      return await fetchFeed(fetchImpl, channel, seen, options.signal);
     } catch (error) {
       failures.push({ channelId: channel.id, error: error instanceof Error ? error.message : String(error) });
       return [];
@@ -212,9 +280,9 @@ export async function scanPodcasts(options: { fetchImpl?: typeof fetch; now?: nu
     ...INTERVIEW_IDS,
     ...episodes.filter((episode) => Date.parse(episode.published) >= since).map((episode) => episode.videoId),
   ].filter((id, index, all) => !seen.has(id) && all.indexOf(id) === index).slice(0, DETAILS_PER_SCAN);
-  const fetched = await pooled(wanted, DETAIL_CONCURRENCY, (id) => fetchVideoDetails(id, fetchImpl).catch(() => null));
+  const fetched = await pooled(wanted, DETAIL_CONCURRENCY, (id) => fetchVideoDetails(id, fetchImpl, options.signal).catch(() => null));
 
-  return updateJsonObject<PodcastStore, PodcastStore>(STORE_FILE, (current) => {
+  const write = () => updateJsonObject<PodcastStore, PodcastStore>(STORE_FILE, (current) => {
     const base = { ...EMPTY_PODCAST_STORE, ...current };
     // A feed that failed is not a channel that went quiet: keep what it had,
     // whether one channel timed out or the whole machine is offline.
@@ -234,15 +302,25 @@ export async function scanPodcasts(options: { fetchImpl?: typeof fetch; now?: nu
     };
     return { result: value, value, changed: true };
   });
+  if (!options.commit) return write();
+  return options.commit(write) ?? readPodcastStore();
 }
 
 // ---------------------------------------------------------------------------
 // Summaries
 
 const inflight = new Map<string, Promise<EpisodeSummary>>();
+export const PODCAST_SUMMARY_PREFIX = "podcast-summary:";
+
+export function podcastSummaryRun(videoId: string): string {
+  return `${PODCAST_SUMMARY_PREFIX}${videoId}`;
+}
 
 export function summariesRunning(): string[] {
-  return [...inflight.keys()];
+  return [...new Set([
+    ...inflight.keys(),
+    ...activeBackgroundRunNames(PODCAST_SUMMARY_PREFIX).map((name) => name.slice(PODCAST_SUMMARY_PREFIX.length)),
+  ])];
 }
 
 /**
@@ -252,24 +330,41 @@ export function summariesRunning(): string[] {
  */
 export function summarizeEpisode(
   videoId: string,
-  ask: (instructions: string, transcript: string) => Promise<string>,
+  ask: (instructions: string, transcript: string, signal?: AbortSignal) => Promise<string>,
   fetchImpl: typeof fetch = fetch,
 ): Promise<EpisodeSummary> {
   const existing = inflight.get(videoId);
   if (existing) return existing;
+  const runName = podcastSummaryRun(videoId);
+  const ownerId = newBackgroundRunOwner();
+  if (!claimBackgroundRun(runName, ownerId)) {
+    return Promise.reject(new Error("This episode is already being summarised."));
+  }
+  const controller = new AbortController();
+  const heartbeat = startRunHeartbeat(
+    () => heartbeatBackgroundRun(runName, ownerId),
+    controller,
+  );
   const run = (async () => {
-    const segments = await fetchTranscript(videoId, fetchImpl);
+    const segments = await fetchTranscript(videoId, fetchImpl, controller.signal);
     if (segments.length === 0) throw new Error("The transcript came back empty.");
     const { text, truncated } = transcriptWithTimestamps(segments, TRANSCRIPT_MAX_CHARS);
-    const reply = await ask(SUMMARY_INSTRUCTIONS, text);
+    const reply = await ask(SUMMARY_INSTRUCTIONS, text, controller.signal);
     const summary = parseSummaryReply(reply, videoId, truncated);
     if (!summary) throw new Error("The model's summary could not be read. Try again.");
-    updateJsonObject<PodcastStore, null>(STORE_FILE, (current) => {
-      const base = { ...EMPTY_PODCAST_STORE, ...current };
-      return { result: null, value: { ...base, summaries: { ...base.summaries, [videoId]: summary } }, changed: true };
+    const published = withBackgroundRunOwnership(runName, ownerId, () => {
+      updateJsonObject<PodcastStore, null>(STORE_FILE, (current) => {
+        const base = { ...EMPTY_PODCAST_STORE, ...current };
+        return { result: null, value: { ...base, summaries: { ...base.summaries, [videoId]: summary } }, changed: true };
+      });
     });
+    if (!published.owned) throw new Error("Episode summary ownership was lost before its final write.");
     return summary;
-  })().finally(() => inflight.delete(videoId));
+  })().finally(() => {
+    clearInterval(heartbeat);
+    releaseBackgroundRun(runName, ownerId);
+    inflight.delete(videoId);
+  });
   inflight.set(videoId, run);
   return run;
 }

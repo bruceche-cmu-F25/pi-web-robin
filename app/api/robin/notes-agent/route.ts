@@ -213,6 +213,7 @@ export const POST = apiRoute(async (req) => {
       oneShot: finalize && !includeConversation,
       model: { provider, modelId },
       thinkingLevel: THINKING_LEVEL,
+      lockKey: `notes:${draftId}`,
       ...(images.length > 0 ? { images } : {}),
       ...(timeoutMs ? { timeoutMs } : {}),
       signal,

@@ -1,13 +1,16 @@
 import { NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import { runDirectorySweep, DIRECTORIES } from "@/extension/robin/job-directory";
-import { sweepState } from "@/extension/robin/job-domain";
+import { claimJobSweepRun, failJobSweepRun, heartbeatJobSweepRun, saveJobSweepState, sweepState, withJobSweepOwnership, type JobSweepState } from "@/extension/robin/job-domain";
 import { jobProfile } from "@/extension/robin/job-profile";
+import { RUN_LEASE_MS, RUNTIME_OWNER_ID, startRunHeartbeat } from "@/extension/robin/run-lease";
 import { apiRoute } from "@/lib/api-route";
 
 export const dynamic = "force-dynamic";
 
 /**
- * At most one sweep at a time, per server process.
+ * The local promise is a fast path; a persisted renewable lease below provides
+ * the cross-process exclusion.
  *
  * Two concurrent sweeps would double the load on three ATS APIs from one IP
  * and interleave their writes to the same progress file, so the second caller
@@ -51,12 +54,40 @@ export const POST = apiRoute(async (req) => {
     ? body.limit as number
     : Infinity;
 
+  const startedAt = new Date().toISOString();
+  const previous = body.resume === true ? sweepState() : null;
+  const state: JobSweepState = {
+    id: randomUUID(), ownerId: RUNTIME_OWNER_ID, heartbeatAt: startedAt, startedAt,
+    finishedAt: null, running: true, boardsTotal: 0, boardsDone: 0, unreachable: 0,
+    parked: 0, scanned: 0, matched: 0, added: 0, directories: [],
+    cursors: previous?.cursorVersion === 2 ? previous.cursors : {}, cursorVersion: 2, error: null,
+  };
+  if (!claimJobSweepRun(state, Date.now() - RUN_LEASE_MS)) {
+    return NextResponse.json({ started: false, reason: "already-running", sweep: sweepState() });
+  }
+
+  const controller = new AbortController();
+  const heartbeatTimer = startRunHeartbeat(() => heartbeatJobSweepRun(state.id!, state.ownerId!), controller);
+  const persist = (progress: JobSweepState): boolean => {
+    const owned = saveJobSweepState(progress);
+    if (!owned) controller.abort();
+    return owned;
+  };
+
   const task = runDirectorySweep({
     profile: jobProfile(),
     ...(directories ? { directories } : {}),
     limit,
     resume: body.resume === true,
+    signal: controller.signal,
+    ownership: state,
+    persist,
+    commit: (action) => withJobSweepOwnership(state.id!, state.ownerId!, action),
+  }).catch((error) => {
+    failJobSweepRun(state.id!, state.ownerId!, error);
+    throw error;
   }).finally(() => {
+    clearInterval(heartbeatTimer);
     running = null;
   });
   running = task;

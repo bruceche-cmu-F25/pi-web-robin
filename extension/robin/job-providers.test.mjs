@@ -155,6 +155,17 @@ test("every request refuses redirects, so the host check cannot be walked around
   assert.equal(urls[0].init.redirect, "error");
 });
 
+test("a scanner lease abort reaches an in-flight provider request", async () => {
+  const controller = new AbortController();
+  const ctx = makeFetchContext((_url, init) => new Promise((_resolve, reject) => {
+    init.signal.addEventListener("abort", () => reject(init.signal.reason), { once: true });
+  }), controller.signal);
+
+  const pending = ctx.fetchJson("https://example.com/jobs");
+  controller.abort();
+  await assert.rejects(pending, { name: "AbortError" });
+});
+
 test("a non-2xx board is an error the scan can record, not a silent empty result", async () => {
   const ctx = makeFetchContext(async () => ({ ok: false, status: 503, json: async () => ({}) }));
   await assert.rejects(

@@ -14,13 +14,17 @@ import {
   readJobScoringState,
   readJobSweepState,
   readJobs,
+  updateJobScoringState,
+  updateJobSweepState,
   updateJobs,
   writeJobScoringState,
+  writeJobSweepState,
   type JobScanState,
   type JobScoringState,
   type JobSweepState,
 } from "./store.ts";
 import { experienceProblem, jobSummary, reviewProblem, scoringContext, type JobReview } from "./job-evidence.ts";
+import { hasFreshRunLease, type RunOwnershipResult } from "./run-lease.ts";
 import { enrichJob } from "./job-intake.ts";
 import {
   findDeadPostings,
@@ -232,7 +236,7 @@ export interface JobScoringStatus {
 export function scoringStatus(): JobScoringStatus {
   const profile = readJobProfile();
   return {
-    scoring: readJobScoringState(),
+    scoring: scoringState(),
     pending: pendingJobs(readJobs(), profile).length,
     model: scorerName(profile.scoreModel),
   };
@@ -245,7 +249,10 @@ export function scorerName(model: { provider: string; modelId: string } | null |
 
 /** The scoring run's published progress — the file the page polls. */
 export function scoringState(): JobScoringState | null {
-  return readJobScoringState();
+  const state = readJobScoringState();
+  if (!state?.running) return state;
+  if (hasFreshRunLease(state)) return state;
+  return { ...state, running: false, error: state.error ?? "Scoring lease expired. Completed scores are kept; start again to continue." };
 }
 
 /**
@@ -254,13 +261,104 @@ export function scoringState(): JobScoringState | null {
  * The run itself lives in the host, because it needs an assistant turn that
  * the extension has no way to start; this is the seam it writes through.
  */
-export function saveScoringState(state: JobScoringState): void {
-  writeJobScoringState(state);
+export function claimJobScoringRun(state: JobScoringState, staleBeforeMs: number): boolean {
+  return updateJobScoringState(current => {
+    const heartbeatMs = current?.heartbeatAt ? Date.parse(current.heartbeatAt) : Number.NaN;
+    if (current?.running && current.ownerId && Number.isFinite(heartbeatMs) && heartbeatMs > staleBeforeMs) {
+      return { value: current, result: false, changed: false };
+    }
+    return { value: state, result: true, changed: true };
+  });
+}
+
+export function heartbeatJobScoringRun(id: string, ownerId: string, at = new Date().toISOString()): boolean {
+  return updateJobScoringState(current => {
+    if (!current || !current.running || current.id !== id || current.ownerId !== ownerId) {
+      return { value: current ?? { startedAt: at, finishedAt: at, running: false, round: 0, totalRounds: 0, startedWith: 0, remaining: 0, model: null, error: null }, result: false, changed: false };
+    }
+    return { value: { ...current, heartbeatAt: at }, result: true, changed: true };
+  });
+}
+
+/** Publish only while this run still owns the durable scoring lease. */
+export function saveScoringState(state: JobScoringState): boolean {
+  if (!state.id || !state.ownerId) {
+    writeJobScoringState(state);
+    return true;
+  }
+  return updateJobScoringState(current => {
+    if (current?.id !== state.id || current?.ownerId !== state.ownerId) {
+      return { value: current ?? state, result: false, changed: false };
+    }
+    return { value: { ...state, heartbeatAt: current?.heartbeatAt ?? state.heartbeatAt }, result: true, changed: true };
+  });
 }
 
 /** The directory sweep's published progress. */
 export function sweepState(): JobSweepState | null {
-  return readJobSweepState();
+  const state = readJobSweepState();
+  if (!state?.running) return state;
+  if (hasFreshRunLease(state)) return state;
+  return { ...state, running: false, error: state.error ?? "Directory sweep lease expired. Saved jobs and cursors are kept; start again to continue." };
+}
+
+export function claimJobSweepRun(state: JobSweepState, staleBeforeMs: number): boolean {
+  return updateJobSweepState<boolean>(current => {
+    const heartbeatMs = current?.heartbeatAt ? Date.parse(current.heartbeatAt) : Number.NaN;
+    if (current?.running && current.ownerId && Number.isFinite(heartbeatMs) && heartbeatMs > staleBeforeMs) {
+      return { value: current, result: false, changed: false };
+    }
+    return { value: state, result: true, changed: true };
+  });
+}
+
+export function heartbeatJobSweepRun(id: string, ownerId: string, at = new Date().toISOString()): boolean {
+  return updateJobSweepState(current => {
+    if (!current || !current.running || current.id !== id || current.ownerId !== ownerId) {
+      const empty: JobSweepState = { startedAt: at, finishedAt: at, running: false, boardsTotal: 0, boardsDone: 0, unreachable: 0, scanned: 0, matched: 0, added: 0, directories: [], cursors: {}, error: null };
+      return { value: current ?? empty, result: false, changed: false };
+    }
+    return { value: { ...current, heartbeatAt: at }, result: true, changed: true };
+  });
+}
+
+/** Publish only while this process still owns the directory-sweep lease. */
+export function saveJobSweepState(state: JobSweepState): boolean {
+  if (!state.id || !state.ownerId) {
+    writeJobSweepState(state);
+    return true;
+  }
+  return updateJobSweepState(current => {
+    if (current?.id !== state.id || current?.ownerId !== state.ownerId) {
+      return { value: current ?? state, result: false, changed: false };
+    }
+    return { value: { ...state, heartbeatAt: current?.heartbeatAt ?? state.heartbeatAt }, result: true, changed: true };
+  });
+}
+
+/** Fence a related store mutation against sweep takeover. */
+export function withJobSweepOwnership<T>(
+  id: string,
+  ownerId: string,
+  action: () => T,
+): RunOwnershipResult<T> {
+  return updateJobSweepState<RunOwnershipResult<T>>(current => {
+    if (!current?.running || current.id !== id || current.ownerId !== ownerId || !hasFreshRunLease(current)) {
+      const empty: JobSweepState = { startedAt: new Date().toISOString(), finishedAt: null, running: false, boardsTotal: 0, boardsDone: 0, unreachable: 0, scanned: 0, matched: 0, added: 0, directories: [], cursors: {}, error: null };
+      return { value: current ?? empty, result: { owned: false }, changed: false };
+    }
+    return { value: current, result: { owned: true, value: action() }, changed: false };
+  });
+}
+
+export function failJobSweepRun(id: string, ownerId: string, error: unknown, at = new Date().toISOString()): boolean {
+  return updateJobSweepState(current => {
+    if (!current || current.id !== id || current.ownerId !== ownerId) {
+      const empty: JobSweepState = { startedAt: at, finishedAt: at, running: false, boardsTotal: 0, boardsDone: 0, unreachable: 0, scanned: 0, matched: 0, added: 0, directories: [], cursors: {}, error: null };
+      return { value: current ?? empty, result: false, changed: false };
+    }
+    return { value: { ...current, running: false, finishedAt: at, error: error instanceof Error ? error.message : String(error) }, result: true, changed: true };
+  });
 }
 
 /* ────────────────────────── the digest ────────────────────────── */

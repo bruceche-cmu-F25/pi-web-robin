@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createJiti } from "jiti";
 import { DEFAULT_JOB_PROFILE } from "../../../../extension/robin/jobs.ts";
-import { readJobs, readJobProfile, readJobScoringState, writeJobs, writeJobProfile } from "../../../../extension/robin/store.ts";
+import { readJobs, readJobProfile, readJobScoringState, writeJobScoringState, writeJobSweepState, writeJobs, writeJobProfile } from "../../../../extension/robin/store.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "robin-job-routes-"));
 const previous = process.env.ROBIN_DATA_DIR;
@@ -24,6 +24,9 @@ const jiti = createJiti(import.meta.url, { alias: {
   "@": process.cwd(),
 }, moduleCache: false });
 const scoreRoute = await jiti.import("./score/route.ts");
+const sweepRoute = await jiti.import("./sweep/route.ts");
+const scanRoute = await jiti.import("./scan/route.ts");
+const backgroundRuns = await jiti.import("../../../../extension/robin/background-run-domain.ts");
 const profileRoute = await createJiti(import.meta.url, { alias: { "@": process.cwd() } }).import("./profile/route.ts");
 const request = (body = {}) => new Request("http://localhost/api/robin/jobs", {
   method: "POST", headers: { "Content-Type": "application/json", Host: "localhost", Origin: "http://localhost" }, body: JSON.stringify(body),
@@ -70,6 +73,45 @@ test("a pinned scorer that went out of scope falls back to pi's default once and
   assert.equal(state.remaining, 0);
   assert.equal(state.model, null);
   assert.equal(state.fallbackFrom, "deepseek/deepseek-v4-flash");
+});
+
+test("a fresh scoring lease in another server process blocks duplicate paid work", async () => {
+  writeJobProfile({ ...DEFAULT_JOB_PROFILE, scoreBatch: 1 });
+  writeJobs([posting]);
+  writeJobScoringState({
+    id: "remote", ownerId: "another-process", heartbeatAt: new Date().toISOString(),
+    startedAt: new Date().toISOString(), finishedAt: null, running: true,
+    round: 0, totalRounds: 1, startedWith: 1, remaining: 1, model: null, error: null,
+  });
+  let calls = 0;
+  globalThis.__jobRouteTest = { score() { calls++; return { reply: "done", usedTools: [] }; } };
+  const result = await (await scoreRoute.POST(request())).json();
+  assert.deepEqual({ started: result.started, reason: result.reason }, { started: false, reason: "already-running" });
+  assert.equal(calls, 0);
+  assert.equal(readJobScoringState().id, "remote");
+});
+
+test("a fresh sweep lease in another server process blocks duplicate ATS traffic", async () => {
+  const at = new Date().toISOString();
+  writeJobSweepState({
+    id: "remote-sweep", ownerId: "another-process", heartbeatAt: at,
+    startedAt: at, finishedAt: null, running: true, boardsTotal: 10, boardsDone: 2,
+    unreachable: 0, scanned: 2, matched: 0, added: 0, directories: [], cursors: {}, cursorVersion: 2, error: null,
+  });
+  const result = await (await sweepRoute.POST(request({ limit: 1 }))).json();
+  assert.deepEqual({ started: result.started, reason: result.reason }, { started: false, reason: "already-running" });
+  assert.equal(result.sweep.id, "remote-sweep");
+});
+
+test("a fresh forward-scan lease blocks duplicate board traffic", async () => {
+  assert.equal(backgroundRuns.claimBackgroundRun("job-forward-scan", "another-process"), true);
+  try {
+    const response = await scanRoute.POST(request());
+    assert.equal(response.status, 409);
+    assert.equal((await response.json()).reason, "already-running");
+  } finally {
+    backgroundRuns.releaseBackgroundRun("job-forward-scan", "another-process");
+  }
 });
 
 test("profile API keeps work facts, stretch policy and scan ceiling separate", async () => {

@@ -2,11 +2,13 @@ import { NextResponse } from "next/server";
 import { isConnected } from "@/extension/robin/google-calendar";
 import { attachMailReport, storedMailReview } from "@/extension/robin/mail-domain";
 import { runAssistantTurn } from "@/lib/robin-assistant";
+import { executeBackgroundRun } from "@/extension/robin/background-run-domain";
 import { apiRoute } from "@/lib/api-route";
 
 export const dynamic = "force-dynamic";
 // Reading a full inbox day and writing todos/events can outlive the default.
 export const maxDuration = 360;
+const MAIL_REVIEW_RUN = "mail-review";
 
 function mailPrompt(locale: "zh" | "en"): string {
   return locale === "zh"
@@ -61,11 +63,21 @@ export const POST = apiRoute(async (req) => {
   try {
     const body = await req.json() as { locale?: unknown };
     const locale = body.locale === "zh" ? "zh" : "en";
-    const { reply } = await runAssistantTurn("mail", mailPrompt(locale));
-    // The report is part of the review: it must survive a page reload, not
-    // live only in the response that triggered it.
-    attachMailReport(reply);
-    return NextResponse.json({ reply, review: storedMailReview() });
+    const execution = await executeBackgroundRun(MAIL_REVIEW_RUN, async ({ signal, commit }) => {
+      const { reply } = await runAssistantTurn("mail", mailPrompt(locale), [], undefined, signal);
+      // The report is part of the review: it must survive a page reload, not
+      // live only in the response that triggered it.
+      const published = commit(() => {
+        attachMailReport(reply);
+        return { reply, review: storedMailReview() };
+      });
+      if (!published.owned) throw new Error("Mail review ownership was lost before its final write.");
+      return published.value;
+    });
+    if (!execution.started) {
+      return NextResponse.json({ error: "A mail review is already running.", reason: "already-running" }, { status: 409 });
+    }
+    return NextResponse.json(execution.value);
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : String(error) },
