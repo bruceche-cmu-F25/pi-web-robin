@@ -1,12 +1,12 @@
 "use client";
 
 import { useState, type CSSProperties } from "react";
-import { DEFAULT_JARVIS_OUTBOX, type JarvisLead, type JarvisOutbox as Outbox } from "@/extension/robin/jarvis-shape";
+import { DEFAULT_JARVIS_OUTBOX, JARVIS_DELIVERY_POLICY, type JarvisLead, type JarvisOutbox as Outbox } from "@/extension/robin/jarvis-shape";
 import styles from "./JarvisDiscovery.module.css";
 
 const DEFAULT_ZONE = "America/New_York";
 
-/** Mirrors the server outbox's window: weekdays 08:00–17:59 in the recipient's zone. */
+/** Informational recipient-local window, retained for a future policy change. */
 function inWindow(zone: string, at: Date): boolean {
   const parts = new Intl.DateTimeFormat("en-US", { timeZone: zone, weekday: "short", hour: "numeric", hourCycle: "h23" }).formatToParts(at);
   const hour = Number(parts.find((part) => part.type === "hour")?.value);
@@ -30,12 +30,13 @@ function nextMorning(from: Date): Date {
   return at;
 }
 const toInputValue = (date: Date) => new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
-/** Average of the server's 6–12 minute randomized gap. */
-const AVERAGE_GAP_MS = 9 * 60_000;
+/** Average of the server's randomized delivery gap. */
+const AVERAGE_GAP_MS = (JARVIS_DELIVERY_POLICY.minimumGapMinutes + JARVIS_DELIVERY_POLICY.maximumGapMinutes) / 2 * 60_000;
 /**
  * When each queued email should go out, replaying the server's rules: not before
- * the scheduled start, one at a time, inside each recipient's window. The gap is
- * randomized on the server, so these are estimates.
+ * the scheduled start and one at a time. A recipient window is applied only
+ * when the shared delivery policy enables it. The gap is randomized on the
+ * server, so these are estimates.
  */
 export function estimateSendTimes(queue: JarvisLead[], from: Date, dailyLimit?: number, sentToday = 0): Map<string, Date> {
   const times = new Map<string, Date>();
@@ -44,7 +45,7 @@ export function estimateSendTimes(queue: JarvisLead[], from: Date, dailyLimit?: 
   for (const lead of queue) {
     const zone = lead.timeZone || DEFAULT_ZONE;
     for (let guard = 0; guard < 60; guard++) {
-      if (!inWindow(zone, at)) { at = nextWindow(zone, at) ?? at; }
+      if (JARVIS_DELIVERY_POLICY.recipientWindowEnforced && !inWindow(zone, at)) { at = nextWindow(zone, at) ?? at; }
       if (at.toDateString() !== day) { day = at.toDateString(); count = 0; }
       if (!dailyLimit || count < dailyLimit) break;
       const tomorrow = new Date(at); tomorrow.setDate(tomorrow.getDate() + 1); tomorrow.setHours(0, 0, 0, 0);
@@ -74,7 +75,9 @@ export function JarvisOutbox({ leads, outbox: stored, sentToday, checked, busy, 
   const sent = leads.filter((lead) => lead.sendAttempt?.state === "sent" || lead.sentAt).length;
   const replied = leads.filter((lead) => lead.repliedAt).length;
   const followUps = leads.filter((lead) => lead.followUpAttempt).length;
-  const openable = queue.find((lead) => inWindow(lead.timeZone || DEFAULT_ZONE, now));
+  const openable = JARVIS_DELIVERY_POLICY.recipientWindowEnforced
+    ? queue.find((lead) => inWindow(lead.timeZone || DEFAULT_ZONE, now))
+    : queue[0];
   const startAt = outbox.startAt && Date.parse(outbox.startAt) > now.getTime() ? new Date(outbox.startAt) : null;
   const state: State = outbox.pausedReason ? "blocked" : !outbox.enabled ? "paused" : !queue.length ? "idle"
     : startAt ? "scheduled"
@@ -98,7 +101,7 @@ export function JarvisOutbox({ leads, outbox: stored, sentToday, checked, busy, 
     idle: t("队列为空", "Queue empty"),
     scheduled: t(`已定时 · ${startAt ? when(startAt) : ""} 开始`, `Scheduled · starts ${startAt ? when(startAt) : ""}`),
     sending: t("正在发送", "Sending"),
-    waiting: t("等待对方工作时间", "Waiting for working hours"),
+    waiting: t("等待下一发送窗口", "Waiting for the next delivery window"),
     limit: t("今日已达上限", "Daily limit reached"),
   };
   const detail: Record<State, string> = {
@@ -106,7 +109,7 @@ export function JarvisOutbox({ leads, outbox: stored, sentToday, checked, busy, 
     paused: t("排队的邮件会保留，恢复后继续发送。", "Queued emails stay queued and continue when resumed."),
     idle: t("在下方名单里勾选有邮箱的联系人，然后批准并排队。", "Tick contacts with an email in the list below, then approve and queue them."),
     scheduled: t(`${queue.length} 封会从这个时间起逐封发出（你的时间），之前一封都不会发。`, `${queue.length} emails go out one at a time from then (your time); nothing is sent before.`),
-    sending: t(`每 6–12 分钟发出一封，下一封给 ${openable?.name ?? ""}。`, `One every 6–12 minutes; next to ${openable?.name ?? ""}.`),
+    sending: t(`每 ${JARVIS_DELIVERY_POLICY.minimumGapMinutes}–${JARVIS_DELIVERY_POLICY.maximumGapMinutes} 分钟发出一封，下一封给 ${openable?.name ?? ""}。`, `One every ${JARVIS_DELIVERY_POLICY.minimumGapMinutes}–${JARVIS_DELIVERY_POLICY.maximumGapMinutes} minutes; next to ${openable?.name ?? ""}.`),
     waiting: reopen ? t(`下一个发送窗口：${when(reopen)}（你的时间）`, `Next window: ${when(reopen)} (your time)`) : "",
     limit: t("明天继续。", "Continues tomorrow."),
   };
@@ -150,7 +153,7 @@ export function JarvisOutbox({ leads, outbox: stored, sentToday, checked, busy, 
       <button type="button" className="ui-action pi-bracket" disabled={busy || !scheduleInput} onClick={schedule}>{t("定时发送", "Schedule")}</button>
     </div> : null}
     {queue.length ? <section className={styles.outboxSchedule} aria-label={t("已排期的邮件", "Scheduled emails")}>
-      <h3 className="pi-label">{t(`已排期 · ${queue.length} 封`, `Scheduled · ${queue.length}`)}<small>{estimates ? t("时间为估算（你的时间），实际间隔随机 6–12 分钟", "Estimated, your time; the real gap is a random 6–12 minutes") : t("发送已暂停，恢复后按顺序发出", "Sending is paused; these go out in order once resumed")}</small></h3>
+      <h3 className="pi-label">{t(`已排期 · ${queue.length} 封`, `Scheduled · ${queue.length}`)}<small>{estimates ? t(`时间为估算（你的时间），实际间隔随机 ${JARVIS_DELIVERY_POLICY.minimumGapMinutes}–${JARVIS_DELIVERY_POLICY.maximumGapMinutes} 分钟`, `Estimated, your time; the real gap is a random ${JARVIS_DELIVERY_POLICY.minimumGapMinutes}–${JARVIS_DELIVERY_POLICY.maximumGapMinutes} minutes`) : t("发送已暂停，恢复后按顺序发出", "Sending is paused; these go out in order once resumed")}</small></h3>
       <ol>
         {queue.map((lead, index) => {
           const at = estimates?.get(lead.id);
@@ -167,11 +170,7 @@ export function JarvisOutbox({ leads, outbox: stored, sentToday, checked, busy, 
     </section> : null}
 
     <div className={styles.outboxActions}>
-      <button type="button" className={`ui-action pi-bracket ${styles.outboxPrimary}`} disabled={busy || !checked} onClick={onQueue}>
-        {checked ? t(`批准并排队 ${checked} 封`, `Approve and queue ${checked}`) : t("先在名单里勾选联系人", "Tick contacts in the list first")}
-      </button>
-      <button type="button" className="ui-action pi-bracket" disabled={busy || !queueable} onClick={onTickAll}>{t(`勾选当前可排队的 ${queueable} 位`, `Tick all ${queueable} queueable shown`)}</button>
-      {checked ? <button type="button" className="ui-action pi-bracket" disabled={busy} onClick={onClear}>{t("清除勾选", "Clear ticks")}</button> : null}
+      <button type="button" className={`ui-action pi-bracket ${styles.outboxPrimary}`} onClick={onQueue}>{t("打开 Cold Reach 批次卡片审核", "Open Cold Reach card review")}</button>
       <span className={styles.outboxSpacer} />
       {queue.length ? null : <button type="button" className={`ui-action pi-bracket ${state === "blocked" || state === "paused" ? styles.outboxResume : ""}`} disabled={busy} onClick={onToggle}>
         {state === "blocked" || state === "paused" ? t("恢复发送", "Resume sending") : t("暂停发送", "Pause sending")}
@@ -181,7 +180,7 @@ export function JarvisOutbox({ leads, outbox: stored, sentToday, checked, busy, 
     </div>
     <details className={styles.outboxRules}>
       <summary>{t("发送规则", "How sending works")}</summary>
-      <p>{t("只发你批准并排队的人：邮箱须在来源页确认过、且从未联系过。对方工作日 8–18 点（按对方时区，未知时按美东）逐封发送，间隔 6–12 分钟（每天大约 50–100 封）；默认不设每日上限，可在右侧设置，上限含跟进和手动发送。每 15 分钟读取 Gmail：回复标为已回复、退信标为退信，自动回复忽略。7 天无回复在原线程自动跟进一次。发送结果不确定或 24 小时内 3 封退信会自动暂停；先查 Gmail 已发送再恢复。", "Only contacts you approve and queue are sent: the email must be confirmed on its source page and never contacted before. One at a time during the recipient's weekday 8:00–18:00 (their zone, else US Eastern), 6–12 minutes apart (roughly 50–100 a day); no daily cap by default, and an optional cap counts follow-ups and manual sends. Gmail is read every 15 minutes: replies mark Replied, bounces mark Bounced, auto-replies are ignored. One follow-up goes out in the same thread after 7 days without a reply. An uncertain send or 3 bounces in 24 hours pauses the outbox; check Gmail Sent before resuming.")}</p>
+      <p>{t(`只发你批准并排队的人：邮箱须在来源页确认过、且从未联系过。审核后可随时按队列顺序发送，间隔 ${JARVIS_DELIVERY_POLICY.minimumGapMinutes}–${JARVIS_DELIVERY_POLICY.maximumGapMinutes} 分钟；默认不设每日上限，可在右侧设置，上限含跟进和手动发送。每 ${JARVIS_DELIVERY_POLICY.replySyncMinutes} 分钟读取 Gmail：回复标为已回复、退信标为退信，自动回复忽略。${JARVIS_DELIVERY_POLICY.followUpDelayHours} 小时无回复在原线程自动跟进一次。发送结果不确定或 24 小时内 ${JARVIS_DELIVERY_POLICY.bouncePauseThreshold} 封退信会自动暂停；先查 Gmail 已发送再恢复。`, `Only contacts you approve and queue are sent: the email must be confirmed on its source page and never contacted before. Approved mail may send at any hour, one at a time in queue order, ${JARVIS_DELIVERY_POLICY.minimumGapMinutes}–${JARVIS_DELIVERY_POLICY.maximumGapMinutes} minutes apart; no daily cap by default, and an optional cap counts follow-ups and manual sends. Gmail is read every ${JARVIS_DELIVERY_POLICY.replySyncMinutes} minutes: replies mark Replied, bounces mark Bounced, auto-replies are ignored. One follow-up goes out in the same thread after ${JARVIS_DELIVERY_POLICY.followUpDelayHours} hours without a reply. An uncertain send or ${JARVIS_DELIVERY_POLICY.bouncePauseThreshold} bounces in 24 hours pauses the outbox; check Gmail Sent before resuming.`)}</p>
     </details>
   </section>;
 }

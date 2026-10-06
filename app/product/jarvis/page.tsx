@@ -1,5 +1,4 @@
-import type { Metadata } from "next";
-import { JarvisDiscovery } from "@/components/robin/JarvisDiscovery";
+import { redirect } from "next/navigation";
 
-export const metadata: Metadata = { title: "Jarvis · Market discovery — Pi Web" };
-export default function JarvisPage() { return <JarvisDiscovery />; }
+/** Historical bookmark; outreach now has its own, product-neutral workspace. */
+export default function LegacyOutreachPage() { redirect("/outreach"); }

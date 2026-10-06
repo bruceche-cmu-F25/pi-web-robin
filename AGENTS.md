@@ -123,6 +123,9 @@ app/api/robin/        Robin dashboard — HTTP adapters over extension/robin/*-d
   rounds/scan  tech-events/scan  gmail/check  product-classify   turns that cost tokens
   tech-events/[id]                one event + its Luma page (intro, hosts), cached a day
   assistant/route.ts              a scoped assistant turn (see "Robin tool scoping")
+  jarvis/route.ts                 GET CRM state, PATCH one contact; no command POSTs
+  jarvis/{research,outreach,preferences}/route.ts capability-scoped Jarvis commands
+  jarvis/report/route.ts          GET HTML export, POST sync to Jarvis.day
   settings/route.ts               ~/.pi/robin/secrets.json
   google/{route,callback}         OAuth; the callback is exempt from the origin guard
 app/api/research/     objective (GET/PUT) and cached source icons

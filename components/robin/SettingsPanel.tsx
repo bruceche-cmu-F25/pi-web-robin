@@ -10,6 +10,7 @@ import type {
   TranscriptionSettings,
 } from "@/extension/robin/settings";
 import { useI18n } from "@/hooks/useI18n";
+import { GoogleConnect } from "./GoogleConnect";
 import { ThemePicker } from "../ThemePicker";
 
 interface SecretStatus {
@@ -28,6 +29,7 @@ interface SettingsResponse {
   notion: {
     apiToken: SecretStatus;
   };
+  playwright: { extensionToken: SecretStatus };
   telegram: {
     botToken: SecretStatus;
     allowedChatIds: number[];
@@ -43,7 +45,7 @@ interface SettingsResponse {
 
 type Translate = (key: string, params?: Record<string, string>) => string;
 type SaveAction =
-  | "google" | "notion" | "token" | "chatIds" | "dailyAgenda" | "jobDigest" | "gmailDigest"
+  | "google" | "notion" | "playwright" | "token" | "chatIds" | "dailyAgenda" | "jobDigest" | "gmailDigest"
   | "reminders" | "transcription";
 type SavePhase = "saving" | "saved";
 
@@ -134,6 +136,7 @@ export function SettingsPanel() {
   const { locale, setLocale, supportedLocales, t } = useI18n();
   const [data, setData] = useState<SettingsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [failedAction, setFailedAction] = useState<SaveAction | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [saveFeedback, setSaveFeedback] = useState<{ action: SaveAction; phase: SavePhase } | null>(null);
@@ -144,6 +147,7 @@ export function SettingsPanel() {
   const [calendarInput, setCalendarInput] = useState("");
   const [calendarLabel, setCalendarLabel] = useState("");
   const [notionToken, setNotionToken] = useState("");
+  const [playwrightToken, setPlaywrightToken] = useState("");
   const [botToken, setBotToken] = useState("");
   const [chatIds, setChatIds] = useState("");
   const [jobChatIds, setJobChatIds] = useState("");
@@ -200,6 +204,7 @@ export function SettingsPanel() {
     if (feedbackTimer.current) clearTimeout(feedbackTimer.current);
     setBusy(true);
     setError(null);
+    setFailedAction(null);
     setNotice(null);
     setSaveFeedback(action ? { action, phase: "saving" } : null);
     try {
@@ -219,6 +224,7 @@ export function SettingsPanel() {
       return true;
     } catch (caught) {
       setSaveFeedback(null);
+      setFailedAction(action ?? null);
       setError(caught instanceof Error ? caught.message : String(caught));
       return false;
     } finally {
@@ -327,7 +333,7 @@ export function SettingsPanel() {
         style={{ background: "var(--bg-panel)", border: "1px solid var(--border)" }}
       >
         <h2 className="text-sm font-semibold" style={{ color: "var(--text)" }}>
-          {t("robin.settings.googleTitle")}
+          {locale.startsWith("zh") ? "学校邮箱与 Google 日历" : "School email & Google Calendar"}
         </h2>
 
         <div className="flex flex-col gap-1">
@@ -493,6 +499,11 @@ export function SettingsPanel() {
         </div>
       </section>
 
+      <section id="cold-reach-email" className="flex flex-col gap-3 rounded-lg p-4 scroll-mt-4" style={{ background: "var(--bg-panel)", border: "1px solid var(--border)" }}>
+        <h2 className="text-sm font-semibold" style={{ color: "var(--text)" }}>{locale.startsWith("zh") ? "Cold Reach · 个人发件邮箱" : "Cold Reach · Personal sender"}</h2>
+        <GoogleConnect account="outreach" showClientConfig onChanged={() => void load()} />
+      </section>
+
       {/* ---------- Notion ---------- */}
       <section
         className="flex flex-col gap-3 rounded-lg p-4"
@@ -566,6 +577,52 @@ export function SettingsPanel() {
             {t("robin.common.clear")}
           </button>
         </div>
+      </section>
+
+      {/* ---------- Playwright Extension ---------- */}
+      <section className="flex flex-col gap-3 rounded-lg p-4" style={{ background: "var(--bg-panel)", border: "1px solid var(--border)" }}>
+        <div>
+          <h2 className="text-sm font-semibold" style={{ color: "var(--text)" }}>{t("robin.settings.playwrightTitle")}</h2>
+          <p className="text-xs" style={{ color: "var(--text-dim)" }}>{t("robin.settings.playwrightHint")}</p>
+        </div>
+        <p className="text-xs" style={{ color: data?.playwright.extensionToken.set ? "var(--text-muted)" : "var(--text-dim)" }}>
+          {t(data?.playwright?.extensionToken?.set ? "robin.settings.playwrightSet" : "robin.settings.playwrightUnset")}
+        </p>
+        <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-muted)" }}>
+          {t("robin.settings.playwrightToken")}
+          <input
+            type="password"
+            value={playwrightToken}
+            onChange={(event) => setPlaywrightToken(event.target.value)}
+            placeholder={t("robin.settings.playwrightPlaceholder")}
+            autoComplete="new-password"
+            spellCheck={false}
+            className="min-h-11 rounded px-2 text-sm outline-none"
+            style={inputStyle}
+          />
+        </label>
+        <div className="flex flex-wrap gap-2">
+          <SaveButton
+            label={t("robin.settings.playwrightSave")}
+            phase={saveFeedback?.action === "playwright" ? saveFeedback.phase : undefined}
+            disabled={busy || !playwrightToken.trim()}
+            onClick={() => void send(
+              "POST", { section: "playwright", extensionToken: playwrightToken },
+              t("robin.settings.playwrightSaved"), "playwright",
+            ).then((saved) => { if (saved) setPlaywrightToken(""); })}
+            t={t}
+          />
+          <button
+            type="button"
+            disabled={busy || !data?.playwright?.extensionToken?.set}
+            onClick={() => void send("DELETE", { section: "playwright" }, t("robin.settings.playwrightCleared"))}
+            className="inline-flex min-h-11 items-center rounded px-3 py-1 text-sm disabled:opacity-40"
+            style={{ border: "1px solid var(--border)", color: "var(--text-muted)" }}
+          >
+            {t("robin.common.clear")}
+          </button>
+        </div>
+        {failedAction === "playwright" && error && <p role="alert" className="text-xs" style={{ color: "var(--danger)" }}>{error}</p>}
       </section>
 
       {/* ---------- Telegram ---------- */}

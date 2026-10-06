@@ -11,7 +11,7 @@ async (page) => {
   let writes = 0;
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
-  await page.route("**/api/robin/jarvis", async (route) => {
+  const handleJarvis = async (route) => {
     const req = route.request();
     if (req.method() === "GET") return route.fulfill({ json: { leads, run } });
     writes++;
@@ -23,7 +23,9 @@ async (page) => {
     }
     run = { id: "mock", status: body.action === "stop" ? "cancelled" : "running", message: "Mock research only", target: body.target ?? 7, added: 0, batches: 1, startedAt: at };
     return route.fulfill({ json: { run } });
-  });
+  };
+  await page.route("**/api/robin/jarvis", handleJarvis);
+  await page.route("**/api/robin/jarvis/research", handleJarvis);
   await page.evaluate(() => localStorage.setItem("pi-locale", "zh-CN"));
   await page.reload();
   const list = page.getByRole("region", { name: "候选人名单", exact: true });

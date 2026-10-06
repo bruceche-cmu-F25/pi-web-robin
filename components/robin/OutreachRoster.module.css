@@ -1,0 +1,27 @@
+.roster { grid-column: 1 / -1; min-width: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap: 16px; align-items: start; }
+.row { display: flex; flex-direction: column; gap: 16px; padding: 20px; border: 1px solid var(--border); background: var(--bg-panel); font-size: 13px; line-height: 1.55; min-width: 0; }
+.row[data-selected] { border-color: var(--accent); box-shadow: inset 3px 0 var(--accent); background: var(--accent-faint); }
+.row > div { min-width: 0; overflow-wrap: anywhere; }
+.person { display: flex; align-items: flex-start; gap: 12px; }
+.person input { accent-color: var(--accent); width: 20px; height: 20px; margin-top: 10px; flex: none; cursor: pointer; }
+.avatar { display: grid; place-items: center; width: 42px; height: 42px; flex: none; border: 1px solid var(--border); color: var(--accent); font: 18px var(--font-serif); }
+.name { color: var(--text); font: 23px var(--font-serif); text-align: left; cursor: pointer; }
+.row p { margin: 4px 0 8px; }
+.row small, .routes small { color: var(--text-muted); font-size: 12px; }
+.row a, .more, .routes a { color: var(--accent); font-size: 12px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.status { font: 11px var(--font-mono); color: var(--accent); }
+.fit, .copy { border-top: 1px solid var(--border); padding-top: 14px; }
+.routes { display: flex; flex-direction: column; gap: 8px; overflow-wrap: anywhere; }
+.email { display: flex; flex-wrap: wrap; gap: 6px 12px; }
+.socials { display: flex; flex-wrap: wrap; gap: 8px; }
+.socials a { border: 1px solid var(--border); padding: 7px 10px; text-decoration: none; }
+.reason { display: block; margin-top: 10px; border-left: 2px solid var(--border); padding-left: 8px; }
+.copy p { white-space: pre-wrap; color: var(--text-muted); }
+.copy strong { font-weight: 500; }
+.empty { padding: 30px; color: var(--text-muted); }
+.mobileLabel { display: block; color: var(--text-dim); font: 11px var(--font-mono); margin-bottom: 6px; }
+.websiteRoutes { display: grid; gap: 8px; margin-top: 8px; padding: 12px; border: 1px solid var(--border); background: var(--bg); }
+.websiteRoutes > strong { font: 12px var(--font-mono); color: var(--text); }
+.websiteRoutes > span { color: var(--text-muted); font-size: 12px; }
+.websiteLinks { display: flex; flex-wrap: wrap; gap: 7px; }
+.websiteLinks a { border: 1px solid var(--border); padding: 6px 8px; text-decoration: none; overflow-wrap: anywhere; }

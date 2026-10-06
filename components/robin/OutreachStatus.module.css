@@ -1,0 +1,37 @@
+/* Text and unique symbols keep statuses distinguishable without color. */
+.row[data-workflow="untouched"] { --outreach-state-color: var(--text-muted); }
+.row[data-workflow="review"] { --outreach-state-color: #ad741b; }
+.row[data-workflow="ready"] { --outreach-state-color: #227850; }
+.row[data-workflow="connect_pending"] { --outreach-state-color: #99651c; }
+.row[data-workflow="connected"] { --outreach-state-color: #168186; }
+.row[data-workflow="queued"] { --outreach-state-color: #5869b0; }
+.row[data-workflow="sending"] { --outreach-state-color: #3067ab; }
+.row[data-workflow="uncertain"] { --outreach-state-color: #c15a20; }
+.row[data-workflow="partial"] { --outreach-state-color: #7560ac; }
+.row[data-workflow="sent"] { --outreach-state-color: #487caa; }
+.row[data-workflow="followed_up"] { --outreach-state-color: #927047; }
+.row[data-workflow="replied"] { --outreach-state-color: #168174; }
+.row[data-workflow="interested"] { --outreach-state-color: #527d2b; }
+.row[data-workflow="declined"] { --outreach-state-color: #ae526c; }
+.row[data-workflow="bounced"] { --outreach-state-color: #bc473e; }
+.row[data-workflow="do_not_contact"] { --outreach-state-color: #796571; }
+.row[data-workflow="handled"] { --outreach-state-color: #737b87; }
+.row { box-shadow: inset 3px 0 var(--outreach-state-color); background: color-mix(in srgb, var(--outreach-state-color) 7%, var(--bg-panel)); }
+.badge { justify-self: end; align-self: center; color: var(--outreach-state-color); background: color-mix(in srgb, var(--outreach-state-color) 10%, var(--bg-panel)); border: 1px solid color-mix(in srgb, var(--outreach-state-color) 50%, transparent); padding: 2px 6px; font-size: 11px; font-weight: 600; width: fit-content; }
+@media (max-width: 700px) { .badge { grid-column: 1; grid-row: 2; justify-self: start; } }
+:global(html.dark) .row[data-workflow="review"] { --outreach-state-color: color-mix(in srgb, #ad741b 65%, white); }
+:global(html.dark) .row[data-workflow="ready"] { --outreach-state-color: color-mix(in srgb, #227850 65%, white); }
+:global(html.dark) .row[data-workflow="connect_pending"] { --outreach-state-color: color-mix(in srgb, #99651c 65%, white); }
+:global(html.dark) .row[data-workflow="connected"] { --outreach-state-color: color-mix(in srgb, #168186 65%, white); }
+:global(html.dark) .row[data-workflow="queued"] { --outreach-state-color: color-mix(in srgb, #5869b0 65%, white); }
+:global(html.dark) .row[data-workflow="sending"] { --outreach-state-color: color-mix(in srgb, #3067ab 65%, white); }
+:global(html.dark) .row[data-workflow="uncertain"] { --outreach-state-color: color-mix(in srgb, #c15a20 65%, white); }
+:global(html.dark) .row[data-workflow="partial"] { --outreach-state-color: color-mix(in srgb, #7560ac 65%, white); }
+:global(html.dark) .row[data-workflow="sent"] { --outreach-state-color: color-mix(in srgb, #487caa 65%, white); }
+:global(html.dark) .row[data-workflow="followed_up"] { --outreach-state-color: color-mix(in srgb, #927047 65%, white); }
+:global(html.dark) .row[data-workflow="replied"] { --outreach-state-color: color-mix(in srgb, #168174 65%, white); }
+:global(html.dark) .row[data-workflow="interested"] { --outreach-state-color: color-mix(in srgb, #527d2b 65%, white); }
+:global(html.dark) .row[data-workflow="declined"] { --outreach-state-color: color-mix(in srgb, #ae526c 65%, white); }
+:global(html.dark) .row[data-workflow="bounced"] { --outreach-state-color: color-mix(in srgb, #bc473e 65%, white); }
+:global(html.dark) .row[data-workflow="do_not_contact"] { --outreach-state-color: color-mix(in srgb, #796571 65%, white); }
+:global(html.dark) .row[data-workflow="handled"] { --outreach-state-color: color-mix(in srgb, #737b87 65%, white); }
