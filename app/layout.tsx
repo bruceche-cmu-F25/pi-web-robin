@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Noto_Sans_Mono } from "next/font/google";
 import { PwaRegistration } from "@/components/PwaRegistration";
-import { THEME_INIT_SCRIPT } from "@/lib/theme";
+import { ThemeInitScript } from "@/components/ThemeInitScript";
 import "./globals.css";
 import "./settings.css";
 
@@ -71,11 +71,7 @@ export default function RootLayout({
           type="font/woff2"
           crossOrigin="anonymous"
         />
-        <script
-          dangerouslySetInnerHTML={{
-            __html: THEME_INIT_SCRIPT,
-          }}
-        />
+        <ThemeInitScript />
       </head>
       <body translate="no" className="notranslate" suppressHydrationWarning>
         {children}
