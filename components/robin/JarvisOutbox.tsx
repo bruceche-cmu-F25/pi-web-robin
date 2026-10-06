@@ -61,10 +61,10 @@ export const queueOrder = (leads: JarvisLead[]) => leads.filter((lead) => lead.q
 
 type State = "paused" | "blocked" | "idle" | "scheduled" | "sending" | "waiting" | "limit";
 
-export function JarvisOutbox({ leads, outbox: stored, sentToday, checked, busy, zh, locale, onQueue, onTickAll, onClear, onToggle, onStart, onUnqueue, onSelect, onSync, onLimit, queueable, tiers }: {
-  leads: JarvisLead[]; outbox?: Outbox; sentToday: number; checked: number; queueable: number; busy: boolean; zh: boolean; locale: string;
+export function JarvisOutbox({ leads, outbox: stored, sentToday, busy, zh, locale, onQueue, onToggle, onStart, onUnqueue, onSelect, onSync, onLimit, tiers }: {
+  leads: JarvisLead[]; outbox?: Outbox; sentToday: number; busy: boolean; zh: boolean; locale: string;
   tiers: Array<{ tier: "A" | "B"; total: number; reachable: number; sent: number; replied: number }>;
-  onQueue: () => void; onTickAll: () => void; onClear: () => void; onToggle: () => void;
+  onQueue: () => void; onToggle: () => void;
   /** Turn sending on from `startAt`, or right away with null. */
   onStart: (startAt: string | null) => void; onUnqueue: (id: string) => void; onSelect: (id: string) => void; onSync: () => void; onLimit: (limit: number) => void;
 }) {

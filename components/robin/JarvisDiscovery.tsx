@@ -55,9 +55,7 @@ const PERSONAS: Record<JarvisPersona, [string, string]> = {
 const BURDEN: Record<typeof JARVIS_NEWS_BURDEN_KEYS[number], [string, string]> = {
   change: ["变化速度", "Pace of change"], breadth: ["信息面", "Breadth"], unfiltered: ["无人代筛", "No one filters"], footprint: ["可建画像", "Public footprint"],
 };
-/** Contacts a batch approval can queue: unsent, with an address seen on its source page. */
 const isCurrentCandidate = isCurrentValidationProspect;
-const canQueue = (lead: JarvisLead) => isVerifiedJarvisTarget(lead) && !hasJarvisSocialOutreach(lead) && ["new", "ready"].includes(lead.status) && !lead.sendAttempt && !lead.sentAt && !lead.queuedAt && Boolean(lead.email) && lead.emailCheck === "source_found";
 /** Sent with nothing back yet: nothing to do until a reply or the follow-up. */
 const isArchived = (lead: JarvisLead) => lead.status === "sent";
 const STATUSES: Record<JarvisStatus, [string, string]> = {
@@ -287,7 +285,6 @@ export function JarvisDiscovery() {
     if (!window.confirm(t("寻找 20 位新的当前 ICP 目标用户，并要求每人都有可信本人 Instagram。医疗负责人仍只接受已核实个人工作邮箱。结果会进入待核对，不会自动私信。继续？", "Find 20 new current-ICP prospects with a trustworthy personal Instagram. Healthcare operators still require a verified individual work email. Results land in Needs review and are never auto-DMed. Continue?"))) return;
     void act({ action: "discover", target, focus: "info_exec", channelFocus: "instagram" });
   };
-  const queueable = visible.filter(canQueue);
   const queuePosition = useMemo(() => new Map(queueOrder(leads).map((lead, index) => [lead.id, index + 1])), [leads]);
   const checkedLeads = [...checked].map((id) => leads.find((lead) => lead.id === id)).filter((lead): lead is JarvisLead => Boolean(lead && canAddToReviewQueue(lead)));
   const reviewQueue = leads.filter(inReviewQueue);
@@ -444,8 +441,8 @@ export function JarvisDiscovery() {
         {data?.followUpTemplate ? <FollowUpTemplateEditor key={data.followUpTemplate} template={data.followUpTemplate} refresh={refresh} zh={zh} /> : null}
       <details className={styles.outboxContainer} open={stats.queued > 0 || Boolean(outbox.pausedReason) || undefined}>
         <summary><strong>{t("邮件发送箱", "Email outbox")}</strong><span>{t(`${stats.queued} 封排队 · 今日已发 ${stats.sentToday} 封`, `${stats.queued} queued · ${stats.sentToday} sent today`)}{outbox.pausedReason ? ` · ${t("发送已暂停", "Sending paused")}` : ""}</span></summary>
-      <JarvisOutbox tiers={stats.tiers} leads={leads} outbox={data?.outbox} sentToday={stats.sentToday} checked={checkedLeads.length} queueable={queueable.length} busy={busy} zh={zh} locale={locale}
-        onQueue={() => openBatch("email")} onTickAll={() => setChecked(new Set(queueable.map((lead) => lead.id)))} onClear={() => setChecked(new Set())}
+      <JarvisOutbox tiers={stats.tiers} leads={leads} outbox={data?.outbox} sentToday={stats.sentToday} busy={busy} zh={zh} locale={locale}
+        onQueue={() => openBatch("email")}
         onToggle={() => void act({ action: "outbox", enabled: !(outbox.enabled && !outbox.pausedReason) })}
         onStart={(startAt) => { if (startAt || window.confirm(t("现在就开始发送排队的邮件？", "Start sending the queued emails now?"))) void act({ action: "outbox", enabled: true, startAt }); }}
         onUnqueue={(id) => void act({ action: "unqueue", ids: [id] })} onSelect={selectLead} onSync={() => void act({ action: "sync" })} onLimit={(dailyLimit) => void act({ action: "outbox", dailyLimit })} />
