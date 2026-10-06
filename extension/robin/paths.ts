@@ -124,7 +124,9 @@ function writeJsonObjectUnlocked<T extends object>(name: string, value: T): void
   const path = dataPath(name);
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.${process.pid}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  // Object stores include secrets.json; never expose the temporary copy under
+  // the process's (often world-readable) default umask before the rename.
+  writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
   renameSync(tmp, path);
 }
 
