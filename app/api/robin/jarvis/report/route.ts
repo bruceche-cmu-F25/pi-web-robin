@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiRoute } from "@/lib/api-route";
 import { readJarvisView } from "@/lib/jarvis-discovery";
-import { renderJarvisReport } from "@/lib/jarvis-report";
+import { renderJarvisReport, writeJarvisDayReport } from "@/lib/jarvis-report";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -15,3 +15,4 @@ export const GET = apiRoute((request) => {
     },
   });
 });
+export const POST = apiRoute(() => NextResponse.json(writeJarvisDayReport(readJarvisView())));

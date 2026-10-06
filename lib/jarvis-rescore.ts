@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { applyJarvisAssessment, patchJarvisRescore, readJarvis, writeJarvisRescore } from "../extension/robin/jarvis-domain.ts";
+import { applyJarvisAssessment, cancelJarvisRescore, claimJarvisRescore, heartbeatJarvisRescore, patchJarvisRescore, readJarvis } from "../extension/robin/jarvis-domain.ts";
 import { JARVIS_RUBRIC_VERSION, type JarvisLead, type JarvisRescoreRun } from "../extension/robin/jarvis-shape.ts";
 import { JARVIS_RESCORE_PREAMBLE, JARVIS_RESEARCH_TOOLS, jarvisRescorePrompt, parseJarvisRescore } from "../extension/robin/jarvis-research.ts";
 import { runScopedAssistantTurn } from "./robin-assistant";
+import { JARVIS_RUN_LEASE_MS, JARVIS_RUNTIME_OWNER_ID, startJarvisRunHeartbeat } from "./jarvis-run-lease.ts";
 
 /**
  * Re-assesses contacts not yet judged under the current rubric. Contacts with
@@ -12,7 +13,7 @@ import { runScopedAssistantTurn } from "./robin-assistant";
  */
 const BATCH = 4;
 const OFFLINE_BATCH = 8;
-const registry = globalThis as typeof globalThis & { __jarvisRescore?: { id: string; controller: AbortController } };
+const registry = globalThis as typeof globalThis & { __jarvisRescore?: { id: string; controller: AbortController; heartbeatTimer: ReturnType<typeof setInterval> } };
 
 /** Contacts not yet judged under the current rubric that could still be contacted, unsent first. */
 export function pendingRescore(leads: JarvisLead[]): JarvisLead[] {
@@ -24,23 +25,27 @@ export function startJarvisRescore(): JarvisRescoreRun {
   if (registry.__jarvisRescore) throw new Error("Rescoring is already running or stopping");
   const total = pendingRescore(readJarvis().leads).length;
   if (!total) throw new Error("Every contact is already assessed under the current rubric");
-  const run: JarvisRescoreRun = { id: randomUUID(), status: "running", total, assessed: 0, startedAt: new Date().toISOString(), message: "Starting rescoring…" };
+  const startedAt = new Date().toISOString();
+  const run: JarvisRescoreRun = { id: randomUUID(), ownerId: JARVIS_RUNTIME_OWNER_ID, heartbeatAt: startedAt, status: "running", total, assessed: 0, startedAt, message: "Starting rescoring…" };
   const controller = new AbortController();
-  writeJarvisRescore(run);
-  registry.__jarvisRescore = { id: run.id, controller };
+  claimJarvisRescore(run, Date.now() - JARVIS_RUN_LEASE_MS);
+  const heartbeatTimer = startJarvisRunHeartbeat(() => heartbeatJarvisRescore(run.id, JARVIS_RUNTIME_OWNER_ID), controller);
+  registry.__jarvisRescore = { id: run.id, controller, heartbeatTimer };
   void rescore(run, controller.signal).catch((error: unknown) => {
     patchJarvisRescore(run.id, { status: "error", message: error instanceof Error ? error.message : String(error), finishedAt: new Date().toISOString() });
   }).finally(() => {
-    if (registry.__jarvisRescore?.id === run.id) delete registry.__jarvisRescore;
+    if (registry.__jarvisRescore?.id === run.id) {
+      clearInterval(registry.__jarvisRescore.heartbeatTimer);
+      delete registry.__jarvisRescore;
+    }
   });
   return run;
 }
 
 export function stopJarvisRescore(): void {
   const active = registry.__jarvisRescore;
-  if (!active) return;
-  active.controller.abort();
-  patchJarvisRescore(active.id, { status: "cancelled", message: "Stopped. Saved assessments are kept.", finishedAt: new Date().toISOString() });
+  active?.controller.abort();
+  cancelJarvisRescore();
 }
 
 export function isJarvisRescoreActive(id: string): boolean {
@@ -71,7 +76,7 @@ async function rescore(run: JarvisRescoreRun, signal: AbortSignal): Promise<void
       const ids = new Set(batch.map((lead) => lead.id));
       for (const item of parseJarvisRescore(result.reply)) {
         if (!ids.has(item.id)) continue;
-        try { if (applyJarvisAssessment(item.id, item)) assessed++; } catch { /* An invalid entry leaves that contact unassessed. */ }
+        try { if (applyJarvisAssessment(item.id, item, run.id)) assessed++; } catch { /* An invalid entry leaves that contact unassessed. */ }
       }
       patchJarvisRescore(run.id, { assessed });
       failed = 0;

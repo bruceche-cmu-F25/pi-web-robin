@@ -20,24 +20,25 @@ import { chmodSync } from "node:fs";
 import { addDays, localDate } from "./dates.ts";
 import type { DashboardEvent } from "./events.ts";
 import { dataPath, readJsonObject, writeJsonObject } from "./paths.ts";
-import { googleCalendarSources, googleCredentials } from "./settings.ts";
+import { googleCalendarSources, googleCredentials, outreachGoogleCredentials } from "./settings.ts";
 
-const TOKENS_FILE = "google.json";
+export type GoogleAccount = "primary" | "outreach";
+const tokensFile = (account: GoogleAccount) => account === "outreach" ? "google-outreach.json" : "google.json";
 const AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
 const CALENDAR_ENDPOINT = "https://www.googleapis.com/calendar/v3";
 /**
  * Read-only on purpose: this integration cannot modify the user's data.
  *
- * Calendar and Gmail share the one OAuth grant. Jarvis may send one
- * individually confirmed message; the calendar and inbox remain read-only.
+ * Calendar and inbox share the primary read-only grant. Cold Reach uses a
+ * separate Gmail read/send grant and token file, without calendar access.
  */
 const SCOPES = [
   "https://www.googleapis.com/auth/calendar.readonly",
   "https://www.googleapis.com/auth/gmail.readonly",
-  "https://www.googleapis.com/auth/gmail.send",
 ];
 const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
+const OUTREACH_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly", GMAIL_SEND_SCOPE];
 const REQUEST_TIMEOUT_MS = 10_000;
 
 interface StoredTokens {
@@ -47,6 +48,7 @@ interface StoredTokens {
   accessTokenExpiresAt?: number;
   connectedAt: string;
   scopes?: string[];
+  email?: string;
 }
 
 export interface GoogleCredentials {
@@ -58,85 +60,85 @@ export interface GoogleCredentials {
  * Read at call time, not at module load: the settings screen writes these and
  * the change has to take effect without restarting the server.
  */
-export function readCredentials(): GoogleCredentials | null {
-  const { clientId, clientSecret } = googleCredentials();
+export function readCredentials(account: GoogleAccount = "primary"): GoogleCredentials | null {
+  const { clientId, clientSecret } = account === "outreach" ? outreachGoogleCredentials() : googleCredentials();
   return clientId && clientSecret ? { clientId, clientSecret } : null;
 }
 
-function readTokens(): StoredTokens | null {
-  const stored = readJsonObject<Partial<StoredTokens>>(TOKENS_FILE);
+function readTokens(account: GoogleAccount = "primary"): StoredTokens | null {
+  const stored = readJsonObject<Partial<StoredTokens>>(tokensFile(account));
   // A disconnected account leaves an empty object behind, which still parses —
   // the refresh token, not the file, is what "connected" means.
   return stored?.refreshToken ? stored as StoredTokens : null;
 }
 
-function writeTokens(tokens: StoredTokens): void {
-  writeJsonObject(TOKENS_FILE, tokens);
+function writeTokens(tokens: StoredTokens, account: GoogleAccount): void {
+  writeJsonObject(tokensFile(account), tokens);
   // The refresh token is a standing grant on the user's calendar; do not leave
   // it group- or world-readable.
   try {
-    chmodSync(dataPath(TOKENS_FILE), 0o600);
+    chmodSync(dataPath(tokensFile(account)), 0o600);
   } catch {
     // Best effort — a filesystem without POSIX modes is not a reason to fail.
   }
 }
 
-export function isConnected(): boolean {
-  return readTokens() !== null;
+export function isConnected(account: GoogleAccount = "primary"): boolean {
+  return readTokens(account) !== null;
 }
 
 /** Existing read-only grants must be re-authorized before Jarvis can send. */
-export function canSendGmail(): boolean {
-  return readTokens()?.scopes?.includes(GMAIL_SEND_SCOPE) ?? false;
+export function canSendGmail(account: GoogleAccount = "primary"): boolean {
+  return readTokens(account)?.scopes?.includes(GMAIL_SEND_SCOPE) ?? false;
 }
 
-export function disconnect(): void {
-  writeJsonObject(TOKENS_FILE, { disconnectedAt: new Date().toISOString() });
+export function connectedGoogleEmail(account: GoogleAccount = "primary"): string | null {
+  return readTokens(account)?.email ?? null;
 }
 
-export function authorizeUrl(redirectUri: string, state: string): string {
-  const credentials = readCredentials();
+export function disconnect(account: GoogleAccount = "primary"): void {
+  writeJsonObject(tokensFile(account), { disconnectedAt: new Date().toISOString() });
+}
+
+export function authorizeUrl(redirectUri: string, state: string, account: GoogleAccount = "primary"): string {
+  const credentials = readCredentials(account);
   if (!credentials) throw new Error("Google client credentials are not configured");
   const params = new URLSearchParams({
     client_id: credentials.clientId,
     redirect_uri: redirectUri,
     response_type: "code",
-    scope: SCOPES.join(" "),
+    scope: (account === "outreach" ? OUTREACH_SCOPES : SCOPES).join(" "),
     // A refresh token is only issued with consent + offline access, and Google
     // omits it on repeat grants unless prompted again.
     access_type: "offline",
-    prompt: "consent",
+    prompt: "consent select_account",
     include_granted_scopes: "true",
     state,
   });
   return `${AUTH_ENDPOINT}?${params.toString()}`;
 }
 
-async function postForm(url: string, body: URLSearchParams): Promise<Record<string, unknown>> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-  try {
-    const response = await fetch(url, {
-      method: "POST",
-      signal: controller.signal,
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body,
-    });
-    const parsed = await response.json().catch(() => null) as Record<string, unknown> | null;
-    if (!response.ok) {
-      const detail = typeof parsed?.error_description === "string"
-        ? parsed.error_description
-        : typeof parsed?.error === "string" ? parsed.error : `HTTP ${response.status}`;
-      throw new Error(`Google rejected the request: ${detail}`);
-    }
-    return parsed ?? {};
-  } finally {
-    clearTimeout(timer);
+async function postForm(url: string, body: URLSearchParams, parentSignal?: AbortSignal): Promise<Record<string, unknown>> {
+  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  const signal = parentSignal ? AbortSignal.any([parentSignal, timeout]) : timeout;
+  const response = await fetch(url, {
+    method: "POST",
+    signal,
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+  const parsed = await response.json().catch(() => null) as Record<string, unknown> | null;
+  if (!response.ok) {
+    const detail = typeof parsed?.error_description === "string"
+      ? parsed.error_description
+      : typeof parsed?.error === "string" ? parsed.error : `HTTP ${response.status}`;
+    throw new Error(`Google rejected the request: ${detail}`);
   }
+  return parsed ?? {};
 }
 
-export async function exchangeCode(code: string, redirectUri: string): Promise<void> {
-  const credentials = readCredentials();
+export async function exchangeCode(code: string, redirectUri: string, account: GoogleAccount = "primary"): Promise<void> {
+  const credentials = readCredentials(account);
   if (!credentials) throw new Error("Google client credentials are not configured");
 
   const result = await postForm(TOKEN_ENDPOINT, new URLSearchParams({
@@ -154,7 +156,16 @@ export async function exchangeCode(code: string, redirectUri: string): Promise<v
       + "myaccount.google.com/permissions and connect again.",
     );
   }
+  let email: string | undefined;
+  if (account === "outreach") {
+    if (typeof result.access_token !== "string" || !OUTREACH_SCOPES.every((scope) => String(result.scope ?? "").split(/\s+/).includes(scope))) throw new Error("Grant Gmail read and send access for the Cold Reach account");
+    const profile = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/profile", { headers: { Authorization: `Bearer ${result.access_token}` }, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+    const identity = await profile.json() as { emailAddress?: string };
+    if (!profile.ok || !identity.emailAddress) throw new Error("Could not verify the Cold Reach sender email");
+    email = identity.emailAddress.toLowerCase();
+  }
   writeTokens({
+    ...(email ? { email } : {}),
     refreshToken,
     scopes: typeof result.scope === "string" ? result.scope.split(/\s+/) : [],
     ...(typeof result.access_token === "string" ? { accessToken: result.access_token } : {}),
@@ -162,7 +173,7 @@ export async function exchangeCode(code: string, redirectUri: string): Promise<v
       ? { accessTokenExpiresAt: Date.now() + result.expires_in * 1000 }
       : {}),
     connectedAt: new Date().toISOString(),
-  });
+  }, account);
 }
 
 /**
@@ -172,16 +183,17 @@ export async function exchangeCode(code: string, redirectUri: string): Promise<v
  * is exactly one refresh path and one cache rather than two fighting over the
  * same token file.
  */
-export async function getAccessToken(): Promise<string> {
-  const tokens = readTokens();
-  if (!tokens?.refreshToken) throw new Error("Google Calendar is not connected");
+export async function getAccessToken(account: GoogleAccount = "primary", signal?: AbortSignal): Promise<string> {
+  signal?.throwIfAborted();
+  const tokens = readTokens(account);
+  if (!tokens?.refreshToken) throw new Error(account === "outreach" ? "Connect your personal Gmail in Cold Reach first" : "Google Calendar is not connected");
 
   // A minute of slack so a token cannot expire mid-request.
   if (tokens.accessToken && (tokens.accessTokenExpiresAt ?? 0) > Date.now() + 60_000) {
     return tokens.accessToken;
   }
 
-  const credentials = readCredentials();
+  const credentials = readCredentials(account);
   if (!credentials) throw new Error("Google client credentials are not configured");
 
   const result = await postForm(TOKEN_ENDPOINT, new URLSearchParams({
@@ -189,17 +201,18 @@ export async function getAccessToken(): Promise<string> {
     client_id: credentials.clientId,
     client_secret: credentials.clientSecret,
     grant_type: "refresh_token",
-  }));
+  }), signal);
 
   const fresh = typeof result.access_token === "string" ? result.access_token : null;
   if (!fresh) throw new Error("Google did not return an access token");
+  if (readTokens(account)?.refreshToken !== tokens.refreshToken) throw new Error("Google account changed during refresh; try again");
   writeTokens({
     ...tokens,
     accessToken: fresh,
     ...(typeof result.expires_in === "number"
       ? { accessTokenExpiresAt: Date.now() + result.expires_in * 1000 }
       : {}),
-  });
+  }, account);
   return fresh;
 }
 

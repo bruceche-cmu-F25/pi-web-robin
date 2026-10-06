@@ -1,5 +1,5 @@
 import { exchangeCode } from "@/extension/robin/google-calendar";
-import { consumeState, redirectUriFor } from "@/lib/google-oauth-state";
+import { consumeOAuthState } from "@/lib/google-oauth-state";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +17,7 @@ function page(title: string, detail: string): Response {
     `<!doctype html><meta charset="utf-8"><title>${title}</title>`
     + `<body style="font:14px system-ui;padding:2rem;max-width:34rem">`
     + `<h1 style="font-size:1rem">${title}</h1><p>${detail}</p>`
-    + `<p><a href="/dashboard">Back to the dashboard</a> · <a href="/product/jarvis">Back to Jarvis</a></p>`,
+    + `<p><a href="/dashboard">Back to the dashboard</a> · <a href="/outreach">Back to Cold Reach</a></p>`,
     { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } },
   );
 }
@@ -36,7 +36,8 @@ export async function GET(req: Request) {
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
   if (!code || !state) return page("Connection failed", "Google's redirect was missing code or state.");
-  if (!consumeState(state)) {
+  const authorization = consumeOAuthState(state);
+  if (!authorization?.redirectUri) {
     return page(
       "Connection failed",
       "That authorization link was not recognised — it may have expired or already been used. Start again from the dashboard.",
@@ -44,8 +45,8 @@ export async function GET(req: Request) {
   }
 
   try {
-    await exchangeCode(code, redirectUriFor(req));
-    return page("Google connected", "Calendar and inbox access is ready. If you granted Gmail send access, Jarvis can now send individually confirmed messages.");
+    await exchangeCode(code, authorization.redirectUri, authorization.account);
+    return page("Google connected", authorization.account === "outreach" ? "Your Cold Reach Gmail account is connected. Your school inbox and calendar connection are unchanged." : "Calendar and inbox access is ready. Cold Reach uses its own separate Gmail connection.");
   } catch (caught) {
     return page("Connection failed", escapeHtml(caught instanceof Error ? caught.message : String(caught)));
   }

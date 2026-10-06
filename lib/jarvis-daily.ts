@@ -1,12 +1,11 @@
 import { readJarvisDaily, setJarvisDaily } from "../extension/robin/jarvis-domain.ts";
-import { isReachableTierExec } from "../extension/robin/jarvis-shape.ts";
+import { isCurrentValidationProspect } from "../extension/robin/jarvis-shape.ts";
 import { readJarvisView, startJarvisDiscovery } from "./jarvis-discovery.ts";
 
 /**
- * Daily research: once a day after the configured hour, start a wide-net run for
- * `count` more reachable A/B executives (a published work email is required, so
- * each one can go through the outbox). New people land in Needs review; nothing
- * is queued or sent without Bruce's batch approval.
+ * Daily research: once a day after the configured hour, find `count` more DTC
+ * prospects with a public email or social profile. New people land in Needs
+ * review; nothing is contacted without Bruce's approval.
  */
 const CHECK_MS = 5 * 60_000;
 
@@ -34,9 +33,9 @@ export function tickJarvisDaily(now: Date = new Date()): "off" | "done-today" | 
   // The view marks runs orphaned by a restart as errors, so they cannot block this forever.
   const state = readJarvisView();
   if (state.run?.status === "running" || state.rescore?.status === "running") return "busy";
-  const target = state.leads.filter(isReachableTierExec).length + daily.count;
+  const target = state.leads.filter(isCurrentValidationProspect).length + daily.count;
   try {
-    startJarvisDiscovery(target, "info_exec", true);
+    startJarvisDiscovery(target, "info_exec");
     setJarvisDaily({ lastRunOn: today });
     return "started";
   } catch (error) {

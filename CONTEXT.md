@@ -29,6 +29,27 @@ A bookmarked URL stored by Robin with its resolved title, group, and cached icon
 **Job**:
 A discovered role in Robin's job pipeline, including scoring, status, notes, delivery state, and application time. Job behavior belongs to the Job domain module; HTTP and Pi tools are adapters.
 
+**Outreach Lead**:
+A person researched for the Cold Reach workflow, together with sourced identity, current role, fit evidence, contact routes, drafts, review state, and contact history. The Jarvis domain owns the record; UI pages, HTTP routes, runners, and schedulers are adapters.
+_Avoid_: Candidate, contact card, recipient
+
+**Channel Plan**:
+The human-approved snapshot of one Outreach Lead's route and complete message for one channel. A later edit to the route or copy invalidates the plan; approval is never a blanket permission for other people or channels.
+_Avoid_: Draft, queue item, campaign approval
+
+**Delivery Attempt**:
+An at-most-once claim for one approved Channel Plan. It stays pending or uncertain until external evidence and the Jarvis CRM agree on the result; an uncertain attempt is not permission to retry.
+An explicit pre-delivery refusal is not external uncertainty and may release its unstarted reservation.
+_Avoid_: Send, message, history row
+
+**Automation Wake**:
+One invocation of the external Cold Reach coordinator. It may research, verify, deliver, or reconcile work, but it does not own Outreach Lead state and must use the same domain commands as the HTTP and CLI adapters.
+_Avoid_: Cron job, batch, research run
+
+**Research Lease**:
+The renewable ownership claim for one active Cold Reach research run. It prevents another server process from starting overlapping paid research, and a stop request cancels the stored lease even when it reaches a different process.
+_Avoid_: In-memory lock, worker flag, queue
+
 **Practice Problem**:
 A problem in the local NeetCode catalog, identified by its LeetCode slug. Read-only reference data, generated from published sources; the user's history on it is an Attempt, not part of the problem.
 _Avoid_: Question, exercise, card

@@ -1,39 +1,42 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { JARVIS_NEWS_BURDEN_KEYS, JARVIS_NEWS_BURDEN_MAX, JARVIS_TARGET_PERSONAS, isJarvisFollowUpDue, isQualifiedInfoExec, jarvisTier, newsBurdenTotal, isSendableCore, jarvisComposeLinks, jarvisListPriority, type JarvisLead, type JarvisState } from "../extension/robin/jarvis-shape.ts";
+import { JARVIS_NEWS_BURDEN_KEYS, JARVIS_NEWS_BURDEN_MAX, JARVIS_TARGET_PERSONAS, isJarvisFollowUpDue, isQualifiedInfoExec, isVerifiedJarvisTarget, isOutreachApprovedFor, jarvisContactMethods, jarvisTier, newsBurdenTotal, isSendableCore, jarvisComposeLinks, jarvisListPriority, type JarvisLead, type JarvisState } from "../extension/robin/jarvis-shape.ts";
 
 const COHORTS: Record<string, string> = {
   info_exec: "Target persona", clinic: "Clinic / healthcare", professional_services: "Professional services", nontech_exec: "Non-tech executive", small_tech: "Small tech",
   founder: "Adjacent · founder", investor: "Adjacent · investor", product: "Adjacent · product", research: "Adjacent · research",
 };
 const PERSONAS: Record<string, string> = {
-  vc: "VC / angel / family office", client_advisor: "Client advisor / BD", startup_leader: "Startup founder / leader",
-  nontech_tech_leader: "Non-tech company tech & strategy leader", researcher: "Researcher",
+  grant_researcher: "Grant-seeking researcher", nonprofit_operator: "Nonprofit / impact operator", independent_creator: "Independent creator",
+  ecommerce_owner: "Shopify / DTC owner", healthcare_operator: "Healthcare operator", cross_source_operator: "Cross-source operator", legal_leader: "Transaction / regulatory legal leader",
+  vc: "Legacy · VC", client_advisor: "Legacy · advisor", startup_leader: "Legacy · startup leader",
+  nontech_tech_leader: "Legacy · tech leader", researcher: "Legacy · researcher",
 };
 const escape = (value: string) => value.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 const link = (href: string, label: string) => href ? `<a href="${escape(href)}" target="_blank" rel="noreferrer">${escape(label)}</a>` : "";
 
 function row(lead: JarvisLead, index: number, at: number): string {
   const compose = jarvisComposeLinks(lead);
-  const emailCell = lead.email
-    ? `<a href="mailto:${escape(lead.email)}">${escape(lead.email)}</a><small class="${lead.emailCheck}">${lead.emailCheck === "source_found" ? "seen on source page" : "unconfirmed"}</small>${link(lead.emailSource, "source ↗")}`
-    : `<small class="missing">no public work email</small>`;
+  const socialLinks = jarvisContactMethods(lead).filter((method) => method.platform !== "email").map((method) => link(method.url, `${method.platform} ↗`)).join("");
+  const emailCell = (lead.email
+    ? `${isOutreachApprovedFor(lead, "email") || lead.segment !== "info_exec" ? `<a href="mailto:${escape(lead.email)}">${escape(lead.email)}</a>` : escape(lead.email)}<small class="${lead.emailCheck}">${lead.emailCheck === "source_found" ? "seen on source page" : "unconfirmed"}</small>${link(lead.emailSource, "source ↗")}`
+    : `<small class="missing">no public work email</small>`) + socialLinks;
   const draft = compose
     ? `${link(compose.gmail, "Gmail")} · <a href="${escape(compose.mailto)}">Mail app</a>`
     : lead.email ? `<small>approve in Robin first</small>` : "";
   const queued = Boolean(lead.queuedAt) && !lead.sendAttempt;
   const burden = lead.newsBurden ? `<details class="burden"><summary>news burden ${newsBurdenTotal(lead)}/${JARVIS_NEWS_BURDEN_MAX}</summary><ul>${JARVIS_NEWS_BURDEN_KEYS.map((key) => `<li><b>${key} ${lead.newsBurden![key].score}/3</b> ${escape(lead.newsBurden![key].evidence)}</li>`).join("")}</ul></details>` : "";
-  return `<tr data-cohort="${lead.audienceFit}" data-sendable="${isSendableCore(lead)}" data-target="${isQualifiedInfoExec(lead)}" data-tier="${jarvisTier(lead) ?? ""}" data-persona="${lead.persona ?? ""}" data-burden="${newsBurdenTotal(lead)}" data-search="${escape(`${lead.name} ${lead.company} ${lead.role} ${lead.industry} ${lead.email} ${lead.personLocation ?? ""} ${lead.companyLocation ?? ""} ${lead.timeZone ?? ""}`.toLowerCase())}">
+  return `<tr data-cohort="${lead.audienceFit}" data-sendable="${isSendableCore(lead)}" data-target="${isVerifiedJarvisTarget(lead)}" data-tier="${jarvisTier(lead) ?? ""}" data-persona="${lead.persona ?? ""}" data-burden="${newsBurdenTotal(lead)}" data-search="${escape(`${lead.name} ${lead.company} ${lead.role} ${lead.industry} ${lead.email} ${Object.values(lead.socials ?? {}).join(" ")} ${lead.personLocation ?? ""} ${lead.companyLocation ?? ""} ${lead.timeZone ?? ""}`.toLowerCase())}">
 <td>${index + 1}</td>
 <td><strong>${escape(lead.name)}</strong>${link(lead.profileUrl, "profile ↗")}<small>Work: ${escape(lead.personLocation || "unknown")}${link(lead.personLocationSource ?? "", "source ↗")}</small><small>Time zone: ${escape(lead.timeZone || "unknown")}</small></td>
 <td>${escape(lead.company)}<small>${escape(lead.role)}</small><small>Company: ${escape(lead.companyLocation || "unknown")}${link(lead.companyLocationSource ?? "", "source ↗")}</small></td>
-<td>${jarvisTier(lead) ? `<span class="tier">${jarvisTier(lead)}</span> ` : ""}${escape(COHORTS[lead.segment] ?? lead.segment)}<small>${escape(lead.industry)}</small>${lead.persona ? `<span class="persona">${escape(PERSONAS[lead.persona] ?? lead.persona)}</span>` : ""}${burden}</td>
+<td>${jarvisTier(lead) ? `<span class="tier" title="Model score; not human verified">${jarvisTier(lead)}</span> ` : ""}${lead.segment === "info_exec" ? `<small>ICP: ${escape(lead.icpReview?.verdict ?? "pending")}${lead.icpReview?.reason ? ` · ${escape(lead.icpReview.reason)}` : ""}</small>` : ""}${escape(COHORTS[lead.segment] ?? lead.segment)}<small>${escape(lead.industry)}</small>${lead.persona ? `<span class="persona">${escape(PERSONAS[lead.persona] ?? lead.persona)}</span>` : ""}${burden}</td>
 <td>${emailCell}</td>
-<td class="evidence">${lead.watchList ? `<small class="via"><b>Watch list:</b> ${escape(lead.watchList)}</small>` : ""}${lead.foundVia ? `<small class="via">Found via ${link(lead.foundVia.url, lead.foundVia.source)}</small>` : ""}<q>${escape(lead.evidence)}</q>${link(lead.evidenceUrl, "evidence ↗")}</td>
-<td>${queued ? '<span class="status queued">queued</span>' : `<span class="status ${lead.status}">${escape(lead.status.replace(/_/g, " "))}</span>`}${lead.sentAt ? `<small>sent ${lead.sentAt.slice(0, 10)}</small>` : ""}${lead.reviewed ? "<small>reviewed</small>" : ""}${isJarvisFollowUpDue(lead, at) ? '<small class="follow-up-due">follow-up due · 7+ days without recorded reply</small>' : ""}${lead.followedUpAt ? `<small>followed up ${escape(lead.followedUpAt.slice(0, 10))}</small>` : ""}</td>
+<td class="evidence">${lead.sourcingLane ? `<small class="via"><b>Lane:</b> ${escape(lead.sourcingLane)} · need fit ${lead.companyFit?.score ?? "—"}/50 · reachability ${lead.reachability?.score ?? "—"}/50</small>` : ""}${lead.informationNeedEvidence ? `<small class="via"><b>Cross-source decision need:</b> “${escape(lead.informationNeedEvidence.quote)}”</small>${link(lead.informationNeedEvidence.url, "need source ↗")}` : ""}${lead.opportunityNeedEvidence ? `<small class="via"><b>Legacy active work:</b> “${escape(lead.opportunityNeedEvidence.quote)}”</small>${link(lead.opportunityNeedEvidence.url, "legacy project source ↗")}` : ""}${lead.shopifyEvidence ? `<small class="via"><b>Shopify proof:</b> “${escape(lead.shopifyEvidence.quote)}”</small>${link(lead.shopifyEvidence.url, "source ↗")}` : ""}${lead.whyNow ? `<small class="via"><b>Why now:</b> ${escape(lead.whyNow.summary)} · “${escape(lead.whyNow.quote)}”</small>${link(lead.whyNow.url, "trigger source ↗")}` : ""}${lead.watchList ? `<small class="via"><b>Watch list:</b> ${escape(lead.watchList)}</small>` : ""}${lead.foundVia ? `<small class="via">Found via ${link(lead.foundVia.url, lead.foundVia.source)}</small>` : ""}<q>${escape(lead.evidence)}</q>${link(lead.evidenceUrl, "evidence ↗")}${lead.socialEvidence ? `<small>Public social post · verify: “${escape(lead.socialEvidence.quote)}”</small>${link(lead.socialEvidence.url, "original post ↗")}` : ""}</td>
+<td>${queued ? '<span class="status queued">queued</span>' : `<span class="status ${lead.status}">${escape(lead.status.replace(/_/g, " "))}</span>`}${lead.sentAt ? `<small>sent ${lead.sentAt.slice(0, 10)}</small>` : ""}${lead.reviewed ? "<small>reviewed</small>" : ""}${isJarvisFollowUpDue(lead, at) ? '<small class="follow-up-due">follow-up due · no recorded reply</small>' : ""}${lead.followedUpAt ? `<small>followed up ${escape(lead.followedUpAt.slice(0, 10))}</small>` : ""}</td>
 <td><details><summary>${escape(lead.subject)}</summary><pre>${escape(lead.body)}</pre></details>
-<div class="copy">${lead.email ? `<button type="button" data-copy="${escape(lead.email)}">Copy email</button>` : ""}<button type="button" data-copy="${escape(lead.subject)}">Copy subject</button><button type="button" data-copy="${escape(lead.body)}">Copy body</button></div>${draft}</td>
+<div class="copy">${lead.segment !== "info_exec" || isOutreachApprovedFor(lead, "email") ? `${lead.email ? `<button type="button" data-copy="${escape(lead.email)}">Copy email</button>` : ""}<button type="button" data-copy="${escape(lead.subject)}">Copy subject</button><button type="button" data-copy="${escape(lead.body)}">Copy body</button>` : `<small>ICP review required before outreach</small>`}</div>${draft}</td>
 </tr>`;
 }
 
@@ -42,9 +45,12 @@ export function renderJarvisReport(state: JarvisState, generatedAt = new Date())
   const leads = [...state.leads].sort((a, b) => jarvisListPriority(a) - jarvisListPriority(b) || newsBurdenTotal(b) - newsBurdenTotal(a) || a.name.localeCompare(b.name));
   const core = leads.filter((lead) => lead.audienceFit === "core");
   const stats: Array<[number, string]> = [
-    [leads.filter((lead) => jarvisTier(lead) === "A").length, "A · strict target users"],
+    [leads.filter((lead) => jarvisTier(lead) === "A").length, "A · model-scored candidates"],
     [leads.filter((lead) => jarvisTier(lead) === "B").length, "B · wide-net executives"],
-    [leads.filter((lead) => isQualifiedInfoExec(lead) && lead.emailCheck === "source_found").length, "target users with a confirmed email"],
+    [leads.filter((lead) => lead.segment === "info_exec" && isQualifiedInfoExec(lead) && jarvisContactMethods(lead).length > 0).length, "contactable research candidates"],
+    [leads.filter(isVerifiedJarvisTarget).length, "human-verified ICPs"],
+    [leads.filter((lead) => lead.segment === "info_exec" && lead.confirmedNeeds.trim()).length, "confirmed needs / interview evidence"],
+    [leads.filter(isQualifiedInfoExec).reduce((sum, lead) => sum + jarvisContactMethods(lead).length, 0), "public contact methods"],
     [leads.filter((lead) => lead.queuedAt && !lead.sendAttempt).length, "queued"],
     [core.length, "core candidates"],
     [leads.filter((lead) => lead.email).length, "work emails (all)"],
@@ -75,13 +81,13 @@ small.source_found{color:var(--ok)}small.unconfirmed,small.follow-up-due{color:v
 small.via{margin-bottom:4px}.tier{display:inline-block;min-width:18px;text-align:center;border:1px solid var(--accent);border-radius:3px;font-size:11px;font-weight:700;color:var(--accent)}.status.queued{color:var(--accent)}
 pre{white-space:pre-wrap;font:12px/1.5 inherit;max-width:420px;margin:8px 0}summary{cursor:pointer;font-size:12px}
 </style></head><body><main>
-<h1>Jarvis.day · target users &amp; outreach</h1>
-<p class="meta">Generated ${escape(generatedAt.toISOString().replace("T", " ").slice(0, 16))} UTC. “Seen on source page” means the address appeared on the cited public page; it does not verify deliverability. Nothing here sends mail. A-tier target users are executives at organizations of about 500 or fewer, in a fast-moving field, with a named watch list, who fit one of Jarvis's four personas with a news burden of at least 9/12 and no zero dimension; open a score to read the cited reason for each dimension. B-tier executives are the wide net: any other current executive outside associations with a news burden of at least 6/12 in a field that is not static.</p>
+<h1>Your Secretary · target users &amp; outreach</h1>
+<p class="meta">Generated ${escape(generatedAt.toISOString().replace("T", " ").slice(0, 16))} UTC. The current validation sprint prioritizes hands-on Shopify / DTC owners, healthcare operators, and other small-business operators with sourced cross-source decision responsibilities. Every counted candidate needs concrete information-need evidence, a recent why-now event and the persona-specific verified contact route. A title alone never qualifies. Every source still requires human verification. Nothing here sends mail or social DMs.</p>
 <section class="stats">${stats.map(([n, label]) => `<div><strong>${n}</strong><span>${label}</span></div>`).join("")}</section>
 <div class="controls"><input type="search" id="q" placeholder="Filter name, company, email…" aria-label="Filter">
-<select id="view" aria-label="Show"><option value="tiered">Executives · A + B</option><option value="target">A-tier target users</option><option value="sendable">Sendable core</option><option value="core">All core</option><option value="all">Everyone</option></select>
+<select id="view" aria-label="Show"><option value="tiered">Executives · A + B</option><option value="target">Human-verified target users</option><option value="sendable">Sendable core</option><option value="core">All core</option><option value="all">Everyone</option></select>
 <select id="persona" aria-label="Persona"><option value="">All personas</option>${JARVIS_TARGET_PERSONAS.map((p) => `<option value="${p}">${escape(PERSONAS[p]!)}</option>`).join("")}</select><span id="count"></span><button type="button" id="export">Export HTML</button></div>
-<div class="wrap"><table><thead><tr><th>#</th><th>Name</th><th>Company · role</th><th>Persona · score · industry</th><th>Work email</th><th>Why this person</th><th>Status</th><th>Draft</th></tr></thead>
+<div class="wrap"><table><thead><tr><th>#</th><th>Name</th><th>Company · role</th><th>Persona · score · industry</th><th>Contact routes</th><th>Why this person</th><th>Status</th><th>Draft</th></tr></thead>
 <tbody>${leads.map((lead, index) => row(lead, index, generatedAt.getTime())).join("\n")}</tbody></table></div>
 </main><script>
 const q=document.getElementById("q"),v=document.getElementById("view"),pe=document.getElementById("persona"),rows=[...document.querySelectorAll("tbody tr")],c=document.getElementById("count");

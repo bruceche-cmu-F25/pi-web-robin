@@ -2,13 +2,16 @@ Subject: A question about what deserves your attention
 
 Hi {{firstName}},
 
-{{opener}}
+{{shortOpener}}
 
-I'm Bruce Cheng, a CMU software engineering master's student exploring information overload for people who have to stay on top of fast-moving fields. The idea is a personalized TL;DR built around you — with very little setup, it filters the noise and surfaces the few news, papers, and updates actually worth your attention.
+I'm Bruce. We're building a personal intelligence filter for people who have to keep up with changing information across their work. It learns from your goals, projects, public footprint, and feedback, then monitors public sources and sources you explicitly choose to connect.
 
-Not selling anything — we're still trying to understand the problem. I'd love your honest take: how do you currently decide what's worth your attention each day, and does the filtering part feel like a real pain or more of a nice-to-have?
+Instead of another long digest, it sends a short daily brief with only the developments and opportunities worth acting on—why each matters, the source, and the next step. Grants and fellowships can be one use case; so can policy, operations, market, customer, or competitor changes.
 
-Even a one-line reply would be really helpful.
+How do you decide what deserves your attention today, and what tends to get missed?
+
+https://your-secretary.com
 
 Best,
-Bruce Cheng
+Bruce
+https://www.linkedin.com/in/chi-cheng921/

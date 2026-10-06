@@ -1,4 +1,4 @@
-import { canSendGmail, getAccessToken } from "./google-calendar.ts";
+import { canSendGmail, connectedGoogleEmail, getAccessToken } from "./google-calendar.ts";
 
 /**
  * The sole write to Gmail: a stored, reviewed Jarvis draft, sent either on an
@@ -23,18 +23,34 @@ export function encodeJarvisMessage(email: string, subject: string, body: string
   return Buffer.from(mime, "utf8").toString("base64url");
 }
 
+export function coldReachSenderEmail(): string {
+  const email = connectedGoogleEmail("outreach");
+  if (!canSendGmail("outreach") || !email) throw new Error("Connect your personal Gmail in Cold Reach and grant Gmail read/send access first.");
+  return email;
+}
+
+async function senderToken(expectedEmail: string, signal?: AbortSignal): Promise<string> {
+  signal?.throwIfAborted();
+  if (coldReachSenderEmail() !== expectedEmail) throw new Error("Cold Reach sender changed; review the account before sending or checking replies");
+  const token = await getAccessToken("outreach", signal);
+  signal?.throwIfAborted();
+  if (coldReachSenderEmail() !== expectedEmail) throw new Error("Cold Reach sender changed during authorization");
+  return token;
+}
+
 const GMAIL = "https://gmail.googleapis.com/gmail/v1/users/me";
 
 /** A follow-up passes the original thread and its RFC Message-ID so it lands as a reply. */
-export async function sendJarvisEmail(email: string, subject: string, body: string, reply?: { threadId: string; rfcMessageId: string }): Promise<{ id: string; threadId?: string }> {
-  if (!canSendGmail()) throw new Error("Reconnect Google and grant Gmail send access before sending.");
+export async function sendJarvisEmail(email: string, subject: string, body: string, reply?: { threadId: string; rfcMessageId: string }, senderEmail = coldReachSenderEmail(), signal?: AbortSignal): Promise<{ id: string; threadId?: string }> {
+  signal?.throwIfAborted();
   const raw = encodeJarvisMessage(email, subject, body, reply?.rfcMessageId);
-  const token = await getAccessToken();
+  const token = await senderToken(senderEmail, signal);
+  const timeout = AbortSignal.timeout(15_000);
   const response = await fetch(`${GMAIL}/messages/send`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify({ raw, ...(reply ? { threadId: reply.threadId } : {}) }),
-    signal: AbortSignal.timeout(15_000),
+    signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
   });
   const result = await response.json().catch(() => null) as { id?: unknown; threadId?: unknown; error?: { message?: string } } | null;
   if (!response.ok || typeof result?.id !== "string") throw new Error(`Gmail send failed (${response.status}): ${result?.error?.message ?? "No message id returned"}`);
@@ -49,8 +65,8 @@ const BOUNCE = /mailer-daemon|postmaster|mail delivery (subsystem|system)/i;
  * Reads (never modifies) the thread of a sent Jarvis message. Any message in it
  * that Bruce did not send is a reply, unless it is a delivery-failure notice.
  */
-export async function readJarvisThread(messageId: string, knownThreadId?: string): Promise<{ threadId: string; rfcMessageId: string; outcome: "none" | "replied" | "bounced"; at?: string }> {
-  const token = await getAccessToken();
+export async function readJarvisThread(messageId: string, knownThreadId: string | undefined, senderEmail: string): Promise<{ threadId: string; rfcMessageId: string; outcome: "none" | "replied" | "bounced"; at?: string }> {
+  const token = await senderToken(senderEmail);
   const get = async (path: string) => {
     const response = await fetch(`${GMAIL}${path}`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000) });
     const result = await response.json().catch(() => null) as Record<string, unknown> | null;

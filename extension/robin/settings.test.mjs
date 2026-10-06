@@ -14,14 +14,17 @@ const {
   settingsView,
   clearGoogleCredentials,
   clearNotion,
+  clearPlaywrightExtensionToken,
   clearTelegram,
   describeGoogle,
   describeNotion,
+  describePlaywright,
   describeSecret,
   describeTelegram,
   googleCalendarSources,
   googleCredentials,
   notionSettings,
+  playwrightExtensionToken,
   parseChatIds,
   parseGoogleCalendarId,
   secretsPath,
@@ -46,10 +49,12 @@ after(() => rmSync(dir, { recursive: true, force: true }));
 beforeEach(() => {
   clearGoogleCredentials();
   clearNotion();
+  clearPlaywrightExtensionToken();
   clearTelegram();
   delete process.env.ROBIN_GOOGLE_CLIENT_ID;
   delete process.env.ROBIN_GOOGLE_CLIENT_SECRET;
   delete process.env.NOTION_API_TOKEN;
+  delete process.env.PLAYWRIGHT_MCP_EXTENSION_TOKEN;
   delete process.env.TELEGRAM_BOT_TOKEN;
   delete process.env.TELEGRAM_ALLOWED_CHAT_IDS;
 });
@@ -222,6 +227,23 @@ test("settingsView reports presence and the file location, never a secret", () =
   const serialised = JSON.stringify(view);
   assert.ok(!serialised.includes("client-secret-value"));
   assert.ok(!serialised.includes("ntn_secret_token"));
+});
+
+test("Playwright token is write-only, file-sourced, and clearable", () => {
+  const token = "NewBrowserConnectionToken123456789";
+  assert.throws(() => applySettingsSection("playwright", { extensionToken: "bad" }), /Invalid Playwright token/);
+  assert.equal(describePlaywright().extensionToken.set, false);
+  process.env.PLAYWRIGHT_MCP_EXTENSION_TOKEN = "FallbackBrowserToken123456789";
+  assert.equal(describePlaywright().extensionToken.source, "env");
+  const saved = applySettingsSection("playwright", { extensionToken: `PLAYWRIGHT_MCP_EXTENSION_TOKEN=${token}` });
+  assert.deepEqual(saved.playwright.extensionToken, { set: true, source: "file" });
+  assert.equal(playwrightExtensionToken(), token);
+  applySettingsSection("playwright", { extensionToken: `export PLAYWRIGHT_MCP_EXTENSION_TOKEN='${token.slice(0, 19)}\n ${token.slice(19)}'` });
+  assert.equal(playwrightExtensionToken(), token);
+  assert.ok(!JSON.stringify(settingsView()).includes(token));
+  assert.equal(statSync(secretsPath()).mode & 0o777, 0o600);
+  assert.equal(clearSettingsSection("playwright").playwright.extensionToken.source, "env");
+  assert.equal(playwrightExtensionToken(), "FallbackBrowserToken123456789");
 });
 
 test("google needs both halves of the credential, or neither is written", () => {

@@ -19,6 +19,13 @@ const SEGMENTS: Record<JarvisSegment, [string, string]> = {
   product: ["原名单 · 产品 / 战略", "Original · product / strategy"], research: ["原名单 · 应用研究", "Original · applied research"],
 };
 const PERSONAS: Record<JarvisPersona, [string, string]> = {
+  grant_researcher: ["研究者", "Grant-seeking researcher"],
+  nonprofit_operator: ["非营利 / 社会影响负责人", "Nonprofit / impact operator"],
+  independent_creator: ["独立创作者", "Independent creator"],
+  ecommerce_owner: ["Shopify / DTC 品牌主", "Shopify / DTC owner"],
+  healthcare_operator: ["医疗机构经营者", "Healthcare operator"],
+  cross_source_operator: ["跨来源运营负责人", "Cross-source operator"],
+  legal_leader: ["交易 / 监管法律负责人", "Transaction / regulatory legal leader"],
   vc: ["VC / 天使 / 家族办公室", "VC / angel / family office"],
   client_advisor: ["客户顾问 / BD", "Client advisor / BD"],
   startup_leader: ["创业公司创始人 / 高管", "Startup founder / leader"],

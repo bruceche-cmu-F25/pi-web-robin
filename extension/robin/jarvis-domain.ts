@@ -1,25 +1,64 @@
+import { DEFAULT_SOCIAL_TEMPLATES, assertCurrentOutreachCopy, isLinkedInConnectionPending, canReviewOutreach, canPlanChannel, hasApprovedChannelPlan, inReviewQueue, unbrandedOutreachText } from "./outreach-shape.ts";
 import { randomUUID } from "node:crypto";
 import { readJsonObject, updateJsonObject } from "./paths.ts";
 import { isPublicWebHost } from "./public-web.ts";
-import { CORE_JARVIS_SEGMENTS, DEFAULT_JARVIS_DAILY, DEFAULT_JARVIS_OUTBOX, JARVIS_NEWS_BURDEN_KEYS, JARVIS_PERSONAS, JARVIS_RUBRIC_VERSION, JARVIS_TARGET_PERSONAS, isJarvisFollowUpDue, JARVIS_SEGMENTS, JARVIS_STATUSES, JARVIS_TEMPLATE_FIELDS, type JarvisCandidate, type JarvisNewsBurden, type JarvisDaily, type JarvisOutbox, type JarvisPersona, type JarvisRescoreRun, type JarvisTemplate, type JarvisLead, type JarvisRun, type JarvisState, type JarvisStatus } from "./jarvis-shape.ts";
+import { CORE_JARVIS_SEGMENTS, DEFAULT_JARVIS_DAILY, DEFAULT_JARVIS_OUTBOX, JARVIS_NEWS_BURDEN_KEYS, JARVIS_PERSONAS, JARVIS_RESEARCH_LANES, JARVIS_RUBRIC_VERSION, JARVIS_SOCIAL_PLATFORMS, JARVIS_TARGET_PERSONAS, isCurrentValidationProspect, isJarvisFollowUpDue, isQualifiedInfoExec, isResearchedTargetUser, isOutreachApprovedFor, hasJarvisSocialOutreach, jarvisContactMethods, JARVIS_SEGMENTS, JARVIS_STATUSES, JARVIS_TEMPLATE_FIELDS, type JarvisCandidate, type JarvisNewsBurden, type JarvisDaily, type JarvisOutbox, type JarvisPersona, type JarvisRescoreRun, type JarvisTemplate, type JarvisLead, type JarvisRun, type JarvisState, type JarvisStatus, type JarvisSocialPlatform, type JarvisResearchLane, type JarvisWebsiteResearch, type JarvisWebsiteRun } from "./jarvis-shape.ts";
 
 const FILE = "jarvis-discovery.json";
 const empty = (): JarvisState => ({ leads: [], run: null });
 const now = () => new Date().toISOString();
+// Apply the same draft view to reads and writes. Changed copy needs fresh approval;
+// sent and in-flight messages remain immutable history.
+function prepareUnnamedCopy(state: JarvisState): JarvisState {
+  if (state.template) state.template = { subject: unbrandedOutreachText(state.template.subject), body: unbrandedOutreachText(state.template.body) };
+  if (state.followUpTemplate) state.followUpTemplate = unbrandedOutreachText(state.followUpTemplate);
+  for (const lead of state.leads) {
+    let changed = false;
+    if (!lead.sentAt && !lead.sendAttempt) {
+      const subject = unbrandedOutreachText(lead.subject);
+      const body = unbrandedOutreachText(lead.body);
+      if (subject !== lead.subject || body !== lead.body) {
+        lead.subject = subject; lead.body = body; lead.reviewed = false;
+        delete lead.queuedAt;
+        changed = true;
+      }
+    }
+    for (const platform of JARVIS_SOCIAL_PLATFORMS) {
+      const social = lead.socialOutreach?.[platform];
+      if (social?.draft && !social.sentAt) {
+        const draft = unbrandedOutreachText(social.draft);
+        if (draft !== social.draft) { social.draft = draft; changed = true; }
+      }
+    }
+    if (changed) { delete lead.outreachApproval; lead.revision = (lead.revision ?? 0) + 1; }
+  }
+  return state;
+}
 export function readJarvis(): JarvisState {
-  const state = readJsonObject<JarvisState>(FILE) ?? empty();
+  const state = prepareUnnamedCopy(readJsonObject<JarvisState>(FILE) ?? empty());
   // The first research run targeted tech/VC/research. Keep it visible, but do
   // not let it make the redesigned non-tech campaign look closer to 100.
   state.leads = state.leads.map((lead) => ({
     ...lead,
+    socialTemplateDrafts: Object.fromEntries(Object.entries({ ...DEFAULT_SOCIAL_TEMPLATES, ...state.socialTemplates }).map(([platform, body]) => [platform, jarvisDraft(lead, { subject: "Social message", body }).body])),
     audienceFit: lead.audienceFit ?? (CORE_JARVIS_SEGMENTS.includes(lead.segment as typeof CORE_JARVIS_SEGMENTS[number]) ? "core" : "adjacent"),
   }));
   return state;
 }
-function change<T>(fn: (state: JarvisState) => T): T {
+function change<T>(fn: (state: JarvisState) => T, undoAction?: { id: string; op: string }): T {
   return updateJsonObject<JarvisState, T>(FILE, (stored) => {
-    const state = stored ?? empty();
-    return { result: fn(state), value: state, changed: true };
+    const state = prepareUnnamedCopy(stored ?? empty());
+    const before = undoAction && state.leads.find(lead => lead.id === undoAction.id);
+    const snapshot = before && structuredClone(before);
+    const result = fn(state);
+    if (snapshot && undoAction) {
+      const after = state.leads.find(lead => lead.id === undoAction.id);
+      if (after) state.outreachUndo = { leadId: after.id, name: after.name, op: undoAction.op, revision: after.revision ?? 0, before: snapshot };
+    } else if (state.outreachUndo) {
+      const current = state.leads.find(lead => lead.id === state.outreachUndo!.leadId);
+      if (!current || (current.revision ?? 0) !== state.outreachUndo.revision) delete state.outreachUndo;
+    }
+    return { result, value: state, changed: true };
   });
 }
 function text(value: unknown, key: string, max = 2000, required = true): string {
@@ -36,12 +75,32 @@ function webUrl(value: unknown, key: string, required = true): string {
 }
 /** Free webmail domains: a professional outreach address must live on the org's own domain. */
 const FREE_WEBMAIL = /@(gmail|hotmail|outlook|yahoo|aol|icloud|protonmail|proton\.me|gmx|zoho|yandex|mail\.ru|qq|126|163|foxmail|sina)\.(com|net|org|me|ru|cn|ch|de)$/i;
+/** Role and department inboxes are not attributable to the named person. */
+const GENERIC_WORK_LOCAL = /^(info|hello|contact|support|help|office|admin|team|staff|careers|jobs|media|press|communications?|development|fundraising|grants?|director|executive|outreach|programs?|community|services?|general|inquir(?:y|ies)|mail)@/i;
 function email(value: unknown): string {
   const raw = text(value, "email", 254, false).toLowerCase();
   if (!raw) return raw;
   if (!/^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+$/i.test(raw)) throw new Error("Invalid email");
   if (FREE_WEBMAIL.test(raw)) throw new Error("Work contact must use the organization's own domain, not a free webmail address");
+  if (GENERIC_WORK_LOCAL.test(raw)) throw new Error("Work contact must identify an individual person, not a role or department inbox");
   return raw;
+}
+function socialUrls(value: unknown): JarvisCandidate["socials"] {
+  if (value === undefined || value === null) return undefined;
+  const item = object(value);
+  const hosts: Record<JarvisSocialPlatform, RegExp> = {
+    linkedin: /(^|\.)linkedin\.com$/i, instagram: /(^|\.)instagram\.com$/i,
+    x: /(^|\.)(x|twitter)\.com$/i, tiktok: /(^|\.)tiktok\.com$/i,
+  };
+  const socials: JarvisCandidate["socials"] = {};
+  for (const platform of JARVIS_SOCIAL_PLATFORMS) {
+    const raw = item[platform];
+    if (raw === undefined || raw === "") continue;
+    const url = webUrl(raw, `socials.${platform}`);
+    if (!hosts[platform].test(new URL(url).hostname)) throw new Error(`Invalid ${platform} URL`);
+    socials[platform] = url;
+  }
+  return Object.keys(socials).length ? socials : undefined;
 }
 function timeZone(value: unknown): string {
   const zone = text(value ?? "", "timeZone", 80, false);
@@ -64,6 +123,18 @@ function newsBurden(value: unknown): JarvisNewsBurden {
     return [key, { score: entry.score as number, evidence: text(entry.evidence, `newsBurden.${key}.evidence`, 400) }];
   })) as JarvisNewsBurden;
 }
+function scoredSignal(value: unknown, key: "companyFit" | "reachability"): { score: number; evidence: string } {
+  const item = object(value);
+  if (!Number.isInteger(item.score) || (item.score as number) < 0 || (item.score as number) > 50) throw new Error(`Invalid ${key}.score`);
+  return { score: item.score as number, evidence: text(item.evidence, `${key}.evidence`, 800) };
+}
+function sourcedSignal(value: unknown, key: "shopifyEvidence" | "opportunityNeedEvidence" | "informationNeedEvidence" | "whyNow"): { url: string; quote: string; summary?: string } {
+  const item = object(value);
+  return {
+    ...(key === "whyNow" ? { summary: text(item.summary, "whyNow.summary", 400) } : {}),
+    url: webUrl(item.url, `${key}.url`), quote: text(item.quote, `${key}.quote`, 800),
+  };
+}
 /** `wide`: a wide-net run also keeps executives who fit no persona ("none"), scored but without a watch list. */
 export function parseJarvisCandidate(value: unknown, options: { wide?: boolean } = {}): JarvisCandidate {
   const item = object(value);
@@ -77,11 +148,27 @@ export function parseJarvisCandidate(value: unknown, options: { wide?: boolean }
     email: email(item.email ?? ""), emailSource: webUrl(item.emailSource ?? "", "emailSource", false),
     emailQuote: text(item.emailQuote ?? "", "emailQuote", 2000, false), opener: text(item.opener, "opener", 600),
     area: text(item.area ?? "", "area", 120, false),
+    socials: socialUrls(item.socials),
     personLocation: text(item.personLocation ?? "", "personLocation", 200, false),
     personLocationSource: webUrl(item.personLocationSource ?? "", "personLocationSource", false),
     companyLocation: text(item.companyLocation ?? "", "companyLocation", 200, false),
     companyLocationSource: webUrl(item.companyLocationSource ?? "", "companyLocationSource", false),
   };
+  if (item.socialLoginRequired !== undefined) {
+    if (!Array.isArray(item.socialLoginRequired) || item.socialLoginRequired.some((platform) =>
+      !JARVIS_SOCIAL_PLATFORMS.includes(platform as JarvisSocialPlatform) || !candidate.socials?.[platform as JarvisSocialPlatform])) {
+      throw new Error("Login review needs a saved social profile URL");
+    }
+    candidate.socialLoginRequired = [...new Set(item.socialLoginRequired)] as JarvisSocialPlatform[];
+  }
+  if (item.socialEvidence && typeof item.socialEvidence === "object") {
+    const post = object(item.socialEvidence);
+    const url = webUrl(post.url, "socialEvidence.url");
+    // A profile is a contact route; only a specific public social post is research evidence.
+    if (!/(^|\.)(linkedin\.com|instagram\.com|twitter\.com|x\.com|tiktok\.com)$/i.test(new URL(url).hostname)
+      || !/\/(posts\/|feed\/update\/|pulse\/|p\/|reel\/|status\/|video\/)/i.test(new URL(url).pathname)) throw new Error("Social evidence needs a public post URL");
+    candidate.socialEvidence = { url, quote: text(post.quote, "socialEvidence.quote", 600) };
+  }
   if (item.foundVia && typeof item.foundVia === "object") {
     const via = item.foundVia as Record<string, unknown>;
     try { candidate.foundVia = { source: text(via.source, "foundVia.source", 200), url: webUrl(via.url, "foundVia.url") }; }
@@ -95,6 +182,14 @@ export function parseJarvisCandidate(value: unknown, options: { wide?: boolean }
     if (!JARVIS_TARGET_PERSONAS.includes(item.persona as typeof JARVIS_TARGET_PERSONAS[number])) throw new Error(`info_exec needs a persona: ${JARVIS_TARGET_PERSONAS.join(", ")}`);
     candidate.persona = item.persona as JarvisPersona;
     candidate.watchList = text(item.watchList, "watchList", 400);
+    if (!JARVIS_RESEARCH_LANES.includes(item.sourcingLane as JarvisResearchLane)) throw new Error(`info_exec needs a current sourcingLane: ${JARVIS_RESEARCH_LANES.join(", ")}`);
+    candidate.sourcingLane = item.sourcingLane as JarvisResearchLane;
+    if (item.shopifyEvidence !== undefined) candidate.shopifyEvidence = sourcedSignal(item.shopifyEvidence, "shopifyEvidence") as { url: string; quote: string };
+    if (item.opportunityNeedEvidence !== undefined) candidate.opportunityNeedEvidence = sourcedSignal(item.opportunityNeedEvidence, "opportunityNeedEvidence") as { url: string; quote: string };
+    if (item.informationNeedEvidence !== undefined) candidate.informationNeedEvidence = sourcedSignal(item.informationNeedEvidence, "informationNeedEvidence") as { url: string; quote: string };
+    if (item.whyNow !== undefined) candidate.whyNow = sourcedSignal(item.whyNow, "whyNow") as { summary: string; url: string; quote: string };
+    if (item.companyFit !== undefined) candidate.companyFit = scoredSignal(item.companyFit, "companyFit");
+    if (item.reachability !== undefined) candidate.reachability = scoredSignal(item.reachability, "reachability");
   }
   // Research sometimes omits a citation or uses an unsupported abbreviation.
   // Preserve the contact, but drop the unsupported optional geography.
@@ -111,7 +206,7 @@ export function parseJarvisCandidate(value: unknown, options: { wide?: boolean }
 
 export const DEFAULT_JARVIS_TEMPLATE: JarvisTemplate = {
   subject: "A question about what deserves your attention",
-  body: "Hi {{firstName}},\n\n{{opener}}\n\nI'm Bruce Cheng, a CMU software engineering master's student exploring information overload for people who have to stay on top of fast-moving fields. The idea is a personalized TL;DR built around you — with very little setup, it filters the noise and surfaces the few news, papers, and updates actually worth your attention.\n\nNot selling anything — we're still trying to understand the problem. I'd love your honest take: how do you currently decide what's worth your attention each day, and does the filtering part feel like a real pain or more of a nice-to-have?\n\nEven a one-line reply would be really helpful.\n\nBest,\nBruce Cheng",
+  body: "Hi {{firstName}},\n\n{{shortOpener}}\n\nI'm Bruce. We're building a personal intelligence filter for people who have to keep up with changing information across their work. It learns from your goals, projects, public footprint, and feedback, then monitors public sources and sources you explicitly choose to connect.\n\nInstead of another long digest, it sends a short daily brief with only the developments and opportunities worth acting on—why each matters, the source, and the next step. Grants and fellowships can be one use case; so can policy, operations, market, customer, or competitor changes.\n\nHow do you decide what deserves your attention today, and what tends to get missed?\n\nhttps://your-secretary.com\n\nBest,\nBruce\nhttps://www.linkedin.com/in/chi-cheng921/",
 };
 const PLACEHOLDER = /\{\{\s*([a-zA-Z]+)\s*\}\}/g;
 
@@ -125,6 +220,17 @@ export function parseJarvisTemplate(value: unknown): JarvisTemplate {
   return template;
 }
 
+/** Prefer a short sourced opening; never truncate a sentence mid-thought. */
+export function shortJarvisOpener(candidate: JarvisCandidate): string {
+  const first = candidate.opener?.trim().match(/^.*?[.!?](?:\s|$)/)?.[0]?.trim();
+  if (first && first.split(/\s+/).length <= 25 && !first.endsWith("?")) return first;
+  const role = candidate.role.trim();
+  const company = candidate.company.trim().replace(/[.!?]+$/, "");
+  return role && role.split(/\s+/).length <= 6
+    ? `I came across your work as ${role} at ${company}.`
+    : `I came across your work at ${company}.`;
+}
+
 export function jarvisDraft(candidate: JarvisCandidate, template: JarvisTemplate = DEFAULT_JARVIS_TEMPLATE): { subject: string; body: string } {
   const firstName = candidate.firstName?.trim() || candidate.name.replace(/^(dr|mr|ms|mrs)\.?\s+/i, "").split(/\s+/)[0]!;
   // An explicit area is written as-is; only the industry fallback is lowercased
@@ -133,22 +239,24 @@ export function jarvisDraft(candidate: JarvisCandidate, template: JarvisTemplate
   const area = candidate.area?.trim() || (/^\p{Lu}\p{Ll}/u.test(fallback) ? fallback[0]!.toLowerCase() + fallback.slice(1) : fallback);
   // "your work leading X" reads better than "your work in leading X".
   const work = /^\p{Ll}+ing\b/u.test(area) ? `your work ${area}` : `your work in ${area}`;
-  const values: Record<string, string> = { firstName, name: candidate.name, company: candidate.company, role: candidate.role, area, work, opener: candidate.opener || `I came across ${work}.` };
+  const values: Record<string, string> = { shortOpener: shortJarvisOpener(candidate), firstName, name: candidate.name, company: candidate.company, role: candidate.role, area, work, opener: candidate.opener || `I came across ${work}.` };
   const fill = (value: string) => value.replace(PLACEHOLDER, (_, key: string) => values[key] ?? "");
-  return { subject: fill(template.subject), body: fill(template.body) };
+  return { subject: unbrandedOutreachText(fill(template.subject)), body: unbrandedOutreachText(fill(template.body)) };
 }
 
 /**
  * Re-renders every draft that is still exactly what the previous template
  * produced. Edited, approved or already-contacted drafts are Bruce's and stay.
  */
-export function setJarvisTemplate(value: unknown, dryRun = false): { updated: number; kept: number; sample?: { name: string; subject: string; body: string } } {
+export function setJarvisTemplate(value: unknown, dryRun = false, regenerateUnsent = false): { updated: number; kept: number; sample?: { name: string; subject: string; body: string } } {
   const next = parseJarvisTemplate(value);
+  assertCurrentOutreachCopy(next.subject, next.body);
   const plan = (state: JarvisState) => {
     const previous = state.template ?? DEFAULT_JARVIS_TEMPLATE;
     const regenerable = state.leads.filter((lead) => {
+      if (regenerateUnsent) return ["new", "ready"].includes(lead.status) && !lead.sentAt && !lead.repliedAt && !hasJarvisSocialOutreach(lead) && !lead.sendAttempt;
       const old = jarvisDraft(lead, previous);
-      return !lead.reviewed && lead.status === "new" && lead.subject === old.subject && lead.body === old.body;
+      return isResearchedTargetUser(lead) && !lead.reviewed && lead.status === "new" && !lead.queuedAt && !lead.sendAttempt && !lead.sentAt && lead.subject === old.subject && lead.body === old.body;
     });
     const first = regenerable[0];
     return { regenerable, kept: state.leads.length - regenerable.length, sample: first && { name: first.name, ...jarvisDraft(first, next) } };
@@ -160,11 +268,36 @@ export function setJarvisTemplate(value: unknown, dryRun = false): { updated: nu
   return change((state) => {
     const { regenerable, kept, sample } = plan(state);
     const at = now();
-    for (const lead of regenerable) Object.assign(lead, jarvisDraft(lead, next), { updatedAt: at });
+    for (const lead of regenerable) {
+      Object.assign(lead, jarvisDraft(lead, next), { updatedAt: at, revision: (lead.revision ?? 0) + 1 });
+      if (regenerateUnsent) {
+        lead.reviewed = false;
+        delete lead.queuedAt;
+        delete lead.outreachApproval;
+        delete lead.outreachPlans;
+        delete lead.outreachWorkflow;
+        for (const platform of JARVIS_SOCIAL_PLATFORMS) {
+          const social = lead.socialOutreach?.[platform];
+          if (social && !social.sentAt && !social.repliedAt) social.draft = "";
+        }
+        if (lead.status === "ready") lead.status = "new";
+      }
+    }
     state.template = next;
     return { updated: regenerable.length, kept, sample };
   });
 }
+/** Saving a channel template never edits approved, customized or sent messages. */
+export function setJarvisSocialTemplate(platform: unknown, body: unknown): string {
+  if (platform !== "instagram" && platform !== "linkedin") throw new Error("Choose Instagram or LinkedIn");
+  const template = parseJarvisTemplate({ subject: "Social message", body: text(body, "body", 4000) });
+  assertCurrentOutreachCopy(template.body);
+  return change(state => {
+    state.socialTemplates = { ...state.socialTemplates, [platform]: template.body };
+    return template.body;
+  });
+}
+
 const identity = (value: string) => value.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
 const profileKey = (value: string) => value.replace(/^https?:\/\/(www\.)?/i, "").replace(/\?.*$/, "").replace(/\/$/, "").toLowerCase();
 
@@ -194,7 +327,7 @@ export function addJarvisCandidates(values: unknown[], checks: Set<string> = new
 /** User-owned fields only; a research response cannot invoke this path. */
 export function updateJarvisLead(id: string, value: unknown): JarvisLead {
   const patch = object(value);
-  const allowed = new Set(["status", "reviewed", "subject", "body", "notes", "confirmedNeeds", "email", "emailSource", "emailQuote", "industry", "role", "seniority", "segment", "needHypothesis", "area", "firstName", "personLocation", "personLocationSource", "companyLocation", "companyLocationSource", "timeZone", "followUp", "persona"]);
+  const allowed = new Set(["status", "reviewed", "subject", "body", "notes", "confirmedNeeds", "email", "emailSource", "emailQuote", "socials", "industry", "role", "seniority", "segment", "needHypothesis", "area", "firstName", "personLocation", "personLocationSource", "companyLocation", "companyLocationSource", "timeZone", "followUp", "persona", "icpReview"]);
   for (const key of Object.keys(patch)) if (!allowed.has(key)) throw new Error(`Unknown field: ${key}`);
   return change((state) => {
     const lead = state.leads.find((item) => item.id === id);
@@ -220,6 +353,7 @@ export function updateJarvisLead(id: string, value: unknown): JarvisLead {
       next.segment = patch.segment as JarvisCandidate["segment"];
     }
     if (patch.email !== undefined) next.email = email(patch.email);
+    if (patch.socials !== undefined) next.socials = socialUrls(patch.socials);
     if (patch.emailSource !== undefined) next.emailSource = webUrl(patch.emailSource, "emailSource", false);
     if (patch.emailQuote !== undefined) next.emailQuote = text(patch.emailQuote, "emailQuote", 2000, false);
     if (next.email && (!next.emailSource || !next.emailQuote.toLowerCase().includes(next.email))) throw new Error("An email needs its public source and exact address in the quote");
@@ -228,17 +362,28 @@ export function updateJarvisLead(id: string, value: unknown): JarvisLead {
       next.emailCheck = next.email ? "unconfirmed" : "missing";
       next.reviewed = false;
     }
+    if (patch.icpReview !== undefined) {
+      if (lead.segment !== "info_exec") throw new Error("ICP review belongs to the current research cohort");
+      const review = object(patch.icpReview);
+      if (!["verified", "pending", "adjacent"].includes(String(review.verdict))) throw new Error("Invalid ICP review verdict");
+      const reason = text(review.reason, "ICP review reason", 1000, review.verdict !== "pending");
+      if (review.verdict === "verified" && (!next.profileUrl || !next.evidenceUrl || !jarvisContactMethods(next).length)) throw new Error("Verify the role, evidence and contact route before approving outreach");
+      next.icpReview = { verdict: review.verdict as "verified" | "pending" | "adjacent", reason, at: now() };
+      next.reviewed = false;
+    }
     if (next.subject !== lead.subject || next.body !== lead.body) next.reviewed = false;
     if (patch.reviewed !== undefined) {
       if (typeof patch.reviewed !== "boolean") throw new Error("Invalid reviewed flag");
       next.reviewed = patch.reviewed;
     }
     if (next.reviewed && !next.email) throw new Error("Add a sourced work email before approving");
+    if (patch.reviewed === true && next.segment === "info_exec" && !isOutreachApprovedFor(next, "email")) throw new Error("Verify this ICP before approving its email");
     if (patch.status !== undefined) {
       if (!JARVIS_STATUSES.includes(patch.status as JarvisStatus)) throw new Error("Invalid status");
       next.status = patch.status as JarvisStatus;
       if (lead.status === "do_not_contact" && next.status !== lead.status) throw new Error("Do-not-contact cannot be reopened");
       if (["ready", "sent"].includes(next.status) && (!next.email || !next.reviewed || ["bounced", "declined"].includes(lead.status))) throw new Error("Review the contact and draft first; declined/bounced contacts are suppressed");
+      if (next.status === "ready" && next.segment === "info_exec" && !isOutreachApprovedFor(next, "email")) throw new Error("Verify this ICP before approving its email");
     }
     if (!next.reviewed && next.status === "ready") next.status = "new";
     // Queued means "send this approved snapshot": any change to what was approved takes it out.
@@ -249,8 +394,8 @@ export function updateJarvisLead(id: string, value: unknown): JarvisLead {
       else throw new Error("Invalid persona");
     }
     if (patch.followUp !== undefined) {
-      if (patch.followUp !== true || lead.status !== "sent" || next.status !== "sent" || !lead.sentAt || lead.repliedAt || lead.followedUpAt) {
-        throw new Error("A follow-up can be recorded only for a sent contact without a recorded reply or prior follow-up");
+      if (patch.followUp !== true || next.status !== "sent" || !isJarvisFollowUpDue(lead)) {
+        throw new Error("A follow-up can be recorded only after the one-day wait for a sent contact without a recorded reply or prior follow-up");
       }
       next.followedUpAt = now();
     }
@@ -270,15 +415,55 @@ export function updateJarvisLead(id: string, value: unknown): JarvisLead {
   });
 }
 
-export function claimJarvisSend(id: string, expectedRevision: number): { attemptId: string; email: string; subject: string; body: string } {
+/** Social messages are edited and logged here, never transmitted by this app. */
+export function updateJarvisSocialOutreach(id: string, value: unknown): JarvisLead {
+  const item = object(value);
+  const platform = item.platform as JarvisSocialPlatform;
+  if (!JARVIS_SOCIAL_PLATFORMS.includes(platform)) throw new Error("Unsupported social platform");
+  if (!["save", "sent", "replied", "skip"].includes(String(item.op))) throw new Error("Invalid social action");
+  if (item.op === "skip" && !["private", "wrong-account", "cannot-dm", "platform-limit"].includes(String(item.reason))) throw new Error("Choose a reason for skipping this profile");
+  if (!Number.isSafeInteger(item.revision) || (item.revision as number) < 0) throw new Error("Contact revision required");
+  const draft = item.op === "save" ? text(item.draft, "social draft", 4000) : undefined;
+  if (draft) assertCurrentOutreachCopy(draft);
+  return change((state) => {
+    const lead = state.leads.find((entry) => entry.id === id);
+    if (!lead || (lead.revision ?? 0) !== item.revision) throw new Error("Contact changed; refresh before editing social outreach");
+    if (item.op === "sent" && platform === "linkedin" && isLinkedInConnectionPending(lead)) throw new Error("Wait for the LinkedIn connection to be accepted before messaging");
+    const planned = hasApprovedChannelPlan(lead, platform);
+    const canSkip = item.op === "skip" && lead.outreachWorkflow?.stage === "send" && canPlanChannel(lead, platform);
+    const canDraft = canSkip || planned || (item.op === "save" ? isCurrentValidationProspect(lead) || isQualifiedInfoExec(lead) || isOutreachApprovedFor(lead, platform)
+      : isOutreachApprovedFor(lead, platform) || isQualifiedInfoExec(lead));
+    if (!lead.socials?.[platform] || !canDraft || ["declined", "bounced", "do_not_contact"].includes(lead.status)) throw new Error("A current target with a public social profile is required");
+    if (item.op === "sent" && lead.segment === "info_exec" && !isOutreachApprovedFor(lead, platform) && !planned) throw new Error("Review this ICP before recording outreach");
+    const previous = lead.socialOutreach?.[platform];
+    if (item.op === "sent") assertCurrentOutreachCopy(previous?.draft ?? "");
+    if (item.op === "sent" && (!previous?.draft || previous.sentAt || previous.skippedAt || lead.queuedAt || (!planned && (lead.sentAt || lead.sendAttempt || hasJarvisSocialOutreach(lead))))) throw new Error("Save the draft first; this person may already be contacted or queued");
+    if (item.op === "replied" && (!previous?.sentAt || previous.repliedAt)) throw new Error("Record a sent message before a reply");
+    if (item.op === "skip" && ((!canSkip && !previous?.draft) || previous?.sentAt)) throw new Error("Only an unsent prepared message can be skipped");
+    const next = item.op === "save" ? { ...previous, draft: draft! }
+      : item.op === "sent" ? { ...previous!, sentAt: now(), sentText: previous!.draft }
+      : item.op === "skip" ? { ...previous, draft: previous?.draft ?? "", skippedAt: now(), skipReason: item.reason as "private" | "wrong-account" | "cannot-dm" | "platform-limit" }
+      : { ...previous!, repliedAt: now() };
+    lead.socialOutreach = { ...lead.socialOutreach, [platform]: next };
+    if (item.op === "save" && draft !== previous?.draft && lead.outreachApproval?.channel === platform) delete lead.outreachApproval;
+    lead.updatedAt = now();
+    lead.revision = (lead.revision ?? 0) + 1;
+    return lead;
+  }, { id, op: `${platform}:${item.op}` });
+}
+
+export function claimJarvisSend(id: string, expectedRevision: number, senderEmail?: string): { attemptId: string; email: string; subject: string; body: string } {
   return change((state) => {
     const lead = state.leads.find((item) => item.id === id);
-    if (!lead || (lead.revision ?? 0) !== expectedRevision || lead.sendAttempt || lead.status !== "ready" || !lead.reviewed || !lead.email || !lead.emailSource || !lead.emailQuote.toLowerCase().includes(lead.email)) {
+    if (!lead || (lead.revision ?? 0) !== expectedRevision || (lead.segment === "info_exec" && !isOutreachApprovedFor(lead, "email") && !hasApprovedChannelPlan(lead, "email")) || (hasJarvisSocialOutreach(lead) && !hasApprovedChannelPlan(lead, "email")) || lead.sendAttempt || lead.status !== "ready" || !lead.reviewed || !lead.email || !lead.emailSource || !lead.emailQuote.toLowerCase().includes(lead.email)) {
       throw new Error("Contact changed, was already sent, or is not approved. Refresh and review before sending.");
     }
+    assertCurrentOutreachCopy(lead.subject, lead.body);
     const attemptId = randomUUID();
-    lead.sendAttempt = { id: attemptId, at: now(), state: "pending" };
-    lead.updatedAt = now();
+    const at = now();
+    lead.sendAttempt = { id: attemptId, at, state: "pending", ...(senderEmail ? { senderEmail } : {}) };
+    state.outbox = { ...readJarvisOutbox(state), lastSendAt: at };
+    lead.updatedAt = at;
     lead.revision = (lead.revision ?? 0) + 1;
     return { attemptId, email: lead.email, subject: lead.subject, body: lead.body };
   });
@@ -304,25 +489,106 @@ export function finishJarvisSend(id: string, attemptId: string, messageId?: stri
   });
 }
 
+type LeasedRun = { status: "running" | "done" | "error" | "cancelled"; ownerId?: string; heartbeatAt?: string };
+function assertLeaseAvailable(current: LeasedRun | null | undefined, staleBeforeMs: number, label: string): void {
+  const heartbeatMs = current?.heartbeatAt ? Date.parse(current.heartbeatAt) : Number.NaN;
+  if (current?.status === "running" && current.ownerId && Number.isFinite(heartbeatMs) && heartbeatMs > staleBeforeMs) {
+    throw new Error(`${label} is already running or stopping`);
+  }
+}
+function renewLease(current: (LeasedRun & { id: string }) | null | undefined, id: string, ownerId: string, at: string): boolean {
+  if (current?.id !== id || current.status !== "running" || current.ownerId !== ownerId) return false;
+  current.heartbeatAt = at;
+  return true;
+}
+
 export function writeJarvisRescore(run: JarvisRescoreRun): void { change((state) => { state.rescore = run; }); }
+export function claimJarvisRescore(run: JarvisRescoreRun, staleBeforeMs: number): void {
+  change((state) => { assertLeaseAvailable(state.rescore, staleBeforeMs, "Rescoring"); state.rescore = run; });
+}
+export function heartbeatJarvisRescore(id: string, ownerId: string, at = now()): boolean {
+  return change((state) => renewLease(state.rescore, id, ownerId, at));
+}
+export function cancelJarvisRescore(at = now()): string | null {
+  return change((state) => {
+    if (state.rescore?.status !== "running") return null;
+    const id = state.rescore.id;
+    Object.assign(state.rescore, { status: "cancelled", message: "Stopped. Saved assessments are kept.", finishedAt: at });
+    return id;
+  });
+}
 export function patchJarvisRescore(id: string, patch: Partial<Pick<JarvisRescoreRun, "status" | "assessed" | "message" | "finishedAt">>): void {
   change((state) => { if (state.rescore?.id === id && state.rescore.status === "running") Object.assign(state.rescore, patch); });
 }
+export function writeJarvisWebsiteRun(run: JarvisWebsiteRun): void { change((state) => { state.websiteRun = run; }); }
+export function claimJarvisWebsiteRun(run: JarvisWebsiteRun, staleBeforeMs: number): void {
+  change((state) => {
+    assertLeaseAvailable(state.websiteRun, staleBeforeMs, "Website contact enrichment");
+    for (const lead of state.leads) delete lead.websiteResearch;
+    state.websiteRun = run;
+  });
+}
+export function heartbeatJarvisWebsiteRun(id: string, ownerId: string, at = now()): boolean {
+  return change((state) => renewLease(state.websiteRun, id, ownerId, at));
+}
+export function cancelJarvisWebsiteRun(at = now()): string | null {
+  return change((state) => {
+    if (state.websiteRun?.status !== "running") return null;
+    const id = state.websiteRun.id;
+    Object.assign(state.websiteRun, { status: "cancelled", activeWorkers: 0, message: "Stopped. Completed website checks are saved.", finishedAt: at });
+    return id;
+  });
+}
+export function patchJarvisWebsiteRun(id: string, patch: Partial<Pick<JarvisWebsiteRun, "status" | "checked" | "found" | "failed" | "activeWorkers" | "message" | "finishedAt">>): void {
+  change((state) => { if (state.websiteRun?.id === id && state.websiteRun.status === "running") Object.assign(state.websiteRun, patch); });
+}
+export function saveJarvisWebsiteResearch(runId: string, leadId: string, research: JarvisWebsiteResearch): boolean {
+  return change((state) => {
+    if (state.websiteRun?.id !== runId || state.websiteRun.status !== "running") return false;
+    const lead = state.leads.find((item) => item.id === leadId);
+    if (!lead) return false;
+    lead.websiteResearch = research;
+    lead.updatedAt = now();
+    lead.revision = (lead.revision ?? 0) + 1;
+    return true;
+  });
+}
 export function writeJarvisRun(run: JarvisRun): void { change((state) => { state.run = run; }); }
-export function patchJarvisRun(id: string, patch: Partial<Pick<JarvisRun, "status" | "batches" | "message" | "finishedAt">>): void {
+/** Atomically replaces only an expired research lease. */
+export function claimJarvisRun(run: JarvisRun, staleBeforeMs: number): void {
+  change((state) => {
+    assertLeaseAvailable(state.run, staleBeforeMs, "Discovery");
+    state.run = run;
+  });
+}
+/** Renews the lease only while the same runtime still owns the active run. */
+export function heartbeatJarvisRun(id: string, ownerId: string, at = now()): boolean {
+  return change((state) => renewLease(state.run, id, ownerId, at));
+}
+/** Persist cancellation even when the HTTP request lands in a non-owner process. */
+export function cancelJarvisRun(at = now()): string | null {
+  return change((state) => {
+    if (state.run?.status !== "running") return null;
+    const id = state.run.id;
+    Object.assign(state.run, { status: "cancelled", message: "Stopped. Completed batches are saved.", finishedAt: at });
+    return id;
+  });
+}
+export function patchJarvisRun(id: string, patch: Partial<Pick<JarvisRun, "status" | "batches" | "pipeline" | "message" | "finishedAt" | "lastError">>): void {
   change((state) => { if (state.run?.id === id && state.run.status === "running") Object.assign(state.run, patch); });
 }
 
 /**
  * Rescoring writes only persona and newsBurden. "none" means the person fits
- * none of the five personas: their score is kept, the persona cleared.
+ * none of the current personas: their score is kept, the persona cleared.
  */
-export function applyJarvisAssessment(id: string, value: unknown): boolean {
+export function applyJarvisAssessment(id: string, value: unknown, runId?: string): boolean {
   const item = object(value);
   const burden = newsBurden(item.newsBurden);
   if (item.persona !== "none" && !JARVIS_TARGET_PERSONAS.includes(item.persona as typeof JARVIS_TARGET_PERSONAS[number])) throw new Error("Invalid persona");
   const watchList = item.persona === "none" ? "" : text(item.watchList, "watchList", 400);
   return change((state) => {
+    if (runId && (state.rescore?.id !== runId || state.rescore.status !== "running")) return false;
     const lead = state.leads.find((entry) => entry.id === id);
     if (!lead) return false;
     lead.newsBurden = burden;
@@ -353,15 +619,76 @@ export function queueJarvisLeads(items: unknown): { queued: number; skipped: Arr
       const reason = !lead ? "not found"
         : (lead.revision ?? 0) !== revision ? "changed since loaded"
         : !["new", "ready"].includes(lead.status) || lead.sendAttempt || lead.sentAt ? "already contacted or suppressed"
+        : lead.segment === "info_exec" && !isOutreachApprovedFor(lead, "email") ? "Outreach needs human verification before sending"
+        : lead.segment === "info_exec" && (!lead.reviewed || lead.status !== "ready") ? "Review the full batch in Cold Reach before queueing"
+        : hasJarvisSocialOutreach(lead) ? "already contacted on social media"
         : !lead.email || lead.emailCheck !== "source_found" ? "no email confirmed on its source page"
         : "";
       if (reason || !lead) { skipped.push({ id, reason }); continue; }
+      assertCurrentOutreachCopy(lead.subject, lead.body);
       const at = now();
       if (lead.status !== "ready") lead.history.push({ status: "ready", at });
       Object.assign(lead, { reviewed: true, status: "ready", queuedAt: lead.queuedAt ?? at, updatedAt: at, revision: (lead.revision ?? 0) + 1 });
       queued++;
     }
     return { queued, skipped };
+  });
+}
+
+/** One confirmation writes an entire reviewed batch. Never partially queue a stale or invalid snapshot. */
+export function prepareJarvisOutreachBatch(value: unknown, queueEmail = true): { prepared: number; channel: "email" | JarvisSocialPlatform } {
+  const request = object(value);
+  const channel = request.channel as "email" | JarvisSocialPlatform;
+  if (channel !== "email" && !JARVIS_SOCIAL_PLATFORMS.includes(channel)) throw new Error("Choose email or a supported social platform");
+  if (request.confirmed !== true || !Array.isArray(request.items) || request.items.length < 1) throw new Error("Confirm a non-empty batch of reviewed contacts");
+  const items = request.items.map((raw) => object(raw));
+  for (const item of items) {
+    for (const key of channel === "email" ? ["subject", "body"] : ["draft"]) {
+      if (typeof item[key] === "string" && unbrandedOutreachText(item[key]) !== item[key]) throw new Error("Remove the product name from outreach before approving");
+    }
+    assertCurrentOutreachCopy(...(channel === "email" ? [String(item.subject ?? ""), String(item.body ?? "")] : [String(item.draft ?? "")]));
+  }
+  if (new Set(items.map((item) => item.id)).size !== items.length) throw new Error("Duplicate contact in batch");
+  return change((state) => {
+    const prepared = items.map((item) => {
+      const lead = state.leads.find((entry) => entry.id === item.id);
+      if (!lead || !Number.isSafeInteger(item.revision) || (lead.revision ?? 0) !== item.revision) throw new Error("Contact changed; refresh the whole batch before approval");
+      if (!queueEmail && !inReviewQueue(lead)) throw new Error("Add this person to Review queue first");
+      if (item.identityChecked !== true || item.draftChecked !== true || !lead.profileUrl || !lead.evidenceUrl
+        || !["new", "ready"].includes(lead.status) || lead.sentAt || lead.queuedAt || lead.sendAttempt || hasJarvisSocialOutreach(lead)) throw new Error(`${lead.name}: identity, draft or contact status needs review`);
+      if (channel === "email") {
+        if (!lead.email || lead.emailCheck !== "source_found" || !lead.emailSource || !lead.emailQuote.toLowerCase().includes(lead.email)
+          || item.route !== lead.email || item.source !== lead.emailSource) throw new Error(`${lead.name}: work email or source changed`);
+        const subject = text(item.subject, "subject", 300);
+        if (/[\r\n]/.test(subject)) throw new Error("Email subject cannot contain a newline");
+        return { lead, subject, body: text(item.body, "body", 12000) };
+      }
+      if (!lead.socials?.[channel] || item.route !== lead.socials[channel]) throw new Error(`${lead.name}: Social profile changed`);
+      return { lead, draft: text(item.draft, "Social draft", 4000) };
+    });
+    const at = now();
+    for (const item of prepared) {
+      const lead = item.lead;
+      lead.outreachWorkflow = { stage: "send", at };
+      lead.outreachPlans = { ...lead.outreachPlans, [channel]: { route: channel === "email" ? lead.email : lead.socials![channel]!, subject: item.subject, body: item.body ?? item.draft!, approvedAt: at } };
+      lead.outreachApproval = { channel, route: channel === "email" ? lead.email : lead.socials![channel]!, at };
+      if ("subject" in item && item.subject !== undefined && item.body !== undefined) {
+        lead.subject = item.subject;
+        lead.body = item.body;
+        lead.reviewed = true;
+        if (lead.status !== "ready") lead.history.push({ status: "ready", at });
+        lead.status = "ready";
+        if (queueEmail) lead.queuedAt = at;
+      } else {
+        const previous = { ...lead.socialOutreach?.[channel as JarvisSocialPlatform] };
+        delete previous.skippedAt;
+        delete previous.skipReason;
+        lead.socialOutreach = { ...lead.socialOutreach, [channel]: { ...previous, draft: item.draft } };
+      }
+      lead.updatedAt = at;
+      lead.revision = (lead.revision ?? 0) + 1;
+    }
+    return { prepared: prepared.length, channel };
   });
 }
 
@@ -380,7 +707,14 @@ export function unqueueJarvisLeads(ids: unknown): number {
   });
 }
 
-export const DEFAULT_JARVIS_FOLLOW_UP = "Hi {{firstName}},\n\nJust bumping this in case it got buried. Even a one-line answer on how you decide what deserves your attention each day would help a lot.\n\nIf this isn't relevant, just say so and I won't follow up again.\n\nBest,\nBruce Cheng";
+export const DEFAULT_JARVIS_FOLLOW_UP = "Hi {{firstName}},\n\nQuick follow-up on the personal intelligence filter I shared. The idea is a short daily brief shaped by your goals and projects—not a generic news digest—with only relevant developments and opportunities, why they matter, the source, and the next step. Depending on the person, that can include policy, operations, market, customer, competitor, or funding changes.\n\nIt learns from your feedback and only uses private sources you explicitly choose to connect.\n\nhttps://your-secretary.com\n\nHow do you handle this today? If it isn't relevant, just let me know and I won't follow up again.\n\nBest,\nBruce";
+
+export function setJarvisFollowUpTemplate(value: unknown): string {
+  const parsed = parseJarvisTemplate({ subject: "Follow-up", body: value });
+  if (unbrandedOutreachText(parsed.body) !== parsed.body) throw new Error("Remove the product name from outreach");
+  assertCurrentOutreachCopy(parsed.body);
+  return change((state) => { state.followUpTemplate = parsed.body; return parsed.body; });
+}
 
 export function readJarvisOutbox(state: JarvisState = readJarvis()): JarvisOutbox {
   return { ...DEFAULT_JARVIS_OUTBOX, ...state.outbox };
@@ -425,7 +759,7 @@ export function setJarvisDaily(value: unknown): JarvisDaily {
       daily.enabled = item.enabled;
     }
     if (item.count !== undefined) {
-      if (!Number.isInteger(item.count) || (item.count as number) < 1 || (item.count as number) > 60) throw new Error("count must be 1–60");
+      if (!Number.isInteger(item.count) || (item.count as number) < 1 || (item.count as number) > 100) throw new Error("count must be 1–100");
       daily.count = item.count as number;
     }
     if (item.hour !== undefined) {
@@ -445,31 +779,62 @@ export function patchJarvisOutbox(patch: Partial<JarvisOutbox>): void {
   change((state) => { state.outbox = { ...readJarvisOutbox(state), ...patch }; });
 }
 
-/** Claims the oldest queued contact for the outbox, exactly like a manual send claim. */
-export function claimQueuedJarvisSend(eligible: (lead: JarvisLead) => boolean = () => true): { id: string; attemptId: string; email: string; subject: string; body: string } | null {
+export function claimJarvisDeliveryLease(ownerId: string, staleBeforeMs: number, at = now()): boolean {
   return change((state) => {
-    const lead = state.leads.filter((entry) => entry.queuedAt && entry.status === "ready" && entry.reviewed && !entry.sendAttempt && entry.email && entry.emailCheck === "source_found" && eligible(entry))
+    const stored = state as JarvisState & { outboxLease?: { ownerId: string; heartbeatAt: string } };
+    const current = state.deliveryLease ?? stored.outboxLease;
+    const heartbeatMs = current?.heartbeatAt ? Date.parse(current.heartbeatAt) : Number.NaN;
+    if (current && Number.isFinite(heartbeatMs) && heartbeatMs > staleBeforeMs) return false;
+    state.deliveryLease = { ownerId, heartbeatAt: at };
+    delete stored.outboxLease;
+    return true;
+  });
+}
+export function heartbeatJarvisDeliveryLease(ownerId: string, at = now()): boolean {
+  return change((state) => {
+    if (state.deliveryLease?.ownerId !== ownerId) return false;
+    state.deliveryLease.heartbeatAt = at;
+    return true;
+  });
+}
+export function releaseJarvisDeliveryLease(ownerId: string): boolean {
+  return change((state) => {
+    if (state.deliveryLease?.ownerId !== ownerId) return false;
+    delete state.deliveryLease;
+    return true;
+  });
+}
+
+/** Claims the oldest queued contact for the outbox, exactly like a manual send claim. */
+export function claimQueuedJarvisSend(eligible: (lead: JarvisLead) => boolean = () => true, senderEmail?: string, at = now()): { id: string; attemptId: string; email: string; subject: string; body: string } | null {
+  return change((state) => {
+    const lead = state.leads.filter((entry) => entry.queuedAt && entry.status === "ready" && entry.reviewed && (entry.segment !== "info_exec" || isOutreachApprovedFor(entry, "email")) && !hasJarvisSocialOutreach(entry) && !entry.sendAttempt && entry.email && entry.emailCheck === "source_found" && eligible(entry))
       .sort((a, b) => a.queuedAt!.localeCompare(b.queuedAt!))[0];
     if (!lead) return null;
+    assertCurrentOutreachCopy(lead.subject, lead.body);
     const attemptId = randomUUID();
-    lead.sendAttempt = { id: attemptId, at: now(), state: "pending" };
-    lead.updatedAt = now();
+    lead.sendAttempt = { id: attemptId, at, state: "pending", ...(senderEmail ? { senderEmail } : {}) };
+    state.outbox = { ...readJarvisOutbox(state), lastSendAt: at };
+    lead.updatedAt = at;
     lead.revision = (lead.revision ?? 0) + 1;
     return { id: lead.id, attemptId, email: lead.email, subject: lead.subject, body: lead.body };
   });
 }
 
 /** The one automatic follow-up, rendered from the follow-up template and claimed before sending. */
-export function claimJarvisFollowUp(at: number = Date.now()): { id: string; attemptId: string; email: string; subject: string; body: string; threadId: string; messageId: string } | null {
+export function claimJarvisFollowUp(at: number = Date.now(), eligible: (lead: JarvisLead) => boolean = () => true): { id: string; attemptId: string; email: string; subject: string; body: string; threadId: string; messageId: string } | null {
   return change((state) => {
-    const lead = state.leads.find((entry) => isJarvisFollowUpDue(entry, at) && entry.sendAttempt?.state === "sent" && entry.sendAttempt.threadId && entry.sendAttempt.messageId && entry.syncedAt && Date.parse(entry.syncedAt) > at - 60 * 60 * 1000);
+    const lead = state.leads.find((entry) => eligible(entry) && isJarvisFollowUpDue(entry, at) && entry.sendAttempt?.state === "sent" && entry.sendAttempt.threadId && entry.sendAttempt.messageId && entry.syncedAt && Date.parse(entry.syncedAt) > at - 60 * 60 * 1000);
     if (!lead) return null;
-    const attemptId = randomUUID();
-    lead.followUpAttempt = { id: attemptId, at: now(), state: "pending" };
-    lead.updatedAt = now();
-    lead.revision = (lead.revision ?? 0) + 1;
     const { body } = jarvisDraft(lead, { subject: lead.subject, body: state.followUpTemplate ?? DEFAULT_JARVIS_FOLLOW_UP });
-    return { id: lead.id, attemptId, email: lead.email, subject: lead.subject.startsWith("Re:") ? lead.subject : `Re: ${lead.subject}`, body, threadId: lead.sendAttempt!.threadId!, messageId: lead.sendAttempt!.messageId! };
+    assertCurrentOutreachCopy(body);
+    const attemptId = randomUUID();
+    const claimedAt = new Date(at).toISOString();
+    lead.followUpAttempt = { id: attemptId, at: claimedAt, state: "pending" };
+    state.outbox = { ...readJarvisOutbox(state), lastSendAt: claimedAt };
+    lead.updatedAt = claimedAt;
+    lead.revision = (lead.revision ?? 0) + 1;
+    return { id: lead.id, attemptId, email: lead.email, subject: unbrandedOutreachText(lead.subject.startsWith("Re:") ? lead.subject : `Re: ${lead.subject}`), body, threadId: lead.sendAttempt!.threadId!, messageId: lead.sendAttempt!.messageId! };
   });
 }
 
@@ -501,5 +866,119 @@ export function recordJarvisThread(id: string, result: { threadId?: string; outc
       lead.updatedAt = now();
       lead.revision = (lead.revision ?? 0) + 1;
     }
+  });
+}
+
+/** Selection is persistent and independent of delivery channel. Never sends. */
+export function updateOutreachReviewQueue(value: unknown): { added: number; skipped: number } {
+  const request = object(value);
+  if (!Array.isArray(request.ids) || !request.ids.length || request.ids.some((id) => typeof id !== "string")) throw new Error("Select contacts first");
+  if (request.op !== "add" && request.op !== "remove" && request.op !== "reopen") throw new Error("Unknown review queue action");
+  const ids = request.ids as string[];
+  return change((state) => {
+    let added = 0, skipped = 0;
+    for (const id of new Set(ids)) {
+      const lead = state.leads.find((lead) => lead.id === id);
+      if (!lead || !canReviewOutreach(lead)) { skipped++; continue; }
+      if (request.op === "remove") {
+        delete lead.outreachWorkflow;
+      } else {
+        if (request.op === "add" && lead.outreachWorkflow) { skipped++; continue; }
+        lead.outreachWorkflow = { stage: "review", at: now() };
+        delete lead.outreachApproval;
+        lead.reviewed = false;
+        added++;
+      }
+      lead.revision = (lead.revision ?? 0) + 1;
+    }
+    return { added, skipped };
+  });
+}
+
+/** Additional channels require their own reviewed route and exact copy. */
+export function planOutreachChannel(value: unknown): void {
+  const request = object(value);
+  const channel = request.channel as "email" | JarvisSocialPlatform;
+  if (channel !== "email" && !JARVIS_SOCIAL_PLATFORMS.includes(channel)) throw new Error("Unsupported channel");
+  if (request.confirmed !== true) throw new Error("Review this channel and message first");
+  const body = text(request.body, "body", channel === "email" ? 12000 : 4000);
+  const subject = channel === "email" ? text(request.subject, "subject", 300) : undefined;
+  if (subject && /[\r\n]/.test(subject)) throw new Error("Invalid subject");
+  if (unbrandedOutreachText(body) !== body || (subject && unbrandedOutreachText(subject) !== subject)) throw new Error("Remove the product name from outreach");
+  assertCurrentOutreachCopy(...(subject ? [subject, body] : [body]));
+  change((state) => {
+    const lead = state.leads.find((lead) => lead.id === request.id);
+    if (!lead || !Number.isSafeInteger(request.revision) || (lead.revision ?? 0) !== request.revision) throw new Error("Contact changed; refresh and review again");
+    if (lead.outreachWorkflow?.stage !== "send" || !canPlanChannel(lead, channel)) throw new Error("Review this contact first or choose an unsent available channel");
+    const route = channel === "email" ? lead.email : lead.socials![channel]!;
+    if (request.route !== route) throw new Error("Contact route changed");
+    if (channel === "email" && (!lead.emailQuote.toLowerCase().includes(lead.email) || request.source !== lead.emailSource)) throw new Error("Verify the email source first");
+    const at = now();
+    const previous = lead.outreachApproval;
+    if (previous && !lead.outreachPlans?.[previous.channel] && canPlanChannel(lead, previous.channel)
+      && previous.route === (previous.channel === "email" ? lead.email : lead.socials?.[previous.channel])
+      && (previous.channel !== "email" || lead.reviewed)) {
+      const previousBody = previous.channel === "email" ? lead.body : lead.socialOutreach?.[previous.channel]?.draft;
+      if (previousBody) lead.outreachPlans = { ...lead.outreachPlans, [previous.channel]: { route: previous.route, subject: previous.channel === "email" ? lead.subject : undefined, body: previousBody, approvedAt: previous.at } };
+    }
+    lead.outreachPlans = { ...lead.outreachPlans, [channel]: { route, subject, body, approvedAt: at } };
+    lead.outreachApproval = { channel, route, at };
+    if (channel === "email") { lead.subject = subject!; lead.body = body; lead.reviewed = true; if (lead.status !== "ready") lead.history.push({ status: "ready", at }); lead.status = "ready"; }
+    else lead.socialOutreach = { ...lead.socialOutreach, [channel]: { draft: body } };
+    lead.updatedAt = at;
+    lead.revision = (lead.revision ?? 0) + 1;
+  }, { id: String(request.id), op: `${channel}:approve` });
+}
+
+/** The user sends invitations and checks acceptance on LinkedIn; this only logs those actions. */
+export function updateLinkedInConnection(id: string, value: unknown): JarvisLead {
+  const request = object(value);
+  if (!["requested", "accepted"].includes(String(request.op))) throw new Error("Invalid connection action");
+  return change((state) => {
+    const lead = state.leads.find((entry) => entry.id === id);
+    if (!lead || !Number.isSafeInteger(request.revision) || (lead.revision ?? 0) !== request.revision) throw new Error("Contact changed; refresh and try again");
+    const route = lead.socials?.linkedin;
+    if (!route || request.route !== route || lead.outreachWorkflow?.stage !== "send") throw new Error("Review this contact and its LinkedIn profile first");
+    if (request.op === "requested") {
+      if (!canPlanChannel(lead, "linkedin") || lead.linkedinConnection?.route === route) throw new Error("Connection already recorded or contact unavailable");
+      lead.linkedinConnection = { route, requestedAt: now() };
+    } else {
+      if (!lead.linkedinConnection || lead.linkedinConnection.route !== route || lead.linkedinConnection.acceptedAt) throw new Error("No pending connection for this profile");
+      lead.linkedinConnection.acceptedAt = now();
+      const social = lead.socialOutreach?.linkedin;
+      if (social) { delete social.skippedAt; delete social.skipReason; }
+    }
+    lead.updatedAt = now();
+    lead.revision = (lead.revision ?? 0) + 1;
+    return lead;
+  }, { id, op: `connect:${request.op}` });
+}
+
+/** Undo the latest reversible outreach record, never a later edit or real email send. */
+export function revertOutreachChange(value: unknown): JarvisLead {
+  const request = object(value);
+  return change(state => {
+    const undo = state.outreachUndo;
+    if (!undo || undo.leadId !== request.id || undo.revision !== request.revision) throw new Error("The latest outreach change has changed; refresh and try again");
+    const lead = state.leads.find(entry => entry.id === undo.leadId);
+    if (!lead || (lead.revision ?? 0) !== undo.revision) throw new Error("This contact has changed since that action; reverting would overwrite newer work");
+    if (lead.sendAttempt?.state === "pending" || lead.sendAttempt?.state === "uncertain" || lead.sentAt !== undo.before.sentAt) throw new Error("An email send cannot be reverted");
+    const restored = structuredClone(undo.before);
+    restored.revision = (lead.revision ?? 0) + 1;
+    restored.updatedAt = now();
+    state.leads[state.leads.indexOf(lead)] = restored;
+    delete state.outreachUndo;
+    return restored;
+  });
+}
+
+/** Result of the public-page email verifier; route edits invalidate this check. */
+export function recordJarvisEmailSourceCheck(id: string, revision: number, address: string, found: boolean): void {
+  change(state => {
+    const lead = state.leads.find(l => l.id === id);
+    if (!lead || (lead.revision ?? 0) !== revision || lead.email !== address) throw new Error("Email changed during source verification");
+    lead.emailCheck = found ? "source_found" : lead.email ? "unconfirmed" : "missing";
+    lead.revision = (lead.revision ?? 0) + 1;
+    lead.updatedAt = now();
   });
 }

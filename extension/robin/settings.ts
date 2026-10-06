@@ -160,6 +160,7 @@ export interface GoogleCalendarSource {
 }
 
 export interface RobinSecrets {
+  outreachGoogle?: { clientId?: string; clientSecret?: string };
   google?: {
     clientId?: string;
     clientSecret?: string;
@@ -168,6 +169,7 @@ export interface RobinSecrets {
   notion?: {
     apiToken?: string;
   };
+  playwright?: { extensionToken?: string };
   telegram?: {
     botToken?: string;
     allowedChatIds?: number[];
@@ -239,6 +241,25 @@ export function googleCredentials(): { clientId?: string; clientSecret?: string 
     clientId: pick(secrets.google?.clientId, process.env.ROBIN_GOOGLE_CLIENT_ID).value,
     clientSecret: pick(secrets.google?.clientSecret, process.env.ROBIN_GOOGLE_CLIENT_SECRET).value,
   };
+}
+
+/** Cold Reach never reuses the school account's OAuth client credentials. */
+export function outreachGoogleCredentials(): { clientId?: string; clientSecret?: string } {
+  const secrets = read();
+  return {
+    clientId: pick(secrets.outreachGoogle?.clientId, process.env.ROBIN_OUTREACH_GOOGLE_CLIENT_ID).value,
+    clientSecret: pick(secrets.outreachGoogle?.clientSecret, process.env.ROBIN_OUTREACH_GOOGLE_CLIENT_SECRET).value,
+  };
+}
+
+export function setOutreachGoogleCredentials(clientId: unknown, clientSecret: unknown): boolean {
+  if (typeof clientId !== "string" || !/^\d+-[a-zA-Z0-9_-]+\.apps\.googleusercontent\.com$/.test(clientId.trim())) throw new Error("Enter a valid Google Client ID");
+  if (typeof clientSecret !== "string" || !clientSecret.trim() || clientSecret.length > 4096 || /\s/.test(clientSecret.trim())) throw new Error("Enter the Google Client secret");
+  const next = { clientId: clientId.trim(), clientSecret: clientSecret.trim() };
+  const current = outreachGoogleCredentials();
+  if (current.clientId === next.clientId && current.clientSecret === next.clientSecret) return false;
+  write({ ...read(), outreachGoogle: next });
+  return true;
 }
 
 export function googleCalendarSources(): GoogleCalendarSource[] {
@@ -335,6 +356,40 @@ export function setNotionToken(apiToken: string): void {
 export function clearNotion(): void {
   const secrets = read();
   const { notion: _dropped, ...rest } = secrets;
+  void _dropped;
+  write(rest);
+}
+
+/* ---------- Playwright browser connection ---------- */
+
+/** Only local server-side callers may pass this to a Playwright child process. */
+export function playwrightExtensionToken(): string | undefined {
+  return pick(read().playwright?.extensionToken, process.env.PLAYWRIGHT_MCP_EXTENSION_TOKEN).value;
+}
+
+export function describePlaywright(): { extensionToken: { set: boolean; source?: SecretSource } } {
+  const token = pick(read().playwright?.extensionToken, process.env.PLAYWRIGHT_MCP_EXTENSION_TOKEN);
+  // A browser-wide capability: do not disclose even its tail or length.
+  return { extensionToken: { set: !!token.value, ...(token.source ? { source: token.source } : {}) } };
+}
+
+export function setPlaywrightExtensionToken(value: unknown): void {
+  const raw = typeof value === "string" ? value.trim() : "";
+  // A copied env line can include shell quotes or a visual line wrap. Tokens
+  // themselves are base64url, so whitespace and quote marks are not token data.
+  const token = raw
+    .replace(/^(?:export\s+)?PLAYWRIGHT_MCP_EXTENSION_TOKEN\s*=\s*/, "")
+    .replace(/^['"]|['"]$/g, "")
+    .replace(/\s+/g, "");
+  if (!/^[A-Za-z0-9_-]{20,256}$/.test(token)) {
+    throw new Error("Invalid Playwright token: copy the value from the extension's copy button (letters, digits, _ and - only)");
+  }
+  const secrets = read();
+  write({ ...secrets, playwright: { extensionToken: token } });
+}
+
+export function clearPlaywrightExtensionToken(): void {
+  const { playwright: _dropped, ...rest } = read();
   void _dropped;
   write(rest);
 }
@@ -593,13 +648,14 @@ export function parseChatIds(raw: string | undefined): number[] {
  * setters and knew the shape of every field. Adding a setting meant editing
  * two files.
  */
-export const SETTINGS_SECTIONS = ["google", "googleCalendars", "notion", "telegram"] as const;
+export const SETTINGS_SECTIONS = ["google", "googleCalendars", "notion", "playwright", "telegram"] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 /** Configuration state as the screen renders it — presence and origin, never a secret. */
 export interface SettingsView {
   google: ReturnType<typeof describeGoogle>;
   notion: ReturnType<typeof describeNotion>;
+  playwright: ReturnType<typeof describePlaywright>;
   telegram: ReturnType<typeof describeTelegram>;
   /** Where the file lives, so the screen can tell the user where to look. */
   storedAt: string;
@@ -611,6 +667,7 @@ export function settingsView(): SettingsView {
   return {
     google: describeGoogle(),
     notion: describeNotion(),
+    playwright: describePlaywright(),
     telegram: describeTelegram(),
     storedAt: secretsPath(),
   };
@@ -737,6 +794,9 @@ export function applySettingsSection(
     case "notion":
       setNotionToken(str(body.apiToken));
       return { notion: describeNotion() };
+    case "playwright":
+      setPlaywrightExtensionToken(body.extensionToken);
+      return { playwright: describePlaywright() };
     case "telegram": return applyTelegram(body);
     default:
       return { error: `section must be one of: ${SETTINGS_SECTIONS.join(", ")}` };
@@ -752,11 +812,14 @@ export function clearSettingsSection(section: unknown): SettingsResult<Partial<S
     case "notion":
       clearNotion();
       return { notion: describeNotion() };
+    case "playwright":
+      clearPlaywrightExtensionToken();
+      return { playwright: describePlaywright() };
     case "telegram":
       clearTelegram();
       return { telegram: describeTelegram() };
     default:
-      return { error: 'section must be "google", "notion", or "telegram"' };
+      return { error: 'section must be "google", "notion", "playwright", or "telegram"' };
   }
 }
 

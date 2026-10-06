@@ -1,0 +1,14 @@
+Subject: Re: (original email subject)
+
+Hi {{firstName}},
+
+Quick follow-up on the personal intelligence filter I shared. The idea is a short daily brief shaped by your goals and projects—not a generic news digest—with only relevant developments and opportunities, why they matter, the source, and the next step. Depending on the person, that can include policy, operations, market, customer, competitor, or funding changes.
+
+It learns from your feedback and only uses private sources you explicitly choose to connect.
+
+https://your-secretary.com
+
+How do you handle this today? If it isn't relevant, just let me know and I won't follow up again.
+
+Best,
+Bruce
