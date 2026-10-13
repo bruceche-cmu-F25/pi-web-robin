@@ -473,7 +473,16 @@ function ModelNoticeBanner({ tone, title, body, onClose }: { tone: "error" | "wa
 export function ModelErrorBanner({ error }: { error?: string | null }) {
   const { t } = useI18n();
   if (!error) return null;
-  return <ModelNoticeBanner tone="error" title={t("chat.modelError")} body={error} />;
+  // A deleted working directory is not a model problem: /api/models rejects the
+  // cwd before any model is involved, so name the thing that actually broke.
+  const missingCwd = /Directory does not exist|Not a directory/.test(error);
+  return (
+    <ModelNoticeBanner
+      tone="error"
+      title={t(missingCwd ? "chat.cwdMissing" : "chat.modelError")}
+      body={error}
+    />
+  );
 }
 
 /** True when the selected model is known to accept image input (#584). Unknown modality info never blocks the user. */

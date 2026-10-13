@@ -384,6 +384,11 @@ export interface SessionInfo {
   branch?: string;
   /** True when cwd is a linked git worktree (not the main checkout) */
   isWorktree?: boolean;
+  /** True when cwd no longer exists on disk: the session is readable history
+   *  but cannot run. A test temp dir that was cleaned up, or an unmounted
+   *  drive. Optional because the client builds transient SessionInfo objects
+   *  before the first refresh. */
+  cwdMissing?: boolean;
   /** True while the runtime session exists only in memory and its JSONL file
    *  has not been created yet. Disk-backed actions must wait until this clears. */
   transient?: boolean;

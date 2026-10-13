@@ -186,6 +186,22 @@ test("renders the upstream model error", () => {
   assert.match(html, /providers\.custom\.models\.0\.id must not be empty/);
 });
 
+test("names a deleted working directory instead of blaming the model", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(
+      I18nProvider,
+      null,
+      React.createElement(ModelErrorBanner, {
+        error: "Directory does not exist: /tmp/robin-planner-api-rZpFZF",
+      }),
+    ),
+  );
+
+  assert.match(html, /Working directory is missing/);
+  assert.doesNotMatch(html, /Model error/);
+  assert.match(html, /\/tmp\/robin-planner-api-rZpFZF/);
+});
+
 test("does not render an empty model error", () => {
   assert.equal(
     renderToStaticMarkup(

@@ -152,11 +152,24 @@ function readSessionRelationEntries(filePath: string): SessionEntry[] {
   ];
 }
 
+/** A session whose directory was deleted (a test's temp dir, an unmounted
+ *  drive) still lists, because its transcript does. It cannot run: /api/models
+ *  answers 400 for that cwd and the composer shows it as a model error. */
+function directoryExists(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 export async function attachSessionProjectInfo(sessions: SessionInfo[]): Promise<SessionInfo[]> {
   const uniqueCwds = [...new Set(sessions.map((s) => s.cwd).filter(Boolean))];
   const projectByCwd = new Map<string, ProjectInfo>();
+  const presentByCwd = new Map<string, boolean>();
   await Promise.all(uniqueCwds.map(async (cwd) => {
     projectByCwd.set(cwd, await resolveProject(cwd));
+    presentByCwd.set(cwd, directoryExists(cwd));
   }));
 
   return sessions.map((session) => {
@@ -168,6 +181,7 @@ export async function attachSessionProjectInfo(sessions: SessionInfo[]): Promise
       projectKey: projectIdentityKey(projectRoot),
       ...(project?.branch ? { branch: project.branch } : {}),
       ...(project?.isWorktree ? { isWorktree: true } : {}),
+      ...(session.cwd && presentByCwd.get(session.cwd) === false ? { cwdMissing: true } : {}),
     };
   });
 }
