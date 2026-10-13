@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname, useSearchParams } from "next/navigation";
-import { Fragment, type ComponentType, type SVGProps } from "react";
+import { Fragment, useEffect, useRef, type ComponentType, type SVGProps } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { FocusTimer } from "./FocusTimer";
 import { getInitialNavigation } from "@/lib/initial-navigation";
@@ -96,9 +96,16 @@ function NavEntry({ item, pathname, onNavigate }: {
   const { t } = useI18n();
   const current = isCurrent(pathname, item);
   const IconComponent = item.icon;
+  const linkRef = useRef<HTMLAnchorElement>(null);
+  useEffect(() => {
+    if (current && window.matchMedia("(min-width: 960px)").matches) {
+      linkRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+  }, [current]);
 
   return (
     <a
+      ref={linkRef}
       href={item.href}
       onClick={onNavigate}
       className={`robin-nav-entry${current ? " is-current" : ""}`}
@@ -183,6 +190,13 @@ export function RobinMargin({ drawer, onClose, onNavigate, chatContext }: {
       tone: "clay",
       status: { count: dashboardActions },
       exact: true,
+    },
+    {
+      href: withChatContext("/dashboard/kanban"),
+      path: "/dashboard/kanban",
+      label: t("robin.nav.kanban"),
+      icon: KanbanIcon,
+      tone: "slate",
     },
     {
       href: withChatContext("/dashboard/gmail"),
@@ -312,6 +326,10 @@ export function RobinMargin({ drawer, onClose, onNavigate, chatContext }: {
 
 function DashboardIcon(props: SVGProps<SVGSVGElement>) {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /></svg>;
+}
+
+function KanbanIcon(props: SVGProps<SVGSVGElement>) {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}><rect x="3" y="3" width="18" height="18" /><path d="M9 3v18M15 3v18M5 7h2M11 7h2M17 7h2M5 11h2M11 11h2M5 15h2" /></svg>;
 }
 
 function GmailIcon(props: SVGProps<SVGSVGElement>) {

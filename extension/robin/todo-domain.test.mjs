@@ -7,11 +7,18 @@ import { join } from "node:path";
 import { after, beforeEach, test } from "node:test";
 import {
   addTodo,
+  chooseNextTodo,
+  deleteTodo,
+  reviewTodo,
+  todoRevision,
+  TodoConflictError,
   completeTodo,
   formatTodo,
   listTodos,
   updateTodo,
 } from "./todo-domain.ts";
+
+import { todoStatus } from "./todo-status.ts";
 
 const previousDataDir = process.env.ROBIN_DATA_DIR;
 const dataDir = mkdtempSync(join(tmpdir(), "robin-todo-domain-"));
@@ -108,7 +115,7 @@ test("Todo updates clear optional fields and completion is idempotent", () => {
   assert.equal(second.todo.completedAt, completedAt);
 });
 
-test("Todo listing prunes expired completions but retains malformed legacy timestamps", () => {
+test("Todo listing preserves completed history, including legacy timestamps", () => {
   const now = Date.now();
   const rows = [
     { id: "open", title: "Open", done: false, createdAt: new Date(now - 30 * 86_400_000).toISOString() },
@@ -118,10 +125,86 @@ test("Todo listing prunes expired completions but retains malformed legacy times
   ];
   writeFileSync(todosFile, `${JSON.stringify(rows)}\n`, "utf8");
 
+  const original = readFileSync(todosFile, "utf8");
   assert.deepEqual(
     listTodos({ includeDone: true }).todos.map(({ id }) => id),
-    ["open", "recent", "legacy"],
+    ["open", "recent", "expired", "legacy"],
   );
+  assert.equal(readFileSync(todosFile, "utf8"), original, "reading must never erase history");
+});
+
+test("Kanban workflow keeps completion, tools and existing checkbox writes in sync", () => {
+  const todo = addTodo({ title: "Build board", due: "2026-11-01", url: "example.com/task" }).todo;
+  assert.equal(todoStatus(todo), "todo");
+  const doing = updateTodo({ id: todo.id }, { status: "doing" });
+  assert.equal(doing.done, false);
+  assert.equal(todoStatus(listTodos().todos[0]), "doing");
+  assert.match(formatTodo(doing), /in progress/);
+  assert.equal(doing.url, todo.url);
+  assert.equal(doing.due, todo.due);
+
+  const done = updateTodo({ id: todo.id }, { status: "done" });
+  assert.equal(done.done, true);
+  assert.ok(done.completedAt);
+  assert.deepEqual(listTodos().todos, []);
+  assert.equal(updateTodo({ id: todo.id }, { status: "done" }).completedAt, done.completedAt);
+
+  const reopened = updateTodo({ id: todo.id }, { done: false });
+  assert.equal(todoStatus(reopened), "todo");
+  assert.equal(reopened.completedAt, undefined);
+  updateTodo({ id: todo.id }, { status: "doing" });
+  assert.equal(completeTodo({ id: todo.id }).todo.status, "done");
+  const resumed = updateTodo({ id: todo.id }, { status: "doing" });
+  assert.equal(resumed.done, false);
+  assert.equal(resumed.completedAt, undefined);
+  assert.equal(updateTodo({ id: todo.id }, { done: true }).status, "done");
+});
+
+test("Kanban accepts direct creation, derives legacy columns and rejects invalid writes atomically", () => {
+  assert.equal(todoStatus({ done: false }), "todo");
+  assert.equal(todoStatus({ done: true }), "done");
+  assert.equal(todoStatus({ done: true, status: "doing" }), "done");
+  assert.equal(addTodo({ title: "Started", status: "doing" }).todo.status, "doing");
+  const done = addTodo({ title: "Finished", status: "done" }).todo;
+  assert.equal(done.done, true);
+  assert.ok(done.completedAt);
+  const before = listTodos({ includeDone: true });
+  assert.throws(() => addTodo({ title: "Bad", status: "blocked" }), /Unknown todo status/);
+  assert.throws(() => updateTodo({ id: done.id }, { status: "blocked" }), /Unknown todo status/);
+  assert.throws(() => updateTodo({ id: done.id }, { status: "doing", done: true }), /conflict/);
+  assert.throws(() => updateTodo({ id: done.id }, { status: "doing", due: "invalid" }));
+  assert.deepEqual(listTodos({ includeDone: true }), before);
+});
+
+test("task revisions reject stale edits/deletes/reviews under the write lock, without blocking unrelated changes", () => {
+  const a = addTodo({ title: "First", due: "2030-05-15" }).todo;
+  const b = addTodo({ title: "Second" }).todo;
+  const ref = { id: a.id, revision: todoRevision([a]) };
+  updateTodo({ id: b.id }, { title: "Changed elsewhere" });
+  const updated = updateTodo(ref, { title: "Edited first" });
+  assert.equal(updated.title, "Edited first");
+  assert.equal(updated.due, a.due);
+  assert.throws(() => updateTodo(ref, { status: "done", due: "" }), TodoConflictError);
+  assert.throws(() => deleteTodo(ref), TodoConflictError);
+  assert.throws(() => reviewTodo(ref, "abandon"), TodoConflictError);
+  assert.throws(() => chooseNextTodo(ref, true), TodoConflictError);
+  assert.deepEqual(listTodos().todos.find((todo) => todo.id === a.id), updated);
+});
+
+test("only one active task can be next, without changing dates or status; completion and abandonment clear it", () => {
+  const a = addTodo({ title: "First", due: "2030-05-15" }).todo;
+  const b = addTodo({ title: "Second", status: "doing" }).todo;
+  assert.deepEqual(chooseNextTodo({ id: a.id }, true), { ...a, next: true });
+  chooseNextTodo({ id: b.id }, true);
+  assert.deepEqual(listTodos().todos.filter((todo) => todo.next).map((todo) => todo.id), [b.id]);
+  completeTodo({ id: b.id });
+  assert.equal(listTodos({ includeDone: true }).todos.some((todo) => todo.next), false);
+  assert.throws(() => chooseNextTodo({ id: b.id }, true), /active task/);
+  chooseNextTodo({ id: a.id }, true);
+  reviewTodo({ id: a.id }, "abandon");
+  assert.equal(listTodos({ includeArchived: true }).todos.find((todo) => todo.id === a.id).next, undefined);
+  assert.throws(() => chooseNextTodo({ id: a.id }, true), /active task/);
+  assert.throws(() => chooseNextTodo({ id: a.id }, "true"), /boolean/);
 });
 
 test("Todo listing surfaces damaged storage without replacing it", () => {

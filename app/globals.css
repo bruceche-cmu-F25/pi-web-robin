@@ -957,6 +957,16 @@ body {
   min-width: 0;
 }
 .robin-nav-utility { margin-left: auto; }
+/* Keep full labels and fixed utility actions as primary tabs grow. */
+@media (min-width: 960px) {
+  .robin-nav.is-horizontal .robin-nav-main {
+    flex: 1;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+  .robin-nav.is-horizontal .robin-nav-entry,
+  .robin-nav.is-horizontal .robin-nav-utility { flex-shrink: 0; }
+}
 .robin-nav-entry {
   position: relative;
   display: flex;

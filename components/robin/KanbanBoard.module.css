@@ -1,0 +1,214 @@
+.page { --kanban-tone: var(--accent); flex: 1; min-width: 0; min-height: 0; padding: 20px 28px 0; overflow: hidden; }
+.content { display: flex; flex-direction: column; height: 100%; max-width: 1680px; margin: 0 auto; min-height: 0; }
+.header, .heading, .headerActions { display: flex; align-items: center; gap: 16px; }
+.header { justify-content: space-between; flex-shrink: 0; }
+.header h1 { font-size: 28px; font-weight: 400; font-style: italic; }
+.today { color: var(--text-muted); font-family: var(--font-mono); font-size: 12px; }
+.headerActions { gap: 12px; font-family: var(--font-mono); font-size: 13px; }
+.views { display: flex; gap: 20px; flex-shrink: 0; margin-top: 16px; border-bottom: 1px solid var(--border); overflow-x: auto; }
+.views button { flex-shrink: 0; border: 0; padding: 8px 10px; color: var(--text-muted); font-size: 14px; }
+.views button[data-view="review"] { margin-left: auto; }
+.views button[aria-pressed="true"] { color: var(--accent); background-color: var(--accent-soft); }
+.views button[aria-pressed="true"] span { color: inherit; }
+.views span { font: 12px var(--font-mono); color: var(--text-muted); margin-left: 6px; font-variant-numeric: tabular-nums; }
+.toolbar { display: flex; align-items: center; gap: 16px; padding: 12px 0; flex-shrink: 0; }
+.searchScope { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; flex-shrink: 0; padding-bottom: 8px; color: var(--text-muted); font: 12px/1.6 var(--font-mono); }
+.viewHint { flex: 1; color: var(--text-muted); font-size: 14px; line-height: 1.6; }
+.search { display: flex; align-items: center; gap: 8px; width: 220px; flex-shrink: 0; border: 1px solid var(--border); padding-left: 12px; color: var(--text-muted); background: var(--bg-panel); }
+.page .search input { min-height: 38px; width: 100%; border: 0; background: transparent; box-shadow: none; padding-left: 0; font: 13px var(--font-mono); }
+.search:focus-within { background-color: var(--accent-soft); color: var(--accent); }
+.page .search input:focus-visible { outline: none; }
+.layoutSwitch { display: flex; border: 1px solid var(--border); }
+.layoutSwitch button { display: grid; place-items: center; color: var(--text-muted); }
+.layoutSwitch button[aria-pressed="true"] { color: var(--accent); background-color: var(--accent-soft); }
+.page .attention { align-self: flex-start; text-align: left; font: 12px/1.6 var(--font-mono); color: var(--danger); margin-bottom: 8px; }
+.board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); flex: 1; min-height: 0; gap: 20px; }
+.column { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-top: 2px solid var(--border-strong); background: var(--bg-subtle); }
+.column[data-column="doing"] .columnHeader h2 { color: var(--accent); }
+.column[data-column="done"] { --kanban-tone: var(--success); }
+.columnHeader { display: flex; align-items: center; flex-shrink: 0; gap: 10px; padding: 8px 12px; min-height: 60px; }
+.columnHeader h2 { font: 13px var(--font-mono); }
+.columnHeader button { margin-left: auto; font-size: 22px; color: var(--text-muted); }
+.statusMark { width: 10px; height: 10px; border: 1px solid var(--text-muted); border-radius: 50%; flex-shrink: 0; }
+.column[data-column="doing"] .statusMark { border-color: var(--accent); background: linear-gradient(90deg, var(--accent) 50%, transparent 50%); }
+.column[data-column="done"] .statusMark { border-color: var(--success); background: var(--success); }
+.count { color: var(--text-muted); font: 12px var(--font-mono); font-variant-numeric: tabular-nums; }
+.wip { color: var(--danger); font: 12px var(--font-mono); margin-left: auto; }
+.cards { display: flex; flex-direction: column; gap: 10px; padding: 0 8px 16px; overflow-y: auto; min-height: 0; scrollbar-gutter: stable; }
+.card { flex-shrink: 0; min-width: 0; padding: 6px 12px 0; border: 1px solid var(--border); background: var(--bg-panel); box-shadow: var(--card-shadow); cursor: grab; }
+.card[data-next="true"] { background-color: color-mix(in srgb, var(--accent) 8%, var(--bg-panel)); }
+.nextLabel { color: var(--accent); font-weight: 600; }
+.nextAction { display: grid; place-items: center; margin-left: auto; }
+.nextAction[aria-pressed="true"] { color: var(--accent); background-color: var(--accent-soft); }
+.card:has(:focus-visible) { background-color: color-mix(in srgb, var(--kanban-tone) 10%, var(--bg-panel)); }
+.cardHeading { display: flex; align-items: start; gap: 8px; }
+.taskTitle { flex: 1; min-width: 0; padding-top: 10px; font-size: 17px; line-height: 1.45; color: var(--text); overflow-wrap: anywhere; }
+.column[data-column="done"] .taskTitle { color: var(--text-muted); text-decoration: line-through; }
+.edit { flex-shrink: 0; display: grid; place-items: center; color: var(--text-muted); }
+.cardMeta { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--text-muted); font: 12px/1.6 var(--font-mono); margin: 4px 0; }
+.cardMeta:empty { display: none; }
+.cardFooter { display: flex; align-items: center; justify-content: space-between; gap: 8px; font: 12px var(--font-mono); color: var(--text-muted); }
+.page .cardFooter select { width: auto; max-width: 55%; border: 0; padding: 6px 0; background: transparent; box-shadow: none; font: inherit; color: inherit; cursor: pointer; }
+.quickAction { color: var(--text-muted); white-space: nowrap; }
+.empty { margin: 4px 0; padding: 28px 20px; border: 1px dashed var(--border); text-align: center; color: var(--text-muted); font-size: 15px; line-height: 1.7; }
+.empty button { margin-top: 12px; font-size: 13px; }
+.column.dropTarget { background-color: var(--accent-fill); }
+.column.dropTarget .columnHeader { color: var(--accent); background-color: var(--accent-soft); }
+.dragging { opacity: 0.45; cursor: grabbing; }
+.boardFooter { display: flex; justify-content: space-between; gap: 12px; flex-shrink: 0; padding: 10px 0 max(10px, env(safe-area-inset-bottom)); color: var(--text-muted); font: 11px/1.6 var(--font-mono); }
+.mobileColumns { display: none; }
+.board[data-layout="list"] { display: block; overflow-y: auto; }
+.board[data-layout="list"] .column { border-top-width: 1px; background: transparent; }
+.board[data-layout="list"] .column.dropTarget { background-color: var(--accent-fill); }
+.board[data-layout="list"] .columnHeader { min-height: 52px; padding: 0 12px; }
+.board[data-layout="list"] .cards { gap: 0; padding: 0 0 12px; overflow: visible; }
+.board[data-layout="list"] .card { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(140px, .7fr) 230px; align-items: center; gap: 16px; padding: 4px 12px; box-shadow: none; border-width: 0 0 1px; }
+.board[data-layout="list"] .taskTitle { font-size: 16px; }
+.board[data-layout="list"] .cardMeta { grid-column: 2; }
+.board[data-layout="list"] .cardFooter { grid-column: 3; }
+.board[data-layout="list"] .empty { margin: 0 8px 12px; padding: 16px; }
+
+/* Native dialogs retain focus trapping, Escape, and return-to-trigger behavior. */
+.dialog { width: min(520px, 100vw); height: 100dvh; max-width: 100vw; max-height: 100dvh; margin: 0 0 0 auto; padding: 0; border: 0; border-left: 1px solid var(--border-strong); background: var(--bg-panel); color: var(--text); font: 16px/1.5 var(--font-serif); box-shadow: var(--popover-shadow); }
+.dialog[open] { display: flex; flex-direction: column; }
+.dialog::backdrop { background: color-mix(in srgb, var(--bg-deep) 55%, transparent); }
+.editorForm { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.editorHeader { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: max(20px, env(safe-area-inset-top)) 24px 20px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.editorHeader h2 { font-size: 24px; font-weight: 400; font-style: italic; }
+.editorHeader :global(.pi-eyebrow) { margin-bottom: 6px; }
+.fields { display: grid; align-content: start; gap: 20px; padding: 24px; border: 0; min-width: 0; overflow-y: auto; flex: 1; }
+.titleField { display: grid; gap: 8px; }
+.fields label { display: grid; gap: 8px; min-width: 0; font: 12px var(--font-mono); color: var(--text-muted); }
+.fields input, .fields select, .fields textarea { width: 100%; font: 14px/1.6 var(--font-mono); }
+.fields textarea { font: 20px/1.5 var(--font-serif); resize: vertical; }
+.dates { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.editorFooter { display: flex; justify-content: flex-end; gap: 16px; padding: 16px 24px max(16px, env(safe-area-inset-bottom)); border-top: 1px solid var(--border); flex-shrink: 0; }
+.editorFooter .delete { margin-right: auto; }
+.editorForm > .error { padding: 12px 24px; margin: 0; }
+.page button, .dialog button { min-height: 44px; min-width: 44px; cursor: pointer; }
+.page button:disabled, .dialog button:disabled { opacity: 0.5; cursor: not-allowed; }
+.page input, .page select, .dialog input, .dialog select, .dialog textarea { min-width: 0; min-height: 44px; padding: 8px 10px; border: 1px solid var(--border-strong); background: var(--bg-panel); color: var(--text); border-radius: 0; }
+/* Focus is a contrasting surface, not another frame; high-contrast OS modes
+   get a system outline below because they may suppress author backgrounds. */
+.page :is(input, select, textarea, button, summary, a):focus-visible:not(:disabled):not([data-inert="true"]) { outline: none; box-shadow: none; background-color: var(--accent); color: var(--on-accent); }
+.dialog :is(input, select, textarea):focus-visible { border-color: var(--border-strong); }
+.page input:focus-visible::placeholder { color: inherit; opacity: 0.8; }
+.page button:focus-visible :is(span, svg), .page summary:focus-visible span { color: inherit; }
+.page :is(button, summary, a):focus-visible { text-decoration: underline; text-underline-offset: 4px; }
+.board:focus-visible, .reviewList:focus-visible { outline: none; background-color: var(--accent-subtle); }
+.overdue, .error, .delete { color: var(--danger); }
+.error { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; font-size: 14px; margin-bottom: 12px; overflow-wrap: anywhere; }
+.feedback { font: 12px/1.6 var(--font-mono); color: var(--text-muted); }
+.feedback[data-visible="true"] { padding: 6px 0; }
+.feedback:not([data-visible="true"]), .srOnly { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.subtitle, .notice { color: var(--text-muted); font-size: 15px; line-height: 1.7; }
+.notice { margin: 8px 0; overflow-wrap: anywhere; }
+.hint, .date { font: 12px/1.7 var(--font-mono); color: var(--text-muted); }
+.date { padding: 8px 0; }
+.planActions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font: 13px var(--font-mono); }
+
+.plannerTrigger { display: flex; align-items: center; gap: 8px; color: var(--text-muted); }
+.capacitySummary { padding-left: 8px; border-left: 1px solid var(--border); font: 12px var(--font-mono); color: var(--accent); }
+.planner { width: min(560px, 100vw); }
+.drawerBody { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 24px; }
+.drawerFooter { padding: 16px 24px max(16px, env(safe-area-inset-bottom)); border-top: 1px solid var(--border); font: 12px/1.6 var(--font-mono); color: var(--text-muted); }
+.preferences { border-block: 1px solid var(--border); margin: 20px 0; }
+.preferences summary { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-height: 44px; padding: 8px 0; cursor: pointer; font: 13px var(--font-mono); }
+.preferences summary::before { content: "+"; color: var(--accent); }
+.preferences[open] summary::before { content: "−"; }
+.preferences summary span { margin-left: auto; font-size: 12px; color: var(--text-muted); }
+.preferences .hint { margin: 16px 0; }
+.plannerControls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 12px; min-width: 0; border: 0; padding: 0; }
+.plannerControls label { display: grid; min-width: 0; gap: 8px; font: 12px/1.6 var(--font-mono); color: var(--text-muted); }
+.plannerControls .checkLabel { display: flex; align-items: center; min-height: 44px; }
+.dialog input[type="checkbox"] { min-height: 18px; width: 18px; height: 18px; flex-shrink: 0; accent-color: var(--accent); }
+.horizon { display: flex; gap: 16px; border: 0; padding: 0; min-width: 0; font: 13px var(--font-mono); }
+.horizon button { padding-inline: 12px; }
+.horizon button[aria-pressed="true"] { background-color: var(--accent-soft); color: var(--accent); }
+.capacityGrid { display: grid; gap: 16px; margin: 20px 0; }
+.capacityDay { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; border-left: 2px solid var(--accent); padding-left: 12px; font: 12px/1.5 var(--font-mono); }
+.capacityDay time { color: var(--text); }
+.capacityDay small { color: var(--text-muted); font-size: 12px; }
+.proposal { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border); }
+.proposal h3 { font-size: 22px; font-weight: 400; font-style: italic; margin-bottom: 8px; }
+.proposalRow { display: flex; gap: 12px; padding: 16px 12px; border-bottom: 1px solid var(--border); cursor: pointer; font-size: 15px; line-height: 1.5; }
+.proposalRow > span { display: grid; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
+.proposalRow small { font: 12px/1.7 var(--font-mono); color: var(--text-muted); }
+.proposalRow input { margin-top: 4px; }
+.proposalRow:has(input:checked) { background-color: var(--accent-subtle); }
+.proposalRow:has(input:focus-visible) { background-color: var(--accent-fill); }
+.proposalRow:has(input:focus-visible) strong { text-decoration: underline; text-underline-offset: 4px; }
+.proposal .planActions { margin-top: 16px; }
+.reviewList { flex: 1; min-height: 0; overflow-y: auto; }
+.reviewRow { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 16px; border-bottom: 1px solid var(--border); padding: 16px; background: var(--bg-panel); }
+.reviewRow > div:first-child { flex: 1; min-width: min(240px, 100%); overflow-wrap: anywhere; }
+
+/* Color-only feedback: no moving hit targets, border animations or new rings. */
+.page :is(button, a, input, select, textarea, summary),
+.card, .column, .columnHeader, .search, .reviewRow, .proposalRow { transition: none; }
+.page button::before, .page button::after { transition: none; color: inherit; }
+.page button:global(.pi-bracket):is(:hover, :focus-visible)::before,
+.page button:global(.pi-bracket):is(:hover, :focus-visible)::after { transform: none; }
+.delete, .attention { --kanban-action-ink: var(--danger); --kanban-action-wash: var(--danger-soft); }
+@media (hover: hover) and (pointer: fine) {
+  .page :is(button, select, summary):hover:not(:disabled):not([aria-pressed="true"]):not(:focus-visible) { background-color: var(--kanban-action-wash, var(--accent-subtle)); color: var(--kanban-action-ink, var(--accent)); }
+  .page button[aria-pressed="true"]:hover:not(:disabled):not(:focus-visible) { background-color: var(--accent-fill); color: var(--accent); }
+  .card:hover:not(.dragging), .reviewRow:hover { background-color: color-mix(in srgb, var(--kanban-tone) 8%, var(--bg-panel)); }
+  .proposalRow:hover { background-color: var(--accent-soft); }
+}
+.page :is(button, select, summary):active:not(:disabled):not(:focus-visible) { background-color: var(--kanban-action-wash, var(--accent-fill)); color: var(--kanban-action-ink, var(--accent)); }
+@media (prefers-reduced-motion: no-preference) {
+  .page :is(button, a, input, select, textarea, summary), .search, .column, .columnHeader, .reviewRow, .proposalRow { transition: background-color 160ms ease-out, color 160ms ease-out, opacity 120ms ease-out; }
+  .card { transition: background-color 180ms ease-out, opacity 120ms ease-out; }
+  .page :is(button, select, summary):active:not(:disabled) { transition-duration: 70ms; }
+  .dialog[open] { animation: drawerReveal 180ms ease-out; }
+  .dialog[open]::backdrop { animation: drawerReveal 140ms ease-out; }
+}
+@keyframes drawerReveal { from { opacity: 0; } to { opacity: 1; } }
+@media (forced-colors: active) {
+  .page :is(input, select, textarea, button, summary, a):focus-visible:not(:disabled):not([data-inert="true"]), .board:focus-visible, .reviewList:focus-visible { outline: 2px solid Highlight; outline-offset: -2px; }
+  .page button[aria-pressed="true"] { text-decoration: underline; }
+  .column.dropTarget .columnHeader { text-decoration: underline; }
+}
+
+@media (max-width: 1100px) {
+  .page { padding: 16px 16px 0; }
+  .board { gap: 12px; }
+  .toolbar { gap: 12px; }
+  .card { padding-inline: 10px; }
+  .cards { padding-inline: 4px; }
+}
+@media (max-width: 759px) {
+  .page { padding: 8px 12px 0; }
+  .header, .headerActions { gap: 8px; }
+  .header h1 { font-size: 24px; white-space: nowrap; }
+  .today, .capacitySummary, .plannerTrigger svg { display: none; }
+  .headerActions { font-size: 12px; }
+  .views { gap: 8px; margin-top: 8px; }
+  .views button[data-view="review"] { margin-left: 0; }
+  .views button { padding-inline: 4px; font-size: 13px; }
+  .toolbar { flex-wrap: wrap; gap: 8px; padding: 8px 0; }
+  .viewHint { flex-basis: 100%; font-size: 13px; }
+  .search { flex: 1; width: auto; min-width: 0; }
+  .page .search input { min-height: 44px; }
+  .mobileColumns { display: flex; flex-shrink: 0; gap: 8px; margin-bottom: 8px; border-bottom: 1px solid var(--border); }
+  .mobileColumns button { flex: 1; font: 12px var(--font-mono); }
+  .mobileColumns button[aria-pressed="true"] { color: var(--accent); background-color: var(--accent-soft); }
+  .mobileColumns span { margin-left: 4px; color: var(--text-muted); }
+  .board { grid-template-columns: minmax(0, 1fr); }
+  .board[data-layout="board"] .column[data-mobile-current="false"] { display: none; }
+  .columnHeader { min-height: 52px; padding-block: 0; }
+  .board[data-layout="list"] .card { display: block; padding: 6px 12px 0; }
+  .boardFooter { font-size: 11px; }
+  .boardFooter span:last-child { display: none; }
+  .dialog { border-left: 0; }
+  .editorHeader, .editorFooter, .drawerBody, .drawerFooter, .fields { padding-inline: 16px; }
+  .dates { grid-template-columns: minmax(0, 1fr); }
+}
+/* A short landscape viewport uses one document scroll rather than a tiny board. */
+@media (max-height: 540px) {
+  .page { overflow-y: auto; }
+  .content { height: auto; min-height: 100%; }
+  .board { flex: none; min-height: 280px; }
+  .cards { overflow: visible; }
+}
