@@ -19,11 +19,29 @@ export interface ShelfGroup {
   /** i18n key suffix: `learn.shelf.<id>`. */
   id: string;
   links: readonly ShelfLink[];
+  /** One representative video, shown as a still; the channel/course links stay separate. */
+  preview?: { url: string; image: string };
 }
+
+// Stable across reordering: an inserted link must never inherit the next
+// link's screenshot. The group id keeps identical URLs in separate chapters.
+export function shelfPreviewFile(groupId: string, url: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < url.length; i++) {
+    hash = Math.imul(hash ^ url.charCodeAt(i), 16777619);
+  }
+  return `${groupId}-${(hash >>> 0).toString(16).padStart(8, "0")}.webp`;
+}
+
+export const FDE_ROADMAP_URL = "https://learn.varickagents.com/fde-in-30-days";
 
 export const LEARNING_SHELF: readonly ShelfGroup[] = [
   {
     id: "entry",
+    preview: {
+      url: "https://www.youtube.com/watch?v=jS4aFq5-91M",
+      image: "/robin/previews/javascript-course.jpg",
+    },
     links: [
       {
         title: "The Odin Project — Foundations",
@@ -134,6 +152,55 @@ export const LEARNING_SHELF: readonly ShelfGroup[] = [
         title: "roadmap.sh — Kubernetes Roadmap",
         url: "https://roadmap.sh/kubernetes",
         hint: "Keep as a later checklist; learn Kubernetes when a real deployment needs orchestration beyond one host.",
+      },
+    ],
+  },
+  {
+    id: "ai-creators-fde",
+    preview: {
+      url: "https://www.youtube.com/watch?v=zXysLUTLjw4",
+      image: "/robin/previews/fde-30-days.jpg",
+    },
+    links: [
+      {
+        title: "Varick — AI Forward Deployed Engineering (30 days)",
+        url: FDE_ROADMAP_URL,
+        hint: "The 30-day FDE guide shown in the screenshot.",
+      },
+      {
+        title: "freeCodeCamp.org — YouTube",
+        url: "https://www.youtube.com/@freecodecamp",
+        hint: "Free programming and computer science courses.",
+      },
+      {
+        title: "Starter Story — YouTube",
+        url: "https://www.youtube.com/@starterstory",
+        hint: "Founder interviews and stories of building businesses.",
+      },
+      {
+        title: "Starter Story — iOS App Ideas (data)",
+        url: "https://www.starterstory.com/data/ios-app-ideas",
+        hint: "Browse reported revenue, traffic, and founder stories for app ideas; verify the numbers before treating them as market evidence.",
+      },
+      {
+        title: "Greg Isenberg — YouTube",
+        url: "https://www.youtube.com/@GregIsenberg",
+        hint: "AI tools, startup ideas, and product building.",
+      },
+      {
+        title: "How I AI — YouTube",
+        url: "https://www.youtube.com/@howiaipodcast",
+        hint: "Practical AI workflows demonstrated by guests.",
+      },
+      {
+        title: "Dan Koe — YouTube",
+        url: "https://www.youtube.com/@DanKoeTalks",
+        hint: "Writing, creative work, and independent business.",
+      },
+      {
+        title: "Varick — Forward Deployed Engineering 101",
+        url: "https://www.varickagents.com/blog/forward-deployed-engineering-101",
+        hint: "Companion introduction to the FDE role and its work.",
       },
     ],
   },

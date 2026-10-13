@@ -3,6 +3,7 @@
 import { useI18n } from "@/hooks/useI18n";
 import { LearningShelf } from "./LearningShelf";
 import { LearningPanel } from "./LearningPanel";
+import { FDE_ROADMAP_URL } from "@/extension/robin/learning-shelf";
 
 interface HubEntry {
   id: string;
@@ -73,6 +74,46 @@ export function LearningHub() {
         </div>
 
         <LearningPanel showCourseOutline />
+
+        <section className="pi-card flex flex-col gap-5 p-5 desktop:p-6" aria-labelledby="fde-roadmap-title">
+          <header className="flex flex-col gap-4 desktop:flex-row desktop:items-start desktop:justify-between">
+            <div className="max-w-3xl">
+              <p className="pi-eyebrow" style={{ color: "var(--accent)" }}>{t("learn.fde.eyebrow")}</p>
+              <h2 id="fde-roadmap-title" className="mt-2 text-2xl italic" style={{ color: "var(--text)" }}>
+                {t("learn.fde.title")}
+              </h2>
+              <p className="mt-2 text-sm leading-relaxed" style={{ color: "var(--text-muted)" }}>
+                {t("learn.fde.intro")}
+              </p>
+            </div>
+            <a
+              href={FDE_ROADMAP_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="ui-action ui-action--card inline-flex min-h-11 shrink-0 items-center gap-3 px-4 py-2 text-sm"
+              style={{ color: "var(--accent)", textDecoration: "none" }}
+            >
+              {t("learn.fde.open")} <span aria-hidden="true">↗</span>
+            </a>
+          </header>
+          <ol className="grid grid-cols-1 gap-px desktop:grid-cols-4" style={{ background: "var(--border)", border: "1px solid var(--border)" }}>
+            {[1, 2, 3, 4].map((week) => (
+              <li key={week} className="flex flex-col gap-2 p-4" style={{ background: "var(--bg-panel)" }}>
+                <span className="pi-eyebrow" style={{ color: "var(--accent)" }}>{t(`learn.fde.week${week}.label`)}</span>
+                <span className="text-base font-semibold" style={{ color: "var(--text)" }}>{t(`learn.fde.week${week}.title`)}</span>
+                <span className="text-sm leading-relaxed" style={{ color: "var(--text-muted)" }}>{t(`learn.fde.week${week}.detail`)}</span>
+              </li>
+            ))}
+          </ol>
+          <div className="grid gap-3 desktop:grid-cols-2">
+            <p className="border-l-2 pl-3 text-sm leading-relaxed" style={{ borderColor: "var(--accent)", color: "var(--text)" }}>
+              {t("learn.fde.value")}
+            </p>
+            <p className="border-l-2 pl-3 text-sm leading-relaxed" style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}>
+              {t("learn.fde.limit")}
+            </p>
+          </div>
+        </section>
 
         {/* One sheet ruled into columns, like a contents page: the ways in
             are read as a set, not as cards competing with today's tracks.

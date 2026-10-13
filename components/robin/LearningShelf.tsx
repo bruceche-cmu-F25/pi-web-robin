@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
-import { LEARNING_SHELF } from "@/extension/robin/learning-shelf";
+import Image from "next/image";
+import { LEARNING_SHELF, shelfPreviewFile, type ShelfLink } from "@/extension/robin/learning-shelf";
 import { shelfLogo } from "@/extension/robin/shelf-logos";
 import { iconFallback } from "@/extension/robin/links";
 import { EVENT_COLOR_KEYS } from "@/extension/robin/eventColors";
@@ -10,76 +11,55 @@ import { EVENT_COLOR_KEYS } from "@/extension/robin/eventColors";
 /**
  * The reading list, in the groups it was collected in.
  *
- * It answers "where was that thing", which is what you want when you already
- * know what you are looking for. Every link opens in its own tab.
- *
- * Nothing here is marked read. It is a shelf: what is on it, and where it
- * points.
- *
- * Each heading takes one of the calendar's six hues, so the groups can be told
- * apart before they are read — on a page of identical grey cards, "the green
- * one" is how you find Python engineering twice as fast the second time. The
- * hue is by position rather than by a hash of the group id: this is a short,
- * hand-ordered list, so rotating the palette keeps neighbours distinct, which
- * hashing does not (three of the seven ids hash to the same slate). Reordering
- * the shelf reshuffles the colours, and that is fine — the colour is
- * recognition, not meaning, which is also why it stops at the label.
+ * Full-width chapters make the purpose of each group and every destination
+ * visible at once. Nothing here is marked read; it is a shelf, not a syllabus.
+ * Each chapter's rule takes one of the calendar hues for quick recognition,
+ * never to encode progress or priority.
  */
 export function LearningShelf() {
   const { t } = useI18n();
 
   return (
-    <section
-      style={{ columns: "300px", columnGap: "1rem" }}
-      aria-label={t("learn.shelf.title")}
-    >
+    <section className="flex flex-col gap-5" aria-labelledby="learn-shelf-title">
+      <header className="mb-1 flex flex-col gap-2">
+        <h2 id="learn-shelf-title" className="text-2xl italic" style={{ color: "var(--text)" }}>
+          {t("learn.shelf.title")}
+        </h2>
+        <p className="text-sm" style={{ color: "var(--text-muted)" }}>{t("learn.shelf.intro")}</p>
+      </header>
       {LEARNING_SHELF.map((group, groupIndex) => {
-        // --todo-* for the type, --event-* for the rule: the event hues are
-        // washes tuned to sit behind a chip, and the todo set is the same six
-        // families held at the contrast that reads as text.
         const hue = EVENT_COLOR_KEYS[groupIndex % EVENT_COLOR_KEYS.length];
+        const videoListed = group.links.some((entry) => entry.url === group.preview?.url);
         return (
-          <section
-            key={group.id}
-            className="pi-card mb-4 flex w-full break-inside-avoid flex-col gap-2 p-4"
-          >
-            <h2
-              className="pi-label"
-              style={{ fontSize: 11, color: `var(--todo-${hue})`, borderLeftColor: `var(--event-${hue})` }}
-            >
-              {t(`learn.shelf.${group.id}`)}
-            </h2>
-            <ul className="flex flex-col">
+          <section key={group.id} className="pi-card flex flex-col gap-5 p-5 desktop:p-7" aria-labelledby={`shelf-${group.id}`}>
+            <header className="border-l-4 pl-4" style={{ borderColor: `var(--todo-${hue})` }}>
+              <h3 id={`shelf-${group.id}`} className="text-2xl italic" style={{ color: "var(--text)" }}>
+                {t(`learn.shelf.${group.id}`)}
+              </h3>
+              <p className="mt-2 max-w-3xl text-sm leading-relaxed" style={{ color: "var(--text-muted)" }}>
+                {t(`learn.shelf.${group.id}.purpose`)}
+              </p>
+            </header>
+            <ul className="grid min-w-0 gap-4 desktop:grid-cols-2 min-[1100px]:grid-cols-3">
+              {group.preview && !videoListed && (
+                <ShelfRow
+                  entry={{ url: group.preview.url, title: t(`learn.shelf.${group.id}.preview`) }}
+                  image={group.preview.image}
+                  note={t(`learn.shelf.${group.id}.previewNote`)}
+                  video
+                />
+              )}
               {group.links.map((entry, index) => {
+                const video = entry.url === group.preview?.url;
                 return (
-                  // Keyed by position as well as id: a resource can earn a place
-                  // twice on the shelf, once whole and once at a section anchor.
-                  <li key={`${entry.url}-${index}`}>
-                    <a
-                      href={entry.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="ui-action flex items-baseline gap-2 py-1"
-                      style={{ textDecoration: "none", color: "var(--text)" }}
-                      title={entry.hint ?? entry.url}
-                    >
-                      <SiteMark url={entry.url} />
-                      {/* Wraps rather than truncates. These titles are long and
-                          the columns are narrow, and a shelf whose labels end in
-                          an ellipsis is one you have to hover to read. */}
-                      <span className="min-w-0 flex-1" style={{ fontSize: 12.5, lineHeight: 1.35 }}>
-                        {entry.title}
-                      </span>
-                      {/* The host, the way the list was written: it is how you
-                          recognise a link you have opened a hundred times. */}
-                      <span
-                        className="pi-eyebrow shrink-0"
-                        style={{ fontSize: 9, color: "var(--text-dim)" }}
-                      >
-                        {hostOf(entry.url)}
-                      </span>
-                    </a>
-                  </li>
+                  <ShelfRow
+                    key={`${entry.url}-${index}`}
+                    entry={entry}
+                    image={video ? group.preview!.image : `/robin/previews/${shelfPreviewFile(group.id, entry.url)}`}
+                    note={video ? t(`learn.shelf.${group.id}.previewNote`) : undefined}
+                    title={video ? t(`learn.shelf.${group.id}.preview`) : undefined}
+                    video={video}
+                  />
                 );
               })}
             </ul>
@@ -87,6 +67,80 @@ export function LearningShelf() {
         );
       })}
     </section>
+  );
+}
+
+function ShelfRow({ entry, image, title, note, video = false }: {
+  entry: ShelfLink;
+  image: string;
+  title?: string;
+  note?: string;
+  video?: boolean;
+}) {
+  return (
+    <li className="flex min-w-0">
+      <a
+        href={entry.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="ui-action ui-action--card flex w-full min-w-0 flex-col overflow-hidden"
+        style={{ textDecoration: "none", color: "var(--text)" }}
+        title={entry.hint ?? entry.url}
+      >
+        <ShelfPreview entry={entry} image={image} video={video} />
+        <span className="flex w-full flex-1 flex-col gap-2 px-4 py-3">
+          <span className="flex items-start gap-2">
+            <SiteMark url={entry.url} />
+            <span className="min-w-0 flex-1 text-base leading-snug">{title ?? entry.title}</span>
+            <span aria-hidden="true" className="shrink-0" style={{ color: "var(--accent)" }}>↗</span>
+          </span>
+          {note && <span className="text-sm" style={{ color: "var(--text-muted)" }}>{note}</span>}
+          <span className="pi-eyebrow mt-auto text-xs" style={{ color: "var(--text-muted)" }}>{hostOf(entry.url)}</span>
+        </span>
+      </a>
+    </li>
+  );
+}
+
+function ShelfPreview({ entry, image, video }: { entry: ShelfLink; image: string; video: boolean }) {
+  const { t } = useI18n();
+  const [ready, setReady] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [retry, setRetry] = useState(0);
+
+  // The dev watcher creates a missing still after the card first appears.
+  // Retry a few times so it replaces the site-info fallback without a reload.
+  useEffect(() => {
+    if (!failed || retry >= 4) return;
+    const timer = setTimeout(() => {
+      setFailed(false);
+      setRetry((count) => count + 1);
+    }, 4000 * (retry + 1));
+    return () => clearTimeout(timer);
+  }, [failed, retry]);
+
+  return (
+    <span className="relative block w-full overflow-hidden" style={{ background: "var(--bg-deep)", aspectRatio: "16 / 9" }}>
+      {!ready && (
+        <span className="absolute inset-0 flex flex-col justify-end gap-2 p-5" style={{ color: "var(--text)" }}>
+          <span className="text-lg">{hostOf(entry.url)}</span>
+          <span className="pi-eyebrow text-xs" style={{ color: "var(--text-muted)" }}>{t("learn.shelf.sitePreview")}</span>
+        </span>
+      )}
+      <Image
+        src={retry ? `${image}?retry=${retry}` : image}
+        alt=""
+        width={560}
+        height={315}
+        sizes="(max-width: 640px) 100vw, (max-width: 1100px) 50vw, 33vw"
+        className="absolute inset-0 block h-full w-full object-cover"
+        style={{ opacity: ready ? 1 : 0 }}
+        onLoad={() => setReady(true)}
+        onError={() => { setReady(false); setFailed(true); }}
+        unoptimized
+      />
+      {video && <span aria-hidden="true" className="absolute bottom-3 right-3 border px-3 py-2 text-lg" style={{ background: "var(--bg-panel)", borderColor: "var(--border)", color: "var(--text)" }}>▶</span>}
+    </span>
   );
 }
 
