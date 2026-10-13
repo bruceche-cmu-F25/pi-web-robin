@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, beforeEach, test } from "node:test";
+import { getGlobalDispatcher, MockAgent, setGlobalDispatcher } from "undici";
 
 const previousDataDir = process.env.ROBIN_DATA_DIR;
 const dataDir = mkdtempSync(join(tmpdir(), "robin-notion-"));
@@ -161,40 +162,53 @@ test("writes up to 200 blocks in Notion-sized batches", async () => {
   assert.deepEqual(requests.map((request) => request.body.children.length), [100, 100]);
 });
 
-test("a note's files are uploaded and placed where the note references them", async () => {
+test("a note's files use Undici for multipart even when global fetch is patched", async () => {
   const calls = [];
   let uploads = 0;
-  globalThis.fetch = async (url, init) => {
-    const path = String(url).replace("https://api.notion.com/v1", "");
-    if (path === "/file_uploads") {
-      uploads += 1;
+  const previousDispatcher = getGlobalDispatcher();
+  const mock = new MockAgent();
+  mock.disableNetConnect();
+  setGlobalDispatcher(mock);
+  mock.get("https://api.notion.com")
+    .intercept({ path: /^\/v1\/file_uploads\/upload-\d+\/send$/, method: "POST" })
+    .reply(200, (request) => {
+      calls.push({ path: request.path.replace("/v1", "") });
+      assert.match(String(request.headers["content-type"]), /^multipart\/form-data; boundary=/);
+      assert.equal(request.body.get("file")?.name, request.path.includes("upload-1") ? "board.jpg" : "lecture.pdf");
+      assert.equal(request.body.get("file")?.size, 4);
+      return { status: "uploaded" };
+    }).persist();
+  try {
+    globalThis.fetch = async (url, init) => {
+      const path = String(url).replace("https://api.notion.com/v1", "");
+      if (path.endsWith("/send")) throw new Error("Next's patched fetch must not send multipart bodies");
+      if (path === "/file_uploads") {
+        uploads += 1;
+        calls.push({ path, body: JSON.parse(init.body) });
+        return jsonResponse({ id: `upload-${uploads}` });
+      }
       calls.push({ path, body: JSON.parse(init.body) });
-      return jsonResponse({ id: `upload-${uploads}` });
-    }
-    if (path.endsWith("/send")) {
-      assert.ok(init.body instanceof FormData);
-      assert.equal(init.headers["Content-Type"], undefined);
-      calls.push({ path });
-      return jsonResponse({ status: "uploaded" });
-    }
-    calls.push({ path, body: JSON.parse(init.body) });
-    return jsonResponse({ id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb" });
-  };
+      return jsonResponse({ id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb" });
+    };
 
-  const bytes = new TextEncoder().encode("data");
-  await createNotionPage("374a5189545c80bf8e1bf848a1ecf11c", "Batching", "# 批处理\n![白板](attachment:photo1)\n- 要点", [
-    { id: "photo1", name: "board.jpg", kind: "image", mimeType: "image/jpeg", bytes },
-    { id: "deck1", name: "lecture.pdf", kind: "pdf", mimeType: "application/pdf", bytes },
-  ]);
+    const bytes = new TextEncoder().encode("data");
+    await createNotionPage("374a5189545c80bf8e1bf848a1ecf11c", "Batching", "# 批处理\n![白板](attachment:photo1)\n- 要点", [
+      { id: "photo1", name: "board.jpg", kind: "image", mimeType: "image/jpeg", bytes },
+      { id: "deck1", name: "lecture.pdf", kind: "pdf", mimeType: "application/pdf", bytes },
+    ]);
 
-  assert.deepEqual(calls.map((call) => call.path), [
-    "/file_uploads", "/file_uploads/upload-1/send", "/file_uploads", "/file_uploads/upload-2/send", "/pages",
-  ]);
-  assert.deepEqual(calls[0].body, { mode: "single_part", filename: "board.jpg", content_type: "image/jpeg" });
-  const children = calls.at(-1).body.children;
-  assert.deepEqual(children.map((block) => block.type), ["heading_1", "image", "bulleted_list_item", "heading_2", "pdf"]);
-  assert.deepEqual(children[1].image.file_upload, { id: "upload-1" });
-  // The deck was never placed, so it is filed at the end under a heading in the note's language.
-  assert.equal(children[3].heading_2.rich_text[0].text.content, "附件");
-  assert.deepEqual(children[4].pdf.file_upload, { id: "upload-2" });
+    assert.deepEqual(calls.map((call) => call.path), [
+      "/file_uploads", "/file_uploads/upload-1/send", "/file_uploads", "/file_uploads/upload-2/send", "/pages",
+    ]);
+    assert.deepEqual(calls[0].body, { mode: "single_part", filename: "board.jpg", content_type: "image/jpeg" });
+    const children = calls.at(-1).body.children;
+    assert.deepEqual(children.map((block) => block.type), ["heading_1", "image", "bulleted_list_item", "heading_2", "pdf"]);
+    assert.deepEqual(children[1].image.file_upload, { id: "upload-1" });
+    // The deck was never placed, so it is filed at the end under a heading in the note's language.
+    assert.equal(children[3].heading_2.rich_text[0].text.content, "附件");
+    assert.deepEqual(children[4].pdf.file_upload, { id: "upload-2" });
+  } finally {
+    setGlobalDispatcher(previousDispatcher);
+    await mock.close();
+  }
 });

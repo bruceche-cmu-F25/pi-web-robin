@@ -4,6 +4,7 @@
  * Server-only. The integration token comes from the settings store and is
  * attached only to api.notion.com requests; it is never returned to a tool.
  */
+import { fetch as undiciFetch, FormData as UndiciFormData } from "undici";
 import { notionSettings } from "./settings.ts";
 
 const NOTION_API = "https://api.notion.com/v1";
@@ -353,9 +354,11 @@ async function uploadNotionFile(file: NotionAttachmentFile): Promise<string> {
     method: "POST",
     body: JSON.stringify({ mode: "single_part", filename: file.name, content_type: file.mimeType }),
   });
-  const form = new FormData();
+  const form = new UndiciFormData();
   form.append("file", new Blob([new Uint8Array(file.bytes)], { type: file.mimeType }), file.name);
-  const response = await fetch(`${NOTION_API}/file_uploads/${created.id}/send`, {
+  // Next's patched global fetch drops the multipart `file` field in route handlers.
+  // Use the same Undici transport directly for this one multipart request.
+  const response = await undiciFetch(`${NOTION_API}/file_uploads/${created.id}/send`, {
     method: "POST",
     signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
     headers: { Authorization: `Bearer ${configuredToken()}`, "Notion-Version": NOTION_VERSION },
