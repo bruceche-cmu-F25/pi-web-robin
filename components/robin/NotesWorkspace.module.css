@@ -53,8 +53,9 @@
 
 /* In the masthead the filing block is one line of chrome beside the title. */
 .header .filing {
+  min-width: 0;
   min-height: 0;
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   align-self: center;
   gap: 16px;
   padding: 0;
@@ -75,26 +76,27 @@
   flex: 1;
   min-width: 0;
   min-height: 0;
-  grid-template-columns: 272px minmax(0, 1fr);
+  grid-template-columns: clamp(200px, 20vw, 272px) minmax(0, 1fr);
 }
 
-.workspace.libraryIsCollapsed { grid-template-columns: 40px minmax(0, 1fr); }
+.workspace.libraryIsCollapsed { grid-template-columns: minmax(0, 1fr); }
+.notionPane[hidden] { display: none; }
 
-.libraryExpand {
+.libraryToggle {
   display: grid;
-  width: 39px;
-  height: 100%;
-  min-height: 48px;
-  place-items: start center;
-  padding-top: 16px;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  align-self: center;
+  place-items: center;
   border: 0;
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 20px;
 }
 
-.libraryExpand:hover { background: var(--bg-hover); color: var(--ink-text); }
+.libraryToggle:hover { background: var(--bg-hover); color: var(--ink-text); }
+.libraryToggle svg { width: 20px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 
 .notionPane,
 .notePane,
@@ -109,7 +111,7 @@
    runs through, and one hairline against the note. */
 .notionPane {
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
   overflow: hidden;
   border-right: 1px solid var(--border);
 }
@@ -313,16 +315,21 @@
   .treeRow[data-selected="true"]:is(:hover, :focus-within) .treeTag { display: none; }
 }
 
+.workspaceNotice { grid-column: 1 / -1; margin: 0; padding: 20px; color: var(--text-muted); font: 12px/1.5 var(--font-mono); }
+.workspaceNotice[data-error="true"] { color: var(--danger); }
+
 /* ── note + agent ─────────────────────────────────────── */
-/* The agent is a composer bar under the note; a conversation pulls it up to
-   half the column, and folding it (or restarting) drops it back to the bar. */
+/* Hiding rather than unmounting preserves the agent's draft and in-flight reply. */
+.workspace[data-agent-collapsed="true"] .rightColumn { grid-template-columns: minmax(0, 1fr); }
+.workspace[data-agent-collapsed="true"] .agentPane { display: none; }
+
+/* The note and agent share the full height, with independent scroll areas. */
 .rightColumn {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) minmax(260px, 50%);
+  grid-template-columns: minmax(0, 1fr) clamp(300px, 30vw, 440px);
+  grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
 }
-
-.rightColumn.agentIsCollapsed { grid-template-rows: minmax(0, 1fr) auto; }
 
 .notePane,
 .agentPane {
@@ -330,8 +337,8 @@
   flex-direction: column;
 }
 
-/* Margins depend on the room the note has, not the window: the library can
-   fold and the agent can open, so this is a container query. */
+/* Margins depend on the note's own width beside the library and agent,
+   not the window: folding the library can make room for them. */
 .notePane { overflow: hidden; container: notes / inline-size; }
 
 .desk {
@@ -345,7 +352,7 @@
 
 .agentPane {
   overflow: hidden;
-  border-top: 1px solid var(--border);
+  border-left: 1px solid var(--border);
   background: color-mix(in srgb, var(--bg-panel) 92%, transparent);
 }
 
@@ -594,9 +601,7 @@
   min-height: 0;
   flex: 1;
   overflow: auto;
-  /* Scroll room past the last line, but fixed: padding never shrinks, and a
-     viewport-sized one would push the archive bar off the sheet once the agent
-     takes half the column. */
+  /* Fixed scroll room past the last line, without pushing controls off the sheet. */
   padding: 18px 52px 96px;
   border: 0;
   border-radius: 0;
@@ -734,7 +739,7 @@
 .treeRow a:focus-visible,
 .drafts button:focus-visible,
 .notionHead button:focus-visible,
-.libraryExpand:focus-visible,
+.libraryToggle:focus-visible,
 .viewToggle button:focus-visible,
 .mobileTabs button:focus-visible,
 .cheat summary:focus-visible,
@@ -759,7 +764,7 @@
   .rightColumn:has(.notePane:not([hidden])) .agentPane,
   .rightColumn:has(.agentPane:not([hidden])) .notePane { display: none; }
   .notionPane { border-right: 0; }
-  .agentPane { border-top: 0; }
+  .agentPane { border-left: 0; }
   .desk { width: 100%; }
   .noteToolbar { padding-inline: 16px; border-bottom: 1px solid var(--border); }
   .sheet { border: 0; box-shadow: none; }

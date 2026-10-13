@@ -1,0 +1,62 @@
+.pane { container-type: normal; }
+.toolbar { display: flex; min-height: 48px; flex: 0 0 auto; align-items: center; gap: 12px; padding: 6px 16px; border-bottom: 1px solid var(--border); }
+.pane .toolbar input { min-width: 0; width: 100%; flex: 1; border: 0; border-bottom: 1px solid transparent; padding: 4px 0; background: transparent; color: var(--text); font: italic 400 22px/1.2 var(--font-serif); }
+.pane .toolbar input:focus-visible { border-bottom-color: var(--ink); outline: 0; }
+.toolbar > span { flex: 0 0 auto; color: var(--text-dim); font: 10.5px/1.3 var(--font-mono); }
+.toolbar > span[data-state="error"] { color: var(--danger); }
+.toolbar button { min-height: 36px; flex: 0 0 auto; font-size: 10.5px; }
+.board { position: relative; flex: 1; min-width: 0; min-height: 0; isolation: isolate; }
+.hint { flex: 0 0 auto; margin: 0; padding: 6px 16px; border-top: 1px solid var(--border); color: var(--text-muted); font: 10.5px/1.4 var(--font-mono); }
+.error { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 8px 16px; color: var(--danger); font-size: 12px; }
+.error button { padding: 4px 8px; border: 1px solid var(--border-strong); color: var(--text); cursor: pointer; }
+
+/* Keep the mature editor's geometry/controls, but use the Notes materials. */
+.board :global(.excalidraw),
+.board :global(.excalidraw.theme--dark),
+:global(body):has(.board) :global(.excalidraw.excalidraw-modal-container) {
+  --ui-font: var(--font-mono);
+  --border-radius-md: 0;
+  --border-radius-lg: 0;
+  --island-bg-color: var(--bg-panel);
+  --popup-bg-color: var(--bg-panel);
+  --popup-secondary-bg-color: var(--bg-hover);
+  --popup-text-color: var(--text);
+  --color-primary: var(--todo-iris);
+  --color-primary-darker: var(--todo-iris);
+  --color-primary-darkest: var(--todo-iris);
+  --color-primary-hover: var(--todo-iris);
+  --color-primary-light: var(--event-iris-soft);
+  --color-primary-light-darker: var(--event-iris-line);
+  --color-selection: var(--todo-iris);
+  --color-brand-active: var(--todo-iris);
+  --color-brand-hover: var(--todo-iris);
+  --color-on-primary-container: var(--text);
+  --color-surface-primary-container: var(--event-iris-soft);
+  --color-surface-lowest: var(--bg-panel);
+  --color-surface-low: var(--bg);
+  --color-surface-mid: var(--bg-hover);
+  --color-surface-high: var(--bg-selected);
+  --color-on-surface: var(--text);
+  --text-primary-color: var(--text);
+  --color-border-outline: var(--border-strong);
+  --color-border-outline-variant: var(--border);
+  --default-border-color: var(--border);
+  --shadow-island: var(--card-shadow);
+  --button-hover-bg: var(--bg-hover);
+}
+.board :global(.excalidraw .Island) { border: 1px solid var(--border); }
+/* Excalidraw portals export/help dialogs outside the board's DOM subtree. */
+:global(body):has(.board) :global(.excalidraw .Modal__content) { border: 1px solid var(--border); border-radius: 0; background: var(--bg-panel); color: var(--text); }
+:global(body):has(.board) :global(.excalidraw .Card-icon),
+:global(body):has(.board) :global(.excalidraw .Card-button.ToolIcon_type_button) { border: 1px solid var(--event-iris-line); border-radius: 0; background: var(--event-iris-soft); color: var(--todo-iris); }
+:global(body):has(.board) :global(.excalidraw .Card-button .ToolIcon__label) { color: var(--text); }
+/* Dashboard form-field rules must not add a box/padding around drawn text. */
+.board :global(.excalidraw textarea.excalidraw-wysiwyg) { padding: 0; border: 0; background: transparent; outline: 0; box-shadow: none; }
+.board :global(.excalidraw input[type="radio"]) { padding: 0; border: 0; }
+
+@media (max-width: 959px) {
+  .toolbar { gap: 8px; padding-inline: 12px; }
+  .pane .toolbar input { font-size: 20px; }
+  .toolbar button { min-height: 44px; }
+  .hint { font-size: 10px; padding-inline: 12px; }
+}

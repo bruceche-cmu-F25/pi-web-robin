@@ -13,6 +13,9 @@ import { compressImageFile } from "@/lib/image-compress";
 import type { ModelsData } from "@/lib/models-cache";
 import { writeUrlState } from "@/lib/url-state";
 import { AgentPanel } from "./AgentPanel";
+import { CanvasLibrary } from "./CanvasLibrary";
+import { CanvasWorkspace, type CanvasWorkspaceHandle } from "./CanvasWorkspace";
+import type { CanvasSummary } from "@/extension/robin/canvas";
 import { MarginNotes, NoteOutline, useEditorGeometry } from "./NoteMargins";
 import { currentHeading, noteMarginItems, noteOutline, type MarginItem, type OutlineEntry } from "./note-margin";
 import { requestRefresh } from "./refreshBus";
@@ -128,6 +131,10 @@ export function NotesWorkspace() {
   const [loaded, setLoaded] = useState(false);
   const [drafts, setDrafts] = useState<NoteDraft[]>([]);
   const [activeId, setActiveId] = useState(() => searchParams.get("draft") ?? "");
+  const [activeCanvasId, setActiveCanvasId] = useState(() => searchParams.get("canvas") ?? "");
+  const [latestCanvas, setLatestCanvas] = useState<CanvasSummary | null>(null);
+  const canvasRef = useRef<CanvasWorkspaceHandle>(null);
+  const flushCanvas = useCallback(async () => canvasRef.current?.flush(), []);
   const [preview, setPreview] = useState(false);
   const [mobilePane, setMobilePane] = useState<MobilePane>(() => notePane(searchParams.get("pane")));
   const [pages, setPages] = useState<NotionTreePage[]>([]);
@@ -138,9 +145,8 @@ export function NotesWorkspace() {
   const [models, setModels] = useState<ModelSelectorOption[]>([]);
   const [model, setModel] = useState<ModelRef | null>(null);
   const [modelError, setModelError] = useState<string | null>(null);
-  // A bar under the note until there is a conversation; then it takes half the column.
-  const [agentCollapsed, setAgentCollapsed] = useState(true);
   const [libraryCollapsed, setLibraryCollapsed] = useState(false);
+  const [agentCollapsed, setAgentCollapsed] = useState(false);
   const [includeConversation, setIncludeConversation] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const [creatingDraft, setCreatingDraft] = useState(false);
@@ -235,7 +241,7 @@ export function NotesWorkspace() {
           : items.some((draft) => draft.id === remembered) ? remembered! : items[0].id;
         setActiveId(nextId);
         window.localStorage.setItem(ACTIVE_DRAFT_KEY, nextId);
-        writeUrlState({ draft: nextId }, "replace");
+        writeUrlState({ draft: searchParams.get("canvas") ? null : nextId }, "replace");
       } catch (caught) {
         setFinalError(caught instanceof Error ? caught.message : String(caught));
       } finally {
@@ -246,14 +252,22 @@ export function NotesWorkspace() {
 
   useEffect(() => {
     setMobilePane(notePane(searchParams.get("pane")));
-    if (!loaded) return;
+    const requestedCanvas = searchParams.get("canvas") ?? "";
+    if (requestedCanvas !== activeCanvasId) {
+      let cancelled = false;
+      void flushCanvas().then(() => { if (!cancelled) setActiveCanvasId(requestedCanvas); }).catch(() => {
+        if (!cancelled) writeUrlState({ canvas: activeCanvasId || null }, "replace");
+      });
+      return () => { cancelled = true; };
+    }
+    if (!loaded || activeCanvasId) return;
     const requested = searchParams.get("draft");
     if (!requested || requested === activeId || !drafts.some((draft) => draft.id === requested)) return;
     setActiveId(requested);
     setPreview(false);
     setFinalError(null);
     window.localStorage.setItem(ACTIVE_DRAFT_KEY, requested);
-  }, [activeId, drafts, loaded, searchParams]);
+  }, [activeId, activeCanvasId, drafts, flushCanvas, loaded, searchParams]);
 
   /**
    * Write a draft's pending edits. Writes run one after another so a slow
@@ -378,12 +392,13 @@ export function NotesWorkspace() {
   ), [fullTree]);
 
   const selectDraft = (id: string, pane?: MobilePane) => {
+    setActiveCanvasId("");
     setActiveId(id);
     setPreview(false);
     setFinalError(null);
     if (pane) setMobilePane(pane);
     window.localStorage.setItem(ACTIVE_DRAFT_KEY, id);
-    writeUrlState({ draft: id, pane });
+    writeUrlState({ draft: id, canvas: null, pane });
   };
 
   const showMobilePane = (pane: MobilePane) => {
@@ -391,8 +406,16 @@ export function NotesWorkspace() {
     writeUrlState({ pane });
   };
 
-  const switchDraft = (id: string) => {
-    if (!busy) selectDraft(id);
+  const switchDraft = async (id: string) => {
+    if (busy) return;
+    try { await flushCanvas(); selectDraft(id); }
+    catch { /* The canvas keeps its unsaved drawing and error visible. */ }
+  };
+
+  const selectCanvas = (id: string) => {
+    setActiveCanvasId(id);
+    setMobilePane("note");
+    writeUrlState({ canvas: id, draft: null, pane: "note" });
   };
 
   const focusEditor = (atEnd = false) => {
@@ -431,7 +454,7 @@ export function NotesWorkspace() {
   };
 
   const startNewDraft = async () => {
-    try { await openBlankDraft(activeDraft?.notionParentId ?? ""); }
+    try { await flushCanvas(); await openBlankDraft(activeDraft?.notionParentId ?? ""); }
     catch (caught) { setFinalError(caught instanceof Error ? caught.message : String(caught)); }
   };
 
@@ -477,7 +500,8 @@ export function NotesWorkspace() {
     const remaining = draftsRef.current.filter((item) => item.id !== draft.id);
     replaceDrafts(remaining);
     if (activeId === draft.id) {
-      if (remaining[0]) switchDraft(remaining[0].id);
+      if (activeCanvasId) { setActiveId(remaining[0]?.id ?? ""); return; }
+      if (remaining[0]) void switchDraft(remaining[0].id);
       else await startNewDraft();
     }
   };
@@ -710,7 +734,7 @@ export function NotesWorkspace() {
           setModel(next);
           window.localStorage.setItem(MODEL_KEY, JSON.stringify(next));
         }}
-        disabled={models.length === 0 || locked}
+        disabled={models.length === 0 || (!activeCanvasId && locked)}
         emptyLabel={t("notes.model.loading")}
         ariaLabel={t("notes.model")}
         variant="field"
@@ -728,7 +752,7 @@ export function NotesWorkspace() {
   const outline = useMemo(() => noteOutline(marginText), [marginText]);
   const reviewing = finalPreview !== null;
   const marginItems = useMemo(() => (reviewing ? [] : noteMarginItems(activeDraft?.text ?? "")), [activeDraft?.text, reviewing]);
-  const geometry = useEditorGeometry(editorRef, marginRef, activeDraft?.text ?? "", split && writing && Boolean(activeDraft));
+  const geometry = useEditorGeometry(editorRef, marginRef, activeDraft?.text ?? "", split && !activeCanvasId && writing && Boolean(activeDraft));
   const topLine = geometry
     ? Math.max(0, geometry.lineTops.filter((top) => geometry.paddingTop + top - geometry.scrollTop < 24).length - 1)
     : 0;
@@ -756,6 +780,7 @@ export function NotesWorkspace() {
   };
 
   const askAboutItem = (item: MarginItem) => {
+    setAgentCollapsed(false);
     setAgentPending({ id: `${Date.now()}`, text: t("notes.margin.askPrompt", { question: item.text }) });
   };
 
@@ -834,35 +859,56 @@ export function NotesWorkspace() {
       footer={modelFooter}
       transcriptKey={`notes:${activeDraft.id}`}
       pending={agentPending}
-      // A phone gives the agent its own tab, so it never folds there.
-      collapsed={split && agentCollapsed}
-      onCollapsedChange={split ? setAgentCollapsed : undefined}
-      onConversationChange={(hasTurns) => setAgentCollapsed(!hasTurns)}
     />
   ) : null;
 
   return (
     <div className={`robin-page robin-dashboard ${styles.page}`}>
       <header className={styles.header}>
-        <div><span className="pi-eyebrow">Markdown · Notion</span><h1>{t("notes.title")}</h1></div>
-        <p title={t("notes.subtitle")}>{t("notes.subtitle")}</p>
-        {split ? filing : null}
+        <div>
+          {split ? (
+            <button
+              type="button"
+              className={styles.libraryToggle}
+              onClick={() => setLibraryCollapsed((collapsed) => !collapsed)}
+              aria-controls="notes-library"
+              aria-expanded={!libraryCollapsed}
+              aria-label={t(libraryCollapsed ? "notes.notion.expand" : "notes.notion.collapse")}
+              title={t(libraryCollapsed ? "notes.notion.expand" : "notes.notion.collapse")}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" /><path d="M9 4v16" /><path d={libraryCollapsed ? "m13 9 3 3-3 3" : "m16 9-3 3 3 3"} /></svg>
+            </button>
+          ) : null}
+          <span className="pi-eyebrow">Markdown · Notion</span><h1>{t("notes.title")}</h1>
+        </div>
+        <p title={t(activeCanvasId ? "canvas.hint" : "notes.subtitle")}>{t(activeCanvasId ? "canvas.hint" : "notes.subtitle")}</p>
+        {split && !activeCanvasId ? filing : null}
+        {split ? (
+          <button
+            type="button"
+            className={styles.libraryToggle}
+            onClick={() => setAgentCollapsed((collapsed) => !collapsed)}
+            aria-controls="notes-agent"
+            aria-expanded={!agentCollapsed}
+            aria-label={t(agentCollapsed ? "notes.agent.expand" : "notes.agent.collapse")}
+            title={t(agentCollapsed ? "notes.agent.expand" : "notes.agent.collapse")}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" /><path d="M15 4v16" /><path d={agentCollapsed ? "m11 9-3 3 3 3" : "m8 9 3 3-3 3"} /></svg>
+          </button>
+        ) : null}
         {!split ? (
           <div className={styles.mobileTabs} role="tablist" aria-label={t("notes.views")}>
             {(["notion", "note", "agent"] as const).map((pane) => (
               <button key={pane} type="button" role="tab" aria-selected={mobilePane === pane} onClick={() => showMobilePane(pane)}>
-                {t(pane === "notion" ? "notes.notion.short" : pane === "note" ? "notes.note" : "notes.agent.short")}
+                {t(pane === "notion" ? "notes.notion.short" : pane === "note" ? activeCanvasId ? "canvas.title" : "notes.note" : "notes.agent.short")}
               </button>
             ))}
           </div>
         ) : null}
       </header>
 
-      <div className={`${styles.workspace}${split && libraryCollapsed ? ` ${styles.libraryIsCollapsed}` : ""}`}>
-        <aside className={styles.notionPane} hidden={!split && mobilePane !== "notion"} aria-label={t("notes.notion.library")}>
-          {split && libraryCollapsed ? (
-            <button type="button" className={styles.libraryExpand} onClick={() => setLibraryCollapsed(false)} aria-label={t("notes.notion.expand")} title={t("notes.notion.expand")}>›</button>
-          ) : <>
+      <div className={`${styles.workspace}${split && libraryCollapsed ? ` ${styles.libraryIsCollapsed}` : ""}`} data-agent-collapsed={split && agentCollapsed}>
+        <aside id="notes-library" className={styles.notionPane} hidden={split ? libraryCollapsed : mobilePane !== "notion"} aria-label={t("notes.notion.library")}>
           <section className={styles.drafts}>
             <header><h2 className="pi-eyebrow">{t("notes.drafts.title")}{loaded ? <span className={styles.count}>{drafts.length}</span> : null}</h2><button type="button" disabled={!loaded || busy} onClick={() => void startNewDraft()} aria-label={t("notes.new")} title={t("notes.new")}>＋</button></header>
             {!loaded ? <p>{t("robin.common.loading")}</p> : (
@@ -870,8 +916,8 @@ export function NotesWorkspace() {
                 const words = countWords(draft.text);
                 const final = finals[draft.id]?.status;
                 return (
-                  <li key={draft.id} data-active={draft.id === activeId}>
-                    <button type="button" disabled={busy} onClick={() => switchDraft(draft.id)} aria-current={draft.id === activeId ? "true" : undefined}>
+                  <li key={draft.id} data-active={!activeCanvasId && draft.id === activeId}>
+                    <button type="button" disabled={busy} onClick={() => void switchDraft(draft.id)} aria-current={!activeCanvasId && draft.id === activeId ? "true" : undefined}>
                       <span>{draft.title || t("notes.drafts.untitled")}</span>
                       {final === "running" || final === "ready" ? (
                         <small data-final={final}>{t(final === "running" ? "notes.drafts.preparing" : "notes.drafts.ready")}</small>
@@ -886,13 +932,19 @@ export function NotesWorkspace() {
             )}
           </section>
 
+          <CanvasLibrary selectedId={activeCanvasId} latest={latestCanvas} beforeChange={flushCanvas} onSelect={selectCanvas} onDeleted={(id) => {
+            if (id === activeCanvasId) {
+              setActiveCanvasId("");
+              writeUrlState({ canvas: null, draft: activeId || null });
+            }
+          }} />
+
           <div className={styles.notionHead}>
             <h2 className="pi-eyebrow">{t("notes.notion.library")}</h2>
             <div className={styles.notionHeadActions}>
               <button type="button" onClick={() => void loadNotion()} disabled={searching || locked} aria-label={t("notes.notion.refresh")} title={t("notes.notion.refresh")}>
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M18.5 9a7 7 0 0 0-12-2L4 9M5.5 15a7 7 0 0 0 12 2l2.5-2" /></svg>
               </button>
-              {split ? <button type="button" onClick={() => setLibraryCollapsed(true)} aria-label={t("notes.notion.collapse")} title={t("notes.notion.collapse")}>‹</button> : null}
             </div>
           </div>
           <div className={styles.notionSearch}><input value={notionQuery} onChange={(event) => setNotionQuery(event.target.value)} placeholder={t("notes.notion.search")} aria-label={t("notes.notion.search")} /></div>
@@ -901,14 +953,15 @@ export function NotesWorkspace() {
             {/* A failed load explains itself where the pages would be, once. */}
             {!searching && tree.length === 0 ? <p data-error={notionError ? true : undefined} role={notionError ? "alert" : undefined}>{notionError ?? t("notes.notion.empty")}</p> : null}
             <ul>{tree.map((node) => (
-              <NotionTreeItem key={node.id} node={node} tone={branchTones.get(node.id)} selectedId={activeDraft?.notionParentId ?? ""} highlightedId={highlightedNotionId} onSelect={(page) => { updateActive({ notionParentId: page.id }); setHighlightedNotionId(""); }} openLabel={t("notes.notion.open")} destinationLabel={t("notes.notion.destinationTag")} locked={locked} searchActive={Boolean(notionQuery.trim())} />
+              <NotionTreeItem key={node.id} node={node} tone={branchTones.get(node.id)} selectedId={activeCanvasId ? "" : activeDraft?.notionParentId ?? ""} highlightedId={highlightedNotionId} onSelect={(page) => { updateActive({ notionParentId: page.id }); setHighlightedNotionId(""); }} openLabel={t("notes.notion.open")} destinationLabel={t("notes.notion.destinationTag")} locked={locked || Boolean(activeCanvasId)} searchActive={Boolean(notionQuery.trim())} />
             ))}</ul>
           </nav>
           {notionError && tree.length > 0 ? <p className={styles.error} role="alert">{notionError}</p> : null}
-          </>}
         </aside>
 
-        <div className={`${styles.rightColumn}${split && agentCollapsed ? ` ${styles.agentIsCollapsed}` : ""}`} hidden={!split && mobilePane === "notion"}>
+        {activeCanvasId ? (
+          <CanvasWorkspace key={activeCanvasId} ref={canvasRef} id={activeCanvasId} split={split} mobilePane={mobilePane} model={model} footer={modelFooter} onSaved={setLatestCanvas} onShowCanvas={() => showMobilePane("note")} />
+        ) : <div className={styles.rightColumn} hidden={!split && mobilePane === "notion"}>
           <main className={styles.notePane} hidden={!split && mobilePane !== "note"}>
             <div className={styles.desk}>
             <div className={styles.noteToolbar}>
@@ -1044,8 +1097,8 @@ export function NotesWorkspace() {
             </div>
           </main>
 
-          <section className={styles.agentPane} hidden={!split && mobilePane !== "agent"} aria-label={t("notes.agent.title")}>{agent}</section>
-        </div>
+          <section id="notes-agent" className={styles.agentPane} hidden={!split && mobilePane !== "agent"} aria-label={t("notes.agent.title")}>{agent}</section>
+        </div>}
       </div>
     </div>
   );
