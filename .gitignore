@@ -23,6 +23,9 @@
 # production
 /build
 
+# Independent landing-page repository
+/cog-landing/
+
 # misc
 .DS_Store
 *.pem
