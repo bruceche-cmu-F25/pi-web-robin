@@ -52,6 +52,41 @@ test("high-score verification binds exact JD and CV quotes to the current contex
   assert.equal(summary.score, 4.5);
 });
 
+test("a 3.8 score cannot bypass review at a 3.75 push floor", () => {
+  const candidate = { ...profile, minScore: 3.75 };
+  const posting = job();
+  writeJobProfile(candidate); writeJobs([posting]);
+  const provisional = scoreJob({ id: "test", score: 3.8, reason: "Promising title" }).job;
+  assert.ok(provisional.score < candidate.minScore);
+  assert.ok(provisional.flags.includes("needs-review"));
+  assert.equal(pendingJobs(readJobs(), candidate).length, 0, "failed verification must not loop indefinitely");
+  assert.equal(digestCandidates(readJobs(), candidate).length, 0);
+
+  writeJobs([posting]);
+  const verified = scoreJob({ id: "test", score: 3.8, reason: "Agent/backend match",
+    review: review(posting, { context: scoringContext(posting, candidate) }) }).job;
+  assert.equal(verified.score, 3.8);
+  assert.equal(digestCandidates(readJobs(), candidate).length, 1);
+});
+
+test("the minimum configurable floor cannot create an endless verification queue", () => {
+  const candidate = { ...profile, minScore: 1 };
+  writeJobProfile(candidate); writeJobs([job()]);
+  const result = scoreJob({ id: "test", score: 1, reason: "Weak match" }).job;
+  assert.equal(result.score, 1);
+  assert.equal(pendingJobs(readJobs(), candidate).length, 0);
+  assert.equal(digestCandidates(readJobs(), candidate).length, 0);
+});
+
+test("discovery keyword and blacklist edits do not invalidate JD evidence", () => {
+  const posting = seed();
+  scoreJob({ id: "test", score: 4.5, reason: "Match", review: review(posting) });
+  const changed = { ...profile, titles: ["AI Engineer", "Deployed Engineer"], blacklist: ["OtherCo"] };
+  assert.equal(scoringContext(posting, changed), scoringContext(posting, profile));
+  assert.equal(pendingJobs(readJobs(), changed).length, 0);
+  assert.equal(digestCandidates(readJobs(), changed).length, 1);
+});
+
 test("invented quotes and changed descriptions cannot certify a high score", () => {
   let posting = seed();
   let result = scoreJob({ id: "test", score: 4.8, reason: "Match", review: review(posting, { cvEvidence: "Trained frontier foundation models at scale." }) }).job;
@@ -139,11 +174,11 @@ test("the stretch ceiling is separate from both confirmed months and the scan ce
   assert.ok(result.flags.includes("stretch-experience"));
 });
 
-test("blacklist changes invalidate evidence and stop even legacy low-score pushes", () => {
+test("blacklist changes stop delivery without invalidating the role's evidence", () => {
   const posting = seed();
   scoreJob({ id: "test", score: 4.5, reason: "Match", review: review(posting) });
   const blocked = { ...profile, blacklist: ["acME"] };
-  assert.notEqual(scoringContext(posting, blocked), scoringContext(posting, profile));
+  assert.equal(scoringContext(posting, blocked), scoringContext(posting, profile));
   assert.equal(digestCandidates(readJobs(), blocked).length, 0);
   assert.equal(digestCandidates([job({ score: 3.5 })], { ...blocked, minScore: 3 }).length, 0);
   assert.equal(readJobs()[0].status, "new");

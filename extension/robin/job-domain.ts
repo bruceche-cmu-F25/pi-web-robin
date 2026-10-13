@@ -143,11 +143,17 @@ export function scoreJob(input: {
     enrichJob(job, job);
     let score = Math.min(Math.max(input.score, 1), 5);
     const flags = new Set((input.flags ?? []).map((flag) => flag.trim()).filter(Boolean));
-    const problem = experienceProblem(job, profile)
-      ?? (input.review || score >= 4 ? reviewProblem(job, profile, input.review) : null);
+    const experience = experienceProblem(job, profile);
+    const problem = input.review || score >= profile.minScore
+      ? reviewProblem(job, profile, input.review)
+      : experience;
     if (problem) {
       flags.add(problem);
-      score = Math.min(score, problem.startsWith("blocked-") ? 2 : 3.9);
+      // A provisional score must not cross the push floor without evidence.
+      // Verified experience stretches remain eligible at 3.9.
+      if (problem !== "stretch-experience" && !problem.startsWith("blocked-")) flags.add("verification-failed");
+      score = Math.min(score, problem.startsWith("blocked-") ? 2
+        : problem === "stretch-experience" ? 3.9 : Math.min(3.9, Math.max(1, profile.minScore - 0.1)));
     }
     if (profile.maxYears > 0 && job.yearsRequired !== undefined && job.yearsRequired > profile.maxYears) {
       score = Math.min(score, 2.5);
@@ -475,11 +481,16 @@ export async function buildJobDigest(options: JobDigestOptions = {}): Promise<Jo
 
   if (!options.preview && batch.length > 0) claimJobs(batch.map((job) => job.id));
 
+  const pending = pendingJobs(readJobs(), readJobProfile()).length;
   return {
-    text: formatJobDigest(batch, { locale, scanned: readJobScanState()?.scanned ?? 0 }),
+    text: batch.length === 0 && pending > 0
+      ? locale === "zh"
+        ? `暂无已核实的新推荐；${pending} 条符合筛选条件的岗位仍待评分。`
+        : `No verified new recommendations yet; ${pending} matching jobs still need scoring.`
+      : formatJobDigest(batch, { locale, scanned: readJobScanState()?.scanned ?? 0 }),
     jobIds: batch.map((job) => job.id),
     count: batch.length,
-    pending: pendingJobs(readJobs(), readJobProfile()).length,
+    pending,
     scoreBatch: profile.scoreBatch,
   };
 }

@@ -22,7 +22,7 @@ after(() => {
 
 const job = (id, extra = {}) => ({
   id, title: "AI Engineer", company: "Acme", location: "Remote US", source: "test",
-  url: `https://example.com/${id}`, status: "new", discoveredAt: "2026-09-01T00:00:00.000Z",
+  url: `https://example.com/${id}`, status: "new", discoveredAt: new Date().toISOString(),
   ...extra,
 });
 

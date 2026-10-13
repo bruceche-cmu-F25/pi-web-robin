@@ -15,7 +15,7 @@
  * that survived the block list.
  */
 
-import { experienceProblem, needsJobScoring, reviewProblem, type JobReview } from "./job-evidence.ts";
+import { experienceProblem, hasSubstantiveDescription, needsJobScoring, pushReviewProblem, type JobReview } from "./job-evidence.ts";
 export {
   cleanPostingDescription,
   extractYearsRequired,
@@ -768,6 +768,10 @@ export function sortJobs(jobs: Job[]): Job[] {
  */
 export function digestCandidates(jobs: Job[], profile: JobProfile, now: number = Date.now()): Job[] {
   const maxYears = profile.maxYears > 0 ? profile.maxYears : null;
+  const cutoff = profile.sinceDays > 0
+    ? new Date(now - profile.sinceDays * 86_400_000).toISOString().slice(0, 10) : null;
+  const matchesTitle = buildTitleFilter(profile.titles, profile.excludeTitles);
+  const matchesLocation = buildLocationFilter({ always: profile.locationAlways, allow: profile.locationAllow, block: profile.locationBlock });
   // Existing duplicate rows stay intact (they may carry distinct user notes),
   // but a requisition already sent or applied must never get another slot.
   const sent = jobs.filter((job) => job.status === "applied" || job.notifiedAt);
@@ -787,11 +791,15 @@ export function digestCandidates(jobs: Job[], profile: JobProfile, now: number =
       job.status === "new"
       && !job.notifiedAt
       && !isBlacklisted(job.company, profile.blacklist)
+      && matchesTitle(job.title) !== null
+      && matchesLocation(job.location)
+      && (!cutoff || (job.postedAt ?? job.discoveredAt.slice(0, 10)) >= cutoff)
+      && hasSubstantiveDescription(job.description)
       && experienceProblem(job, profile) !== "blocked-experience"
       && typeof job.score === "number"
       && job.score >= profile.minScore
       && !needsJobScoring(job, profile)
-      && (job.score < 4 || reviewProblem(job, profile, job.review) === null)
+      && pushReviewProblem(job, profile) === null
       // Absent means the posting never said, which is not a reason to drop it.
       && (maxYears === null || job.yearsRequired === undefined || job.yearsRequired <= maxYears)),
   ).filter((job) => {
@@ -824,12 +832,23 @@ export function appliedJobs(jobs: Job[]): Job[] {
     .sort((a, b) => (b.appliedAt ?? "").localeCompare(a.appliedAt ?? ""));
 }
 
-/** Jobs the scorer has not looked at yet, oldest first so nothing starves. */
-export function pendingJobs(jobs: Job[], profile?: JobProfile): Job[] {
+/** Score new openings first; old stale rows cannot make fresh roles wait days. */
+export function pendingJobs(jobs: Job[], profile?: JobProfile, now: number = Date.now()): Job[] {
   const seen = new Set(jobs.filter((job) => job.status === "applied").map((job) => jobKey(job.url)));
+  const cutoff = profile?.sinceDays ? new Date(now - profile.sinceDays * 86_400_000).toISOString().slice(0, 10) : null;
+  const matchesTitle = profile && buildTitleFilter(profile.titles, profile.excludeTitles);
+  const matchesLocation = profile && buildLocationFilter({ always: profile.locationAlways, allow: profile.locationAllow, block: profile.locationBlock });
   return jobs
-    .filter((job) => needsJobScoring(job, profile))
-    .sort((a, b) => (a.discoveredAt ?? "").localeCompare(b.discoveredAt ?? ""))
+    .filter((job) => needsJobScoring(job, profile)
+      && (job.status === "shortlist" || (!profile || (
+        (!cutoff || (job.postedAt ?? job.discoveredAt.slice(0, 10)) >= cutoff)
+        && matchesTitle!(job.title) !== null
+        && matchesLocation!(job.location)
+        && !isBlacklisted(job.company, profile.blacklist)))))
+    .sort((a, b) => profile
+      ? (b.postedAt ?? b.discoveredAt.slice(0, 10)).localeCompare(a.postedAt ?? a.discoveredAt.slice(0, 10))
+        || b.discoveredAt.localeCompare(a.discoveredAt)
+      : (a.discoveredAt ?? "").localeCompare(b.discoveredAt ?? ""))
     .filter((job) => {
       const key = jobKey(job.url);
       if (seen.has(key)) return false;

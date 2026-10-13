@@ -10,6 +10,7 @@ process.env.ROBIN_DATA_DIR = dir;
 
 const { buildJobDigest } = await import("./job-domain.ts");
 const { DEFAULT_JOB_PROFILE } = await import("./jobs.ts");
+const { scoringContext } = await import("./job-evidence.ts");
 const { readJobProfile, readJobs, writeJobProfile, writeJobs } = await import("./store.ts");
 
 after(() => {
@@ -26,8 +27,15 @@ const posting = {
 const allLive = async () => new Set();
 
 beforeEach(() => {
-  writeJobProfile({ ...DEFAULT_JOB_PROFILE, minScore: 3 });
-  writeJobs([{ ...posting, score: 3.5 }]);
+  const profile = { ...DEFAULT_JOB_PROFILE, minScore: 3, cv: "Built FastAPI backend services and agent workflows." };
+  const roleEvidence = "Build Python backend services and reliable agent workflows.";
+  const candidate = { ...posting, score: 3.5, description: `${roleEvidence} `.repeat(12) };
+  candidate.review = { context: scoringContext(candidate, profile), roleEvidence, cvEvidence: profile.cv,
+    checks: { experience: { status: "not-stated" }, education: { status: "not-stated" },
+      startDate: { status: "not-stated" }, workAuthorization: { status: "not-stated" },
+      location: { status: "met", quote: candidate.location } } };
+  writeJobProfile(profile);
+  writeJobs([candidate]);
 });
 
 test("a blacklist edit during the live-link check wins before formatting or claiming", async () => {
@@ -72,8 +80,16 @@ test("a posting the boards confirm is gone is dropped, not sent", async () => {
   assert.equal(readJobs()[0].status, "dropped");
 });
 
+test("an empty digest with a backlog says scoring is pending, not that no jobs exist", async () => {
+  writeJobs([{ ...posting, id: "unscored" }]);
+  const result = await buildJobDigest({ preview: true, locale: "zh", checkDead: allLive });
+  assert.equal(result.count, 0);
+  assert.equal(result.pending, 1);
+  assert.match(result.text, /待评分/);
+});
+
 test("the digest reports the scoring backlog alongside the batch", async () => {
-  writeJobs([{ ...posting, score: 3.5 }, { ...posting, id: "unscored", url: "https://example.com/unscored" }]);
+  writeJobs([readJobs()[0], { ...posting, id: "unscored", url: "https://example.com/unscored" }]);
   const result = await buildJobDigest({ preview: true, checkDead: allLive });
   assert.equal(result.pending, 1);
   assert.equal(result.scoreBatch, DEFAULT_JOB_PROFILE.scoreBatch);

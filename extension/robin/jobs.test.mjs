@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { scoringContext } from "./job-evidence.ts";
 import {
   DEFAULT_JOB_PROFILE,
   LOCATION_PRESETS,
@@ -30,6 +31,24 @@ const job = (over = {}) => ({
   status: "new",
   ...over,
 });
+
+const pushProfile = { ...DEFAULT_JOB_PROFILE, titles: [], locationAllow: [], sinceDays: 0,
+  cv: "Built FastAPI backend services and agent workflows for customers." };
+const pushReady = (posting, profile = pushProfile) => {
+  const experienceQuote = posting.yearsRequired === undefined ? "" : `Minimum ${posting.yearsRequired} years of engineering experience required. `;
+  const roleEvidence = "Build Python backend services and reliable AI agent workflows.";
+  const candidate = { ...posting, description: `${experienceQuote}${roleEvidence} `.repeat(12) };
+  candidate.review = {
+    context: scoringContext(candidate, profile), roleEvidence, cvEvidence: profile.cv,
+    checks: {
+      experience: experienceQuote ? { status: "met", quote: experienceQuote.trim() } : { status: "not-stated" },
+      education: { status: "not-stated" }, startDate: { status: "not-stated" },
+      workAuthorization: { status: "not-stated" },
+      location: candidate.location ? { status: "met", quote: candidate.location } : { status: "not-stated" },
+    },
+  };
+  return candidate;
+};
 
 /* ── title filter ── */
 
@@ -191,14 +210,26 @@ test("pendingJobs skips dropped jobs and returns the oldest first", () => {
   assert.deepEqual(waiting.map((entry) => entry.id), ["a", "b"]);
 });
 
+test("fresh roles are scored before stale ones, and expired or excluded rows do not consume a round", () => {
+  const now = Date.parse("2026-10-06T18:00:00Z");
+  const profile = { ...pushProfile, titles: ["Engineer"], sinceDays: 7 };
+  const waiting = pendingJobs([
+    job({ id: "old", title: "AI Engineer", postedAt: "2026-09-01", discoveredAt: "2026-10-06T00:00:00Z" }),
+    job({ id: "legacy", title: "Nurse Practitioner", discoveredAt: "2026-10-06T00:00:00Z" }),
+    job({ id: "earlier", title: "AI Engineer", postedAt: "2026-10-04", discoveredAt: "2026-10-05T00:00:00Z" }),
+    job({ id: "fresh", title: "AI Engineer", postedAt: "2026-10-06", discoveredAt: "2026-10-06T00:00:00Z" }),
+  ], profile, now);
+  assert.deepEqual(waiting.map((entry) => entry.id), ["fresh", "earlier"]);
+});
+
 /* ── digest ── */
 
 test("only new, unsent jobs at or above the floor are pushed", () => {
-  const profile = { ...DEFAULT_JOB_PROFILE, minScore: 3.5 };
+  const profile = { ...pushProfile, minScore: 3.5 };
   const batch = digestCandidates([
-    job({ id: "good", title: "good", score: 3.8 }),
-    job({ id: "exactly-floor", title: "exactly-floor", score: 3.5 }),
-    job({ id: "below", title: "below", score: 3.4 }),
+    pushReady(job({ id: "good", title: "good", score: 3.8 }), profile),
+    pushReady(job({ id: "exactly-floor", title: "exactly-floor", score: 3.5 }), profile),
+    pushReady(job({ id: "below", title: "below", score: 3.4 }), profile),
     job({ id: "unscored" }),
     job({ id: "already-sent", title: "already-sent", score: 5, notifiedAt: "2026-08-18T08:00:00.000Z" }),
     job({ id: "dropped", title: "dropped", score: 5, status: "dropped" }),
@@ -207,17 +238,31 @@ test("only new, unsent jobs at or above the floor are pushed", () => {
   assert.deepEqual(batch.map((entry) => entry.id), ["good", "exactly-floor"]);
 });
 
+test("delivery refuses missing evidence, old postings, and roles excluded since discovery", () => {
+  const now = Date.parse("2026-10-06T18:00:00Z");
+  const profile = { ...pushProfile, titles: ["Engineer"], sinceDays: 7, minScore: 3.75 };
+  const valid = pushReady(job({ id: "valid", title: "AI Engineer", score: 3.8, postedAt: "2026-10-05" }), profile);
+  const jobs = [valid,
+    { ...valid, id: "missing-review", url: "https://example.com/2", review: undefined },
+    { ...valid, id: "missing-jd", url: "https://example.com/3", description: undefined },
+    { ...valid, id: "old", url: "https://example.com/4", postedAt: "2026-09-15" },
+    { ...valid, id: "wrong-title", url: "https://example.com/5", title: "Nurse Practitioner" },
+  ];
+  assert.deepEqual(digestCandidates(jobs, profile, now).map((entry) => entry.id), ["valid"]);
+});
+
 test("a repost of a role pushed or applied this month is held back", () => {
   const now = Date.parse("2026-09-24T12:00:00.000Z");
+  const profile = { ...pushProfile, minScore: 3.5 };
   const batch = digestCandidates([
     job({ id: "sent", company: "MintMCP", title: "Software Engineer", url: "https://a.example/1", notifiedAt: "2026-09-20T08:00:00.000Z" }),
-    job({ id: "repost", company: "Mintmcp", title: "Software  Engineer", url: "https://a.example/2", score: 3.9 }),
+    pushReady(job({ id: "repost", company: "Mintmcp", title: "Software  Engineer", url: "https://a.example/2", score: 3.9 }), profile),
     job({ id: "old-applied", company: "Beta", title: "PM", url: "https://b.example/1", status: "applied", appliedAt: "2026-07-01T08:00:00.000Z" }),
-    job({ id: "reopened", company: "Beta", title: "PM", url: "https://b.example/2", score: 3.8 }),
-    job({ id: "twin-a", company: "Gamma", title: "FDE", url: "https://c.example/1", score: 3.9 }),
-    job({ id: "twin-b", company: "Gamma", title: "FDE", url: "https://c.example/2", score: 3.8 }),
-    job({ id: "other-role", company: "MintMCP", title: "Applied AI Engineer", url: "https://a.example/3", score: 3.8 }),
-  ], { ...DEFAULT_JOB_PROFILE, minScore: 3.5 }, now);
+    pushReady(job({ id: "reopened", company: "Beta", title: "PM", url: "https://b.example/2", score: 3.8 }), profile),
+    pushReady(job({ id: "twin-a", company: "Gamma", title: "FDE", url: "https://c.example/1", score: 3.9 }), profile),
+    pushReady(job({ id: "twin-b", company: "Gamma", title: "FDE", url: "https://c.example/2", score: 3.8 }), profile),
+    pushReady(job({ id: "other-role", company: "MintMCP", title: "Applied AI Engineer", url: "https://a.example/3", score: 3.8 }), profile),
+  ], profile, now);
 
   assert.deepEqual(batch.map((entry) => entry.id).sort(), ["other-role", "reopened", "twin-a"]);
 });
@@ -412,17 +457,19 @@ test("a number with no experience wording nearby is not a requirement", () => {
 
 test("the push gate drops postings asking for more years than the profile allows", () => {
   // High-score evidence is tested separately in job-evidence.test.mjs.
-  const profile = { ...DEFAULT_JOB_PROFILE, minScore: 3, maxYears: 3 };
+  const profile = { ...pushProfile, minScore: 3, maxYears: 3 };
   const base = { status: "new", score: 3.5, url: "https://x/1", company: "A", title: "T", location: "", source: "s", discoveredAt: "2026-01-01" };
   const jobs = [
-    { ...base, id: "fits", url: "https://x/fits", title: "Fits", yearsRequired: 3 },
-    { ...base, id: "over", url: "https://x/over", title: "Over", yearsRequired: 5 },
+    pushReady({ ...base, id: "fits", url: "https://x/fits", title: "Fits", yearsRequired: 3 }, profile),
+    pushReady({ ...base, id: "over", url: "https://x/over", title: "Over", yearsRequired: 5 }, profile),
     // Silent postings stay in: not saying is not the same as asking for seven.
-    { ...base, id: "silent", url: "https://x/silent", title: "Silent" },
+    pushReady({ ...base, id: "silent", url: "https://x/silent", title: "Silent" }, profile),
   ];
   assert.deepEqual(digestCandidates(jobs, profile).map((job) => job.id).sort(), ["fits", "silent"]);
   // Zero is the off switch, not a ceiling of zero.
-  assert.equal(digestCandidates(jobs, { ...profile, maxYears: 0 }).length, 3);
+  const unlimited = { ...profile, maxYears: 0 };
+  const rechecked = jobs.map((entry) => ({ ...entry, review: { ...entry.review, context: scoringContext(entry, unlimited) } }));
+  assert.equal(digestCandidates(rechecked, unlimited).length, 3);
 });
 
 test("the shipped push floor sits above the band a scorer lands on when unsure", () => {

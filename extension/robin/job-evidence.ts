@@ -22,9 +22,11 @@ export function hasSubstantiveDescription(description?: string): boolean {
 export function scoringContext(job: Job, profile: JobProfile): string {
   const text = JSON.stringify([
     JOB_SCORING_CONTRACT, job.company, job.title, job.location, job.description ?? "", job.yearsRequired,
-    profile.cv, profile.notes, profile.titles, profile.excludeTitles,
+    // Discovery keywords and blacklist are enforced again at delivery; changing
+    // them does not change the evidence for a role already found.
+    profile.cv, profile.notes,
     profile.locationAlways, profile.locationAllow, profile.locationBlock, profile.maxYears,
-    profile.blacklist, profile.professionalExperienceMonths, profile.experienceStretchYears,
+    profile.professionalExperienceMonths, profile.experienceStretchYears,
   ]);
   let hash = 2166136261;
   for (let i = 0; i < text.length; i += 1) hash = Math.imul(hash ^ text.charCodeAt(i), 16777619);
@@ -54,7 +56,7 @@ export function experienceProblem(job: Job, profile: JobProfile): string | null 
 /** Validate provenance and known numeric blockers; other eligibility remains judgement. */
 export function reviewProblem(job: Job, profile: JobProfile, review?: JobReview): string | null {
   const experience = experienceProblem(job, profile);
-  if (experience) return experience;
+  if (experience && experience !== "stretch-experience") return experience;
   if (!hasSubstantiveDescription(job.description)) return "incomplete-jd";
   if (!review || review.context !== scoringContext(job, profile)) return "needs-review";
   // A supported blocker wins even if another dimension is unresolved.
@@ -80,7 +82,13 @@ export function reviewProblem(job: Job, profile: JobProfile, review?: JobReview)
     if (check.status === "blocked") return `blocked-${field}`;
     if (check.status === "unknown") return `unknown-${field}`;
   }
-  return null;
+  return experience;
+}
+
+/** A verified stretch stays below 4, but can still be considered at the user's push floor. */
+export function pushReviewProblem(job: Job, profile: JobProfile): string | null {
+  const problem = reviewProblem(job, profile, job.review);
+  return problem === "stretch-experience" ? null : problem;
 }
 
 /** Small list payload; verification warnings reuse the board's existing flag display. */
@@ -99,5 +107,6 @@ export function needsJobScoring(job: Job, profile?: JobProfile): boolean {
   if (typeof job.score !== "number" || job.scoreStale) return true;
   if (!profile) return false;
   if (job.scoreContext && job.scoreContext !== scoringContext(job, profile)) return true;
-  return job.score >= 4 && reviewProblem(job, profile, job.review) !== null;
+  return job.score >= profile.minScore && !job.flags?.includes("verification-failed")
+    && pushReviewProblem(job, profile) !== null;
 }

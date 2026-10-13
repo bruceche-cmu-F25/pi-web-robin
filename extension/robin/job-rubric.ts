@@ -83,7 +83,7 @@ to, a required credential they do not hold. Name it in the flags.
 
 ## Verify before recommending
 
-The queue contains SUMMARIES. Before giving >=4.0, call job_pending with that
+The queue contains SUMMARIES. Before giving a score at or above the profile's push floor, call job_pending with that
 job's id to read the FULL JD and its review context. Then supply job_score.review:
 exact roleEvidence from the JD, exact cvEvidence from the CV, and checks for
 experience, education, startDate, workAuthorization and location. For each check:
@@ -92,7 +92,7 @@ experience, education, startDate, workAuthorization and location. For each check
 - unknown: there is a requirement but insufficient evidence of eligibility. Score <=3.9.
 - not-stated: you read the full JD and it imposes no requirement on this dimension.
 
-Missing/truncated JD or unsupported quotes cannot earn an apply-now score. Do NOT
+Missing/truncated JD or unsupported quotes cannot earn a push-eligible score. Do NOT
 mark a requirement not-stated just because it is absent from the summary. Check
 all degree/experience alternatives against the actual candidate, not the largest
 number. A requirement within the profile's experience-stretch ceiling is worth trying,
@@ -147,7 +147,7 @@ onsite 地点、没有的必需证书。把它写进 flags。
 
 ## 推荐前核验
 
-队列只有摘要。给 >=4.0 前，必须用 job_pending(id) 读完整 JD 和 review context，
+队列只有摘要。给达到画像推送门槛的分数前，必须用 job_pending(id) 读完整 JD 和 review context，
 再通过 job_score.review 提交岗位原文 roleEvidence、简历原文 cvEvidence，逐项检查
 experience、education、startDate、workAuthorization、location：
 - met：画像/简历证据满足明确要求，quote 引用 JD 原文。
@@ -155,7 +155,7 @@ experience、education、startDate、workAuthorization、location：
 - unknown：有要求但无法确认是否满足，最多 3.9。
 - not-stated：读完完整 JD 后确定该维度未提出要求，不是摘要没提到。
 
-缺失或截断的 JD、编造的引用都不能获得高分。学历/经验的 OR 替代条件要逐条对照
+缺失或截断的 JD、编造的引用都不能获得可推送的分数。学历/经验的 OR 替代条件要逐条对照
 候选人，不能一律取最大年数。经验要求在画像的可尝试上限内时可以申请，但必须明确
 写出差距、最多 3.9 分，不能标成 met。明确早于可入职日期的到岗要求是硬伤，不是轻微扣分。
 安全许可/出口管制与 sponsorship 分开检查。New-grad 标题不等于符合毕业时间窗口；
@@ -194,7 +194,7 @@ export function scoringPrompt(batch: number, locale: RubricLocale = "en"): strin
       "- 先调用一次 job_profile 读取评分规则、目标画像和简历。",
       `- 再调用 job_pending（limit ${batch}），然后对它返回的**每一个**岗位调用一次 job_score。`,
       "- 一个都不要跳过 —— 包括那些明显不合适的，它们就该得低分。",
-      "- 高分前用 job_pending(id) 阅读完整 JD 并提交 review；缺少证据不要抬分。",
+      "- 达到推送门槛的分数前用 job_pending(id) 阅读完整 JD 并提交 review；缺少证据不要抬分。",
     ].join("\n");
   }
   return [
@@ -209,7 +209,7 @@ export function scoringPrompt(batch: number, locale: RubricLocale = "en"): strin
     "- Call job_profile once to read the rubric, the target profile and the CV.",
     `- Then call job_pending (limit ${batch}), then call job_score once for EVERY job it returned.`,
     "- Skip none — including the obviously wrong ones, which simply score low.",
-    "- Before scoring >=4, call job_pending with id for the full JD and submit review evidence.",
+    "- Before scoring at or above the push floor, call job_pending with id for the full JD and submit review evidence.",
     "- Do not inflate missing evidence.",
   ].join("\n");
 }
