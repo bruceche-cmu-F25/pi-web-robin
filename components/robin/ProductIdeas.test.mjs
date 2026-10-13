@@ -88,6 +88,26 @@ test("the page says what the steps are, and each one says what to do", () => {
   assert.match(source, /PLAYBOOK\.map\(\(item\) => <option/);
 });
 
+test("the roadmap is the first destination and gives actions, deliverables, sources and a gate without fabricating completion", () => {
+  assert.ok(source.indexOf('<section aria-labelledby="product-journey"') < source.indexOf('<div className={styles.workbench}>'));
+  assert.ok(source.indexOf('<div className={styles.workbench}>') < source.indexOf('<ProductOpportunities onSave={refresh} />'));
+  for (const marker of ["step.output[lang]", "step.roadmap.map", "step.sources.map", "step.done[lang]", "step.branch.web[lang]", "step.branch.mobile[lang]"]) {
+    assert.ok(source.includes(marker), `roadmap detail should include ${marker}`);
+  }
+  assert.match(source, /aria-pressed=\{roadmapStep === step.id\}/);
+  assert.doesNotMatch(source, /onClick=\{\(\) => void .*roadmap.*complete/i);
+});
+
+test("the roadmap shows a phase-specific picture and real sourced case thumbnails", async () => {
+  const { stat } = await import("node:fs/promises");
+  assert.match(source, /step\.visual\.map\(\(node, position\)/);
+  assert.match(source, /role="img" aria-label=\{step\.visual/);
+  assert.match(source, /CASE_IMAGES\[source\.url\]/);
+  for (const image of ["mobile-playbook.jpg", "fastlane.jpg"]) {
+    assert.ok((await stat(new URL(`../../public/robin/product-roadmap/${image}`, import.meta.url))).size > 1_000);
+  }
+});
+
 test("the next action stays visible while the full step guide starts closed", () => {
   assert.match(source, /const \[guideOpen, setGuideOpen\] = useState\(false\)/);
   assert.match(source, /\{copy\.nextAction\}/);

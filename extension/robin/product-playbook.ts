@@ -45,6 +45,16 @@ export interface PlaybookStep {
   does: Bilingual[];
   /** What counts as finished. The only gate, and it is not enforced. */
   done: Bilingual;
+  /** Concrete artifact to leave behind, rather than a vague stage label. */
+  output: Bilingual;
+  /** A more detailed execution checklist for the always-visible roadmap. */
+  roadmap: Bilingual[];
+  /** Short labels for the input → work → proof diagram, not a progress score. */
+  visual: [Bilingual, Bilingual, Bilingual];
+  /** Conditional distribution advice, not a universal ads recipe. */
+  branch?: { web: Bilingual; mobile: Bilingual };
+  /** First-hand examples supporting the advice; anecdotes, not universal rules. */
+  sources: Array<{ title: string; url: string; takeaway: Bilingual }>;
   /** Which library shelves belong at this bench. */
   categories: LibraryCategory[];
   /** An action the page can run for you here, if there is one. */
@@ -77,6 +87,16 @@ export const PLAYBOOK: PlaybookStep[] = [
       en: "You can say in one sentence: who it is for, what it fixes, and why you are the one to do it.",
       zh: "你能用一句话说清:给谁、解决什么、凭什么是你。",
     },
+    output: { en: "One sentence: audience + painful job + a narrow 10% wedge.", zh: "一页问题定义：用户是谁、痛点是什么、你的 10% 切口是什么。" },
+    visual: [{ en: "An existing product", zh: "现有产品" }, { en: "One user pain", zh: "一个具体痛点" }, { en: "Your narrow wedge", zh: "你的 10% 切口" }],
+    roadmap: [
+      { en: "Write down one repeated task a specific group actually pays for or spends time on.", zh: "记录一类具体人反复做、愿意花钱或时间解决的任务。" },
+      { en: "Record the original product link, its claimed revenue and whether that number is estimated, self-reported or verified.", zh: "保存原产品链接、收入数字及其口径：估算、自报还是已核实。" },
+      { en: "Write a testable difference: a narrower user, faster workflow, or a missing integration — not just 'better'.", zh: "写下可检验的差异：更窄的人群、更快的流程或缺失的集成，别只写「做得更好」。" },
+    ],
+    sources: [
+      { title: "Starter Story · The $1M Mobile App Playbook", url: "https://www.starterstory.com/stories/the-1m-mobile-app-playbook", takeaway: { en: "A founder starts with a lived problem and searches niche content for demand; this is an example, not proof of your market.", zh: "创始人从亲身问题出发，用细分内容观察需求；这只是案例，不是你市场的证明。" } },
+    ],
     categories: ["source"],
   },
   {
@@ -104,6 +124,16 @@ export const PLAYBOOK: PlaybookStep[] = [
       en: "You know the closest three and what they charge, and whether there is still room for you.",
       zh: "你知道最接近的三个竞品和他们的定价,以及自己还有没有位置。",
     },
+    output: { en: "Three competitors with links, prices, audience, complaints, and a reachable channel.", zh: "带链接的 3 个竞品对照：定价、目标用户、差评和可触达渠道。" },
+    visual: [{ en: "3 competitors", zh: "3 个竞品" }, { en: "Prices + complaints", zh: "价格与差评" }, { en: "A reachable niche", zh: "可触达的人群" }],
+    roadmap: [
+      { en: "Open three competitors yourself. Record their onboarding, price, and one broken workflow per product.", zh: "亲自打开三个竞品，记录入门流程、价格和各自最碍事的一步。" },
+      { en: "Read user reviews and communities; save the exact wording of repeated complaints, not AI summaries alone.", zh: "读评论与社区，保存重复抱怨的原话，不只看 AI 总结。" },
+      { en: "Find where potential customers already look for this fix; for visual consumer apps, study niche video hooks too.", zh: "找潜在用户本来在哪里找解法；若是视觉化消费者 App，再研究同类短视频的开头。" },
+    ],
+    sources: [
+      { title: "Starter Story · The $1M Mobile App Playbook", url: "https://www.starterstory.com/stories/the-1m-mobile-app-playbook", takeaway: { en: "Example: log a niche video's link, hook, story and call-to-action in a spreadsheet before making your own content.", zh: "案例方法：先把细分视频的链接、开头、叙事和行动引导记到表格里，再做自己的内容。" } },
+    ],
     categories: ["source"],
     action: "research",
   },
@@ -132,6 +162,17 @@ export const PLAYBOOK: PlaybookStep[] = [
       en: "The claim is marked held or broken. An unmarked claim means the step did not happen.",
       zh: "那条判断被标记成成立或不成立。没标记就等于这一步没做。",
     },
+    output: { en: "A dated falsifiable claim and evidence from real users or an intent test.", zh: "一条有截止日期、可被证伪的判断，加上真实用户或意向测试的证据。" },
+    visual: [{ en: "A claim", zh: "可证伪的假设" }, { en: "Interview / demo", zh: "访谈或演示" }, { en: "Real intent", zh: "实际行动证据" }],
+    roadmap: [
+      { en: "Pick one outcome and a buyer: '3 of 10 target users will pay for X' is testable.", zh: "明确买家和结果；「10 位目标用户中 3 位愿意为 X 付费」才可检验。" },
+      { en: "Before building, try interviews, a manual service, a landing page or a demo video; track intent rather than likes.", zh: "开发前用访谈、人工服务、落地页或演示视频探路；记录意向，不只数点赞。" },
+      { en: "Set a decision date. Record what failed as carefully as what held; do not quietly move the goalposts.", zh: "设定决策日；不成立和成立都要记录，别悄悄改成功标准。" },
+    ],
+    sources: [
+      { title: "Starter Story · Fastlane launch case", url: "https://www.starterstory.com/stories/fastlane-create-winning-short-form-content-in-seconds", takeaway: { en: "Fastlane reports validating with a waitlist and two betas; its first sale came from a beta user.", zh: "Fastlane 自述通过候补名单和两轮内测验证；首笔收入来自内测用户。" } },
+      { title: "Starter Story · Content-first validation", url: "https://www.starterstory.com/Mario", takeaway: { en: "A consumer-app example tested the content concept before building the product; views alone are not paid demand.", zh: "一个消费者 App 案例先用内容测试概念再开发；播放量不等于付费需求。" } },
+    ],
     categories: ["test"],
   },
   {
@@ -159,11 +200,21 @@ export const PLAYBOOK: PlaybookStep[] = [
       en: "Someone who has never met you can use it without you in the room.",
       zh: "一个没见过你的人,在你不在场的情况下能用起来。",
     },
+    output: { en: "One usable path from signup to value, with price and event tracking working.", zh: "从注册到得到价值的一条可走通的路径，价格与关键事件可测。" },
+    visual: [{ en: "Sign up", zh: "注册" }, { en: "Core action", zh: "核心动作" }, { en: "Result + price", zh: "结果与价格" }],
+    roadmap: [
+      { en: "Sketch one complete path: arrive → sign up → do the job → see the result. Cut anything outside it.", zh: "画一条完整路径：到达→注册→完成任务→看到结果；其余先砍掉。" },
+      { en: "Ship basic billing or a manual payment path and a clear privacy/contact page; test the flow with a fresh account.", zh: "准备基本收费或人工收款，以及隐私/联系页；用全新账号自己走一遍。" },
+      { en: "Track activation, repeat use and payment events before buying traffic; keep third-party spend visible.", zh: "投流前先能看到激活、复用和付款事件，并记清每月外部服务成本。" },
+    ],
+    sources: [
+      { title: "Starter Story · Fastlane launch case", url: "https://www.starterstory.com/stories/fastlane-create-winning-short-form-content-in-seconds", takeaway: { en: "The team built for one content-production problem and iterated in beta instead of shipping every possible feature.", zh: "团队聚焦一个内容生产问题，在内测中迭代，而不是一次做全功能。" } },
+    ],
     categories: ["stack", "tool"],
   },
   {
     id: "improve",
-    name: { en: "Improve", zh: "打磨" },
+    name: { en: "Beta & iterate", zh: "内测与打磨" },
     question: {
       en: "Does anybody come back a second time?",
       zh: "有人会第二次回来用吗?",
@@ -186,11 +237,21 @@ export const PLAYBOOK: PlaybookStep[] = [
       en: "A few people came back without being asked.",
       zh: "有几个人在你没催的情况下自己回来了。",
     },
+    output: { en: "A beta log: who completed the core task, who returned or paid, and what blocked them.", zh: "内测记录：谁完成核心任务、谁回来或付费、谁卡在何处。" },
+    visual: [{ en: "Real user", zh: "真实用户" }, { en: "Watch friction", zh: "观察卡点" }, { en: "Returns / pays", zh: "复用或付费" }],
+    roadmap: [
+      { en: "Invite a small group of target users to finish the core task without coaching; note drop-offs.", zh: "请一小组目标用户独立完成核心任务，记录卡住和放弃的位置。" },
+      { en: "Fix blockers first. Ask at least one person to pay or explicitly refuse the price.", zh: "先修会阻断任务的问题；让至少一人实际付款，或明确拒绝你的价格。" },
+      { en: "Check that a few users return without a reminder; if not, fix value or audience before scaling.", zh: "看有没有人无需提醒主动回来；如果没有，先改价值或人群，别急着放大。" },
+    ],
+    sources: [
+      { title: "Starter Story · Fastlane launch case", url: "https://www.starterstory.com/stories/fastlane-create-winning-short-form-content-in-seconds", takeaway: { en: "Two betas and a beta customer's first payment gave a stronger signal than launch-day attention.", zh: "两轮内测和内测用户的首笔付款，比发布当天的热闹更有说服力。" } },
+    ],
     categories: ["test", "tool"],
   },
   {
     id: "launch",
-    name: { en: "Launch", zh: "分发" },
+    name: { en: "Launch & grow", zh: "上线与增长" },
     question: {
       en: "Where do the next hundred come from, and can you get them without paying?",
       zh: "下一个 100 个用户从哪来,不花钱能不能拿到?",
@@ -210,9 +271,25 @@ export const PLAYBOOK: PlaybookStep[] = [
       },
     ],
     done: {
-      en: "One repeatable way to get users that does not depend on you posting today.",
-      zh: "有一条可重复的获客路径,而且不依赖你今天有没有发帖。",
+      en: "The product is public; one channel brings measurable active or paying users. Ads stay off unless their economics make sense.",
+      zh: "产品公开可用；一条渠道带来可衡量的活跃或付费用户。投放不划算就暂停。",
     },
+    output: { en: "A live link, first users, one measurable channel, and a keep/stop decision on paid spend.", zh: "可访问的产品、第一批用户、一条可衡量的渠道，以及是否投放的决策。" },
+    visual: [{ en: "Public launch", zh: "公开上线" }, { en: "One channel", zh: "一条渠道" }, { en: "CAC vs value", zh: "获客成本与价值" }],
+    roadmap: [
+      { en: "Launch: test the public link, onboarding, pricing/checkout, analytics, support contact and rollback on a fresh device.", zh: "上线检查：用新设备验证公开链接、注册、定价/付款、统计、客服入口和回滚方案。" },
+      { en: "Distribution: pick one channel where this buyer already is. Post a demo or case with a clear call-to-action; record visits → signups → active users → paid users.", zh: "分发：只选目标用户本来就在的一条渠道，发演示或案例并放清晰入口；记浏览→注册→激活→付费。" },
+      { en: "Ads (optional): test a small capped budget only after one message converts and event tracking works. Compare acquisition cost to gross-margin-adjusted customer value; stop losers.", zh: "投放（可选）：素材已有转化且事件可追踪后，再用封顶小预算测试。用获客成本对比扣除成本后的客户价值；亏损就停。" },
+      { en: "Iterate weekly: compare cohorts and retention, ask churned users why they left, then change one bottleneck before increasing traffic.", zh: "每周迭代：看分批留存、问流失原因，每次只改一个瓶颈；别靠加流量掩盖低留存。" },
+    ],
+    branch: {
+      web: { en: "B2B/web SaaS: start with direct demos, communities or useful founder content; high-intent conversations matter more than video views.", zh: "B2B / Web SaaS：先做定向演示、社区交流或创始人内容；有效对话比播放量重要。" },
+      mobile: { en: "Consumer/mobile: test repeatable short-video hooks organically; only turn winning creatives into ads after tracking installs, trials and purchases.", zh: "消费者 / 移动 App：先用自然流量测试可重复的短视频开头；能追踪安装、试用与付费后，再把有效素材用于广告。" },
+    },
+    sources: [
+      { title: "Starter Story · The $1M Mobile App Playbook", url: "https://www.starterstory.com/stories/the-1m-mobile-app-playbook", takeaway: { en: "This mobile-app case researches hooks, tests organic content, then buys traffic from proven creatives while measuring funnel events and CAC vs LTV.", zh: "这个移动 App 案例先研究内容钩子、跑自然内容，再用有效素材投放，并跟踪漏斗事件及 CAC 与 LTV。" } },
+      { title: "Starter Story · Fastlane launch case", url: "https://www.starterstory.com/stories/fastlane-create-winning-short-form-content-in-seconds", takeaway: { en: "Fastlane launched via an existing X audience, LinkedIn and Product Hunt; that route is not automatically suitable for every product.", zh: "Fastlane 借助已有 X 受众、LinkedIn 和 Product Hunt 上线；这些渠道并非适用于每个产品。" } },
+    ],
     categories: ["distribution"],
   },
 ];

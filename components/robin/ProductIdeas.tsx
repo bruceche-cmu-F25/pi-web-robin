@@ -13,6 +13,7 @@ import type { Idea, IdeaLink, ProductCapture, ProductLibraryResource } from "@/e
 import { compressImageFile } from "@/components/ChatInput";
 import { useProductAgent } from "./ProductIncubatorShell";
 import { ProductResourceShelf } from "./ProductResourceShelf";
+import { ProductOpportunities } from "./ProductOpportunities";
 import { productCopy, researchBrief, type ProductCopy } from "./product-copy";
 import { categoryChip, stepSurface } from "./productSurface";
 import { usePolledResource } from "./usePolledResource";
@@ -68,10 +69,16 @@ export function ProductIdeas() {
   const [openId, setOpenId] = useState<string | null>(() => searchParams.get("idea") || null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [filter, setFilter] = useState<IdeaFilter>(() => ideaFilter(searchParams.get("stage")));
+  const [roadmapStep, setRoadmapStep] = useState<StepId>(() => {
+    const stage = ideaFilter(searchParams.get("stage"));
+    return PLAYBOOK_STEPS.includes(stage as StepId) ? stage as StepId : "spot";
+  });
   const [libraryOpen, setLibraryOpen] = useState(false);
 
   useEffect(() => {
-    setFilter(ideaFilter(searchParams.get("stage")));
+    const stage = ideaFilter(searchParams.get("stage"));
+    setFilter(stage);
+    if (PLAYBOOK_STEPS.includes(stage as StepId)) setRoadmapStep(stage as StepId);
     setOpenId(searchParams.get("idea") || null);
   }, [searchParams]);
 
@@ -104,7 +111,7 @@ export function ProductIdeas() {
   );
 
   const selectedStep = PLAYBOOK.find((step) => step.id === filter);
-  const showViews = !!data && (needsAttention > 0 || parked > 0 || filter === "attention" || filter === "parked");
+  const showViews = !!data && (needsAttention > 0 || parked > 0 || filter === "attention" || filter === "parked" || !!selectedStep);
   const visibleIds = new Set(ideas.filter((idea) => {
     if (filter === "parked") return !!idea.parked;
     if (filter === "attention") return ideaAttention(idea, today) !== null;
@@ -126,15 +133,19 @@ export function ProductIdeas() {
   return (
     <main className={`${styles.page} flex flex-1 flex-col overflow-y-auto`} style={{ minWidth: 0, minHeight: 0 }}>
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 p-4 desktop:p-6">
-        <Link href="/outreach" className="pi-panel ui-action flex flex-wrap items-center justify-between gap-4 p-5" style={{ borderLeft: "3px solid var(--accent)" }}>
-          <div className="min-w-0"><span className="pi-eyebrow">COLD REACH · OUTREACH</span><h2 className="mt-2 text-lg">{zh ? "按产品找人、审核匹配理由、联系与跟进。" : "Find people, review fit, contact and follow up."}</h2><p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>{zh ? "邮件限速发送 · 社媒联系 · 回复与跟进" : "Paced email · social outreach · replies and follow-ups"}</p></div>
-          <span className="pi-bracket text-xs">{zh ? "打开项目" : "Open project"}</span>
-        </Link>
+        <nav aria-label={zh ? "产品页导航" : "Product page sections"} className={styles.pageNav}>
+          <a href="#product-journey" className="ui-action">{zh ? "01 路线图" : "01 Roadmap"}</a>
+          <a href="#product-workbench" className="ui-action">{zh ? "02 我的项目" : "02 My projects"}</a>
+          <a href="#product-opportunities" className="ui-action">{zh ? "03 机会列表" : "03 Opportunities"}</a>
+          <a href="#product-toolkit" className="ui-action">{zh ? "04 工具箱" : "04 Toolkit"}</a>
+        </nav>
         <section aria-labelledby="product-journey" className="flex flex-col gap-3">
           <header className="flex flex-wrap items-baseline justify-between gap-2">
-            <h2 id="product-journey" className="pi-label">{copy.journey}</h2>
-            <span className="pi-eyebrow">{data ? `${ideas.length - parked} ${copy.activeUnit}` : copy.loading}</span>
+            <h2 id="product-journey" className="pi-label">{zh ? "从选题到上线 · 产品路线图" : "From idea to launch · Product roadmap"}</h2>
+            <span className="pi-eyebrow">{zh ? "按阶段点开，照着做，不是自动打勾的任务" : "Choose a stage; a guide, not an automatic checklist"}</span>
           </header>
+          <p className="text-xs" style={{ color: "var(--text-muted)" }}>{zh ? "点一个阶段看做法与原始案例，也会筛选下方项目；再点同一阶段恢复全部项目。" : "Choose a stage for its actions and sources; it also filters your projects below. Choose it again to see all projects."}</p>
+          <div className={styles.roadmapSheet}>
           <div className={styles.journey} role="group" aria-label={copy.step}>
             {counts.map(({ step, n }, index) => {
               const surface = stepSurface(step.id);
@@ -142,10 +153,11 @@ export function ProductIdeas() {
                 <button
                   key={step.id}
                   type="button"
-                  aria-pressed={filter === step.id}
-                  onClick={() => chooseFilter(filter === step.id ? "active" : step.id)}
+                  aria-pressed={roadmapStep === step.id}
+                  aria-controls="product-roadmap-detail"
+                  onClick={() => { setRoadmapStep(step.id); chooseFilter(filter === step.id ? "active" : step.id); }}
                   className={`ui-action ${styles.stage}`}
-                  data-selected={filter === step.id}
+                  data-selected={roadmapStep === step.id}
                   data-empty={data ? n === 0 : undefined}
                   style={{ "--stage-color": surface.ink } as CSSProperties}
                 >
@@ -156,9 +168,8 @@ export function ProductIdeas() {
               );
             })}
           </div>
-          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-            {selectedStep ? selectedStep.question[zh ? "zh" : "en"] : copy.journeyHint}
-          </p>
+          <RoadmapDetail step={playbookStep(roadmapStep)} locale={locale} />
+          </div>
         </section>
 
         {error || libraryError || actionError ? (
@@ -237,6 +248,8 @@ export function ProductIdeas() {
           />
         </div>
 
+        <ProductOpportunities onSave={refresh} />
+
         <section className="border-t pt-5" style={{ borderColor: "var(--border)" }} aria-labelledby="product-toolkit">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -256,8 +269,86 @@ export function ProductIdeas() {
             />
           </div>
         </section>
+        <Link href="/outreach" className="pi-panel ui-action flex flex-wrap items-center justify-between gap-4 p-4" style={{ borderLeft: "3px solid var(--accent)" }}>
+          <div className="min-w-0"><span className="pi-eyebrow">COLD REACH · OUTREACH</span><h2 className="mt-2 text-sm">{zh ? "已经有明确买家？去找人、联系与跟进。" : "Know your buyer? Find people, contact and follow up."}</h2></div>
+          <span className="pi-bracket text-xs">{zh ? "打开" : "Open"}</span>
+        </Link>
       </div>
     </main>
+  );
+}
+
+const CASE_IMAGES: Record<string, { src: string; alt: string }> = {
+  "https://www.starterstory.com/stories/the-1m-mobile-app-playbook": {
+    src: "/robin/product-roadmap/mobile-playbook.jpg",
+    alt: "Starter Story video cover: founder holding a phone with a $1M headline",
+  },
+  "https://www.starterstory.com/stories/fastlane-create-winning-short-form-content-in-seconds": {
+    src: "/robin/product-roadmap/fastlane.jpg",
+    alt: "Fastlane product landing page screenshot from the founder story",
+  },
+};
+
+/** A reference roadmap, not stored progress: only an idea's step is user-owned. */
+function RoadmapDetail({ step, locale }: { step: PlaybookStep; locale: string }) {
+  const zh = locale.startsWith("zh");
+  const lang = zh ? "zh" : "en";
+  const index = PLAYBOOK_STEPS.indexOf(step.id) + 1;
+  const surface = stepSurface(step.id);
+  return (
+    <article id="product-roadmap-detail" className={styles.roadmapDetail} aria-labelledby="product-roadmap-step-title" style={{ "--stage-color": surface.ink } as CSSProperties}>
+      <span className="pi-eyebrow">{String(index).padStart(2, "0")} / {PLAYBOOK_STEPS.length} · {step.name[lang]}</span>
+      <h3 id="product-roadmap-step-title" className="mt-3 text-2xl" style={{ color: "var(--text)" }}>{step.question[lang]}</h3>
+      <div className={styles.flow} role="img" aria-label={step.visual.map((item) => item[lang]).join(" → ")}>
+        {step.visual.map((node, position) => <div key={position} className={styles.flowNode}>
+          <span className={styles.flowGlyph} aria-hidden="true">
+            <svg viewBox="0 0 56 48" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+              {position === 0 ? <><rect x="7" y="11" width="31" height="26" /><path d="M15 6h32v26M13 18h18M13 24h13M13 30h18" /></> :
+                position === 1 ? <><rect x="6" y="7" width="44" height="34" /><path d="M13 15h30M13 22h18M13 29h24M36 29h7M13 35h14" /><circle cx="34" cy="22" r="2" fill="currentColor" stroke="none" /></> :
+                <><path d="M14 6h25l7 7v29H14zM39 6v9h7M21 23l6 6 12-12M21 36h18" /></>}
+            </svg>
+          </span>
+          <span className="pi-eyebrow">{[zh ? "起点" : "Input", zh ? "动手" : "Work", zh ? "证据" : "Proof"][position]}</span>
+          <strong>{node[lang]}</strong>
+        </div>)}
+      </div>
+      <div className={styles.roadmapTasks}>
+        <section>
+          <h4 className="pi-eyebrow">{zh ? "动手顺序" : "Do this in order"}</h4>
+          <ol className="mt-3 flex flex-col gap-3 pl-5 text-sm" style={{ color: "var(--text)" }}>
+            {step.roadmap.map((action, i) => <li key={i} className="pl-1 leading-relaxed">{action[lang]}</li>)}
+          </ol>
+        </section>
+        <aside className={styles.roadmapAside}>
+          <h4 className="pi-eyebrow">{zh ? "本阶段产物" : "What you leave with"}</h4>
+          <p className="mt-2 text-sm leading-relaxed" style={{ color: "var(--text)" }}>{step.output[lang]}</p>
+          <h4 className="pi-eyebrow mt-4">{zh ? "过关判断" : "Move on when"}</h4>
+          <p className="mt-2 text-sm leading-relaxed" style={{ color: "var(--text)" }}>{step.done[lang]}</p>
+          {step.branch ? <div className="mt-4 border-t pt-3" style={{ borderColor: "var(--border)" }}>
+            <h4 className="pi-eyebrow">{zh ? "按产品类型选渠道" : "Choose by product type"}</h4>
+            <p className="mt-2 text-sm leading-relaxed" style={{ color: "var(--text)" }}>{step.branch.web[lang]}</p>
+            <p className="mt-2 text-sm leading-relaxed" style={{ color: "var(--text)" }}>{step.branch.mobile[lang]}</p>
+          </div> : null}
+        </aside>
+      </div>
+      <div className="border-t pt-4" style={{ borderColor: "var(--border)" }}>
+        <h4 className="pi-eyebrow">{zh ? "取经 · 案例不等于保证" : "Source notes · examples, not guarantees"}</h4>
+        <ul className={styles.sourceGrid}>
+          {step.sources.map((source) => <li key={source.url} className={styles.sourceCard}>
+            <a href={source.url} target="_blank" rel="noopener noreferrer" className="ui-action">
+              {CASE_IMAGES[source.url] ? (
+                // Resized case-study artwork; the card links to its original source.
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={CASE_IMAGES[source.url].src} alt={CASE_IMAGES[source.url].alt} width={160} height={90} loading="lazy" className={styles.sourceImage} />
+              ) : <span className={styles.sourceFallback} aria-hidden="true"><svg viewBox="0 0 64 48" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="8" y="7" width="48" height="34" /><path d="M16 16h28M16 23h20M16 30h26M46 28l4 4-4 4" /></svg></span>}
+              <strong>{source.title} ↗</strong>
+            </a>
+            <p>{source.takeaway[lang]}</p>
+          </li>)}
+        </ul>
+      </div>
+      <a href="#product-workbench" className="ui-action pi-bracket mt-1 min-h-11 self-start content-center px-2 text-xs">{zh ? "在我的项目中应用这一步" : "Apply this to my projects"}</a>
+    </article>
   );
 }
 

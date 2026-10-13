@@ -10,14 +10,87 @@
   scroll-margin-block: 16px;
 }
 
-/* One ruled line of six segments, not six boxed cards: the steps are a
-   sequence to read, and with a handful of ideas most counts are zero. The
-   colour is the segment's edge; the ground stays the page's. */
+/* A document index above the guide; the guide is the page's first destination. */
+.pageNav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.pageNav a { min-height: 44px; display: inline-flex; align-items: center; }
+
+.roadmapSheet {
+  min-width: 0;
+  display: grid;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
 .journey {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  column-gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 12px;
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
 }
+
+.roadmapDetail {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+}
+
+.roadmapDetail h3 { max-width: 36ch; line-height: 1.25; }
+.roadmapDetail li { overflow-wrap: anywhere; }
+
+/* A diagram with real phase-specific labels, not a decorative progress bar:
+   no node claims to be complete until the user actually advances an idea. */
+.flow { display: grid; gap: 12px; }
+.flowNode {
+  position: relative;
+  min-width: 0;
+  min-height: 112px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 4px;
+  padding: 10px 16px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+}
+.flowNode strong { font-size: 14px; line-height: 1.3; overflow-wrap: anywhere; }
+.flowGlyph { display: block; width: 44px; height: 38px; color: var(--stage-color); }
+.flowGlyph svg { width: 100%; height: 100%; }
+.flowNode:not(:last-child)::after {
+  content: "↓";
+  position: absolute;
+  right: 50%;
+  bottom: -16px;
+  z-index: 1;
+  width: 22px;
+  text-align: center;
+  background: var(--bg-panel);
+  color: var(--stage-color);
+}
+.roadmapTasks { display: grid; gap: 24px; }
+.roadmapAside { border-top: 1px solid var(--border); padding-top: 16px; }
+.sourceGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 12px; margin: 12px 0 0; padding: 0; list-style: none; }
+.sourceCard { min-width: 0; padding: 8px; border: 1px solid var(--border); background: var(--bg); }
+.sourceCard a { display: flex; align-items: center; gap: 12px; min-height: 72px; color: var(--text); font-size: 14px; line-height: 1.3; }
+.sourceCard strong { min-width: 0; overflow-wrap: anywhere; }
+.sourceCard p { margin-top: 8px; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+.sourceImage, .sourceFallback { width: 108px; height: 68px; flex: none; border: 1px solid var(--border); object-fit: cover; }
+.sourceFallback { display: grid; place-items: center; background: var(--accent-faint); color: var(--accent); }
+.sourceFallback svg { width: 50px; height: 38px; }
 
 .stage {
   display: flex;
@@ -29,7 +102,7 @@
   text-align: start;
   color: var(--text);
   background: transparent;
-  box-shadow: inset 0 2px var(--stage-color);
+  box-shadow: inset 3px 0 var(--stage-color);
 }
 
 .stageIndex {
@@ -40,9 +113,8 @@
   min-width: 0;
   font-size: 14px;
   font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .stageCount {
@@ -53,7 +125,7 @@
 
 /* A step nothing is in yet still names itself, but steps back. */
 .stage[data-empty="true"] {
-  box-shadow: inset 0 2px color-mix(in srgb, var(--stage-color) 35%, transparent);
+  box-shadow: inset 3px 0 color-mix(in srgb, var(--stage-color) 35%, transparent);
 }
 
 .stage[data-empty="true"] .stageName {
@@ -66,7 +138,8 @@
 }
 
 .stage[data-selected="true"] {
-  box-shadow: inset 0 2px var(--stage-color), inset 0 -2px var(--stage-color);
+  background: var(--accent-faint);
+  box-shadow: inset 3px 0 var(--stage-color);
 }
 
 .stage[data-selected="true"] .stageName {
@@ -141,9 +214,17 @@
 }
 
 @container (min-width: 640px) {
-  .journey {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-  }
+  .journey { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .flow { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .flowNode:not(:last-child)::after { content: "→"; right: -17px; bottom: 50%; transform: translateY(50%); }
+  .roadmapTasks { grid-template-columns: minmax(0, 1fr) minmax(180px, .65fr); }
+  .roadmapAside { border-top: 0; border-left: 1px solid var(--border); padding: 0 0 0 20px; }
+}
+
+@container (min-width: 800px) {
+  .roadmapSheet { grid-template-columns: 220px minmax(0, 1fr); }
+  .journey { grid-template-columns: 1fr; align-content: start; border-bottom: 0; border-right: 1px solid var(--border); }
+  .roadmapDetail { padding: 28px; }
 }
 
 @container (min-width: 900px) {
