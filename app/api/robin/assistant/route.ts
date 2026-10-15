@@ -3,15 +3,24 @@ import { attachMailReport } from "@/extension/robin/mail-domain";
 import {
   ASSISTANT_SESSION_KINDS,
   clearAssistantSession,
+  readAssistantSessionId,
   type AssistantSessionKind,
 } from "@/extension/robin/assistant-sessions";
 import { runAssistantTurn, resolveMode } from "@/lib/robin-assistant";
 import { validateAgentImages } from "@/lib/image-attachments";
 import { apiRoute } from "@/lib/api-route";
+import { getRpcSession } from "@/lib/rpc-manager";
 
 export const dynamic = "force-dynamic";
 // The scoring mode walks a whole batch of postings in one turn.
 export const maxDuration = 360;
+
+/** Read the existing Act conversation; never creates or resumes an agent. */
+export const GET = apiRoute(async () => {
+  const sessionId = readAssistantSessionId();
+  return NextResponse.json({ sessionId, running: sessionId ? getRpcSession(sessionId)?.isRunning() ?? false : false },
+    { headers: { "Cache-Control": "no-store" } });
+});
 
 export const POST = apiRoute(async (req) => {
   try {

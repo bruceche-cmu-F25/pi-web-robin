@@ -9,6 +9,8 @@ import type { Todo } from "@/extension/robin/todo-domain";
 import { inferTodoUrl } from "@/extension/robin/todo-links";
 import { requestRefresh } from "./refreshBus";
 import { TodoTitle } from "./TodoTitle";
+import { TodoDragHandle } from "./TodoDragHandle";
+import { ReadableText } from "./ReadableText";
 import { usePopoverDismiss } from "./usePopoverDismiss";
 import { mutate, usePolledResource } from "./usePolledResource";
 
@@ -122,7 +124,7 @@ export function TodoPanel() {
     >
       <header className="flex items-baseline justify-between gap-3">
         <div className="flex items-baseline gap-3">
-          <h2 className="pi-label">{t("robin.todos.title")}</h2>
+          <h2 className="pi-section-title">{t("robin.todos.title")}</h2>
           <span className="text-xs" style={{ color: "var(--text-dim)" }}>
             {loading ? t("robin.common.loading") : t("robin.todos.open", { count: String(open.length) })}
           </span>
@@ -132,7 +134,7 @@ export function TodoPanel() {
           onClick={() => setAdding((value) => !value)}
           aria-expanded={adding}
           aria-controls="robin-todo-form"
-          className="ui-action pi-chrome-label pi-bracket text-xs"
+          className="robin-panel-add ui-action pi-chrome-label pi-bracket text-xs"
         >
           {adding ? t("robin.common.cancel") : t("robin.common.add")}
         </button>
@@ -236,7 +238,7 @@ export function TodoPanel() {
       ))}
 
       {doneToday.length > 0 && (
-        <details open className="border-t" style={{ borderColor: "var(--border)" }}>
+        <details className="robin-completed-todos border-t" style={{ borderColor: "var(--border)" }}>
           <summary className="ui-action min-h-[28px] cursor-pointer py-1 text-xs marker:text-[8px] [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:py-3" style={{ color: "var(--text-dim)" }}>
             <h3 className="pi-eyebrow inline">
               {t("robin.todos.completed", { count: String(doneToday.length) })}
@@ -288,6 +290,13 @@ function TodoRow({
   const colorPicker = usePopoverDismiss();
   const actions = (
     <>
+      {mobile && !todo.done && <button type="button" data-calendar-todo={todo.id} aria-haspopup="dialog"
+        aria-label={`${t("robin.calendar.editTodoDeadline")} · ${todo.title}`}
+        className="ui-action flex h-[44px] w-[44px] shrink-0 items-center justify-center" style={{ color: "var(--text-muted)" }}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+          <rect x="4" y="5" width="16" height="16" rx="1" /><path d="M8 2v6m8-6v6M4 11h16m-10 4h4" />
+        </svg>
+      </button>}
       <LinkEditor todo={todo} onLink={onLink} t={t} />
       <details ref={colorPicker} className="relative shrink-0">
         <summary
@@ -370,7 +379,7 @@ function TodoRow({
         ? { background: "var(--danger-soft)", borderLeft: "2px solid var(--danger)" }
         : { background: "var(--bg-subtle)", borderLeft: "2px solid transparent" }}
     >
-      <label className="col-start-1 row-start-1 flex h-[44px] w-[44px] shrink-0 cursor-pointer items-center justify-center desktop:h-auto desktop:w-auto">
+      <label className="col-start-1 row-start-1 self-start desktop:self-center flex h-[44px] w-[44px] shrink-0 cursor-pointer items-center justify-center desktop:h-auto desktop:w-auto">
         <input
           type="checkbox"
           checked={todo.done}
@@ -382,17 +391,22 @@ function TodoRow({
         />
       </label>
       <div className="col-start-2 min-w-0 self-center desktop:flex desktop:flex-1 desktop:items-center desktop:gap-2">
-        <TodoTitle
-          todo={todo}
-          t={t}
-          className="block min-w-0 whitespace-normal text-sm [overflow-wrap:anywhere] desktop:flex-1 desktop:truncate"
-          style={{
-            color: todo.done
-              ? "var(--text-dim)"
-              : todo.color ? `var(--todo-${todo.color})` : "var(--text)",
-            textDecoration: todo.done ? "line-through" : "none",
-          }}
-        />
+        <div className="flex min-w-0 flex-1 items-center gap-1">
+        {!mobile && <TodoDragHandle todo={todo} />}
+        <ReadableText className="min-w-0 flex-1">
+          <TodoTitle
+            todo={todo}
+            t={t}
+            className="block min-w-0 whitespace-normal text-sm [overflow-wrap:anywhere] desktop:truncate"
+            style={{
+              color: todo.done
+                ? "var(--text-dim)"
+                : todo.color ? `var(--todo-${todo.color})` : "var(--text)",
+              textDecoration: todo.done ? "line-through" : "none",
+            }}
+          />
+        </ReadableText>
+        </div>
         {(todo.startDate || todo.due) && !todo.done && (
           <span className="block min-w-0 text-xs desktop:shrink-0" style={{ color: overdue ? "var(--danger)" : "var(--text-muted)" }}>
             {todoDateLabel(todo, today, locale, t)}
@@ -400,7 +414,7 @@ function TodoRow({
         )}
       </div>
       {mobile ? (
-        <details ref={actionsMenu} className="relative col-start-3">
+        <details ref={actionsMenu} className="robin-todo-actions relative col-start-3 row-start-1 self-start">
           <summary
             className="ui-action flex h-[44px] w-[44px] cursor-pointer list-none items-center justify-center"
             aria-label={t("robin.todos.actions", { title: todo.title })}
@@ -408,7 +422,7 @@ function TodoRow({
             <span aria-hidden="true">···</span>
           </summary>
           <div
-            className="absolute right-0 top-full flex flex-row-reverse gap-2 border p-2"
+            className="absolute right-0 top-full flex gap-2 border p-2"
             style={{ zIndex: "var(--z-popover)", background: "var(--bg-panel)", borderColor: "var(--border-strong)", boxShadow: "var(--popover-shadow)" }}
           >
             {actions}
@@ -447,7 +461,7 @@ function LinkEditor({
   return (
     <details
       ref={details}
-      className="relative shrink-0"
+      className="robin-todo-link-editor relative shrink-0"
       onToggle={(event) => {
         if (event.currentTarget.open) setValue(todo.url ?? "");
       }}

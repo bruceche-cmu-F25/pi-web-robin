@@ -17,23 +17,25 @@ export function TodoTitle({
   className,
   style,
   t,
+  nativeTooltip = true,
 }: {
   todo: Todo;
   className?: string;
   style?: CSSProperties;
+  nativeTooltip?: boolean;
   t: (key: string, params?: Record<string, string>) => string;
 }) {
   const url = todoUrl(todo);
   if (!url) {
-    // Most callers truncate; the tooltip is the only way to read the rest.
-    return <span className={className} style={style} title={todo.title}>{todo.title}</span>;
+    // Keep the native tooltip unless the caller provides its own full-text preview.
+    return <span className={className} style={style} title={nativeTooltip ? todo.title : undefined}>{todo.title}</span>;
   }
   return (
     <a
       href={url}
       target="_blank"
       rel="noopener noreferrer"
-      title={t("robin.todos.openLink", { title: todo.title })}
+      title={nativeTooltip ? t("robin.todos.openLink", { title: todo.title }) : undefined}
       // Calendar cells put clickable chrome behind the todo row; the click that
       // opens the link must not also select the day underneath it.
       onClick={(event) => event.stopPropagation()}

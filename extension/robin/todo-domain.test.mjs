@@ -19,13 +19,15 @@ import {
 } from "./todo-domain.ts";
 
 import { todoStatus } from "./todo-status.ts";
+import { resetTaskStore } from "./task-store.test-support.mjs";
+import { migrateTasksToSqlite } from "./task-migration.ts";
 
 const previousDataDir = process.env.ROBIN_DATA_DIR;
 const dataDir = mkdtempSync(join(tmpdir(), "robin-todo-domain-"));
 process.env.ROBIN_DATA_DIR = dataDir;
 const todosFile = join(dataDir, "todos.json");
 
-beforeEach(() => writeFileSync(todosFile, "[]\n", "utf8"));
+beforeEach(() => resetTaskStore(dataDir));
 
 after(() => {
   rmSync(dataDir, { recursive: true, force: true });
@@ -123,7 +125,7 @@ test("Todo listing preserves completed history, including legacy timestamps", ()
     { id: "expired", title: "Expired", done: true, createdAt: "", completedAt: new Date(now - 8 * 86_400_000).toISOString() },
     { id: "legacy", title: "Legacy", done: true, createdAt: "not-a-date" },
   ];
-  writeFileSync(todosFile, `${JSON.stringify(rows)}\n`, "utf8");
+  resetTaskStore(dataDir, rows);
 
   const original = readFileSync(todosFile, "utf8");
   assert.deepEqual(
@@ -209,8 +211,12 @@ test("only one active task can be next, without changing dates or status; comple
 
 test("Todo listing surfaces damaged storage without replacing it", () => {
   const damaged = "{\"todos\":[]}\n";
+  // An invalid legacy source must fail migration, never become an empty DB.
+  rmSync(join(dataDir, "task-storage.json"), { force: true });
+  rmSync(join(dataDir, "tasks.sqlite"), { force: true });
   writeFileSync(todosFile, damaged, "utf8");
 
+  assert.throws(() => migrateTasksToSqlite(), /does not contain a JSON array/);
   assert.throws(() => listTodos({ includeDone: true }), /does not contain a JSON array/);
   assert.equal(readFileSync(todosFile, "utf8"), damaged);
 });

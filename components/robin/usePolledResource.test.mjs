@@ -91,6 +91,30 @@ test("URL changes and unmount cancel requests without leaking data or subscripti
   assert.equal(h.refreshes.size, 0);
 });
 
+test("a confirmed write updates the view even if refresh fails and fences older polls", async () => {
+  const h = resourceHarness();
+  try {
+    const resource = h.render();
+    respond(h.requests[0], { version: 1 });
+    await settle();
+    const old = resource.refresh();
+    resource.updateData((current) => ({ ...current, version: 2 }));
+    assert.equal(h.requests[1].signal.aborted, true);
+    respond(h.requests[1], { version: 1 });
+    await old;
+    assert.equal(h.render().data.version, 2);
+    const refresh = resource.refresh();
+    h.requests[2].reject(new Error("offline"));
+    await refresh;
+    assert.equal(h.render().data.version, 2);
+    // Clearing the old text cache matters: a later real rollback to version 1 must not be skipped.
+    const rollback = resource.refresh();
+    respond(h.requests[3], { version: 1 });
+    await rollback;
+    assert.equal(h.render().data.version, 1);
+  } finally { h.unmount(); }
+});
+
 test("hidden tabs stop polling, and visibility recovery refreshes immediately", () => {
   const h = resourceHarness();
   try {

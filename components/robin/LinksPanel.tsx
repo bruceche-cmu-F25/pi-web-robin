@@ -1,10 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useI18n } from "@/hooks/useI18n";
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { ReadableText } from "./ReadableText";
+import { usePopoverDismiss } from "./usePopoverDismiss";
 import { iconFallback, type Link } from "@/extension/robin/links";
 import { linkSections } from "@/extension/robin/link-families";
 import { mutate, usePolledResource } from "./usePolledResource";
+import styles from "./LinksPanel.module.css";
 
 interface LinksResponse {
   links: Link[];
@@ -12,6 +16,8 @@ interface LinksResponse {
 
 export function LinksPanel() {
   const { t } = useI18n();
+  const mobile = useIsMobile();
+  const [expandedLists, setExpandedLists] = useState<Set<string>>(() => new Set());
   const { data, error, loading, refresh } = usePolledResource<LinksResponse>("/api/robin/links", 30000);
   const [url, setUrl] = useState("");
   const [title, setTitle] = useState("");
@@ -162,21 +168,53 @@ export function LinksPanel() {
     }
   };
 
+  const renderActions = (link: Link) => (
+    <>
+      <button
+        type="button"
+        onClick={() => (editingId === link.id ? commitEdit(link.id) : startEdit(link))}
+        aria-label={t("robin.links.edit", { title: link.title })}
+        title={t("robin.links.edit", { title: link.title })}
+        className="ui-action h-[44px] w-[44px] shrink-0 text-xs desktop:h-[28px] desktop:w-[28px]"
+        style={{ color: editingId === link.id ? "var(--accent)" : "var(--text-muted)" }}
+      >
+        {editingId === link.id ? "✓" : "✎"}
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          if (editingId === link.id) setEditingId(null);
+          else if (window.confirm(t("robin.common.deleteConfirm", { title: link.title }))) {
+            void run(() => mutate("/api/robin/links", "DELETE", { id: link.id }));
+          }
+        }}
+        aria-label={editingId === link.id ? t("robin.common.cancel") : t("robin.links.delete", { title: link.title })}
+        className="ui-action h-[44px] w-[44px] shrink-0 text-xs desktop:h-[28px] desktop:w-[28px]"
+        style={{ color: "var(--text-muted)" }}
+      >
+        ✕
+      </button>
+    </>
+  );
+
   const renderAddForm = (showGroup: boolean) => (
     <form onSubmit={addLink} className="flex flex-col gap-2">
       <input
         value={url}
         onChange={(event) => setUrl(event.target.value)}
         placeholder={t("robin.links.urlPlaceholder")}
+        aria-label={t("robin.links.urlPlaceholder")}
+        inputMode="url"
         autoFocus
         className="rounded px-2 py-1 text-sm outline-none"
         style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text)" }}
       />
-      <div className="flex gap-2">
+      <div className="robin-link-fields flex gap-2">
         <input
           value={title}
           onChange={(event) => setTitle(event.target.value)}
           placeholder={t("robin.links.namePlaceholder")}
+          aria-label={t("robin.links.namePlaceholder")}
           className="min-w-0 flex-1 rounded px-2 py-1 text-sm outline-none"
         />
         {showGroup && (
@@ -184,6 +222,7 @@ export function LinksPanel() {
             value={group}
             onChange={(event) => setGroup(event.target.value)}
             placeholder={t("robin.links.groupPlaceholder")}
+            aria-label={t("robin.links.groupPlaceholder")}
             className="w-24 rounded px-2 py-1 text-sm outline-none"
             style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text)" }}
           />
@@ -204,10 +243,10 @@ export function LinksPanel() {
     <section
       id="dashboard-links"
       tabIndex={-1}
-      className="pi-card flex scroll-mt-24 flex-col gap-3 p-4"
+      className={`pi-card flex scroll-mt-24 flex-col gap-3 p-4 ${styles.panel}`}
     >
       <header className="flex items-baseline justify-between gap-2">
-        <h2 className="pi-label">{t("robin.links.title")}</h2>
+        <h2 className="pi-section-title">{t("robin.links.title")}</h2>
         <div className="flex items-center gap-2">
           <a href="https://www.notion.so/" target="_blank" rel="noopener noreferrer" className="ui-action pi-chrome-label pi-bracket text-xs">
             Notion ↗
@@ -215,7 +254,7 @@ export function LinksPanel() {
           <button
             type="button"
             onClick={() => toggleAdd("")}
-            className="ui-action pi-chrome-label pi-bracket text-xs"
+            className="robin-panel-add ui-action pi-chrome-label pi-bracket text-xs"
           >
             {addingGroup === "" ? t("robin.common.cancel") : t("robin.common.add")}
           </button>
@@ -232,7 +271,7 @@ export function LinksPanel() {
         <p className="py-2 text-sm" style={{ color: "var(--text-dim)" }}>{t("robin.links.empty")}</p>
       )}
 
-      <div className="columns-1 gap-4 split:columns-2">
+      <div className={styles.groups} data-link-groups>
       {sections.map((section, sectionIndex) => {
         const accent = section.color ? `var(--todo-${section.color})` : undefined;
         const familyOpen = !section.family || !collapsedFamilies.has(section.family);
@@ -272,6 +311,9 @@ export function LinksPanel() {
           {familyOpen && section.groups.map(({ group: name, links }, groupIndex) => {
         const expanded = !collapsedGroups.has(name);
         const displayName = name === "Other" ? t("robin.links.otherGroup") : name;
+        const shortened = mobile && links.length > 4;
+        const showAll = expandedLists.has(name);
+        const visibleLinks = shortened && !showAll ? links.slice(0, 4) : links;
         return (
         <div
           key={name}
@@ -334,7 +376,7 @@ export function LinksPanel() {
           {expanded && (
             <>
               {addingGroup === name && renderAddForm(false)}
-              {links.map((link) => (
+              {visibleLinks.map((link) => (
             <div
               key={link.id}
               className="group flex items-center gap-2 rounded px-2 py-1"
@@ -377,48 +419,37 @@ export function LinksPanel() {
                    click of a double-click has already opened the tab, and
                    delaying navigation to wait for a second click would both slow
                    every link down and get window.open caught by popup blockers. */
-                <a
-                  href={link.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="min-w-0 flex-1 truncate text-sm hover:underline"
-                  style={{ color: "var(--text)" }}
-                  title={link.url}
-                >
-                  {link.title}
-                </a>
+                <ReadableText className="flex-1">
+                  <a
+                    href={link.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="robin-saved-link block min-w-0 truncate text-sm hover:underline"
+                    style={{ color: "var(--text)" }}
+                    title={link.url}
+                  >
+                    {link.title}
+                  </a>
+                </ReadableText>
               )}
-              {/* Dim rather than hidden: a hover-only control is unreachable on
-                  a touch screen, and this dashboard is meant to work on a phone. */}
-              <button
-                type="button"
-                onClick={() => (editingId === link.id ? commitEdit(link.id) : startEdit(link))}
-                aria-label={t("robin.links.edit", { title: link.title })}
-                title={t("robin.links.edit", { title: link.title })}
-                className="ui-action h-[44px] w-[44px] shrink-0 text-xs desktop:h-[28px] desktop:w-[28px]"
-                style={{ color: editingId === link.id ? "var(--accent)" : "var(--text-muted)" }}
-              >
-                {editingId === link.id ? "✓" : "✎"}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (editingId === link.id) {
-                    setEditingId(null);
-                  } else if (window.confirm(t("robin.common.deleteConfirm", { title: link.title }))) {
-                    void run(() => mutate("/api/robin/links", "DELETE", { id: link.id }));
-                  }
-                }}
-                aria-label={editingId === link.id
-                  ? t("robin.common.cancel")
-                  : t("robin.links.delete", { title: link.title })}
-                className="ui-action h-[44px] w-[44px] shrink-0 text-xs desktop:h-[28px] desktop:w-[28px]"
-                style={{ color: "var(--text-muted)" }}
-              >
-                ✕
-              </button>
+              {mobile && editingId !== link.id ? (
+                <LinkActions label={t("robin.links.actions", { title: link.title })}>
+                  {renderActions(link)}
+                </LinkActions>
+              ) : renderActions(link)}
             </div>
               ))}
+              {shortened && (
+                <button
+                  type="button"
+                  className="robin-links-more ui-action min-h-11 self-start text-xs"
+                  aria-expanded={showAll}
+                  disabled={Boolean(editingId)}
+                  onClick={() => toggle(setExpandedLists, name)}
+                >
+                  {showAll ? t("robin.common.showLess") : t("robin.common.showMoreCount", { count: String(links.length - 4) })}
+                </button>
+              )}
             </>
           )}
         </div>
@@ -429,6 +460,21 @@ export function LinksPanel() {
       })}
       </div>
     </section>
+  );
+}
+
+/** Same light-dismiss behavior as the todo row; editing keeps Save/Cancel visible. */
+function LinkActions({ label, children, className = "robin-link-actions" }: { label: string; children: ReactNode; className?: string }) {
+  const ref = usePopoverDismiss();
+  return (
+    <details ref={ref} className={`${className} relative shrink-0`}>
+      <summary className="ui-action flex size-11 cursor-pointer list-none items-center justify-center" aria-label={label}>
+        <span aria-hidden="true">···</span>
+      </summary>
+      <div className="absolute right-0 top-full flex gap-2 border p-2" style={{ zIndex: "var(--z-popover)", background: "var(--bg-panel)", borderColor: "var(--border-strong)", boxShadow: "var(--popover-shadow)" }}>
+        {children}
+      </div>
+    </details>
   );
 }
 
@@ -468,7 +514,8 @@ function MoveButtons({
   onMove: (offset: -1 | 1) => void;
   t: (key: string, params?: Record<string, string>) => string;
 }) {
-  return (
+  const mobile = useIsMobile();
+  const buttons = (
     <div className="flex gap-1">
       <button
         type="button"
@@ -496,6 +543,7 @@ function MoveButtons({
       </button>
     </div>
   );
+  return mobile ? <LinkActions className="robin-group-actions" label={t("robin.links.actions", { title: label })}>{buttons}</LinkActions> : buttons;
 }
 
 /** The site's own icon when we have one, a deterministic tile when we do not. */

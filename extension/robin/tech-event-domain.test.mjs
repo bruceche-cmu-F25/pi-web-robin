@@ -3,10 +3,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, beforeEach, test } from "node:test";
+import { resetTaskStore } from "./task-store.test-support.mjs";
 
 const previousDataDir = process.env.ROBIN_DATA_DIR;
 const dataDir = mkdtempSync(join(tmpdir(), "robin-tech-events-"));
 process.env.ROBIN_DATA_DIR = dataDir;
+resetTaskStore(dataDir);
 
 const { setTechEventFlags, techEventBoard, techEventPage, techEventScanStatus } =
   await import("./tech-event-domain.ts");

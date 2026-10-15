@@ -1,5 +1,6 @@
 /** Hiring-round behavior shared by the HTTP and Pi tool adapters. */
-import { newId, readJsonObject, updateJsonArray, writeJsonObject } from "./paths.ts";
+import { newId } from "./paths.ts";
+import { updateTaskRecords, readRuntimeState, writeRuntimeState } from "./task-store.ts";
 import {
   companyKey,
   hasTime,
@@ -13,7 +14,6 @@ import {
 } from "./rounds.ts";
 import { listTodos, updateTodo, type Todo } from "./todo-domain.ts";
 
-const ROUNDS_FILE = "rounds.json";
 const ROUND_SCAN_FILE = "round-scan.json";
 
 export interface RoundScanState {
@@ -70,9 +70,9 @@ function findTodo(round: Round, todos: Todo[], taken: Set<string>): Todo | undef
  * Only writes when one of those actually changed something.
  */
 export function listRounds(): Round[] {
-  const todos = listTodos({ includeDone: true }).todos;
-  const byId = new Map(todos.map((todo) => [todo.id, todo]));
-  return updateJsonArray<Round, Round[]>(ROUNDS_FILE, (rounds) => {
+  return updateTaskRecords<Round, Round[]>("rounds", (rounds) => {
+    const todos = listTodos({ includeDone: true }).todos;
+    const byId = new Map(todos.map((todo) => [todo.id, todo]));
     let changed = false;
     const taken = new Set(rounds.map((round) => round.todoId).filter((id): id is string => Boolean(id)));
     for (const round of rounds) {
@@ -115,7 +115,7 @@ export function recordRound(input: RoundInput): { round: Round; created: boolean
   const threadId = clean(input.threadId);
   const now = new Date().toISOString();
 
-  return updateJsonArray<Round, { round: Round; created: boolean }>(ROUNDS_FILE, (rounds) => {
+  return updateTaskRecords<Round, { round: Round; created: boolean }>("rounds", (rounds) => {
     const existing = rounds.find((round) => isSameRound(round, { kind, company, due, threadId }));
     if (existing) {
       // A bare day never overwrites a time already known for the same day.
@@ -155,7 +155,7 @@ export function recordRound(input: RoundInput): { round: Round; created: boolean
 
 /** Settling a round settles its todo too, and reopening one reopens both. */
 export function updateRound(id: string, patch: RoundPatch): RoundResult<Round> {
-  const result = updateJsonArray<Round, RoundResult<Round>>(ROUNDS_FILE, (rounds) => {
+  return updateTaskRecords<Round, RoundResult<Round>>("rounds", (rounds) => {
     const round = rounds.find((entry) => entry.id === id);
     if (!round) return { value: { error: `No round with id "${id}".` }, changed: false };
     if (patch.company !== undefined) {
@@ -181,23 +181,18 @@ export function updateRound(id: string, patch: RoundPatch): RoundResult<Round> {
       else round.closedAt = new Date().toISOString();
     }
     round.updatedAt = new Date().toISOString();
+    if (patch.status !== undefined && round.todoId) {
+      const done = patch.status === "done" || patch.status === "missed" || patch.status === "cancelled";
+      // A deleted todo returns a not-found result and is allowed. Actual storage
+      // failures must propagate: SQLite rolls back BOTH records, including reopen.
+      updateTodo({ id: round.todoId }, { done });
+    }
     return { value: round, changed: true };
   });
-  if ("error" in result || patch.status === undefined || !result.todoId) return result;
-
-  // The todo is a mirror, not a precondition: it may have been deleted or
-  // pruned a week after completion, and the round is settled either way.
-  try {
-    const done = patch.status === "done" || patch.status === "missed" || patch.status === "cancelled";
-    updateTodo({ id: result.todoId }, { done });
-  } catch {
-    // Nothing to mirror.
-  }
-  return result;
 }
 
 export function deleteRound(id: string): RoundResult<Round> {
-  return updateJsonArray<Round, RoundResult<Round>>(ROUNDS_FILE, (rounds) => {
+  return updateTaskRecords<Round, RoundResult<Round>>("rounds", (rounds) => {
     const index = rounds.findIndex((round) => round.id === id);
     if (index < 0) return { value: { error: `No round with id "${id}".` }, changed: false };
     const [round] = rounds.splice(index, 1);
@@ -216,9 +211,9 @@ export function formatRound(round: Round): string {
 }
 
 export function readRoundScanState(): RoundScanState | null {
-  return readJsonObject<RoundScanState>(ROUND_SCAN_FILE);
+  return readRuntimeState<RoundScanState>(ROUND_SCAN_FILE);
 }
 
 export function writeRoundScanState(state: RoundScanState): void {
-  writeJsonObject(ROUND_SCAN_FILE, state);
+  writeRuntimeState(ROUND_SCAN_FILE, state);
 }

@@ -49,6 +49,17 @@ test("navigation separates primary pages from chat and settings", () => {
   assert.match(utility, /path: "\/dashboard\/settings"/);
 });
 
+test("client navigation is opt-in at both ends and never preloads every workspace", () => {
+  const enabled = marginSource.match(/const CLIENT_NAVIGATION_PATHS = new Set\(\[([\s\S]*?)\]\)/)?.[1];
+  assert.ok(enabled);
+  assert.deepEqual([...enabled.matchAll(/"([^"]+)"/g)].map((match) => match[1]), [
+    "/dashboard", "/dashboard/gmail", "/dashboard/jobs", "/dashboard/events", "/learn", "/podcasts",
+  ]);
+  assert.match(marginSource, /CLIENT_NAVIGATION_PATHS\.has\(pathname\) && CLIENT_NAVIGATION_PATHS\.has\(item\.path\)/);
+  assert.match(marginSource, /const NavigationLink = clientNavigation \? Link : "a"/);
+  assert.match(marginSource, /clientNavigation \? \{ prefetch: false \} : \{\}/);
+});
+
 test("narrow screens use an off-canvas drawer", () => {
   assert.match(shellSource, /className="robin-mobile-nav-trigger"/);
   assert.match(shellSource, /if \(event\.key === "Escape" && !event\.defaultPrevented\) closeDrawer\(\)/);

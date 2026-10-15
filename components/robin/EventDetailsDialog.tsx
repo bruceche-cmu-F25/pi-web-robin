@@ -50,15 +50,22 @@ export function EventDetailsDialog({
   event,
   onClose,
   onDelete,
+  onEdit,
+  error,
+  busy,
 }: {
   event: DashboardEvent;
   onClose: () => void;
   onDelete: (event: DashboardEvent) => Promise<boolean>;
+  onEdit: (event: DashboardEvent) => void;
+  error: string | null;
+  busy: boolean;
 }) {
   const { t, locale } = useI18n();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const titleId = useId();
+  const noticeId = useId();
   const [copied, setCopied] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -94,20 +101,21 @@ export function EventDetailsDialog({
       month: "long",
       day: "numeric",
     })}`;
-  const calendarUrl = externalUrl(event.url);
+  const readOnly = isReadOnlyEvent(event);
+  const calendarUrl = externalUrl(event.url) ?? (readOnly ? "https://calendar.google.com/calendar/u/0/r" : null);
   const meetingUrl = externalUrl(event.meetingUrl);
   const copyUrl = meetingUrl ?? calendarUrl;
   const locationUrl = event.location
     ? externalUrl(event.location)
       ?? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(event.location)}`
     : null;
-  const readOnly = isReadOnlyEvent(event);
 
   return (
     <dialog
       ref={dialogRef}
       className="calendar-event-dialog"
       aria-labelledby={titleId}
+      aria-describedby={readOnly ? noticeId : undefined}
       onCancel={(dialogEvent) => {
         dialogEvent.preventDefault();
         close();
@@ -143,6 +151,8 @@ export function EventDetailsDialog({
         </header>
 
         <div className="min-h-0 overflow-y-auto px-4 py-4">
+          {readOnly && <p id={noticeId} role="status" className="mb-3 text-sm">{t("robin.calendar.editInGoogleHint")}</p>}
+          {error && <p role="alert" className="mb-3 text-sm" style={{ color: "var(--accent)" }}>{error}</p>}
           <dl className="flex flex-col gap-4">
             <DetailRow label={t("robin.calendar.date")}>{dateLabel}</DetailRow>
             <DetailRow label={t("robin.calendar.time")}>
@@ -195,7 +205,7 @@ export function EventDetailsDialog({
               rel="noreferrer"
               className="ui-action ui-action--outline-soft flex min-h-11 items-center px-3"
             >
-              {t("robin.calendar.openCalendar")}
+              {t(readOnly ? "robin.calendar.editInGoogle" : "robin.calendar.openCalendar")}
             </a>
           )}
           {copyUrl && (
@@ -210,10 +220,15 @@ export function EventDetailsDialog({
               {copied ? t("i18n.copied") : t("robin.calendar.copyLink")}
             </button>
           )}
+          {!readOnly && <button type="button" disabled={busy || deleting}
+            onClick={() => { close(); onEdit(event); }}
+            className="ui-action ui-action--outline-soft min-h-11 px-3 disabled:opacity-40">
+            {t("robin.calendar.edit")}
+          </button>}
           {!readOnly && (
             <button
               type="button"
-              disabled={deleting}
+              disabled={deleting || busy}
               onClick={() => {
                 setDeleting(true);
                 void onDelete(event).then((deleted) => {

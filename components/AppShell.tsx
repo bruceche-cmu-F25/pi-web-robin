@@ -87,6 +87,7 @@ type AutoNameStatus =
 // of them is client-only anyway; there is no server pass to preserve.
 const FileViewer = dynamic(() => import("./FileViewer").then((m) => m.FileViewer), { ssr: false });
 const TerminalPanel = dynamic(() => import("./TerminalPanel").then((m) => m.TerminalPanel), { ssr: false });
+const KnowledgeCaptureDialog = dynamic(() => import("./KnowledgeCaptureDialog").then((m) => m.KnowledgeCaptureDialog), { ssr: false });
 
 const TOP_BAR_ICON_BUTTON_SIZE = 36;
 const AGENT_PANEL_WIDTH = 420;
@@ -142,6 +143,21 @@ export function AppShell() {
     if (soundEnabledRef.current) playDoneSound();
   }, [playDoneSound, soundEnabledRef]);
   const [selectedSession, setSelectedSession] = useState<SessionInfo | null>(null);
+  const [knowledgeSession, setKnowledgeSession] = useState<{ sessionId: string; leafId: string | null; initialProject: string } | null>(null);
+  const [knowledgeRevision, setKnowledgeRevision] = useState(0);
+  const [knowledgeCount, setKnowledgeCount] = useState<{ sessionId: string; count: number } | null>(null);
+  useEffect(() => {
+    const id = selectedSession?.id;
+    if (!id || selectedSession?.transient) return;
+    const controller = new AbortController();
+    void fetch(`/api/sessions/${encodeURIComponent(id)}/knowledge?history=1`, { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const body = await response.json() as { savedCount?: number };
+        if (!controller.signal.aborted) setKnowledgeCount({ sessionId: id, count: body.savedCount ?? 0 });
+      }).catch(() => { /* The dialog reports any read failure when opened. */ });
+    return () => controller.abort();
+  }, [selectedSession?.id, selectedSession?.transient, knowledgeRevision]);
   const [sessionSearchOpen, setSessionSearchOpen] = useState(false);
   const [sessionSearchTarget, setSessionSearchTarget] = useState<SessionSearchTarget | null>(null);
   const sessionSearchRequestIdRef = useRef(0);
@@ -1430,6 +1446,23 @@ export function AppShell() {
           </svg>
           {!mobile && <span>{translate("history.label")}</span>}
         </button>
+        <button
+          type="button"
+          className="ui-action ui-action--surface"
+          disabled={!selectedSession || selectedSession.transient || !branchActiveLeafId}
+          title={translate("knowledge.title")}
+          aria-label={translate("knowledge.title")}
+          onClick={() => {
+            if (selectedSession) setKnowledgeSession({ sessionId: selectedSession.id, leafId: branchActiveLeafId, initialProject: getFileName(selectedSession.projectRoot ?? selectedSession.cwd) });
+            if (mobile) dispatchPanel({ type: "close_mobile_more" });
+          }}
+          data-knowledge-trigger="true"
+          data-mobile-toolbar-action={mobile ? "knowledge" : undefined}
+          style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, width: mobile ? TOP_BAR_ICON_BUTTON_SIZE : undefined, height: "100%", padding: mobile ? 0 : "0 12px", border: "none", borderTop: "2px solid transparent", borderRight: "1px solid var(--border)", flexShrink: 0, fontSize: 11, whiteSpace: "nowrap" }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="5" cy="5" r="3" /><circle cx="19" cy="6" r="3" /><circle cx="12" cy="19" r="3" /><path d="m8 5 8 1M6 8l5 8m7-7-5 7" /></svg>
+          {!mobile && <span>{translate("knowledge.title")}{knowledgeCount && knowledgeCount.sessionId === selectedSession?.id && knowledgeCount.count > 0 ? ` · ${knowledgeCount.count} ✓` : ""}</span>}
+        </button>
         {(() => {
           // 上下文压缩后当前消息可能不再包含 user 消息，需同时参考会话文件的消息总数。
           const hasMessages = Boolean(
@@ -2647,6 +2680,10 @@ export function AppShell() {
         onConfirm={() => void handleTrustProject()}
       />
     )}
+    {knowledgeSession ? <KnowledgeCaptureDialog {...knowledgeSession} onClose={() => {
+      setKnowledgeSession(null);
+      requestAnimationFrame(() => document.querySelector<HTMLElement>(isNarrowMobile ? '[data-mobile-toolbar-more="true"]' : '[data-knowledge-trigger="true"]')?.focus());
+    }} onSaved={() => setKnowledgeRevision((value) => value + 1)} /> : null}
     <AssistantPalette
       sessionId={selectedSession?.id ?? null}
       cwd={selectedSession?.cwd ?? newSessionCwd ?? activeCwd}

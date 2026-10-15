@@ -6,6 +6,8 @@ import { useIsSplitLayout } from "@/hooks/useIsMobile";
 import { AgentPanel } from "./AgentPanel";
 import { PaneDivider } from "./PaneDivider";
 import { productCopy } from "./product-copy";
+import { ProductGlyph } from "./ProductGlyph";
+import styles from "./ProductWorkspace.module.css";
 
 const WIDTH_KEY = "pi-product-agent-width";
 const MIN_WIDTH = 300;
@@ -93,22 +95,17 @@ export function ProductIncubatorShell({ children }: { children: ReactNode }) {
     <AgentContext.Provider value={handle}>
     <div className="robin-page robin-dashboard flex flex-1 flex-col" style={{ minWidth: 0, minHeight: 0 }}>
       <header
-        className="border-b py-3"
+        className={`border-b py-3 ${styles.shellHeader}`}
         // No wash: this page is a document on the ruled ground, and the nav
         // panel colour is the chat shell's chrome. One hairline separates it.
         style={{ borderColor: "var(--border)" }}
       >
         {/* The hairline runs full width; the title lines up with the centred
             column below it, which only spans the page while the agent is shut. */}
-        <div className={`flex w-full flex-wrap items-baseline gap-x-5 gap-y-2 px-4 desktop:px-6${agentOpen && split ? "" : " mx-auto max-w-7xl"}`}>
-        <div className="flex min-w-0 flex-col gap-1">
-          {/* No sub-navigation: the library used to be a second route, and
-              getting back from it was a real complaint. Folding it into this
-              page dissolved the problem rather than signposting it. */}
-          <h1 className="text-3xl" style={{ fontStyle: "italic", fontWeight: 400, color: "var(--text)" }}>
-            {copy.title}
-          </h1>
-          <p className="max-w-2xl text-xs" style={{ color: "var(--text-muted)" }}>{copy.subtitle}</p>
+        <div className={styles.shellFrame}>
+        <div className={styles.brandMark} aria-hidden="true"><ProductGlyph name="map" /></div>
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <h1 className={styles.shellTitle}>{copy.title}</h1>
         </div>
         <button
           type="button"
@@ -117,7 +114,7 @@ export function ProductIncubatorShell({ children }: { children: ReactNode }) {
           data-state={agentOpen ? "accent" : undefined}
           aria-expanded={agentOpen}
         >
-          {copy.agent}
+          <ProductGlyph name="market" className="mr-2 inline-block size-4" />{copy.agent}
         </button>
         </div>
       </header>

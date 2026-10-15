@@ -5,6 +5,7 @@ import {
   deleteIdea,
   getIdea,
   updateIdea,
+  updateLaunchDecision,
   type IdeaPatch,
   type StepId,
 } from "@/extension/robin/product-domain";
@@ -24,6 +25,11 @@ export const PATCH = apiRoute(async (req, { params }: { params: Promise<{ id: st
   const { id } = await params;
   try {
     const body = await req.json() as Record<string, unknown>;
+
+    if (body.launchNode !== undefined) {
+      const idea = updateLaunchDecision(id, body.launchNode);
+      return idea ? NextResponse.json({ idea }) : apiError(new Error(`No idea with id "${id}"`), 404);
+    }
 
     // Adding a link is its own operation rather than a whole-array write, so
     // two saves racing cannot drop one another's link.

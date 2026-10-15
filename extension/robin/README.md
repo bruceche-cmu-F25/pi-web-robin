@@ -420,19 +420,27 @@ Everything is in `~/.pi/robin` (override with `ROBIN_DATA_DIR`):
 
 | File | Contents |
 | --- | --- |
-| `todos.json` | todo list |
-| `events.json` | locally created calendar events |
-| `links.json` | saved links |
+| `todos.json`, `rounds.json` | legacy todo and OA/interview lists, used before explicit SQLite cutover |
+| `tasks.sqlite`, `task-storage.json` | selected SQLite database/version: v1 tasks/rounds, v2 adds four domain collections, v3 adds operational state |
+| `events.json` | local calendar events before v2 cutover |
+| `links.json` | saved links before v2 cutover |
+| `jobs.json`, `tech-events.json` | jobs and discovered events before v2 cutover |
 | `assistant.json` | pi session ids for the interactive and read-only briefing assistants |
-| `telegram-state.json` | successful daily-briefing deliveries for the current date |
+| `background-runs.json`, `job-scan.json`, `job-scoring.json`, `job-sweep.json` | background ownership, progress and cursors before v3 |
+| `tech-event-scan.json`, `round-scan.json` | scan checkpoints before v3 |
+| `telegram-state.json`, `job-digest-state.json` | daily-briefing/job delivery history before v3 |
 | `secrets.json` | Google, Notion, Telegram and transcription credentials plus Telegram settings — **mode 0600** |
 | `google.json` | Google refresh token — **a long-lived credential, mode 0600** |
-| `gmail-digest-state.json` | which chats got the email digest on which day |
-| `mail-review.json` | today's categorised email review |
-| `reminder-state.json` | which events have already been reminded about |
+| `gmail-digest-state.json` | email digest delivery history before v3 |
+| `mail-review.json` | categorised email review and locally handled flags before v3 |
+| `reminder-state.json` | event reminder history before v3 |
 
-The first five are plain JSON on purpose: `grep` them, put them in git, back them
-up like any other file.
+The six collections and 11 registered operational documents support an explicit,
+offline SQLite migration/upgrade with verified backups: see
+[storage and rollback](../../docs/robin-task-storage.md). After cutover, their legacy
+JSON is historical, not current. Export includes current state and delivery history;
+missing state files remain absent. Do not copy only the main database during WAL
+writes. Other domains retain their current storage; credentials remain separate.
 
 `secrets.json` and `google.json` are the exception — they hold standing
 credentials for your calendar, notes, and messaging accounts. Keep them out of any

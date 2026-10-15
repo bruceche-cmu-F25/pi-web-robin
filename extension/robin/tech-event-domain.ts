@@ -22,7 +22,7 @@ import {
   readTechEventScanState,
   readTechEvents,
   updateTechEventDetails,
-  writeTechEvents,
+  updateTechEvents,
 } from "./store.ts";
 
 export interface TechEventBoard {
@@ -66,9 +66,15 @@ export function techEventBoard(options: TechEventBoardOptions = {}): TechEventBo
   const scan = readTechEventScanState();
   if (options.autoScan !== false && isScanDue(scan, now)) startTechEventScan();
 
-  const stored = readTechEvents();
-  const live = stored.filter((event) => !hasPassed(event, now));
-  if (live.length !== stored.length) writeTechEvents(live);
+  const live = updateTechEvents((stored) => {
+    const live = stored.filter((event) => !hasPassed(event, now));
+    const changed = live.length !== stored.length;
+    if (changed) {
+      stored.length = 0;
+      for (const event of live) stored.push(event);
+    }
+    return { value: live, changed };
+  });
 
   return {
     events: sortTechEvents(live),
@@ -107,21 +113,20 @@ export type TechEventResult<T> = T | { error: string };
 export function setTechEventFlags(id: string, flags: TechEventFlags): TechEventResult<TechEvent> {
   if (!id) return { error: "id is required" };
 
-  const events = readTechEvents();
-  const index = events.findIndex((event) => event.id === id);
-  if (index < 0) return { error: `No event with id "${id}"` };
-
-  const { saved, hidden, ...rest } = events[index]!;
-  const nextSaved = flags.saved ?? saved;
-  const nextHidden = flags.hidden ?? hidden;
-  const updated: TechEvent = {
-    ...rest,
-    ...(nextSaved ? { saved: true } : {}),
-    ...(nextHidden ? { hidden: true } : {}),
-  };
-  events[index] = updated;
-  writeTechEvents(events);
-  return updated;
+  return updateTechEvents<TechEventResult<TechEvent>>((events) => {
+    const index = events.findIndex((event) => event.id === id);
+    if (index < 0) return { value: { error: `No event with id "${id}"` }, changed: false };
+    const { saved, hidden, ...rest } = events[index]!;
+    const nextSaved = flags.saved ?? saved;
+    const nextHidden = flags.hidden ?? hidden;
+    const updated: TechEvent = {
+      ...rest,
+      ...(nextSaved ? { saved: true } : {}),
+      ...(nextHidden ? { hidden: true } : {}),
+    };
+    events[index] = updated;
+    return { value: updated, changed: true };
+  });
 }
 
 export interface TechEventPage {

@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, beforeEach, test } from "node:test";
+import { resetTaskStore } from "./task-store.test-support.mjs";
 
 const previousDataDir = process.env.ROBIN_DATA_DIR;
 const dataDir = mkdtempSync(join(tmpdir(), "robin-calendar-domain-"));
@@ -26,7 +27,7 @@ const connect = () => {
 const disconnect = () => write("google.json", {});
 
 beforeEach(() => {
-  write("events.json", []);
+  resetTaskStore(dataDir);
   disconnect();
 });
 
@@ -66,6 +67,27 @@ test("a board that cannot be read at all still reports connected", async (t) => 
   assert.equal(board.google.connected, true);
   assert.ok(board.google.error);
   assert.deepEqual(board.events, []);
+});
+
+test("explicit navigation windows are validated even without a Google connection", async () => {
+  for (const options of [{ from: "2030-05-01" }, { to: "2030-05-31" },
+    { from: "2030-02-31", to: "2030-03-03" }, { from: "2030-06-01", to: "2030-05-01" },
+    { from: "2030-01-01", to: "2032-01-01" }]) await assert.rejects(calendarBoard(options));
+  assert.equal((await calendarBoard({ from: "2030-05-01", to: "2030-05-31" })).today, localDate());
+});
+test("Google is fetched for the visible month, not a fixed window around today", async (t) => {
+  connect();
+  write("google.json", { refreshToken: "refresh", accessToken: "fixture", accessTokenExpiresAt: Date.now() + 3_600_000 });
+  const urls = [];
+  t.mock.method(globalThis, "fetch", async (url) => {
+    urls.push(new URL(url));
+    return Response.json({ items: [], summary: "Calendar" });
+  });
+  await calendarBoard({ from: "2034-12-25", to: "2035-02-04" });
+  const request = urls.find((url) => url.pathname.endsWith("/events"));
+  assert.ok(request);
+  assert.equal(request.searchParams.get("timeMin"), new Date("2034-12-25T00:00:00").toISOString());
+  assert.equal(request.searchParams.get("timeMax"), new Date("2035-02-04T23:59:59").toISOString());
 });
 
 test("an event created through the domain shows up on the next board read", async () => {

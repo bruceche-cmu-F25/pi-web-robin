@@ -3,8 +3,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, beforeEach, test } from "node:test";
-import { addTodo, deleteTodo, listTodos } from "./todo-domain.ts";
+import { addTodo, listTodos } from "./todo-domain.ts";
 import { registerTodoTools } from "./todo-tools.ts";
+import { resetTaskStore } from "./task-store.test-support.mjs";
 
 const previousDataDir = process.env.ROBIN_DATA_DIR;
 const dataDir = mkdtempSync(join(tmpdir(), "robin-todo-tools-"));
@@ -19,9 +20,7 @@ after(() => {
 const tools = new Map();
 registerTodoTools({ registerTool: (tool) => tools.set(tool.name, tool) });
 
-beforeEach(() => {
-  for (const todo of listTodos({ includeDone: true }).todos) deleteTodo({ id: todo.id });
-});
+beforeEach(() => resetTaskStore(dataDir));
 
 function resultText(result) {
   return result.content[0].text;

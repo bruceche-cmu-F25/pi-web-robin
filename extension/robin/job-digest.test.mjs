@@ -3,10 +3,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, beforeEach, test } from "node:test";
+import { resetTaskStore } from "./task-store.test-support.mjs";
 
 const previous = process.env.ROBIN_DATA_DIR;
 const dir = mkdtempSync(join(tmpdir(), "robin-job-digest-"));
 process.env.ROBIN_DATA_DIR = dir;
+resetTaskStore(dir);
 
 const { buildJobDigest } = await import("./job-domain.ts");
 const { DEFAULT_JOB_PROFILE } = await import("./jobs.ts");

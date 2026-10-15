@@ -672,6 +672,16 @@ body {
   text-transform: uppercase;
 }
 
+/* Content-section headings share the page title's serif italic voice.
+   Keep data, group labels and controls upright; do not italicize whole cards. */
+.pi-section-title {
+  margin: 0;
+  color: var(--text);
+  font: italic 400 22px/1.25 var(--font-serif);
+  letter-spacing: normal;
+  text-transform: none;
+}
+
 /* A site's own icon, at the one size the app draws them.
 
    The tile is the point. A favicon is drawn for whatever background its own
@@ -1274,6 +1284,8 @@ body {
    words, the current one marked by the vertical stripe. The stripe is held to
    the text's height because the buttons stay 44px tall on touch screens. */
 .robin-assistant-row { min-height: 44px; }
+.robin-assistant-mobile-mode,
+.robin-assistant-submit-icon { display: none; }
 .robin-assistant-bar[data-mode="execute"] .robin-assistant-row {
   box-shadow: inset 2px 0 0 var(--accent);
 }
@@ -1321,6 +1333,20 @@ body {
 .robin-assistant-bar > :not(.robin-assistant-row) {
   margin: 0 12px 10px;
 }
+
+.robin-assistant-result-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: var(--bg-panel);
+}
+.robin-assistant-result-toolbar a { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; color: var(--accent); font-size: 13px; }
+.robin-assistant-result-toolbar button { flex-shrink: 0; min-width: 44px; min-height: 44px; font-size: 20px; }
+.robin-assistant-reply { max-height: min(320px, 35dvh); overflow-y: auto; overscroll-behavior: contain; }
 
 .robin-command-dialog {
   width: min(720px, calc(100% - 24px));
@@ -1437,6 +1463,103 @@ body {
 .robin-dashboard [class~="text-[10px]"] {
   font-size: 12px;
   line-height: 1rem;
+}
+
+.robin-agenda-event-title { font-size: 13.5px; }
+.robin-agenda-time { font-size: 10.5px; }
+.robin-readable-copy { overflow-wrap: anywhere; line-height: 1.5; }
+
+/* Phone dashboard: keep the document, but give typing and reading their own
+   rows instead of squeezing desktop controls into a thumb-wide column. */
+@media (max-width: 640px) {
+  .robin-dashboard {
+    --dashboard-body-size: 15px;
+    --dashboard-meta-size: 13px;
+    font-size: var(--dashboard-body-size);
+    line-height: 1.5;
+  }
+  .robin-dashboard :is(.pi-label, .pi-eyebrow, .pi-meta, time, .text-xs),
+  .robin-dashboard .robin-assistant-modes .ui-action,
+  .robin-dashboard .robin-agenda-time {
+    font-size: var(--dashboard-meta-size);
+    line-height: 1.4;
+    letter-spacing: 0;
+  }
+  .robin-dashboard .text-sm { font-size: var(--dashboard-body-size); line-height: 1.5; }
+  .robin-dashboard .text-lg { font-size: 18px; line-height: 1.4; }
+  .robin-dashboard h1 { font-size: 26px; }
+  .robin-dashboard .pi-section-title { font-size: 20px; }
+  .robin-dashboard main { padding: 12px; }
+  .robin-dashboard .pi-card { min-width: 0; padding: 12px; }
+  .robin-dashboard-header {
+    background: linear-gradient(var(--dashboard-ground), var(--dashboard-ground)), var(--bg);
+  }
+  .robin-dashboard main section[id] { scroll-margin-top: calc(96px + env(safe-area-inset-top)); }
+  /* One masthead row: mode, input and a full-sized submit target, beside the drawer button. */
+  .robin-dashboard .robin-assistant-row { flex-direction: row; }
+  .robin-dashboard .robin-assistant-modes { position: relative; width: 72px; flex-basis: 72px; padding: 0; border-right: 1px solid var(--border); }
+  .robin-dashboard .robin-assistant-modes::after { content: ""; position: absolute; right: 7px; top: 18px; width: 5px; height: 5px; border-right: 1px solid var(--text-muted); border-bottom: 1px solid var(--text-muted); transform: rotate(45deg); pointer-events: none; }
+  .robin-dashboard .robin-assistant-modes > button { display: none; }
+  .robin-dashboard .robin-assistant-modes .robin-assistant-mobile-mode {
+    display: block; width: 100%; min-height: 44px; padding: 0 18px 0 8px; border: 0; background: transparent; font-family: var(--font-serif); appearance: none; -webkit-appearance: none;
+  }
+  .robin-dashboard .robin-assistant-form { padding: 0 4px; gap: 0; }
+  .robin-dashboard .robin-assistant-glyph,
+  .robin-dashboard .robin-assistant-submit-label,
+  .robin-dashboard .robin-assistant-submit::before,
+  .robin-dashboard .robin-assistant-submit::after { display: none; }
+  .robin-dashboard .robin-assistant-submit { display: inline-flex; align-items: center; justify-content: center; width: 44px; min-height: 44px; padding: 0; }
+  .robin-dashboard .robin-assistant-submit-icon { display: inline-flex; }
+  /* A long reply must not make the sticky header taller than the screen. */
+  .robin-dashboard .robin-assistant-bar { max-height: 50dvh; overflow-y: auto; }
+  .robin-dashboard .robin-assistant-row { flex-shrink: 0; }
+  .robin-dashboard input:not([type="checkbox"]),
+  .robin-dashboard select,
+  .robin-dashboard textarea,
+  .robin-dashboard .robin-assistant-bar input:not([type="checkbox"]) {
+    min-width: 0;
+    min-height: 44px;
+    font-size: 16px; /* iOS otherwise zooms the page when a field receives focus. */
+  }
+  /* Calendar owns its toolbar/body insets; card padding must not squeeze them twice. */
+  .robin-dashboard .robin-calendar { padding: 0; }
+  .robin-dashboard .pi-card > header:not([data-calendar-toolbar]) { align-items: center; }
+  .robin-dashboard .pi-card > header .pi-chrome-label { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding-inline: 8px; }
+  .robin-dashboard .robin-panel-add { border: 1px solid var(--accent-line); background: var(--accent-soft); }
+  .robin-dashboard .robin-panel-add::before,
+  .robin-dashboard .robin-panel-add::after { display: none; }
+  .robin-agenda-event { min-height: 44px; flex-direction: column; align-items: flex-start; gap: 4px; padding-block: 8px; }
+  .robin-agenda-event-title { font-size: 15px; }
+  .robin-agenda-todo {
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
+    gap: 4px 8px;
+    padding-block: 8px;
+  }
+  .robin-agenda-todo > .pi-eyebrow { grid-column: 2; grid-row: 1; align-self: center; }
+  .robin-agenda-todo > .robin-agenda-check { grid-column: 1; grid-row: 1; width: 44px; min-height: 44px; }
+  .robin-agenda-todo > [data-calendar-todo] { grid-column: 3; grid-row: 1; width: 44px; min-height: 44px; }
+  .robin-agenda-todo > .robin-readable-text { grid-column: 1 / -1; grid-row: 2; }
+  .robin-agenda-todo > span:not(.pi-eyebrow) { grid-column: 1 / -1; grid-row: 3; }
+  #robin-todo-form { display: grid; grid-template-columns: minmax(0, 1fr); }
+  #robin-todo-form > label { min-width: 0; }
+  #dashboard-links .robin-link-fields { flex-direction: column; }
+  #dashboard-links .robin-link-fields input { width: 100%; }
+  #dashboard-links .robin-saved-link {
+    min-height: 44px;
+    white-space: normal;
+    overflow: visible;
+    overflow-wrap: anywhere;
+  }
+  #dashboard-links h3,
+  .robin-dashboard .robin-assistant-bar [role="region"] .truncate {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  #dashboard-links button.size-8 { min-width: 44px; flex-shrink: 0; }
+  /* Nested link editing aligns to the whole action menu, not its left-hand icon. */
+  .robin-todo-actions .robin-todo-link-editor { position: static; }
+  #dashboard-todos .robin-readable-text { margin-bottom: 4px; }
 }
 
 /* Square, accent-tinted scrollbars, as on pi.dev. */

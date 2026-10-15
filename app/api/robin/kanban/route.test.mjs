@@ -7,6 +7,7 @@ import { after, afterEach, beforeEach, mock, test } from "node:test";
 import { createJiti } from "jiti";
 import { addTodo, listTodos, updateTodo } from "../../../../extension/robin/todo-domain.ts";
 import { DEFAULT_PLANNING } from "../../../../extension/robin/kanban.ts";
+import { resetTaskStore } from "../../../../extension/robin/task-store.test-support.mjs";
 
 const previous = process.env.ROBIN_DATA_DIR;
 const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
@@ -29,8 +30,7 @@ after(() => {
 });
 beforeEach(() => {
   mock.timers.enable({ apis: ["Date"], now: new Date("2030-05-13T16:00:00Z") });
-  writeFileSync(join(dir, "todos.json"), "[]");
-  writeFileSync(join(dir, "events.json"), "[]");
+  resetTaskStore(dir);
   globalThis.__kanbanTestAgent = async (options) => {
     assert.deepEqual(options.toolNames, [], "untrusted calendar content never gets write tools");
     assert.equal(options.oneShot, true);

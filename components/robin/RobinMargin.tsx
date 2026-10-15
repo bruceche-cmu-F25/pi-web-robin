@@ -1,10 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { Fragment, useEffect, useRef, type ComponentType, type SVGProps } from "react";
+import { Fragment, useEffect, useRef, useState, type ComponentType, type SVGProps } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { FocusTimer } from "./FocusTimer";
 import { getInitialNavigation } from "@/lib/initial-navigation";
+import { hermesHrefForHost } from "@/lib/hermes-navigation";
 import { triageOf, type MailReview } from "@/extension/robin/mail";
 import type { Job } from "@/extension/robin/jobs";
 import type { PracticeRecord } from "@/extension/robin/practice";
@@ -88,6 +90,14 @@ function NavBadge({ status, actionLabel, newLabel }: {
   return null;
 }
 
+// Start with the audited overview pages, not entire path prefixes. Editors rely
+// on beforeunload/pagehide; keep BOTH entry and exit native so browser Back from
+// an editor cannot bypass its guard. Chat keeps its existing teardown behavior.
+const CLIENT_NAVIGATION_PATHS = new Set([
+  "/dashboard", "/dashboard/gmail", "/dashboard/jobs", "/dashboard/events",
+  "/learn", "/podcasts",
+]);
+
 function NavEntry({ item, pathname, onNavigate }: {
   item: NavItem;
   pathname: string;
@@ -96,6 +106,8 @@ function NavEntry({ item, pathname, onNavigate }: {
   const { t } = useI18n();
   const current = isCurrent(pathname, item);
   const IconComponent = item.icon;
+  const clientNavigation = CLIENT_NAVIGATION_PATHS.has(pathname) && CLIENT_NAVIGATION_PATHS.has(item.path);
+  const NavigationLink = clientNavigation ? Link : "a";
   const linkRef = useRef<HTMLAnchorElement>(null);
   useEffect(() => {
     if (current && window.matchMedia("(min-width: 960px)").matches) {
@@ -104,9 +116,11 @@ function NavEntry({ item, pathname, onNavigate }: {
   }, [current]);
 
   return (
-    <a
+    <NavigationLink
       ref={linkRef}
       href={item.href}
+      // Avoid preloading every workspace; this change only removes full reloads.
+      {...(clientNavigation ? { prefetch: false } : {})}
       onClick={onNavigate}
       className={`robin-nav-entry${current ? " is-current" : ""}`}
       aria-current={current ? "page" : undefined}
@@ -120,7 +134,7 @@ function NavEntry({ item, pathname, onNavigate }: {
         actionLabel={(count) => t("robin.nav.actionCount", { count })}
         newLabel={t("robin.nav.newContent")}
       />
-    </a>
+    </NavigationLink>
   );
 }
 
@@ -147,6 +161,10 @@ export function RobinMargin({ drawer, onClose, onNavigate, chatContext }: {
       ? `${path}?cwd=${encodeURIComponent(cwd)}`
       : path;
   const chatHref = withChatContext("/");
+  const [hermesHref, setHermesHref] = useState<string | null>(null);
+  useEffect(() => {
+    setHermesHref(hermesHrefForHost(window.location.hostname));
+  }, []);
 
   const todos = usePolledResource<TodosResponse>("/api/robin/todos", 60_000).data;
   const gmail = usePolledResource<GmailResponse>("/api/robin/gmail", 60_000).data;
@@ -190,13 +208,6 @@ export function RobinMargin({ drawer, onClose, onNavigate, chatContext }: {
       tone: "clay",
       status: { count: dashboardActions },
       exact: true,
-    },
-    {
-      href: withChatContext("/dashboard/kanban"),
-      path: "/dashboard/kanban",
-      label: t("robin.nav.kanban"),
-      icon: KanbanIcon,
-      tone: "slate",
     },
     {
       href: withChatContext("/dashboard/gmail"),
@@ -319,6 +330,16 @@ export function RobinMargin({ drawer, onClose, onNavigate, chatContext }: {
             <NavEntry item={item} pathname={pathname} onNavigate={onNavigate} />
           </Fragment>
         ))}
+        {hermesHref && (
+          <a href={hermesHref} rel="noreferrer" className="robin-nav-entry" onClick={onNavigate}>
+            <span className="robin-nav-icon" style={{ color: "var(--todo-slate)" }}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                <path d="M14 3h7v7M21 3l-9 9M10 5H3v16h16v-7" />
+              </svg>
+            </span>
+            <span className="robin-nav-label">Hermes</span>
+          </a>
+        )}
       </nav>
     </div>
   );
@@ -326,10 +347,6 @@ export function RobinMargin({ drawer, onClose, onNavigate, chatContext }: {
 
 function DashboardIcon(props: SVGProps<SVGSVGElement>) {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /></svg>;
-}
-
-function KanbanIcon(props: SVGProps<SVGSVGElement>) {
-  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}><rect x="3" y="3" width="18" height="18" /><path d="M9 3v18M15 3v18M5 7h2M11 7h2M17 7h2M5 11h2M11 11h2M5 15h2" /></svg>;
 }
 
 function GmailIcon(props: SVGProps<SVGSVGElement>) {

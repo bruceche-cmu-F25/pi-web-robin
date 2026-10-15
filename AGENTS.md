@@ -185,6 +185,10 @@ extension/robin/      the Robin pi extension — symlinked from ~/.pi/agent/exte
   index.ts            composition root; registers each domain's tools, nothing else
   tools.ts            the six capability-scoped tool allow-lists (see "Robin tool scoping")
   store.ts            JSON file store under ~/.pi/robin — only *-domain.ts reads it
+  task-store.ts       selected collection persistence: SQLite after cutover, JSON before
+  task-schema.ts      versioned catalogue: v1 tasks/rounds, v2 four domains, v3 runtime state
+  runtime-state-schema.ts  11 operational object filenames and shape checks
+  task-migration.ts   offline verified import/upgrade + current-data JSON snapshot export
   *-domain.ts         one per domain; HTTP and Pi tools are adapters over these.
                       CONTEXT.md defines the vocabulary they use.
   *-tools.ts          the Pi tool adapters, one file per domain
@@ -330,6 +334,16 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - Each domain owns its invariants in one `extension/robin/*-domain.ts`; the HTTP route and the Pi tool are both adapters over it. `todo-domain.ts` + `api/robin/todos` + `todo-tools.ts` is the reference shape.
 - `store.ts` is the file store, not a domain interface. No route and nothing in `lib/` imports it; keep it that way. A domain function with no home belongs *moved out* of `store.ts`, not wrapped — a wrapper that only forwards is indirection, not a seam.
 - Tests go at the domain interface (`domain-writes.test.mjs`), asserting outcomes rather than file contents.
+
+### Robin task SQLite cutover
+- `task-store.ts` uses Node's built-in `node:sqlite` (existing Node >=22.19 requirement); domain/HTTP/tool interfaces stay unchanged. Schema v1 owns todos/rounds; v2 adds local events, saved links, jobs and tech events; v3 adds `runtime_state`, one row per registered operational object. `runtime-state-schema.ts` names the 11 files: background leases, job scan/scoring/sweep state, tech-event/round checkpoints, four delivery ledgers and mail review. Other domains, profiles/caches/credentials and Pi's session JSONL stay on their current storage.
+- `task-storage.json` selects `tasks.sqlite`; absent means JSON, v1/v2 are supported mixed storage, v3 puts the six collections and registered operational state in SQLite. Never silently fall back if the database is missing, corrupt, newer or mismatched with its selector, even for a state file that has not yet migrated. No dual writes or edits to migrated files' old JSON. State is read/upserted by primary key; missing state rows are null, never a fallback to JSON.
+- Upgrade imports only newly introduced collections/state. Existing SQLite data is never reimported from stale JSON. Upgrade backups use a verified/fsynced `VACUUM INTO` snapshot, including WAL; new tables/data/version/migration metadata commit together. If COMMIT succeeded but selector publication failed, ordinary requests fail closed; rerun offline migration to finish from committed metadata, never legacy JSON. An interrupted older v1 → v2 commit is recovered before advancing to v3. Adding operational filenames requires another versioned migration, not merely extending the allow-list.
+- Migrate with `npm run robin:storage -- migrate --writers-stopped` only after stopping every writer (Web, Pi, Telegram, runners). The flag acknowledges that the operator stopped them; it does not stop services. `check` is read-only; `export <new-directory>` snapshots all six collections plus operational state, including post-migration writes; mixed/JSON exports require stopped writers for cross-file consistency. See `docs/robin-task-storage.md` for backup, crash recovery and rollback.
+- SQLite transactions are synchronous, short, and shared across nested domain calls through a global per-path context; no awaits/network inside them. `updateRound` mirrors todo state inside the same transaction. Missing todos are historical references, but storage errors must propagate and roll back. WAL is not permission to copy only the main DB file during writes.
+- Tech-event flag edits, expiry and scan merging use the same storage transaction/file lock. The scan ownership fence encloses a fresh merge, never publication of a stale list. In v3 its list and checkpoint commit together. Background/sweep ownership fences also share transactions with their synchronous domain writes. Before v3, acquire the JSON ownership lock before any SQLite writer transaction, not the reverse.
+- V3 preserves leases/cursors, legacy single-run delivery shapes, extra fields and missing documents; migration never expires owners, trims history or sends anything. Ledger marks and mail completion merge atomically. Delivery `pending`/network-send/`mark` is still not an exactly-once protocol; do not put network calls in a transaction or promise that migration fixes send/mark crash windows.
+- Domain/adapter test fixtures default to SQLite; run with `ROBIN_TEST_TASK_BACKEND=json` to verify transitional JSON paths too. A JSON rollback must archive old source JSON and restore all six collections AND operational files; entries in the export's `missingStateFiles` must stay absent so stale state is not resurrected.
 
 ### Robin tool scoping
 - `extension/robin/tools.ts` holds six allow-lists, one per assistant turn. The assistant route requests exact tool activation, so coding builtins stay inactive — naming a tool there is the security boundary, and each list carries its reason in a comment.

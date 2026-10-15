@@ -4,7 +4,7 @@ import test from "node:test";
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
 
-test("Daily puts Learning Hub in its own full-width row below Jobs", () => {
+test("Daily keeps Learning after Jobs in document order at every layout width", () => {
   assert.match(read("./Dashboard.tsx"), /<JobsPanel \/>\s*<LearningPanel \/>\s*<LinksPanel \/>/);
 });
 

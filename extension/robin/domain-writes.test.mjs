@@ -8,10 +8,12 @@ import { deleteLink, updateLink } from "./link-domain.ts";
 import { mailBoard, markMailDone, saveMailReview } from "./mail-domain.ts";
 import { addTodo, completeTodo, listTodos, updateTodo } from "./todo-domain.ts";
 import { readJobs, readLinks, writeJobs, writeLinks, writeMailReview } from "./store.ts";
+import { resetTaskStore } from "./task-store.test-support.mjs";
 
 const previousDataDir = process.env.ROBIN_DATA_DIR;
 const dataDir = mkdtempSync(join(tmpdir(), "robin-domain-writes-"));
 process.env.ROBIN_DATA_DIR = dataDir;
+resetTaskStore(dataDir);
 
 after(() => {
   rmSync(dataDir, { recursive: true, force: true });

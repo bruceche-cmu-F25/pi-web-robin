@@ -27,11 +27,13 @@ test("the workspace gets its way out from the shared bar, not its own links", as
   // shows you where you are.
   assert.match(await read("RobinMargin.tsx"), /covers: \["\/coding"\]/);
 
-  // Checked across the whole workspace, not just the file that draws them: a
-  // client-side RSC fetch fails silently on a Basic Auth 401, so a next/link
-  // added anywhere in here would leave the user on a page whose controls all
-  // look dead.
-  for (const name of [...WORKSPACE_FILES, "RobinMargin.tsx"]) {
+  // Workspace navigation remains native in this incremental rollout. The
+  // shared bar only enables client navigation between audited overview paths.
+  const margin = await read("RobinMargin.tsx");
+  const enabled = margin.match(/const CLIENT_NAVIGATION_PATHS = new Set\(\[([\s\S]*?)\]\)/)?.[1];
+  assert.ok(enabled);
+  assert.doesNotMatch(enabled, /"\/coding"/);
+  for (const name of WORKSPACE_FILES) {
     assert.doesNotMatch(await read(name), /from ["']next\/link["']/, `${name} must not use next/link`);
   }
 });

@@ -7,9 +7,11 @@ import { DEFAULT_JOB_PROFILE, digestCandidates, pendingJobs } from "./jobs.ts";
 import { ELIGIBILITY_CHECKS, jobSummary, scoringContext } from "./job-evidence.ts";
 import { scoreJob, getJobDetails } from "./job-domain.ts";
 import { readJobs, writeJobs, writeJobProfile } from "./store.ts";
+import { resetTaskStore } from "./task-store.test-support.mjs";
 
 const previous = process.env.ROBIN_DATA_DIR;
 process.env.ROBIN_DATA_DIR = mkdtempSync(join(tmpdir(), "robin-job-evidence-"));
+resetTaskStore(process.env.ROBIN_DATA_DIR);
 after(() => {
   rmSync(process.env.ROBIN_DATA_DIR, { recursive: true, force: true });
   if (previous === undefined) delete process.env.ROBIN_DATA_DIR;

@@ -80,6 +80,7 @@ export const SeriesPaletteContext = createContext<SeriesPalette | null>(null);
 export function useEventSurface(): {
   timed: (event: DashboardEvent) => EventSurface;
   span: (event: DashboardEvent) => EventSurface;
+  marker: (event: DashboardEvent) => string;
 } {
   const palette = useContext(SeriesPaletteContext);
 
@@ -94,6 +95,7 @@ export function useEventSurface(): {
   };
 
   return {
+    marker: (event) => `var(--event-${palette?.get(seriesSeed(event)) ?? eventColorKey(event)})`,
     /** Something that happens at a time: a chip in the month grid, a block in the week. */
     timed: (event) => surface(event, "-faint"),
     /** Something that spans days: the bars across a month row or the all-day band. */

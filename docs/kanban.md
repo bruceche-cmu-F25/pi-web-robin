@@ -55,14 +55,16 @@ copied components; Pi's existing typography, straight edges and theme tokens sta
   ordinary todo/calendar/round queries unless explicitly requested.
 - Completed history is no longer automatically pruned. Previously pruned records
   are not recovered. Task writes, including batch acceptance, are atomic under
-  the same file lock.
+  a SQLite transaction after [explicit cutover](robin-task-storage.md), or the
+  existing file lock before cutover.
 
 ## Editing and navigation safety
 
 - The editor submits only fields that actually changed. Todo GET/POST/PATCH
   responses include a computed per-task `revision`, never stored on the task.
   Kanban sends it on edits, deletion, review, and next/status/plan actions. The
-  domain checks it under the existing file lock and HTTP returns 409 on conflict.
+  domain checks it inside the storage transaction (legacy JSON: file lock), and
+  HTTP returns 409 on conflict.
   Unrelated task updates do not conflict. Legacy tools/clients may omit revisions.
 - Dirty drafts are saved to this tab's sessionStorage with their original base
   values and revision. Reopening after a reload restores them without bypassing

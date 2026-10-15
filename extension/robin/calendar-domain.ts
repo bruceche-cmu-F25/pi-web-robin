@@ -1,5 +1,5 @@
 /** Calendar behavior shared by the HTTP and Pi tool adapters. */
-import { addDays, localDate, normalizeDue } from "./dates.ts";
+import { addDays, localDate, normalizeDue, parseLocalDate } from "./dates.ts";
 import { normalizeTime, type CalendarEvent, type DashboardEvent } from "./events.ts";
 import { fetchEventsWithWarnings, isConnected } from "./google-calendar.ts";
 import { newId, readEvents, updateEvents } from "./store.ts";
@@ -27,6 +27,9 @@ export interface CalendarBoardOptions {
    */
   before?: number;
   after?: number;
+  /** Explicit visible window for calendar navigation, both inclusive. */
+  from?: string;
+  to?: string;
 }
 
 /**
@@ -43,11 +46,16 @@ export interface CalendarBoardOptions {
  */
 export async function calendarBoard(options: CalendarBoardOptions = {}): Promise<CalendarBoard> {
   const today = localDate();
+  if (options.from !== undefined || options.to !== undefined) {
+    if (!options.from || !options.to) throw new Error("Both from and to dates are required");
+    parseLocalDate(options.from); parseLocalDate(options.to);
+    if (options.to < options.from || options.to > addDays(options.from, 366)) throw new Error("Calendar range must be between 1 and 367 days");
+  }
   const events: DashboardEvent[] = readEvents();
   if (!isConnected()) return { events, today, google: { connected: false } };
 
-  const from = addDays(today, -(options.before ?? 45));
-  const to = addDays(today, options.after ?? 75);
+  const from = options.from ?? addDays(today, -(options.before ?? 45));
+  const to = options.to ?? addDays(today, options.after ?? 75);
   try {
     const pulled = await fetchEventsWithWarnings(from, to);
     return {
@@ -79,7 +87,11 @@ export interface CalendarEventInput {
   location?: unknown;
 }
 
-export function createCalendarEvent(input: CalendarEventInput): CalendarEvent {
+function normalizeEventInput(input: CalendarEventInput) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Expected an event object");
+  for (const key of ["title", "date", "endDate", "start", "end", "location"] as const) {
+    if (input[key] !== undefined && typeof input[key] !== "string") throw new Error(`${key} must be a string`);
+  }
   const title = typeof input.title === "string" ? input.title.trim() : "";
   if (!title) throw new Error("title is required");
   if (typeof input.date !== "string" || !input.date.trim()) throw new Error("date is required");
@@ -95,17 +107,59 @@ export function createCalendarEvent(input: CalendarEventInput): CalendarEvent {
     throw new Error(`End ${end} is before start ${start}`);
   }
   const location = typeof input.location === "string" ? input.location.trim() : "";
-  const event: CalendarEvent = {
-    id: newId(), title, date,
+  return {
+    title, date,
     ...(endDate && endDate > date ? { endDate } : {}),
     ...(start ? { start } : {}),
     ...(end ? { end } : {}),
     ...(location ? { location } : {}),
-    createdAt: new Date().toISOString(),
   };
+}
+
+/** A UI draft keeps one request id across retries, including a lost HTTP response. */
+export function createCalendarEvent(input: CalendarEventInput, requestId?: unknown): CalendarEvent {
+  if (requestId !== undefined && (typeof requestId !== "string" || !/^[a-f0-9]{32}$/.test(requestId))) {
+    throw new Error("requestId must be 32 lowercase hexadecimal characters");
+  }
+  const normalized = normalizeEventInput(input);
+  const event: CalendarEvent = { ...normalized, id: requestId ? `calendar:${requestId}` : newId(), createdAt: new Date().toISOString() };
   return updateEvents((events) => {
+    const existing = requestId ? events.find((item) => item.id === event.id) : undefined;
+    if (existing) {
+      // Never silently overwrite a saved event if the draft was edited after an uncertain response.
+      const keys = ["title", "date", "endDate", "start", "end", "location"] as const;
+      if (keys.some((key) => (existing[key] ?? "") !== (normalized[key] ?? ""))) {
+        throw new Error("This draft was already saved. Close it and reopen the saved event to edit.");
+      }
+      return { value: existing, changed: false };
+    }
     events.push(event);
     return { value: event, changed: true };
+  });
+}
+
+/** Compare and patch under the same storage lock/transaction; never upsert a missing or Google event. */
+export function updateCalendarEvent(id: string, input: CalendarEventInput, expected: CalendarEventInput):
+  { status: "updated"; event: CalendarEvent } | { status: "missing" | "conflict" } {
+  const keys = ["title", "date", "endDate", "start", "end", "location"] as const;
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Expected an event patch");
+  if (!expected || typeof expected !== "object" || keys.some((key) => typeof expected[key] !== "string")) {
+    throw new Error("Expected the original event fields");
+  }
+  return updateEvents<ReturnType<typeof updateCalendarEvent>>((events) => {
+    const index = events.findIndex((event) => event.id === id);
+    if (index < 0) return { value: { status: "missing" as const }, changed: false };
+    const current = events[index]!;
+    if (keys.some((key) => (current[key] ?? "") !== expected[key])) {
+      return { value: { status: "conflict" as const }, changed: false };
+    }
+    const merged: CalendarEventInput = { ...current };
+    for (const key of keys) if (Object.hasOwn(input, key)) merged[key] = input[key];
+    const normalized = normalizeEventInput(merged);
+    // Clear optional fields explicitly, while retaining metadata not owned by the editor.
+    const event: CalendarEvent = { ...current, endDate: undefined, start: undefined, end: undefined, location: undefined, ...normalized };
+    events[index] = event;
+    return { value: { status: "updated" as const, event }, changed: true };
   });
 }
 

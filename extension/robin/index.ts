@@ -19,7 +19,7 @@ import { registerNotionTools } from "./notion-tools.ts";
 import { registerPracticeTools } from "./practice-tools.ts";
 import { registerProductTools } from "./product-tools.ts";
 import { registerFsoTools } from "./fso-tools.ts";
-import { dataPath } from "./paths.ts";
+import { taskStoragePath } from "./task-store.ts";
 import { registerProviderTools } from "./provider-tools.ts";
 import { registerRoundTools } from "./round-tools.ts";
 import { listTodos } from "./todo-domain.ts";
@@ -44,7 +44,7 @@ const robin = (pi: ExtensionAPI) => {
     handler: async (_args, ctx) => {
       const { todos } = listTodos({ includeDone: true });
       const open = todos.filter((todo) => !todo.done).length;
-      ctx.ui.notify(`Robin store: ${dataPath("todos.json")} — ${todos.length} todo(s), ${open} open.`);
+      ctx.ui.notify(`Robin store: ${taskStoragePath()} — ${todos.length} todo(s), ${open} open.`);
     },
   });
 };

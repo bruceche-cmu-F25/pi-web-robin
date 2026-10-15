@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import Link from "next/link";
 import { useI18n } from "@/hooks/useI18n";
 import { localDate } from "@/extension/robin/dates";
 import { PLAYBOOK, PLAYBOOK_STEPS, nextStep, playbookStep, type PlaybookStep, type StepId } from "@/extension/robin/product-playbook";
@@ -13,7 +12,9 @@ import type { Idea, IdeaLink, ProductCapture, ProductLibraryResource } from "@/e
 import { compressImageFile } from "@/components/ChatInput";
 import { useProductAgent } from "./ProductIncubatorShell";
 import { ProductResourceShelf } from "./ProductResourceShelf";
-import { ProductOpportunities } from "./ProductOpportunities";
+import { ProductResearch } from "./ProductResearch";
+import { ProductLaunchMap } from "./ProductLaunchMap";
+import { ProductGlyph } from "./ProductGlyph";
 import { productCopy, researchBrief, type ProductCopy } from "./product-copy";
 import { categoryChip, stepSurface } from "./productSurface";
 import { usePolledResource } from "./usePolledResource";
@@ -29,6 +30,12 @@ interface IdeasResponse {
 const NOTE_AUTOSAVE_MS = 1_000;
 
 type IdeaFilter = "active" | "attention" | "parked" | StepId;
+type WorkspaceView = "discover" | "map" | "ideas";
+function workspaceView(params: { get: (key: string) => string | null }): WorkspaceView {
+  const view = params.get("view");
+  if (view === "map" || view === "ideas" || view === "discover") return view;
+  return params.get("idea") || params.get("stage") ? "ideas" : "discover";
+}
 
 function ideaFilter(value: string | null): IdeaFilter {
   if (value === "attention" || value === "parked" || PLAYBOOK_STEPS.includes(value as StepId)) return value as IdeaFilter;
@@ -55,7 +62,7 @@ async function jsonRequest<T>(url: string, method: string, body: unknown): Promi
   return parsed;
 }
 
-/** A workbench, not a portfolio dashboard: ideas first, tools on demand. */
+/** Evidence first; research, the reference map and the user's notes stay distinct. */
 export function ProductIdeas() {
   const { locale } = useI18n();
   const searchParams = useSearchParams();
@@ -69,18 +76,20 @@ export function ProductIdeas() {
   const [openId, setOpenId] = useState<string | null>(() => searchParams.get("idea") || null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [filter, setFilter] = useState<IdeaFilter>(() => ideaFilter(searchParams.get("stage")));
-  const [roadmapStep, setRoadmapStep] = useState<StepId>(() => {
-    const stage = ideaFilter(searchParams.get("stage"));
-    return PLAYBOOK_STEPS.includes(stage as StepId) ? stage as StepId : "spot";
-  });
+  const [view, setView] = useState<WorkspaceView>(() => workspaceView(searchParams));
   const [libraryOpen, setLibraryOpen] = useState(false);
 
   useEffect(() => {
     const stage = ideaFilter(searchParams.get("stage"));
     setFilter(stage);
-    if (PLAYBOOK_STEPS.includes(stage as StepId)) setRoadmapStep(stage as StepId);
+    setView(workspaceView(searchParams));
     setOpenId(searchParams.get("idea") || null);
   }, [searchParams]);
+
+  const chooseView = (next: WorkspaceView) => {
+    setView(next);
+    writeUrlState({ view: next });
+  };
 
   const chooseFilter = (next: IdeaFilter) => {
     setFilter(next);
@@ -94,15 +103,6 @@ export function ProductIdeas() {
 
   const ideas = useMemo(() => data?.ideas ?? [], [data?.ideas]);
   const today = localDate();
-  // The pipeline itself, with your ideas counted along it — the page saying
-  // what the steps are, which is the thing it was missing.
-  const counts = useMemo(
-    () => PLAYBOOK.map((step) => ({
-      step,
-      n: ideas.filter((idea) => idea.step === step.id && !idea.parked).length,
-    })),
-    [ideas],
-  );
   const parked = useMemo(() => ideas.filter((idea) => idea.parked).length, [ideas]);
   // The decision queue uses the same attention rules as each idea card.
   const needsAttention = useMemo(
@@ -132,63 +132,47 @@ export function ProductIdeas() {
 
   return (
     <main className={`${styles.page} flex flex-1 flex-col overflow-y-auto`} style={{ minWidth: 0, minHeight: 0 }}>
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 p-4 desktop:p-6">
-        <nav aria-label={zh ? "产品页导航" : "Product page sections"} className={styles.pageNav}>
-          <a href="#product-journey" className="ui-action">{zh ? "01 路线图" : "01 Roadmap"}</a>
-          <a href="#product-workbench" className="ui-action">{zh ? "02 我的项目" : "02 My projects"}</a>
-          <a href="#product-opportunities" className="ui-action">{zh ? "03 机会列表" : "03 Opportunities"}</a>
-          <a href="#product-toolkit" className="ui-action">{zh ? "04 工具箱" : "04 Toolkit"}</a>
+      <div className={styles.content}>
+        <nav aria-label={zh ? "产品工作区" : "Product workspace"} className={styles.pageNav}>
+          {(["discover", "map", "ideas"] as const).map((item) => <button key={item} type="button" className="ui-action" aria-pressed={view === item} aria-controls={`product-view-${item}`} onClick={() => chooseView(item)}>
+            <span className={styles.navIcon}><ProductGlyph name={item === "discover" ? "market" : item === "map" ? "map" : "idea"} /></span>
+            <span className={styles.navText}>{({ discover: zh ? "机会研究" : "Opportunities", map: zh ? "产品全景图" : "Product map", ideas: zh ? "我的想法" : "My ideas" })[item]}{item === "ideas" && data ? <span className={styles.navCount}>{ideas.length}</span> : null}</span>
+          </button>)}
+          <a href="/product/jarvis" className={`ui-action ${styles.crmLink}`} title={zh ? "找人、访谈与跟进" : "People, interviews & follow-up"}><span className={styles.navIcon}><ProductGlyph name="people" /></span>CRM ↗</a>
         </nav>
-        <section aria-labelledby="product-journey" className="flex flex-col gap-3">
-          <header className="flex flex-wrap items-baseline justify-between gap-2">
-            <h2 id="product-journey" className="pi-label">{zh ? "从选题到上线 · 产品路线图" : "From idea to launch · Product roadmap"}</h2>
-            <span className="pi-eyebrow">{zh ? "按阶段点开，照着做，不是自动打勾的任务" : "Choose a stage; a guide, not an automatic checklist"}</span>
-          </header>
-          <p className="text-xs" style={{ color: "var(--text-muted)" }}>{zh ? "点一个阶段看做法与原始案例，也会筛选下方项目；再点同一阶段恢复全部项目。" : "Choose a stage for its actions and sources; it also filters your projects below. Choose it again to see all projects."}</p>
-          <div className={styles.roadmapSheet}>
-          <div className={styles.journey} role="group" aria-label={copy.step}>
-            {counts.map(({ step, n }, index) => {
-              const surface = stepSurface(step.id);
-              return (
-                <button
-                  key={step.id}
-                  type="button"
-                  aria-pressed={roadmapStep === step.id}
-                  aria-controls="product-roadmap-detail"
-                  onClick={() => { setRoadmapStep(step.id); chooseFilter(filter === step.id ? "active" : step.id); }}
-                  className={`ui-action ${styles.stage}`}
-                  data-selected={roadmapStep === step.id}
-                  data-empty={data ? n === 0 : undefined}
-                  style={{ "--stage-color": surface.ink } as CSSProperties}
-                >
-                  <span className={`pi-eyebrow ${styles.stageIndex}`} aria-hidden="true">0{index + 1}</span>
-                  <span className={styles.stageName}>{step.name[zh ? "zh" : "en"]}</span>
-                  <span className={`pi-eyebrow ${styles.stageCount}`}>{data ? n : "—"}</span>
-                </button>
-              );
-            })}
-          </div>
-          <RoadmapDetail step={playbookStep(roadmapStep)} locale={locale} />
-          </div>
-        </section>
+
+        <div id="product-view-discover" hidden={view !== "discover"}>
+          <ProductResearch zh={zh} onRefresh={refresh} onCreated={async (idea) => {
+            await refresh();
+            setView("ideas"); setFilter(idea.parked ? "parked" : "active"); setOpenId(idea.id);
+            writeUrlState({ view: "ideas", stage: idea.parked ? "parked" : null, idea: idea.id });
+          }} />
+        </div>
+        <div id="product-view-map" hidden={view !== "map"}>
+          <ProductLaunchMap zh={zh} ideas={ideas} ideaId={openId} onChoose={chooseIdea} onRefresh={refresh} />
+        </div>
 
         {error || libraryError || actionError ? (
           <p role="alert" className="pi-panel p-3 text-sm" style={{ color: "var(--danger)" }}>{error ?? libraryError ?? actionError}</p>
         ) : null}
 
-        <div className={styles.workbench}>
+        <div id="product-view-ideas" hidden={view !== "ideas"} className={styles.workbench}>
           <section className="flex min-w-0 flex-col gap-4" aria-labelledby="product-workbench">
             <header className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <h2 id="product-workbench" className="text-lg" style={{ color: "var(--text)" }}>{copy.workspace}</h2>
-                <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>{copy.workspaceHint}</p>
+                <span className="pi-eyebrow">{zh ? "YOUR WORK / 从一个小实验开始" : "YOUR WORK / START WITH ONE SMALL TEST"}</span>
+                <h2 id="product-workbench" className="text-2xl mt-2" style={{ color: "var(--text)" }}>{copy.workspace}</h2>
+                <p className="mt-2 text-sm" style={{ color: "var(--text-muted)" }}>{zh ? "把灵感留下，把选定的项目往前推进。打开一个想法的全景图，写清下一步。" : "Capture new ideas and move your chosen projects forward. Open an idea’s product map to plan your next step."}</p>
               </div>
-              <a href="#product-capture-title" className={`ui-action pi-bracket min-h-[44px] content-center text-xs ${styles.captureShortcut}`}>{copy.directIdea}</a>
+              <div className="flex flex-wrap items-center gap-3">
+                <select aria-label={zh ? "按项目阶段筛选" : "Filter by project stage"} value={selectedStep?.id ?? "active"} onChange={(event) => chooseFilter(event.target.value as IdeaFilter)} className="pi-panel min-h-11 px-2 text-xs">
+                  <option value="active">{zh ? "全部阶段" : "All stages"}</option>
+                  {PLAYBOOK.map((step) => <option key={step.id} value={step.id}>{step.name[zh ? "zh" : "en"]}</option>)}
+                </select>
+                <a href="#product-capture-title" className={`ui-action pi-bracket min-h-[44px] content-center text-xs ${styles.captureShortcut}`}>{copy.directIdea}</a>
+              </div>
             </header>
-            {/* The step row above already filters by step and counts what is in
-                progress. These views only earn a row when there is something to
-                decide or something set aside — otherwise it is a lone tab
-                repeating the count beside the heading. */}
+            {/* These views filter personal work only, never the reference map. */}
             {showViews ? (
               <div className={styles.filters} role="group" aria-label={copy.ideas}>
                 {([
@@ -229,6 +213,7 @@ export function ProductIdeas() {
                   onToggle={() => chooseIdea(openId === idea.id ? null : idea.id)}
                   onAct={act}
                   onGone={() => chooseIdea(null, "replace")}
+                  onPlan={() => { chooseIdea(idea.id); chooseView("map"); }}
                 />
               ))}
             </ul>
@@ -241,16 +226,15 @@ export function ProductIdeas() {
             locale={locale}
             onDone={async () => { await Promise.all([refresh(), refreshLibrary()]); }}
             onCreated={(idea) => {
+              setView("ideas");
               setFilter("active");
               setOpenId(idea.id);
-              writeUrlState({ stage: null, idea: idea.id });
+              writeUrlState({ view: "ideas", stage: null, idea: idea.id });
             }}
           />
         </div>
 
-        <ProductOpportunities onSave={refresh} />
-
-        <section className="border-t pt-5" style={{ borderColor: "var(--border)" }} aria-labelledby="product-toolkit">
+        <section hidden={view !== "map"} className="border-t pt-5" style={{ borderColor: "var(--border)" }} aria-labelledby="product-toolkit">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 id="product-toolkit" className="pi-label">{copy.resources}</h2>
@@ -269,91 +253,13 @@ export function ProductIdeas() {
             />
           </div>
         </section>
-        <Link href="/outreach" className="pi-panel ui-action flex flex-wrap items-center justify-between gap-4 p-4" style={{ borderLeft: "3px solid var(--accent)" }}>
-          <div className="min-w-0"><span className="pi-eyebrow">COLD REACH · OUTREACH</span><h2 className="mt-2 text-sm">{zh ? "已经有明确买家？去找人、联系与跟进。" : "Know your buyer? Find people, contact and follow up."}</h2></div>
-          <span className="pi-bracket text-xs">{zh ? "打开" : "Open"}</span>
-        </Link>
       </div>
     </main>
   );
 }
 
-const CASE_IMAGES: Record<string, { src: string; alt: string }> = {
-  "https://www.starterstory.com/stories/the-1m-mobile-app-playbook": {
-    src: "/robin/product-roadmap/mobile-playbook.jpg",
-    alt: "Starter Story video cover: founder holding a phone with a $1M headline",
-  },
-  "https://www.starterstory.com/stories/fastlane-create-winning-short-form-content-in-seconds": {
-    src: "/robin/product-roadmap/fastlane.jpg",
-    alt: "Fastlane product landing page screenshot from the founder story",
-  },
-};
-
-/** A reference roadmap, not stored progress: only an idea's step is user-owned. */
-function RoadmapDetail({ step, locale }: { step: PlaybookStep; locale: string }) {
-  const zh = locale.startsWith("zh");
-  const lang = zh ? "zh" : "en";
-  const index = PLAYBOOK_STEPS.indexOf(step.id) + 1;
-  const surface = stepSurface(step.id);
-  return (
-    <article id="product-roadmap-detail" className={styles.roadmapDetail} aria-labelledby="product-roadmap-step-title" style={{ "--stage-color": surface.ink } as CSSProperties}>
-      <span className="pi-eyebrow">{String(index).padStart(2, "0")} / {PLAYBOOK_STEPS.length} · {step.name[lang]}</span>
-      <h3 id="product-roadmap-step-title" className="mt-3 text-2xl" style={{ color: "var(--text)" }}>{step.question[lang]}</h3>
-      <div className={styles.flow} role="img" aria-label={step.visual.map((item) => item[lang]).join(" → ")}>
-        {step.visual.map((node, position) => <div key={position} className={styles.flowNode}>
-          <span className={styles.flowGlyph} aria-hidden="true">
-            <svg viewBox="0 0 56 48" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-              {position === 0 ? <><rect x="7" y="11" width="31" height="26" /><path d="M15 6h32v26M13 18h18M13 24h13M13 30h18" /></> :
-                position === 1 ? <><rect x="6" y="7" width="44" height="34" /><path d="M13 15h30M13 22h18M13 29h24M36 29h7M13 35h14" /><circle cx="34" cy="22" r="2" fill="currentColor" stroke="none" /></> :
-                <><path d="M14 6h25l7 7v29H14zM39 6v9h7M21 23l6 6 12-12M21 36h18" /></>}
-            </svg>
-          </span>
-          <span className="pi-eyebrow">{[zh ? "起点" : "Input", zh ? "动手" : "Work", zh ? "证据" : "Proof"][position]}</span>
-          <strong>{node[lang]}</strong>
-        </div>)}
-      </div>
-      <div className={styles.roadmapTasks}>
-        <section>
-          <h4 className="pi-eyebrow">{zh ? "动手顺序" : "Do this in order"}</h4>
-          <ol className="mt-3 flex flex-col gap-3 pl-5 text-sm" style={{ color: "var(--text)" }}>
-            {step.roadmap.map((action, i) => <li key={i} className="pl-1 leading-relaxed">{action[lang]}</li>)}
-          </ol>
-        </section>
-        <aside className={styles.roadmapAside}>
-          <h4 className="pi-eyebrow">{zh ? "本阶段产物" : "What you leave with"}</h4>
-          <p className="mt-2 text-sm leading-relaxed" style={{ color: "var(--text)" }}>{step.output[lang]}</p>
-          <h4 className="pi-eyebrow mt-4">{zh ? "过关判断" : "Move on when"}</h4>
-          <p className="mt-2 text-sm leading-relaxed" style={{ color: "var(--text)" }}>{step.done[lang]}</p>
-          {step.branch ? <div className="mt-4 border-t pt-3" style={{ borderColor: "var(--border)" }}>
-            <h4 className="pi-eyebrow">{zh ? "按产品类型选渠道" : "Choose by product type"}</h4>
-            <p className="mt-2 text-sm leading-relaxed" style={{ color: "var(--text)" }}>{step.branch.web[lang]}</p>
-            <p className="mt-2 text-sm leading-relaxed" style={{ color: "var(--text)" }}>{step.branch.mobile[lang]}</p>
-          </div> : null}
-        </aside>
-      </div>
-      <div className="border-t pt-4" style={{ borderColor: "var(--border)" }}>
-        <h4 className="pi-eyebrow">{zh ? "取经 · 案例不等于保证" : "Source notes · examples, not guarantees"}</h4>
-        <ul className={styles.sourceGrid}>
-          {step.sources.map((source) => <li key={source.url} className={styles.sourceCard}>
-            <a href={source.url} target="_blank" rel="noopener noreferrer" className="ui-action">
-              {CASE_IMAGES[source.url] ? (
-                // Resized case-study artwork; the card links to its original source.
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={CASE_IMAGES[source.url].src} alt={CASE_IMAGES[source.url].alt} width={160} height={90} loading="lazy" className={styles.sourceImage} />
-              ) : <span className={styles.sourceFallback} aria-hidden="true"><svg viewBox="0 0 64 48" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="8" y="7" width="48" height="34" /><path d="M16 16h28M16 23h20M16 30h26M46 28l4 4-4 4" /></svg></span>}
-              <strong>{source.title} ↗</strong>
-            </a>
-            <p>{source.takeaway[lang]}</p>
-          </li>)}
-        </ul>
-      </div>
-      <a href="#product-workbench" className="ui-action pi-bracket mt-1 min-h-11 self-start content-center px-2 text-xs">{zh ? "在我的项目中应用这一步" : "Apply this to my projects"}</a>
-    </article>
-  );
-}
-
 /** Preview the next question; keep edits local until explicitly saved. */
-function IdeaRow({ idea, hidden, copy, locale, today, resources, open, onToggle, onAct, onGone }: {
+function IdeaRow({ idea, hidden, copy, locale, today, resources, open, onToggle, onAct, onGone, onPlan }: {
   idea: Idea;
   hidden: boolean;
   copy: ProductCopy;
@@ -364,6 +270,7 @@ function IdeaRow({ idea, hidden, copy, locale, today, resources, open, onToggle,
   onToggle: () => void;
   onAct: <T,>(run: () => Promise<T>) => Promise<T | null>;
   onGone: () => void;
+  onPlan: () => void;
 }) {
   // Name and note save themselves, like every other field on the card. Each
   // keeps its own draft so that saving one never sends — or clears — the other.
@@ -499,6 +406,7 @@ function IdeaRow({ idea, hidden, copy, locale, today, resources, open, onToggle,
       ) : null}
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 pb-3">
+        <button type="button" onClick={onPlan} className="ui-action pi-bracket min-h-11 text-xs">{zh ? "打开产品全景图" : "Open product map"}</button>
         <span className="pi-eyebrow">{copy.links} · {idea.links.length}</span>
         <span className="pi-eyebrow">{copy.updated} {new Date(idea.updatedAt).toLocaleDateString(locale, { month: "short", day: "numeric" })}</span>
         <button type="button" onClick={onToggle} aria-expanded={open} aria-controls={`product-notebook-${idea.id}`} className="ui-action pi-bracket ml-auto min-h-[44px] text-xs" data-state={open ? undefined : "accent"}>
@@ -937,6 +845,7 @@ function Capture({ captures, ideas, copy, locale, onDone, onCreated }: {
   return (
     <section className={`${styles.capture} pi-card flex min-w-0 flex-col gap-3 p-4`} aria-labelledby="product-capture-title">
       <header>
+        <span className={styles.captureIcon}><ProductGlyph name="idea" /></span>
         <h2 id="product-capture-title" tabIndex={-1} className="pi-label">{copy.captureTitle}</h2>
         <p className="mt-2 text-xs" style={{ color: "var(--text-muted)" }}>{copy.captureHint}</p>
       </header>

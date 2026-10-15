@@ -36,6 +36,7 @@
     "start:lan": "next start -H 0.0.0.0 -p 30141",
     "lint": "eslint .",
     "telegram": "node --env-file-if-exists=.env.local --experimental-strip-types scripts/telegram/bridge.ts",
+    "robin:storage": "node --experimental-strip-types scripts/robin-task-storage.ts",
     "test:terminal": "node e2e/terminal.mjs",
     "test:e2e": "node e2e/run.mjs",
     "test": "node --import ./scripts/test-style-stub.mjs --experimental-strip-types --test \"app/**/*.test.mjs\" \"components/**/*.test.mjs\" \"extension/**/*.test.mjs\" \"hooks/**/*.test.mjs\" \"lib/**/*.test.mjs\" \"public/**/*.test.mjs\" \"scripts/**/*.test.mjs\"",

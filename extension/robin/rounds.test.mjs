@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, beforeEach, test } from "node:test";
+import { resetTaskStore } from "./task-store.test-support.mjs";
 
 // Point the store at a scratch directory before importing it.
 const dir = mkdtempSync(join(tmpdir(), "robin-rounds-"));
@@ -14,10 +15,7 @@ const { addTodo, listTodos, updateTodo } = await import("./todo-domain.ts");
 const { registerRoundTools } = await import("./round-tools.ts");
 const { ROBIN_MAIL_TOOL_NAMES, ROBIN_TOOL_NAMES } = await import("./tools.ts");
 
-beforeEach(() => {
-  rmSync(join(dir, "rounds.json"), { force: true });
-  rmSync(join(dir, "todos.json"), { force: true });
-});
+beforeEach(() => resetTaskStore(dir));
 after(() => rmSync(dir, { recursive: true, force: true }));
 
 test("a day stays a day and anything with a time becomes a UTC instant", () => {

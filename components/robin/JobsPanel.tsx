@@ -5,6 +5,7 @@ import { useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import type { Job } from "@/extension/robin/jobs";
 import { JobRow } from "./JobRow";
+import { groupJobRoles } from "./jobs-view";
 import { usePolledResource } from "./usePolledResource";
 
 /** Enough to be worth a glance on the dashboard; the rest is one click away. */
@@ -38,8 +39,10 @@ export function JobsPanel() {
   const [scanError, setScanError] = useState<string | null>(null);
 
   const jobs = data?.jobs ?? [];
-  const fresh = jobs.filter((job) => job.status === "new");
+  const fresh = groupJobRoles(jobs.filter((job) => job.status === "new" && typeof job.score === "number" && job.score >= (data?.minScore ?? 4)))
+    .map(({ job }) => job);
   const preview = fresh.slice(0, PREVIEW_COUNT);
+  const empty = preview.length === 0 && !error && !scanError;
 
   const scan = async () => {
     setScanning(true);
@@ -57,12 +60,12 @@ export function JobsPanel() {
   };
 
   return (
-    <section id="dashboard-jobs" tabIndex={-1} className="pi-card flex scroll-mt-24 flex-col gap-3 p-4">
+    <section id="dashboard-jobs" hidden={empty} style={{ display: empty ? "none" : undefined }} tabIndex={-1} className="pi-card flex scroll-mt-24 flex-col gap-3 p-4">
       <header className="flex flex-wrap items-baseline justify-between gap-2">
         <div className="flex items-baseline gap-3">
-          <h2 className="pi-label">{t("robin.jobs.title")}</h2>
+          <h2 className="pi-section-title">{t("robin.jobs.title")}</h2>
           <span className="text-xs tabular-nums" style={{ color: "var(--text-dim)" }}>
-            {t("robin.jobs.newCount", { count: String(fresh.length) })}
+            {t("robin.attention.matchingJobs", { count: String(fresh.length) })}
           </span>
         </div>
         <div className="flex flex-wrap items-baseline gap-3">

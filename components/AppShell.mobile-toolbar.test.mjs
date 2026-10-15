@@ -67,8 +67,8 @@ test("keeps the mobile action layer open after using an expanded action", () => 
   // lib/shell-panels.test.mjs exercises directly. What is pinned here is that
   // every action reached *from inside* the layer asks to keep it.
   const toggleTopPanel = source.match(/const toggleTopPanel = useCallback\([\s\S]*?\n  \}, \[\]\);/)?.[0];
-  const historyHandler = source.match(/onClick=\{\(\) => \{[\s\S]*?handleViewFullHistory\(\);[\s\S]*?\n          \}\}/)?.[0];
-  const autoNameHandler = source.match(/onClick=\{\(\) => \{[\s\S]*?void handleAutoName\(\);[\s\S]*?\n              \}\}/)?.[0];
+  const historyHandler = source.match(/onClick=\{\(\) => \{\s*handleViewFullHistory\(\);[\s\S]*?\n          \}\}/)?.[0];
+  const autoNameHandler = source.match(/onClick=\{\(\) => \{\s*void handleAutoName\(\);[\s\S]*?\n              \}\}/)?.[0];
 
   assert.ok(toggleTopPanel);
   assert.match(toggleTopPanel, /keepMobileToolbar: keepMobileToolbarOpen/);

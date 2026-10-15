@@ -8,9 +8,11 @@ import { runDirectorySweep } from "./job-directory.ts";
 import { absorb } from "./job-intake.ts";
 import { hydrateDescriptions, providerById } from "./job-providers.ts";
 import { readJobs, writeJobs, writeJobSweepState } from "./store.ts";
+import { resetTaskStore } from "./task-store.test-support.mjs";
 
 const previous = process.env.ROBIN_DATA_DIR;
 process.env.ROBIN_DATA_DIR = mkdtempSync(join(tmpdir(), "robin-job-quality-"));
+resetTaskStore(process.env.ROBIN_DATA_DIR);
 after(() => {
   rmSync(process.env.ROBIN_DATA_DIR, { recursive: true, force: true });
   if (previous === undefined) delete process.env.ROBIN_DATA_DIR;

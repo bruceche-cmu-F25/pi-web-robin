@@ -1,0 +1,32 @@
+.dialog { width: min(900px, calc(100vw - 24px)); max-height: min(90dvh, 1000px); margin: auto; padding: 0; border: 1px solid var(--border); background: var(--bg-panel); color: var(--text); box-shadow: 0 16px 60px #0005; }
+.dialog[open] { display: flex; flex-direction: column; }
+.dialog::backdrop { background: #0008; }
+.header, .footer { display: flex; align-items: center; justify-content: space-between; flex: 0 0 auto; gap: 12px; padding: 16px 20px; }
+.header { border-bottom: 1px solid var(--border); }
+.header h2 { margin: 4px 0 0; font: 24px/1.3 var(--font-serif); }
+.header > button { width: 44px; font-size: 24px; }
+.footer { justify-content: flex-end; flex-wrap: wrap; border-top: 1px solid var(--border); }
+.dialog button, .dialog select, .dialog input { min-height: 44px; }
+.dialog button { padding: 8px 12px; cursor: pointer; }
+.dialog button:disabled { cursor: not-allowed; opacity: .5; }
+.dialog :is(button, select, input, a, summary):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.body { overflow: auto; min-height: 0; padding: 16px 20px; font-size: 14px; line-height: 1.6; }
+.body p { margin: 8px 0 16px; }
+.body h3 { margin: 12px 0 8px; font: 20px/1.3 var(--font-serif); }
+.fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.fields label, .fieldLabel { display: flex; flex-direction: column; gap: 5px; font: 12px/1.5 var(--font-mono); }
+.fieldLabel { margin-bottom: 5px; }
+.fields :is(input, select) { width: 100%; min-width: 0; padding: 8px; background: var(--bg); color: var(--text); border: 1px solid var(--border); }
+.fields > div { min-width: 0; }
+.path, .destination { overflow-wrap: anywhere; font: 12px/1.6 var(--font-mono); color: var(--text-muted); }
+.path { display: block; }
+.warning { color: var(--text-muted); }
+.body summary { min-height: 44px; padding: 10px 0; cursor: pointer; }
+.body pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; background: var(--bg); font: 12px/1.6 var(--font-mono); }
+.note { padding: 16px 0; border-top: 1px solid var(--border); }
+.note > header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.history { padding: 0; list-style: none; }
+.history button { text-align: left; overflow-wrap: anywhere; }
+.error { color: var(--danger); }
+.dialog a { color: var(--accent); }
+@media (max-width: 560px) { .fields { grid-template-columns: 1fr; } .header, .footer, .body { padding: 12px; } .footer > * { flex: 1 1 auto; } }

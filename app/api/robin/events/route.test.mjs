@@ -8,9 +8,11 @@ import { after, beforeEach, test } from "node:test";
 import { createJiti } from "jiti";
 import { registerCalendarTools } from "../../../../extension/robin/calendar-tools.ts";
 import { readEvents } from "../../../../extension/robin/store.ts";
+import { resetTaskStore } from "../../../../extension/robin/task-store.test-support.mjs";
 
 const jiti = createJiti(import.meta.url, { tsconfigPaths: true });
-const { POST, DELETE } = await jiti.import("./route.ts");
+const { POST, PATCH, DELETE } = await jiti.import("./route.ts");
+const { eventFields } = await import("../../../../components/robin/calendar-edit.ts");
 const previous = process.env.ROBIN_DATA_DIR;
 const directory = mkdtempSync(join(tmpdir(), "robin-calendar-regression-"));
 process.env.ROBIN_DATA_DIR = directory;
@@ -19,7 +21,7 @@ after(() => {
   if (previous === undefined) delete process.env.ROBIN_DATA_DIR;
   else process.env.ROBIN_DATA_DIR = previous;
 });
-beforeEach(() => writeFileSync(join(directory, "events.json"), "[]"));
+beforeEach(() => resetTaskStore(directory));
 const tools = new Map();
 registerCalendarTools({ registerTool: (tool) => tools.set(tool.name, tool) });
 const create = (body) => tools.get("calendar_create_event").execute("test", body);
@@ -65,7 +67,61 @@ test("calendar deletion preserves siblings and request security", async () => {
   assert.equal((await DELETE(request("DELETE", { id: a.id }))).status, 404);
 });
 
-test("concurrent calendar writers read inside the same lock as the write", { timeout: 15_000 }, async () => {
+test("calendar patch validates the merged event, preserves siblings/metadata, and clears optional fields", async () => {
+  const { event: original } = await (await POST(request("POST", { title: "Trip", date: "2030-01-01", endDate: "2030-01-03", start: "15:00", end: "09:00", location: "Office" }))).json();
+  await create({ title: "Sibling", date: "2030-01-01" });
+  const patch = (changes, expected = eventFields(original)) => PATCH(request("PATCH", { id: original.id, changes, expected }));
+  for (const changes of [{ date: "2030-01-04" }, { endDate: "" }, { start: "25:00" }, { title: " " }, { date: "2030-02-31" }, { start: null }, { location: 123 }]) {
+    assert.equal((await patch(changes)).status, 400, JSON.stringify(changes));
+    assert.deepEqual(readEvents()[0], original);
+  }
+  const response = await patch({ date: "2030-01-02", endDate: "2030-01-04" });
+  assert.equal(response.status, 200);
+  const updated = (await response.json()).event;
+  assert.equal(updated.id, original.id);
+  assert.equal(updated.createdAt, original.createdAt);
+  assert.equal(updated.location, "Office");
+  assert.equal(readEvents()[1].title, "Sibling");
+  const cleared = await patch({ start: "", end: "", endDate: "", location: "" }, eventFields(updated));
+  assert.equal(cleared.status, 200);
+  assert.deepEqual(Object.keys((await cleared.json()).event).sort(), ["createdAt", "date", "id", "title"]);
+});
+
+test("calendar patch rejects stale snapshots, unknown ids, malformed input, and cross-origin writes", async () => {
+  const { event: original } = await (await POST(request("POST", { title: "A", date: "2030-01-01" }))).json();
+  const body = { id: original.id, expected: eventFields(original), changes: { date: "2030-01-02" } };
+  assert.equal((await PATCH(request("PATCH", body, { origin: "https://evil.example" }))).status, 403);
+  assert.equal((await PATCH(request("PATCH", body, { "content-type": "text/plain" }))).status, 415);
+  for (const invalid of [null, {}, { ...body, expected: {} }, { ...body, changes: null }]) {
+    assert.equal((await PATCH(request("PATCH", invalid))).status, 400);
+  }
+  assert.equal((await PATCH(request("PATCH", { ...body, id: "google:external" }))).status, 404);
+  assert.equal((await PATCH(request("PATCH", body))).status, 200);
+  assert.equal((await PATCH(request("PATCH", { ...body, changes: { date: "2030-01-03" } }))).status, 409);
+  assert.equal(readEvents()[0].date, "2030-01-02");
+  await DELETE(request("DELETE", { id: original.id }));
+  assert.equal((await PATCH(request("PATCH", body))).status, 404);
+  assert.equal(readEvents().length, 0);
+});
+
+test("retrying a calendar create after a lost response does not insert a duplicate", async () => {
+  const body = { title: "Retry safely", date: "2030-01-01", requestId: "a".repeat(32) };
+  const first = await POST(request("POST", body));
+  const firstEvent = (await first.json()).event;
+  const retry = await POST(request("POST", body));
+  assert.equal(retry.status, 200);
+  assert.equal((await retry.json()).event.id, firstEvent.id);
+  assert.equal(readEvents().length, 1);
+  assert.equal((await POST(request("POST", { ...body, title: "Changed after a lost response" }))).status, 400);
+  assert.equal(readEvents()[0].title, "Retry safely");
+  for (const requestId of ["", "google:1", 12, null]) {
+    assert.equal((await POST(request("POST", { ...body, requestId }))).status, 400);
+  }
+});
+
+test("legacy JSON concurrent calendar writers read inside the same lock as the write", { timeout: 15_000 }, async () => {
+  // This pins the legacy lock regression; SQLite contention is tested separately.
+  for (const name of ["task-storage.json", "tasks.sqlite", "tasks.sqlite-wal", "tasks.sqlite-shm"]) rmSync(join(directory, name), { force: true });
   const lock = join(directory, "events.json.lock");
   mkdirSync(lock);
   const worker = join(directory, "writer.mjs");

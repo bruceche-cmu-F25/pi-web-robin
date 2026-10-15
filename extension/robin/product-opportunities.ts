@@ -4,9 +4,9 @@ import { join } from "node:path";
 import { readJsonObject, updateJsonObject } from "./paths.ts";
 import { addIdea, addIdeaLink, getIdea, listIdeas, type Idea } from "./product-domain.ts";
 import { localDate } from "./dates.ts";
+import { PRODUCT_CASES, caseIdeaDraft, type CaseAngle } from "./product-cases.ts";
 
-const SOURCE = "https://www.starterstory.com/data";
-const SOURCES = [SOURCE, `${SOURCE}/micro-saas-ideas`, `${SOURCE}/ios-app-ideas`, `${SOURCE}/gpt-wrapper-ideas`];
+const SOURCE = "https://www.starterstory.com/data/ios-app-ideas";
 const FILE = "product-opportunities.json";
 const DAILY_LIMIT = 3;
 
@@ -19,8 +19,11 @@ export interface Opportunity {
   /** First day this recommendation entered the list; never reset by a re-scan. */
   discoveredOn?: string;
   revenue: string;
-  /** Monthly figure as claimed by the source, not audited ARR. */
-  monthlyUsd: number;
+  /** Monthly figure as claimed by the source; null means undisclosed. */
+  monthlyUsd: number | null;
+  source?: string;
+  productHost?: string;
+  soloScore?: number;
   revenueBasis: "estimated" | "reported" | "unspecified";
   match: string;
   relatedIdea?: string;
@@ -28,6 +31,7 @@ export interface Opportunity {
   mvp: string;
   charge: string;
   experiment: string;
+  transfer?: string;
 }
 
 interface OpportunityState {
@@ -35,16 +39,13 @@ interface OpportunityState {
   attemptedAt?: string;
   error?: string;
   opportunities: Opportunity[];
+  /** Current directory snapshot; older daily picks remain untouched above. */
+  catalog?: Opportunity[];
+  catalogSource?: string;
+  attemptedSource?: string;
 }
 
-interface Listing {
-  id: string;
-  title: string;
-  url: string;
-  revenue: string;
-  monthlyUsd: number;
-  revenueBasis: Opportunity["revenueBasis"];
-}
+type Listing = Pick<Opportunity, "id" | "title" | "url" | "revenue" | "monthlyUsd" | "revenueBasis" | "logoUrl" | "source" | "productHost" | "soloScore">;
 
 function plain(text: string): string {
   return text.replace(/<[^>]*>/g, "").replace(/&(?:amp|quot|#39|lt|gt);/g, (value) => ({
@@ -64,18 +65,20 @@ export function parseListings(html: string): Listing[] {
     const name = body.match(/<div class="text-sm font-semibold text-slate-900 truncate">([^<]+)<\/div>/);
     const tagged = body.match(/<span\b[^>]*title="([^"]*)"[^>]*>(\$[\d,.]+[KMB]?\/mo)<\/span>/i);
     const generic = body.match(/(\$[\d,.]+[KMB]?)<\/span>\s*<span[^>]*>\/mo<\/span>/i);
-    if (!name || (!tagged && !generic)) continue;
-    const revenue = tagged?.[2] ?? `${generic![1]}/mo`;
+    if (!name) continue;
+    const revenue = tagged?.[2] ?? (generic ? `${generic[1]}/mo` : "—");
     const amount = revenue.match(/^\$([\d,.]+)([KMB]?)\/mo$/i);
-    if (!amount) continue;
-    const monthlyUsd = Number(amount[1]!.replaceAll(",", "")) * ({ K: 1_000, M: 1_000_000, B: 1_000_000_000 }[amount[2]!.toUpperCase()] ?? 1);
-    if (!Number.isFinite(monthlyUsd) || monthlyUsd <= 0) continue;
+    const parsed = amount ? Number(amount[1]!.replaceAll(",", "")) * ({ K: 1_000, M: 1_000_000, B: 1_000_000_000 }[amount[2]!.toUpperCase()] ?? 1) : null;
+    const monthlyUsd = parsed !== null && Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
     const id = match[1]!.startsWith("/businesses/") ? match[1]!.slice("/businesses/".length) : `stories-${match[1]!.slice("/stories/".length)}`;
     if (found.some((item) => item.id === id)) continue;
     const label = plain(tagged?.[1] ?? "").toLowerCase();
     const logo = body.match(/<img alt="" src="(https:\/\/d1coqmn8qm80r4\.cloudfront\.net\/[a-z0-9]+)"/);
+    const host = body.match(/<span[^>]*class="font-mono text-slate-400 truncate[^"\n]*"[^>]*>([a-z0-9.-]+\.[a-z]{2,})<\/span>/i)?.[1];
+    const score = body.match(/Solopreneur\s+(\d+(?:\.\d+)?)/)?.[1];
     found.push({ id, title: plain(name[1]!), url: `https://www.starterstory.com${match[1]}`,
-      ...(logo ? { logoUrl: logo[1] } : {}), revenue, monthlyUsd,
+      ...(logo ? { logoUrl: logo[1] } : {}), ...(host ? { productHost: host } : {}),
+      ...(score && Number(score) <= 100 ? { soloScore: Number(score) } : {}), revenue, monthlyUsd,
       revenueBasis: label.includes("estimated") ? "estimated" : label.includes("self-reported") ? "reported" : "unspecified" });
   }
   return found;
@@ -94,16 +97,21 @@ const DIRECTIONS = [
 ] as const;
 
 export function recommend(listings: Listing[], ideas: Pick<Idea, "name">[]): Opportunity[] {
-  const matched = listings.flatMap((item) => {
-    // A large incumbent is a demand signal, not a small product to copy.
-    if (item.monthlyUsd < 5_000 || item.monthlyUsd > 200_000) return [];
-    const direction = DIRECTIONS.find((entry) => entry.subject.test(item.title));
-    if (!direction) return [];
+  const matched = listings.map((item) => {
+    // The chosen directory, not our former SaaS keywords/revenue band, defines scope.
+    const direction = DIRECTIONS.find((entry) => entry.subject.test(item.title)) ?? {
+      portfolio: /$^/, match: "待研究的 App",
+      angle: "先实际体验产品，找出一个重复操作或失败点；只针对它提出可测量的 10% 改进，不假定已有痛点。",
+      mvp: "只复现一个核心任务的原型，先对照原产品测试，不照搬整个产品。",
+      charge: "核查当前商店定价与付费墙，再测试用户是否愿意为这个差异付费。",
+      experiment: "找 5 位目标用户做同一个任务，比较耗时、成功率或复用；原产品收入不算你的验证。",
+    };
     const related = ideas.find((idea) => direction.portfolio.test(idea.name));
-    return [{ ...item, match: direction.match, ...(related ? { relatedIdea: related.name } : {}),
-      angle: direction.angle, mvp: direction.mvp, charge: direction.charge, experiment: direction.experiment }];
+    return { ...item, match: direction.match, ...(related ? { relatedIdea: related.name } : {}),
+      angle: direction.angle, mvp: direction.mvp, charge: direction.charge, experiment: direction.experiment,
+      transfer: "找另一类也需要完成同一任务的人，验证原机制是否适用；换人群不是只换文案，不能沿用原产品的需求结论。" };
   });
-  return matched.sort((a, b) => Number(!!b.relatedIdea) - Number(!!a.relatedIdea) || b.monthlyUsd - a.monthlyUsd);
+  return matched.sort((a, b) => Number(!!b.relatedIdea) - Number(!!a.relatedIdea));
 }
 
 /** Existing candidates stay in the list; a day contributes at most three *new* URLs. */
@@ -126,26 +134,46 @@ export function appendOpportunities(previous: Opportunity[], candidates: Opportu
 
 let running: Promise<void> | null = null;
 
+/** Assessment never triggers discovery or silently substitutes a legacy candidate. */
+export function getCatalogOpportunity(id: string): Opportunity | null {
+  const state = readJsonObject<OpportunityState>(FILE);
+  return state?.catalogSource === SOURCE ? state.catalog?.find((item) => item.id === id) ?? null : null;
+}
+
 export function opportunityBoard(now = Date.now()): OpportunityState & { scanning: boolean; source: string; scheduled: boolean; savedIds: string[] } {
   const state = readJsonObject<OpportunityState>(FILE) ?? { opportunities: [] };
   // Local calendar days, not UTC 24-hour windows. Never retry on every UI poll.
   const today = localDate(new Date(now));
-  if (!running && (!state.checkedAt || localDate(new Date(state.checkedAt)) < today)
-    && (!state.attemptedAt || localDate(new Date(state.attemptedAt)) < today)) startOpportunityScan();
-  return { ...state, scanning: !!running, source: SOURCE,
+  if (!running && (state.catalogSource !== SOURCE || !state.checkedAt || localDate(new Date(state.checkedAt)) < today)
+    && (state.attemptedSource !== SOURCE || !state.attemptedAt || localDate(new Date(state.attemptedAt)) < today)) startOpportunityScan();
+  const catalog = state.catalogSource === SOURCE ? state.catalog ?? [] : [];
+  return { ...state, opportunities: catalog, checkedAt: state.catalogSource === SOURCE ? state.checkedAt : undefined,
+    scanning: !!running, source: SOURCE,
     scheduled: process.platform === "darwin" && existsSync(join(homedir(), "Library/LaunchAgents/works.robin.product-opportunities.plist")),
-    savedIds: state.opportunities.filter((item) => getIdea(`starter-story-${item.id}`)).map((item) => item.id) };
+    savedIds: catalog.filter((item) => getIdea(`starter-story-${item.id}`)).map((item) => item.id) };
+}
+
+/** The chosen angle is a hypothesis, never a claim that this user's idea is validated. */
+export function saveCaseOpportunity(caseId: string, angle: CaseAngle, lang: "zh" | "en"): Idea {
+  const item = PRODUCT_CASES.find((entry) => entry.id === caseId);
+  if (!item || (angle !== "improve" && angle !== "transfer")) throw new Error("Case or angle not found");
+  const idea = addIdea({ id: `case-${caseId}-${angle}`, ...caseIdeaDraft(item, angle, lang) });
+  addIdeaLink(idea.id, { id: `case-source-${caseId}`, title: `Starter Story · ${item.name}`, url: item.source,
+    note: `Public video transcript; read ${item.checkedOn}. Founder-reported, not independently verified.` });
+  return getIdea(idea.id) ?? idea;
 }
 
 /** A suggestion becomes the user's idea only after they explicitly save it. */
 export function saveOpportunity(id: string): Idea {
-  const opportunity = readJsonObject<OpportunityState>(FILE)?.opportunities.find((item) => item.id === id);
+  const state = readJsonObject<OpportunityState>(FILE);
+  const opportunity = [...(state?.catalog ?? []), ...(state?.opportunities ?? [])].find((item) => item.id === id);
   if (!opportunity) throw new Error("Opportunity not found");
   const idea = addIdea({
     id: `starter-story-${id}`, name: opportunity.title,
-    note: `Source: ${opportunity.url}\nSource claims ${opportunity.revenue} monthly revenue (${opportunity.revenueBasis}; not verified ARR).\n\nPossible niche: ${opportunity.angle}\nMVP: ${opportunity.mvp}\nMonetization to test: ${opportunity.charge}\n10% experiment: ${opportunity.experiment}`,
+    note: `Source list: ${opportunity.source ?? "Legacy listing; discovery page not recorded"}\nProduct detail: ${opportunity.url}\nSource monthly revenue: ${opportunity.revenue} (${opportunity.revenueBasis}; not independently verified, not profit).\n\nUnvalidated hypotheses / 未验证假设（类别模板，不是产品调研结论）\nPossible improvement: ${opportunity.angle}\nContext transfer: ${opportunity.transfer ?? "Not researched"}\nMVP: ${opportunity.mvp}\nMonetization to test: ${opportunity.charge}\n10% experiment: ${opportunity.experiment}`,
   });
-  addIdeaLink(idea.id, { id: `source-${id}`, title: "Starter Story public listing", url: opportunity.url, note: "Revenue claim and product category; independent verification still needed." });
+  addIdeaLink(idea.id, { id: `source-${id}`, title: "Starter Story product detail", url: opportunity.url, note: "Public-list lead; independent verification still needed." });
+  if (opportunity.source) addIdeaLink(idea.id, { id: `directory-${id}`, title: "Starter Story · iOS App Ideas", url: opportunity.source, note: "Discovery directory, not a founder interview or validation of the derivative idea." });
   return getIdea(idea.id) ?? idea;
 }
 
@@ -153,20 +181,10 @@ export function startOpportunityScan(fetchImpl: typeof fetch = fetch, now = Date
   if (running) return false;
   running = (async () => {
     try {
-      const listings: Listing[] = [];
-      const failed: string[] = [];
-      for (const url of SOURCES) {
-        try {
-          const response = await fetchImpl(url, { signal: AbortSignal.timeout(15_000), headers: { "User-Agent": "RobinProductResearch/1.0 (personal daily public-page reader)" } });
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          const page = parseListings(await response.text());
-          if (!page.length) throw new Error("No public rows parsed");
-          listings.push(...page);
-        } catch (error) {
-          failed.push(`${url}: ${error instanceof Error ? error.message : String(error)}`);
-        }
-      }
-      if (!listings.length) throw new Error(failed.join("; "));
+      const response = await fetchImpl(SOURCE, { signal: AbortSignal.timeout(15_000), headers: { "User-Agent": "RobinProductResearch/1.0 (personal daily public-page reader)" } });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const listings = parseListings(await response.text()).map((item) => ({ ...item, source: SOURCE }));
+      if (!listings.length) throw new Error("No public rows parsed");
       const checkedAt = new Date(now).toISOString();
       const candidates = recommend(listings, listIdeas());
       updateJsonObject<OpportunityState, void>(FILE, (current) => {
@@ -175,13 +193,14 @@ export function startOpportunityScan(fetchImpl: typeof fetch = fetch, now = Date
         const retained = previous.opportunities.map((item) => ({ ...item,
           discoveredOn: item.discoveredOn ?? localDate(new Date(previous.checkedAt ?? now)),
         }));
-        return { value: { checkedAt, attemptedAt: checkedAt,
+        return { value: { ...previous, checkedAt, attemptedAt: checkedAt, attemptedSource: SOURCE,
+          catalogSource: SOURCE, catalog: candidates,
           opportunities: appendOpportunities(retained, candidates, localDate(new Date(now))),
-          ...(failed.length ? { error: failed.join("; ") } : {}) }, result: undefined, changed: true };
+          error: undefined }, result: undefined, changed: true };
       });
     } catch (error) {
       updateJsonObject<OpportunityState, void>(FILE, (current) => ({
-        value: { ...(current ?? { opportunities: [] }), attemptedAt: new Date(now).toISOString(),
+        value: { ...(current ?? { opportunities: [] }), attemptedAt: new Date(now).toISOString(), attemptedSource: SOURCE,
           error: error instanceof Error ? error.message : String(error) },
         result: undefined, changed: true,
       }));

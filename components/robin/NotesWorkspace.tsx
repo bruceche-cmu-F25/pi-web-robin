@@ -9,6 +9,7 @@ import { useIsSplitLayout } from "@/hooks/useIsMobile";
 import type { NoteAttachment } from "@/extension/robin/note-attachments";
 import type { NoteFinal } from "@/extension/robin/notes-agent-state";
 import type { NoteDraft } from "@/extension/robin/notes-domain";
+import type { ObsidianArchive, ObsidianVault } from "@/extension/robin/obsidian-domain";
 import { compressImageFile } from "@/lib/image-compress";
 import type { ModelsData } from "@/lib/models-cache";
 import { writeUrlState } from "@/lib/url-state";
@@ -149,12 +150,20 @@ export function NotesWorkspace() {
   const [agentCollapsed, setAgentCollapsed] = useState(false);
   const [includeConversation, setIncludeConversation] = useState(false);
   const [archiving, setArchiving] = useState(false);
+  const [archiveTarget, setArchiveTarget] = useState<"obsidian" | "notion">("obsidian");
+  const [vaults, setVaults] = useState<ObsidianVault[]>([]);
+  const [vaultId, setVaultId] = useState("");
+  const [vaultError, setVaultError] = useState<string | null>(null);
+  const [archives, setArchives] = useState<ObsidianArchive[]>([]);
+  const [archiveNotice, setArchiveNotice] = useState<ObsidianArchive | null>(null);
+  const [rawReview, setRawReview] = useState<(FinalPreview & { draftId: string }) | null>(null);
+  const archiveInFlight = useRef(false);
   const [creatingDraft, setCreatingDraft] = useState(false);
-  // "Prepare for Notion" runs on the server, so its state is read from there
+  // Preparing an archive runs on the server, so its state is read from there
   // per draft: leaving the page, or switching drafts, loses nothing.
   const [finals, setFinals] = useState<Record<string, NoteFinal>>({});
   const [clock, setClock] = useState(() => Date.now());
-  // The files a note is written from; they go to Notion with it.
+  // The files a note is written from; they are archived with it.
   const [noteFiles, setNoteFiles] = useState<Record<string, NoteAttachment[]>>({});
   const [uploading, setUploading] = useState(0);
   const [filesNotice, setFilesNotice] = useState<string | null>(null);
@@ -184,11 +193,14 @@ export function NotesWorkspace() {
 
   const activeDraft = useMemo(() => drafts.find((draft) => draft.id === activeId) ?? null, [activeId, drafts]);
   const selectedPage = useMemo(() => pages.find((page) => page.id === activeDraft?.notionParentId), [activeDraft?.notionParentId, pages]);
+  const selectedVault = vaults.find((vault) => vault.id === vaultId);
+  const destinationReady = archiveTarget === "obsidian" ? Boolean(selectedVault) : Boolean(selectedPage);
   const activeFinal = activeId ? finals[activeId] : undefined;
   const finalizing = activeFinal?.status === "running";
-  const finalPreview: FinalPreview | null = activeFinal?.status === "ready" && activeFinal.content
-    ? { title: activeFinal.title || activeDraft?.title || "", content: activeFinal.content }
-    : null;
+  const finalPreview: FinalPreview | null = rawReview?.draftId === activeId ? rawReview
+    : activeFinal?.status === "ready" && activeFinal.content
+      ? { title: activeFinal.title || activeDraft?.title || "", content: activeFinal.content }
+      : null;
   const finalFailure = activeFinal?.status === "error" ? activeFinal.error ?? null : null;
   const anyFinalRunning = Object.values(finals).some((final) => final.status === "running");
   const activeFiles = activeId ? noteFiles[activeId] ?? [] : [];
@@ -381,7 +393,24 @@ export function NotesWorkspace() {
     }
   }, []);
 
-  useEffect(() => { void loadModels(); void loadNotion(); }, [loadModels, loadNotion]);
+  const loadObsidian = useCallback(async () => {
+    setVaultError(null);
+    try {
+      const response = await fetch("/api/robin/obsidian");
+      const body = await response.json() as { vaults?: ObsidianVault[]; archives?: ObsidianArchive[]; error?: string };
+      if (!response.ok) throw new Error(body.error ?? `Request failed (${response.status})`);
+      const available = body.vaults ?? [];
+      setVaults(available);
+      setArchives(body.archives ?? []);
+      const remembered = window.localStorage.getItem("pi-robin-obsidian-vault");
+      setVaultId((current) => available.some((vault) => vault.id === current) ? current
+        : available.some((vault) => vault.id === remembered) ? remembered!
+          : available.length === 1 ? available[0].id : "");
+    } catch (caught) { setVaultError(caught instanceof Error ? caught.message : String(caught)); }
+  }, []);
+
+  useEffect(() => { void loadModels(); void loadObsidian(); }, [loadModels, loadObsidian]);
+  useEffect(() => { if (archiveTarget === "notion") void loadNotion(); }, [archiveTarget, loadNotion]);
 
   const fullTree = useMemo(() => buildNotionTree(pages), [pages]);
   const tree = useMemo(() => filterNotionTree(fullTree, notionQuery), [fullTree, notionQuery]);
@@ -632,7 +661,7 @@ export function NotesWorkspace() {
   }, [anyFinalRunning, loadFinals]);
 
   const startFinalization = async () => {
-    if (!activeDraft || (!activeDraft.text.trim() && activeFiles.length === 0) || !selectedPage || !model || locked || startingFinal.current) return;
+    if (!activeDraft || (!activeDraft.text.trim() && activeFiles.length === 0) || !destinationReady || !model || locked || startingFinal.current) return;
     startingFinal.current = true;
     setFinalError(null);
     setClock(Date.now());
@@ -645,7 +674,7 @@ export function NotesWorkspace() {
           draftId: activeDraft.id,
           title: activeDraft.title,
           note: activeDraft.text,
-          notionParentTitle: selectedPage.title,
+          archiveDestination: archiveTarget === "obsidian" ? `Obsidian: ${selectedVault?.name}` : `Notion: ${selectedPage?.title}`,
           includeConversation,
           provider: model.provider,
           modelId: model.modelId,
@@ -665,8 +694,9 @@ export function NotesWorkspace() {
   const clearFinal = async (action: "cancel" | "discard") => {
     if (!activeDraft) return;
     const draftId = activeDraft.id;
-    setFinal(draftId, null);
     setPreview(false);
+    if (rawReview?.draftId === draftId) { setRawReview(null); return; }
+    setFinal(draftId, null);
     try {
       const response = await fetch("/api/robin/notes-agent", {
         method: "POST",
@@ -688,12 +718,40 @@ export function NotesWorkspace() {
     : 0;
 
   const archiveFinal = async () => {
-    if (!activeDraft || !selectedPage || !finalPreview || archiving) return;
+    if (!activeDraft || !destinationReady || !finalPreview || archiving || archiveInFlight.current) return;
+    archiveInFlight.current = true;
     setArchiving(true);
     setFinalError(null);
     try {
       // Land the last edits first: if the archive fails, the server copy is current.
       await writeDraft(activeDraft.id);
+      if (pendingSaves.current.has(activeDraft.id)) throw new Error(t("notes.save.error"));
+      if (archiveTarget === "obsidian") {
+        const response = await fetch("/api/robin/obsidian", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            confirmed: true, vaultId, draftId: activeDraft.id,
+            title: finalPreview.title, content: finalPreview.content,
+            expectedDraft: { title: activeDraft.title, text: activeDraft.text },
+            attachmentIds: activeFiles.map((file) => file.id),
+          }),
+        });
+        const body = await response.json() as { archive?: ObsidianArchive; error?: string };
+        if (!response.ok || !body.archive) throw new Error(body.error ?? `Request failed (${response.status})`);
+        await discardPending(activeDraft.id);
+        window.localStorage.removeItem(`pi-robin-agent-transcript:notes:${activeDraft.id}`);
+        replaceDrafts((current) => current.filter((draft) => draft.id !== activeDraft.id));
+        setArchives((current) => [body.archive!, ...current.filter((item) => item.draftId !== activeDraft.id)]);
+        setArchiveNotice(body.archive);
+        setRawReview(null);
+        setFinal(activeDraft.id, null);
+        setIncludeConversation(false);
+        setPreview(false);
+        await openBlankDraft("");
+        return;
+      }
+      if (!selectedPage) return;
       const response = await fetch("/api/robin/notion", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -719,6 +777,7 @@ export function NotesWorkspace() {
     } catch (caught) {
       setFinalError(caught instanceof Error ? caught.message : String(caught));
     } finally {
+      archiveInFlight.current = false;
       setArchiving(false);
     }
   };
@@ -813,7 +872,13 @@ export function NotesWorkspace() {
   // beside the page title on a desktop, under the sheet on a phone.
   const filing = (
     <section className={styles.filing} data-place={split ? "header" : "sheet"} aria-label={t("notes.notion.destination")}>
-      <p data-empty={!selectedPage}><span className="pi-eyebrow">{t("notes.notion.destination")}</span><strong>{selectedPage?.title ?? t("notes.notion.chooseLeft")}</strong></p>
+      <label className={styles.archiveDestination}>
+        <span className="pi-eyebrow">{t("notes.notion.destination")}</span>
+        <select aria-label={t("notes.notion.destination")} value={archiveTarget} disabled={locked} onChange={(event) => setArchiveTarget(event.target.value as "obsidian" | "notion")}>
+          <option value="obsidian">Obsidian</option><option value="notion">Notion</option>
+        </select>
+      </label>
+      <p data-empty={!destinationReady}><strong title={archiveTarget === "obsidian" ? selectedVault?.path : selectedPage?.title}>{archiveTarget === "obsidian" ? selectedVault?.name ?? t("notes.obsidian.choose") : selectedPage?.title ?? t("notes.notion.chooseLeft")}</strong></p>
       {finalizing ? (
         <div className={styles.primaryActions}>
           <p className={styles.working} role="status">
@@ -825,12 +890,15 @@ export function NotesWorkspace() {
       ) : finalPreview ? (
         <div className={styles.primaryActions}>
           <button type="button" disabled={archiving} onClick={() => void clearFinal("discard")}>{t("notes.final.back")}</button>
-          <button type="button" data-primary="true" disabled={archiving} onClick={() => void archiveFinal()}>{archiving ? t("notes.archive.working") : t("notes.final.confirm")}</button>
+          <button type="button" data-primary="true" disabled={archiving} onClick={() => void archiveFinal()}>{archiving ? t("notes.archive.working") : t(archiveTarget === "obsidian" ? "notes.obsidian.confirm" : "notes.final.confirm")}</button>
         </div>
       ) : (
         <div className={styles.prepareActions}>
           <label><input type="checkbox" checked={includeConversation} onChange={(event) => setIncludeConversation(event.target.checked)} />{t("notes.final.includeConversation")}</label>
-          <button type="button" data-primary="true" onClick={() => void startFinalization()} disabled={(!activeDraft?.text.trim() && activeFiles.length === 0) || !selectedPage || !model || uploading > 0}>{t("notes.final.prepare")}</button>
+          {archiveTarget === "obsidian" ? <button type="button" data-primary="true" disabled={locked || !activeDraft?.title.trim() || (!activeDraft?.text.trim() && activeFiles.length === 0) || !destinationReady || uploading > 0} onClick={() => {
+            if (activeDraft) { setRawReview({ draftId: activeDraft.id, title: activeDraft.title, content: activeDraft.text }); showMobilePane("note"); }
+          }}>{t("notes.obsidian.review")}</button> : null}
+          <button type="button" data-primary={archiveTarget === "notion" ? "true" : undefined} onClick={() => void startFinalization()} disabled={locked || (!activeDraft?.text.trim() && activeFiles.length === 0) || !destinationReady || !model || uploading > 0}>{t("notes.final.prepare")}</button>
         </div>
       )}
     </section>
@@ -844,7 +912,7 @@ export function NotesWorkspace() {
         draftId: activeDraft.id,
         title: activeDraft.title,
         note: activeDraft.text,
-        notionParentTitle: selectedPage?.title ?? "",
+        archiveDestination: archiveTarget === "obsidian" ? `Obsidian: ${selectedVault?.name ?? ""}` : `Notion: ${selectedPage?.title ?? ""}`,
         provider: model?.provider ?? "",
         modelId: model?.modelId ?? "",
       }}
@@ -879,7 +947,7 @@ export function NotesWorkspace() {
               <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" /><path d="M9 4v16" /><path d={libraryCollapsed ? "m13 9 3 3-3 3" : "m16 9-3 3 3 3"} /></svg>
             </button>
           ) : null}
-          <span className="pi-eyebrow">Markdown · Notion</span><h1>{t("notes.title")}</h1>
+          <span className="pi-eyebrow">Markdown · Obsidian</span><h1>{t("notes.title")}</h1>
         </div>
         <p title={t(activeCanvasId ? "canvas.hint" : "notes.subtitle")}>{t(activeCanvasId ? "canvas.hint" : "notes.subtitle")}</p>
         {split && !activeCanvasId ? filing : null}
@@ -900,7 +968,7 @@ export function NotesWorkspace() {
           <div className={styles.mobileTabs} role="tablist" aria-label={t("notes.views")}>
             {(["notion", "note", "agent"] as const).map((pane) => (
               <button key={pane} type="button" role="tab" aria-selected={mobilePane === pane} onClick={() => showMobilePane(pane)}>
-                {t(pane === "notion" ? "notes.notion.short" : pane === "note" ? activeCanvasId ? "canvas.title" : "notes.note" : "notes.agent.short")}
+                {t(pane === "notion" ? "notes.library" : pane === "note" ? activeCanvasId ? "canvas.title" : "notes.note" : "notes.agent.short")}
               </button>
             ))}
           </div>
@@ -908,7 +976,18 @@ export function NotesWorkspace() {
       </header>
 
       <div className={`${styles.workspace}${split && libraryCollapsed ? ` ${styles.libraryIsCollapsed}` : ""}`} data-agent-collapsed={split && agentCollapsed}>
-        <aside id="notes-library" className={styles.notionPane} hidden={split ? libraryCollapsed : mobilePane !== "notion"} aria-label={t("notes.notion.library")}>
+        <aside id="notes-library" className={styles.notionPane} hidden={split ? libraryCollapsed : mobilePane !== "notion"} aria-label={t("notes.library")}>
+          <section className={styles.obsidianLibrary}>
+            <header><h2 className="pi-eyebrow">Obsidian</h2><button type="button" className="ui-action" disabled={locked} onClick={() => void loadObsidian()}>{t("notes.obsidian.refresh")}</button></header>
+            <label>{t("notes.obsidian.vault")}<select value={vaultId} disabled={locked} onChange={(event) => {
+              setVaultId(event.target.value);
+              window.localStorage.setItem("pi-robin-obsidian-vault", event.target.value);
+            }}><option value="">{t("notes.obsidian.choose")}</option>{vaults.map((vault) => <option key={vault.id} value={vault.id}>{vaults.length > 1 ? `${vault.name} — ${vault.path}` : vault.name}</option>)}</select></label>
+            {selectedVault ? <p>{selectedVault.path}</p> : <p>{t("notes.obsidian.setup")}</p>}
+            {vaultError ? <p role="alert">{vaultError}</p> : null}
+            <p>{t("notes.obsidian.localHint")}</p>
+            {archives.length > 0 ? <><h3 className="pi-eyebrow">{t("notes.obsidian.archives")}</h3><ul>{archives.slice(0, 20).map((archive) => <li key={archive.draftId}><a href={archive.url} title={`${archive.vaultPath}/${archive.relativePath}`}>{archive.title}</a></li>)}</ul></> : null}
+          </section>
           <section className={styles.drafts}>
             <header><h2 className="pi-eyebrow">{t("notes.drafts.title")}{loaded ? <span className={styles.count}>{drafts.length}</span> : null}</h2><button type="button" disabled={!loaded || busy} onClick={() => void startNewDraft()} aria-label={t("notes.new")} title={t("notes.new")}>＋</button></header>
             {!loaded ? <p>{t("robin.common.loading")}</p> : (
@@ -939,7 +1018,7 @@ export function NotesWorkspace() {
             }
           }} />
 
-          <div className={styles.notionHead}>
+          {archiveTarget === "notion" ? <><div className={styles.notionHead}>
             <h2 className="pi-eyebrow">{t("notes.notion.library")}</h2>
             <div className={styles.notionHeadActions}>
               <button type="button" onClick={() => void loadNotion()} disabled={searching || locked} aria-label={t("notes.notion.refresh")} title={t("notes.notion.refresh")}>
@@ -956,7 +1035,7 @@ export function NotesWorkspace() {
               <NotionTreeItem key={node.id} node={node} tone={branchTones.get(node.id)} selectedId={activeCanvasId ? "" : activeDraft?.notionParentId ?? ""} highlightedId={highlightedNotionId} onSelect={(page) => { updateActive({ notionParentId: page.id }); setHighlightedNotionId(""); }} openLabel={t("notes.notion.open")} destinationLabel={t("notes.notion.destinationTag")} locked={locked || Boolean(activeCanvasId)} searchActive={Boolean(notionQuery.trim())} />
             ))}</ul>
           </nav>
-          {notionError && tree.length > 0 ? <p className={styles.error} role="alert">{notionError}</p> : null}
+          {notionError && tree.length > 0 ? <p className={styles.error} role="alert">{notionError}</p> : null}</> : null}
         </aside>
 
         {activeCanvasId ? (
@@ -964,6 +1043,7 @@ export function NotesWorkspace() {
         ) : <div className={styles.rightColumn} hidden={!split && mobilePane === "notion"}>
           <main className={styles.notePane} hidden={!split && mobilePane !== "note"}>
             <div className={styles.desk}>
+            {archiveNotice ? <p className={styles.archiveNotice} role="status">{t("notes.obsidian.saved")} · <a href={archiveNotice.url}>{t("notes.obsidian.open")}: {archiveNotice.title}</a></p> : null}
             <div className={styles.noteToolbar}>
               {!finalPreview ? (
                 <div className={styles.viewToggle} role="group" aria-label={t("notes.editor.view")}>

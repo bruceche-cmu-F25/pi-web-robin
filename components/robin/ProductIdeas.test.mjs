@@ -76,7 +76,7 @@ test("the page says what the steps are, and each one says what to do", () => {
   // The six-column board was a set of buckets: it assumed you already knew the
   // process and only needed somewhere to record your position in it. What was
   // wanted is the opposite — tell me the steps, and what this one means.
-  assert.match(source, /counts\.map\(\(\{ step, n \}, index\)/);
+  assert.match(source, /Filter by project stage/);
   assert.match(source, /step\.name\[zh \? "zh" : "en"\]/);
   assert.match(source, /<StepCard/);
   for (const part of ["copy.whatFor", "copy.whatToDo", "copy.whatDone", "copy.toolsHere"]) {
@@ -88,24 +88,26 @@ test("the page says what the steps are, and each one says what to do", () => {
   assert.match(source, /PLAYBOOK\.map\(\(item\) => <option/);
 });
 
-test("the roadmap is the first destination and gives actions, deliverables, sources and a gate without fabricating completion", () => {
-  assert.ok(source.indexOf('<section aria-labelledby="product-journey"') < source.indexOf('<div className={styles.workbench}>'));
-  assert.ok(source.indexOf('<div className={styles.workbench}>') < source.indexOf('<ProductOpportunities onSave={refresh} />'));
-  for (const marker of ["step.output[lang]", "step.roadmap.map", "step.sources.map", "step.done[lang]", "step.branch.web[lang]", "step.branch.mobile[lang]"]) {
-    assert.ok(source.includes(marker), `roadmap detail should include ${marker}`);
-  }
-  assert.match(source, /aria-pressed=\{roadmapStep === step.id\}/);
-  assert.doesNotMatch(source, /onClick=\{\(\) => void .*roadmap.*complete/i);
+test("discovery, the reference map and personal ideas are independent views with CRM preserved", () => {
+  assert.match(source, /\["discover", "map", "ideas"\]/);
+  assert.match(source, /href="\/product\/jarvis"/);
+  assert.match(source, /return params.get\("idea"\) \|\| params.get\("stage"\) \? "ideas" : "discover"/);
+  assert.match(source, /hidden=\{view !== "ideas"\}/, "switching views keeps capture and notebook drafts mounted");
+  assert.match(source, /<ProductLaunchMap/);
+  assert.match(source, /<ProductResearch/);
+  assert.doesNotMatch(source, /setRoadmapStep/);
 });
 
-test("the roadmap shows a phase-specific picture and real sourced case thumbnails", async () => {
-  const { stat } = await import("node:fs/promises");
-  assert.match(source, /step\.visual\.map\(\(node, position\)/);
-  assert.match(source, /role="img" aria-label=\{step\.visual/);
-  assert.match(source, /CASE_IMAGES\[source\.url\]/);
-  for (const image of ["mobile-playbook.jpg", "fastlane.jpg"]) {
-    assert.ok((await stat(new URL(`../../public/robin/product-roadmap/${image}`, import.meta.url))).size > 1_000);
-  }
+test("the map renders accessible branches and keeps user decisions distinct from guidance", async () => {
+  const map = await readFile(new URL("./ProductLaunchMap.tsx", import.meta.url), "utf8");
+  assert.match(map, /Product launch mind map/);
+  assert.match(map, /aria-pressed=\{nodeId === entry.id\}/);
+  assert.match(map, /Reference only · no progress/);
+  assert.match(map, /expectedUpdatedAt/);
+  assert.match(map, /drafts\[key\]/);
+  assert.match(map, /beforeunload/);
+  assert.match(map, /Save this branch/);
+  assert.doesNotMatch(map, /step:|parked:/, "map decisions never move or park an idea");
 });
 
 test("the next action stays visible while the full step guide starts closed", () => {

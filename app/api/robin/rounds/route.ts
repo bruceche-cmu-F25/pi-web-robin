@@ -15,7 +15,7 @@ const text = (value: unknown) => (typeof value === "string" ? value : undefined)
 
 /**
  * Reading folds in the todo side (a ticked todo closes its round), so this GET
- * can write rounds.json — never todos.json.
+ * can update round records — never todo records.
  */
 export const GET = apiRoute(async () => {
   return NextResponse.json({ rounds: listRounds(), scan: readRoundScanState() });

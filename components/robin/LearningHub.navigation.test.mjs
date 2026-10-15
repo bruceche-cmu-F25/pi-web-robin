@@ -20,9 +20,14 @@ test("the hub links to both daily tracks", async () => {
   assert.match(panel, /\/learn\/fso\?step=/);
 });
 
-test("hub navigation lives in the shared shell and can challenge Basic Auth", () => {
+test("hub navigation lives in the shared shell; expired page auth redirects to login", async () => {
   assert.match(learnLayoutSource, /<RobinShell>[\s\S]*?\{children\}[\s\S]*?<\/RobinShell>/);
-  assert.doesNotMatch(navigationSource, /from ["']next\/link["']/);
+  assert.match(navigationSource, /from ["']next\/link["']/);
+  // The old all-anchor restriction assumed page requests issued a Basic 401.
+  // Pages now redirect to /login, including RSC requests (covered in browser tests).
+  const proxy = await read("../../proxy.ts");
+  assert.match(proxy, /if \(!authenticated\) \{\s*if \(!isApiRequest\) \{[\s\S]*?return NextResponse\.redirect\(loginUrl\)/);
+  assert.doesNotMatch(proxy, /WWW-Authenticate/i);
   assert.match(navigationSource, /path: "\/dashboard"/);
   assert.match(navigationSource, /href: chatHref/);
 });

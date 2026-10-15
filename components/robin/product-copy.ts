@@ -1,7 +1,7 @@
 const en = {
-  title: "Product incubator",
-  subtitle: "A personal workshop for turning a hunch into something people use.",
-  agent: "Thinking partner",
+  title: "Product workspace",
+  subtitle: "Find proven demand. Choose a small opening. Build, sell and sustain it.",
+  agent: "Research assistant",
   journey: "From idea to launch",
   journeyHint: "Pick a stage to see its question and your ideas. This is a guide, not a gate.",
   workspace: "On the workbench",
@@ -117,9 +117,9 @@ const en = {
 } as const;
 
 const zh: Record<keyof typeof en, string> = {
-  title: "产品孵化器",
-  subtitle: "一个人的产品工作室，让模糊的念头变成真正有人用的东西。",
-  agent: "一起想一想",
+  title: "产品工作室",
+  subtitle: "从已有需求出发，找一个小切口，做出来、卖出去、维护得起。",
+  agent: "研究助手",
   journey: "从想法到落地",
   journeyHint: "点选阶段，查看关键问题和你的项目。这是路线参考，不是通关任务。",
   workspace: "我的工作台",

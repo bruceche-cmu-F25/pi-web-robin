@@ -1,400 +1,212 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useI18n } from "@/hooks/useI18n";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { MOBILE_MAX_WIDTH } from "@/lib/panel-layout";
-import {
-  addDays,
-  parseLocalDate,
-  startOfWeek,
-  weekDays,
-  weeksFrom,
-} from "@/extension/robin/dates";
-import { eventsInRange, type DashboardEvent } from "@/extension/robin/events";
+import { parseLocalDate } from "@/extension/robin/dates";
+import { eventsInRange, isReadOnlyEvent, type DashboardEvent } from "@/extension/robin/events";
 import { orderSeriesColors } from "@/extension/robin/eventColors";
-import type { Todo } from "@/extension/robin/todo-domain";
-import { AgendaView, MonthView, type CalendarView } from "./CalendarViews";
+import type { EditableTodo, Todo } from "@/extension/robin/todo-domain";
+import { AgendaView, MonthView } from "./CalendarViews";
 import { WeekGrid } from "./WeekGrid";
 import { GoogleConnect } from "./GoogleConnect";
 import { EventDetailsDialog } from "./EventDetailsDialog";
+import { CalendarEventEditor } from "./CalendarEventEditor";
+import { TodoDeadlineEditor } from "./TodoDeadlineEditor";
+import { CalendarSidebar, type CalendarSources } from "./CalendarSidebar";
 import { SeriesPaletteContext } from "./eventSurface";
 import { requestRefresh } from "./refreshBus";
-import { mutate, usePolledResource } from "./usePolledResource";
+import { mutate, mutateResponse, usePolledResource } from "./usePolledResource";
 import { writeUrlState } from "@/lib/url-state";
+import { CalendarInteractions } from "./CalendarInteractions";
+import { eventFields, newEventAt, type CalendarSlot, type EventFields } from "./calendar-edit";
+import { calendarDays, calendarView, stepCalendar, type CalendarView } from "./calendar-view";
+import styles from "./CalendarPanel.module.css";
 
 interface EventsResponse {
   events: DashboardEvent[];
-  /** Local calendar date resolved on the server, where events were written. */
   today: string;
   google?: { connected: boolean; error?: string };
 }
-
-interface TodosResponse {
-  todos: Todo[];
-}
-
-const AGENDA_DAYS = 7;
-/** The month view is a rolling four-week window, not a calendar month. */
-const MONTH_WEEKS = 4;
 const VIEW_STORAGE_KEY = "robin-calendar-view";
-const VIEWS: { id: CalendarView; key: string }[] = [
-  { id: "agenda", key: "robin.calendar.agenda" },
-  { id: "week", key: "robin.calendar.week" },
-  { id: "month", key: "robin.calendar.month" },
-];
-
+const VIEWS: CalendarView[] = ["day", "week", "month", "agenda"];
+function viewStorageKey(): string {
+  // A desktop Week preference must not become the phone's default.
+  return window.matchMedia(`(max-width: ${MOBILE_MAX_WIDTH}px)`).matches ? `${VIEW_STORAGE_KEY}-mobile` : VIEW_STORAGE_KEY;
+}
 function readStoredView(): CalendarView {
+  const key = viewStorageKey();
   try {
-    const stored = localStorage.getItem(VIEW_STORAGE_KEY);
-    if (stored === "agenda" || stored === "week" || stored === "month") return stored;
-  } catch {
-    // Private mode or blocked storage: the default is fine.
-  }
-  return window.matchMedia(`(max-width: ${MOBILE_MAX_WIDTH}px)`).matches ? "agenda" : "week";
+    const stored = calendarView(localStorage.getItem(key));
+    if (stored) return stored;
+  } catch { /* Storage is optional. */ }
+  return key === VIEW_STORAGE_KEY ? "week" : "day";
 }
-
-function calendarView(value: string | null): CalendarView | null {
-  return value === "agenda" || value === "week" || value === "month" ? value : null;
-}
-
 function calendarDate(value: string | null): string | null {
   if (!value) return null;
-  try {
-    parseLocalDate(value);
-    return value;
-  } catch {
-    return null;
-  }
+  try { parseLocalDate(value); return value; } catch { return null; }
 }
 
 export function CalendarPanel() {
   const { t, locale } = useI18n();
+  const mobile = useIsMobile();
   const searchParams = useSearchParams();
-  const { data, error, refresh } = usePolledResource<EventsResponse>("/api/robin/events");
-  const {
-    data: todosData,
-    error: todosError,
-    refresh: refreshTodos,
-  } = usePolledResource<TodosResponse>("/api/robin/todos");
-  // Resolved in an effect so server and client render the same first pass.
   const [view, setView] = useState<CalendarView>("week");
   const [anchor, setAnchor] = useState<string | null>(null);
-  const [adding, setAdding] = useState(false);
-  const [title, setTitle] = useState("");
-  const [date, setDate] = useState("");
-  const [endDate, setEndDate] = useState("");
-  const [start, setStart] = useState("");
-  const [end, setEnd] = useState("");
+  const [serverToday, setServerToday] = useState("");
+  const requestedDays = anchor ? calendarDays(view, anchor) : null;
+  const eventsUrl = requestedDays ? `/api/robin/events?from=${requestedDays[0]}&to=${requestedDays.at(-1)}` : "/api/robin/events";
+  const { data, error, loading, refresh, updateData } = usePolledResource<EventsResponse>(eventsUrl);
+  const { data: todosData, error: todosError, refresh: refreshTodos, updateData: updateTodos } = usePolledResource<{ todos: EditableTodo[] }>("/api/robin/todos");
+  const [todoEditor, setTodoEditor] = useState<EditableTodo | null>(null);
+  const [sources, setSources] = useState<CalendarSources>({ local: true, google: true, todos: true });
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [editor, setEditor] = useState<{ fields: EventFields; event?: DashboardEvent } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const saving = useRef(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<DashboardEvent | null>(null);
-
+  useEffect(() => { if (data?.today) setServerToday(data.today); }, [data?.today]);
   useEffect(() => {
     const requestedView = calendarView(searchParams.get("calendar"));
-    const nextView = requestedView ?? readStoredView();
-    setView(nextView);
-    setAnchor(calendarDate(searchParams.get("date")));
-    if (!requestedView) writeUrlState({ calendar: nextView }, "replace");
-  }, [searchParams]);
-
-  const today = data?.today ?? "";
-  // The anchor follows today until the user navigates away from it.
-  const activeAnchor = anchor ?? today;
-
-  const chooseView = (next: CalendarView) => {
+    const next = requestedView ?? readStoredView();
     setView(next);
-    writeUrlState({ calendar: next });
-    try {
-      localStorage.setItem(VIEW_STORAGE_KEY, next);
-    } catch {
-      // Not worth surfacing; the view still changes for this session.
-    }
-  };
-
-  const range = useMemo(() => {
-    if (!activeAnchor) return null;
-    if (view === "agenda") return { from: activeAnchor, to: addDays(activeAnchor, AGENDA_DAYS - 1) };
-    if (view === "week") {
-      const days = weekDays(activeAnchor);
-      return { from: days[0] as string, to: days[6] as string };
-    }
-    const grid = weeksFrom(activeAnchor, MONTH_WEEKS);
-    return { from: grid[0] as string, to: grid[grid.length - 1] as string };
-  }, [view, activeAnchor]);
-
-  /**
-   * Dealt from every event the panel holds, not from the visible slice, so
-   * paging between weeks never repaints a series.
-   */
+    setAnchor(calendarDate(searchParams.get("date")));
+    if (!requestedView) writeUrlState({ calendar: next }, "replace");
+  }, [searchParams]);
+  const today = data?.today ?? serverToday;
+  const activeAnchor = anchor ?? today;
+  const days = useMemo(() => activeAnchor ? calendarDays(view, activeAnchor) : [], [view, activeAnchor]);
   const palette = useMemo(() => orderSeriesColors(data?.events ?? []), [data]);
-
-  const visible = useMemo(
-    () => (range ? eventsInRange(data?.events ?? [], range.from, range.to) : []),
-    [data, range],
-  );
-
-  const visibleTodos = useMemo(
-    () => range
-      ? (todosData?.todos ?? []).filter((todo) => {
-        if (todo.done || !todo.due) return false;
-        return (todo.startDate ?? todo.due) <= range.to && todo.due >= range.from;
-      })
-      : [],
-    [todosData, range],
-  );
-
+  const visible = useMemo(() => days.length ? eventsInRange((data?.events ?? []).filter((event) =>
+    isReadOnlyEvent(event) ? sources.google : sources.local), days[0]!, days.at(-1)!) : [], [data, days, sources]);
+  const todos = useMemo(() => sources.todos && days.length ? (todosData?.todos ?? []).filter((todo) =>
+    !todo.done && todo.due && (todo.startDate ?? todo.due) <= days.at(-1)! && todo.due >= days[0]!) : [], [todosData, days, sources.todos]);
   const heading = useMemo(() => {
-    if (!activeAnchor || !range) return "";
-    if (view === "agenda" && activeAnchor === today) {
-      return t("robin.calendar.agendaRange", { days: String(AGENDA_DAYS) });
-    }
-    // A rolling window is named by its range; a month name would be a lie.
-    const from = parseLocalDate(range.from);
-    const to = parseLocalDate(range.to);
-    const format = (value: Date, withYear: boolean) =>
-      value.toLocaleDateString(locale, {
-        month: "short",
-        day: "numeric",
-        ...(withYear ? { year: "numeric" } : {}),
-      });
-    return `${format(from, false)} – ${format(to, true)}`;
-  }, [view, activeAnchor, range, t, locale, today]);
+    if (!activeAnchor || !days.length) return "";
+    if (view === "month") return parseLocalDate(activeAnchor).toLocaleDateString(locale, { year: "numeric", month: "long" });
+    if (view === "day") return parseLocalDate(activeAnchor).toLocaleDateString(locale, { month: mobile ? "short" : "long", day: "numeric", weekday: "short", year: "numeric" });
+    return new Intl.DateTimeFormat(locale, { year: "numeric", month: "short", day: "numeric" }).formatRange(parseLocalDate(days[0]!), parseLocalDate(days.at(-1)!));
+  }, [activeAnchor, days, locale, view, mobile]);
 
+  const navigate = (date: string | null, nextView = view) => {
+    setAnchor(date); setView(nextView);
+    writeUrlState({ calendar: nextView, date });
+    try { localStorage.setItem(viewStorageKey(), nextView); } catch { /* Keep live state. */ }
+  };
+  const selectEvent = (event: DashboardEvent) => { setActionError(null); setSelectedEvent(event); };
+  const openEditor = (fields: EventFields, event?: DashboardEvent) => {
+    if (saving.current) return;
+    if (event && isReadOnlyEvent(event)) { selectEvent(event); return; }
+    setActionError(null);
+    setSources((current) => ({ ...current, local: true }));
+    setEditor({ fields, event });
+  };
+  const createAt = (slot: CalendarSlot) => openEditor(newEventAt(slot));
   async function run(action: () => Promise<void>): Promise<boolean> {
-    try {
-      setActionError(null);
-      await action();
-      await refresh();
-      return true;
-    } catch (caught) {
+    if (saving.current) return false;
+    saving.current = true; setBusy(true); setActionError(null);
+    try { await action(); await refresh(); return true; }
+    catch (caught) {
       setActionError(caught instanceof Error ? caught.message : String(caught));
-      return false;
-    }
+      await refresh(); return false;
+    } finally { saving.current = false; setBusy(false); }
   }
-
-  const step = (direction: -1 | 1) => {
-    if (!activeAnchor) return;
-    const weeks = view === "month" ? MONTH_WEEKS : 1;
-    const next = view === "agenda"
-      ? addDays(activeAnchor, direction * 7)
-      : addDays(startOfWeek(activeAnchor), direction * 7 * weeks);
-    setAnchor(next);
-    writeUrlState({ date: next });
+  const saveEvent = async (method: "POST" | "PATCH", body: unknown) => {
+    const response = await mutateResponse("/api/robin/events", method, body);
+    const { event } = await response.json() as { event: DashboardEvent };
+    updateData((current) => current && { ...current, events: [...current.events.filter((item) => item.id !== event.id), event] });
   };
-
-  const addEvent = (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!title.trim() || !date) return;
-    void run(async () => {
-      await mutate("/api/robin/events", "POST", {
-        title,
-        date,
-        ...(endDate ? { endDate } : {}),
-        ...(start ? { start } : {}),
-        ...(end ? { end } : {}),
-      });
-      setTitle("");
-      setEndDate("");
-      setStart("");
-      setEnd("");
-      setAdding(false);
-    });
+  const patchEvent = (event: DashboardEvent, changes: EventFields) => saveEvent("PATCH", { id: event.id, changes, expected: eventFields(event) });
+  const moveEvent = (event: DashboardEvent, fields: EventFields) => {
+    if (isReadOnlyEvent(event)) { selectEvent(event); return; }
+    void run(() => patchEvent(event, fields));
   };
-
-  const deleteEvent = (event: DashboardEvent) =>
-    run(() => mutate("/api/robin/events", "DELETE", { id: event.id }));
-
+  const deleteEvent = (event: DashboardEvent) => run(async () => {
+    await mutate("/api/robin/events", "DELETE", { id: event.id });
+    updateData((current) => current && { ...current, events: current.events.filter((item) => item.id !== event.id) });
+  });
+  const saveTodoDates = (todo: EditableTodo, dates: { due: string; startDate: string }) => run(async () => {
+    try {
+      if (!todo.revision) throw new Error(t("robin.calendar.reloadTodo"));
+      const response = await mutateResponse("/api/robin/todos", "PATCH", { id: todo.id, revision: todo.revision, ...dates });
+      const { todo: saved } = await response.json() as { todo: EditableTodo };
+      updateTodos((current) => current && { ...current, todos: current.todos.map((item) => item.id === saved.id ? saved : item) });
+      setSources((current) => ({ ...current, todos: true }));
+      requestRefresh();
+    } finally { void refreshTodos(); }
+  });
   const completeTodo = (todo: Todo) => {
     void (async () => {
       try {
         setActionError(null);
         await mutate("/api/robin/todos", "PATCH", { id: todo.id, done: true });
-        await refreshTodos();
-        requestRefresh();
-      } catch (caught) {
-        setActionError(caught instanceof Error ? caught.message : String(caught));
-      }
+        await refreshTodos(); requestRefresh();
+      } catch (caught) { setActionError(caught instanceof Error ? caught.message : String(caught)); }
     })();
   };
 
-  const offToday = activeAnchor !== "" && activeAnchor !== today;
-
-  return (
-    <section
-      className="pi-card flex flex-col gap-3 p-4"
-    >
-      <header className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <h2 className="pi-label">{t("robin.calendar.title")}</h2>
-          <span className="pi-meta">{heading}</span>
-        </div>
-        <div className="robin-calendar-toolbar flex flex-wrap items-center gap-1 font-mono">
-          <button
-            type="button"
-            onClick={() => step(-1)}
-            aria-label={t("robin.calendar.previous")}
-            className="ui-action ui-action--outline-soft px-2 py-0.5 text-xs"
-          >
-            ‹
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setAnchor(null);
-              writeUrlState({ date: null });
-            }}
-            disabled={!offToday}
-            className="ui-action ui-action--outline-soft px-2 py-0.5 text-xs disabled:opacity-40"
-          >
-            {t("robin.calendar.today")}
-          </button>
-          <button
-            type="button"
-            onClick={() => step(1)}
-            aria-label={t("robin.calendar.next")}
-            className="ui-action ui-action--outline-soft px-2 py-0.5 text-xs"
-          >
-            ›
-          </button>
-          {/* No box around the group: the active view already reads from its
-              surface and left stripe, and a border here put a third line
-              through an already busy row. */}
-          <div className="ml-3 flex gap-1.5">
-            {VIEWS.map(({ id, key }) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() => chooseView(id)}
-                className={`ui-action px-2 py-0.5 text-xs${view === id ? " pi-active-stripe" : ""}`}
-                aria-pressed={view === id}
-                data-active={view === id ? "true" : undefined}
-                data-state={view === id ? undefined : "dim"}
-              >
-                {t(key)}
-              </button>
-            ))}
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              setAdding((value) => !value);
-              if (!date) setDate(today);
-            }}
-            className="ui-action pi-chrome-label pi-bracket ml-2 text-xs"
-          >
-            {adding ? t("robin.common.cancel") : t("robin.common.add")}
-          </button>
-        </div>
-      </header>
-
-      {adding && (
-        <form onSubmit={addEvent} className="flex flex-col gap-2">
-          <input
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
-            placeholder={t("robin.calendar.eventPlaceholder")}
-            autoFocus
-            className="rounded px-2 py-1 text-sm outline-none"
-            style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text)" }}
-          />
-          <div className="flex flex-wrap gap-2">
-            <input
-              type="date"
-              value={date}
-              onChange={(event) => setDate(event.target.value)}
-              className="rounded px-2 py-1 text-sm outline-none"
-              style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text-muted)" }}
-            />
-            {/* Inclusive last day; blank means the event is a single day. */}
-            <input
-              type="date"
-              value={endDate}
-              min={date || undefined}
-              onChange={(event) => setEndDate(event.target.value)}
-              title={t("robin.calendar.endDateHint")}
-              className="rounded px-2 py-1 text-sm outline-none"
-              style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text-muted)" }}
-            />
-            {/* Blank start means an all-day event. */}
-            <input
-              type="time"
-              value={start}
-              onChange={(event) => setStart(event.target.value)}
-              className="rounded px-2 py-1 text-sm outline-none"
-              style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text-muted)" }}
-            />
-            <input
-              type="time"
-              value={end}
-              onChange={(event) => setEnd(event.target.value)}
-              disabled={!start}
-              className="rounded px-2 py-1 text-sm outline-none disabled:opacity-40"
-              style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text-muted)" }}
-            />
-            <button
-              type="submit"
-              disabled={!title.trim() || !date}
-              className="ui-action ui-action--outline pi-bracket px-3 disabled:opacity-40"
-              data-state="accent"
-            >
-              {t("robin.common.save")}
-            </button>
-          </div>
-        </form>
-      )}
-
-      {(error || todosError || actionError) && (
-        <p className="text-xs" style={{ color: "var(--accent)" }}>{actionError ?? error ?? todosError}</p>
-      )}
-
-      <SeriesPaletteContext.Provider value={palette}>
-        {today && view === "agenda" && (
-          <AgendaView
-            events={visible}
-            todos={visibleTodos}
-            today={today}
-            start={activeAnchor}
-            onSelectEvent={setSelectedEvent}
-            onCompleteTodo={completeTodo}
-          />
-        )}
-        {today && view === "week" && (
-          <WeekGrid
-            events={visible}
-            todos={visibleTodos}
-            today={today}
-            anchor={activeAnchor}
-            onSelectEvent={setSelectedEvent}
-            onCompleteTodo={completeTodo}
-          />
-        )}
-        {today && view === "month" && (
-          <MonthView
-            events={visible}
-            todos={visibleTodos}
-            today={today}
-            days={weeksFrom(activeAnchor, MONTH_WEEKS)}
-            onSelectDay={(day) => {
-              setAnchor(day);
-              setView("week");
-              writeUrlState({ calendar: "week", date: day });
-              try { localStorage.setItem(VIEW_STORAGE_KEY, "week"); } catch { /* Keep the live view. */ }
-            }}
-            onSelectEvent={setSelectedEvent}
-            onCompleteTodo={completeTodo}
-          />
-        )}
-      </SeriesPaletteContext.Provider>
-
+  return <section className={`robin-calendar pi-card ${styles.calendar}`} aria-label={t("robin.calendar.title")}>
+    <header className={styles.toolbar} data-calendar-toolbar>
+      <h2 className={`pi-section-title ${styles.title}`}>{t("robin.calendar.title")}</h2>
+      <button type="button" className={`${styles.iconButton} ${styles.sidebarToggle}`} aria-label={t("robin.calendar.dateAndCalendars")}
+        aria-expanded={sidebarOpen} aria-controls="calendar-sidebar" onClick={() => setSidebarOpen(!sidebarOpen)}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden><path d="M4 7h6m4 0h6M4 17h10m4 0h2" /><circle cx="12" cy="7" r="2" /><circle cx="16" cy="17" r="2" /></svg>
+      </button>
+      <div className={styles.paging}>
+        <button type="button" className={styles.iconButton} disabled={!activeAnchor} aria-label={t("robin.calendar.previous")}
+          onClick={() => navigate(stepCalendar(view, activeAnchor, -1))}>‹</button>
+        <button type="button" className={styles.control} onClick={() => navigate(null)}>{t("robin.calendar.today")}</button>
+        <button type="button" className={styles.iconButton} disabled={!activeAnchor} aria-label={t("robin.calendar.next")}
+          onClick={() => navigate(stepCalendar(view, activeAnchor, 1))}>›</button>
+      </div>
+      <p className={styles.period} aria-live="polite" data-calendar-heading>{heading}</p>
+      <div className={styles.viewPicker}>
+        <select className={`${styles.control} ${styles.viewSelect}`} aria-label={t("robin.calendar.view")} value={view} onChange={(event) => navigate(anchor, event.target.value as CalendarView)}>
+          {VIEWS.map((id) => <option key={id} value={id}>{t(`robin.calendar.${id}`)}</option>)}
+        </select>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+      </div>
+      <button type="button" className={`${styles.create} robin-calendar-add`} disabled={busy || !today} aria-haspopup="dialog" aria-label={t("robin.calendar.create")}
+        onClick={() => createAt({ date: activeAnchor, ...(view === "month" ? {} : { minute: 9 * 60 }) })}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg><span className={styles.createLabel}>{t("robin.calendar.create")}</span>
+      </button>
+    </header>
+    {(error || todosError || actionError) && !editor && !todoEditor && !selectedEvent && <p role="alert" className={styles.feedback}>{actionError ?? error ?? todosError}</p>}
+    {today && <div className={styles.layout}>
+      <CalendarSidebar anchor={activeAnchor} today={today} open={sidebarOpen} sources={sources} onSources={setSources}
+        onDate={(date) => { navigate(date); setSidebarOpen(false); }} />
+      <div className={styles.main}>
+        {loading && !data ? <p role="status" className={styles.agenda}>{t("robin.calendar.loading")}</p> :
+          <SeriesPaletteContext.Provider value={palette}>
+            <CalendarInteractions key={`${view}:${activeAnchor}`} events={visible} todos={todosData?.todos ?? []} busy={busy} onMove={moveEvent} onReadOnly={selectEvent}
+              onMoveTodo={(todo, dates) => { void saveTodoDates(todo, dates); }}
+              onEditTodo={(todo) => { if (!saving.current) { setActionError(null); setTodoEditor(todo); } }}
+              onCreate={(fields) => openEditor(fields)}>
+              {view === "agenda" && <AgendaView events={visible} todos={todos} today={today} start={activeAnchor} onSelectEvent={selectEvent} onCompleteTodo={completeTodo} />}
+              {(view === "week" || view === "day") && <WeekGrid events={visible} todos={todos} today={today} anchor={activeAnchor}
+                singleDay={view === "day"} onSelectDay={(day) => navigate(day, "day")} onCreate={createAt} onSelectEvent={selectEvent} onCompleteTodo={completeTodo} />}
+              {view === "month" && <MonthView events={visible} todos={todos} today={today} days={days} month={activeAnchor}
+                onSelectDay={(day) => navigate(day, "day")} onCreate={createAt} onSelectEvent={selectEvent} onCompleteTodo={completeTodo} />}
+            </CalendarInteractions>
+          </SeriesPaletteContext.Provider>}
+      </div>
+    </div>}
+    {!today && <p role="status" className={styles.agenda}>{t("robin.calendar.loading")}</p>}
+    <footer className={styles.footer}>
+      <span role="status">{t(busy ? "robin.calendar.saving" : "robin.calendar.workspaceHint")}</span>
       <GoogleConnect status={data?.google} onChanged={refresh} />
-
-      {selectedEvent && (
-        <EventDetailsDialog
-          event={selectedEvent}
-          onClose={() => setSelectedEvent(null)}
-          onDelete={deleteEvent}
-        />
-      )}
-    </section>
-  );
+    </footer>
+    {selectedEvent && <EventDetailsDialog key={selectedEvent.id} event={selectedEvent}
+      onClose={() => setSelectedEvent((current) => current?.id === selectedEvent.id ? null : current)} onDelete={deleteEvent}
+      onEdit={(event) => openEditor(eventFields(event), event)} error={isReadOnlyEvent(selectedEvent) ? null : actionError} busy={busy} />}
+    {todoEditor && <TodoDeadlineEditor key={todoEditor.id} todo={todoEditor} error={actionError}
+      onSave={(dates) => saveTodoDates(todoEditor, dates)}
+      onClose={() => setTodoEditor((current) => current === todoEditor ? null : current)} />}
+    {editor && <CalendarEventEditor initial={editor.fields} editing={Boolean(editor.event)} error={actionError}
+      onSave={(fields, requestId) => run(() => editor.event ? patchEvent(editor.event, fields) : saveEvent("POST", { ...fields, requestId }))}
+      onClose={() => setEditor((current) => current === editor ? null : current)} />}
+  </section>;
 }

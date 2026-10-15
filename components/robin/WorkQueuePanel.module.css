@@ -1,0 +1,54 @@
+.panel { display: flex; flex-direction: column; gap: 12px; padding: 20px; scroll-margin-top: 100px; }
+.header, .actions, .featuredHeading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.header { justify-content: space-between; gap: 4px 12px; }
+.header h2 { flex: 1; min-width: 150px; }
+.header .button { color: var(--text-muted); padding-inline: 0; }
+.meta { color: var(--text-muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.progress { display: flex; align-items: center; gap: 12px; }
+.tracks { display: flex; gap: 4px; width: 64px; }
+.tracks:empty { display: none; }
+.tracks > span { height: 3px; flex: 1; background: var(--border-strong); }
+.tracks > [data-done] { background: var(--accent); }
+.availability { display: flex; align-items: baseline; gap: 8px; color: var(--text-muted); font-size: 13px; line-height: 1.5; }
+.availability::before { content: ""; width: 6px; height: 6px; flex: 0 0 6px; border: 1px solid currentColor; }
+.availability[data-available] { color: var(--accent); }
+.availability[data-available]::before { background: currentColor; }
+.intro { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; font-size: 14px; line-height: 1.5; }
+.featured { padding: 16px 0 0 16px; border-left: 2px solid var(--accent); display: flex; flex-direction: column; gap: 12px; }
+.featuredHeading { justify-content: space-between; gap: 4px 12px; }
+.featuredHeading > p { color: var(--accent); }
+.featured h3 { font-family: var(--font-serif); font-size: 22px; line-height: 1.35; overflow-wrap: anywhere; }
+.featuredActions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 8px; max-width: 420px; }
+.featuredActions[data-running] > :first-child { grid-column: 1 / -1; }
+.button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 40px; min-width: 40px; padding: 6px 8px; font: 12px/1.4 var(--font-mono); text-transform: none; color: var(--text-muted); }
+.button:disabled { opacity: .45; cursor: not-allowed; }
+.button.primary { color: var(--accent); border: 1px solid var(--accent-line); background: var(--accent-faint); }
+.complete { border: 1px solid var(--border); color: var(--text); }
+.field { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: 12px; color: var(--text-muted); }
+.field input, .field select { min-width: 0; width: 100%; border: 1px solid var(--border); background: var(--bg); color: var(--text); padding: 8px; font-size: 14px; }
+.field input[type="number"] { width: 110px; }
+.field input:focus-visible, .field select:focus-visible, .button:focus-visible, .info summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.timer { font-family: var(--font-mono); font-size: 18px; font-variant-numeric: tabular-nums; }
+.listHeading { margin-top: 4px; }
+.list { list-style: none; padding: 0; margin: 0; }
+.list li { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-top: 1px solid var(--border); }
+.number { color: var(--text-muted); font-family: var(--font-mono); font-size: 12px; flex: 0 0 20px; }
+.task { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 15px; line-height: 1.45; }
+.task .meta { margin-top: 4px; }
+.rowStart { flex: 0 0 44px; color: var(--accent); }
+.list li[data-done] .task > :first-child { text-decoration: line-through; color: var(--text-muted); }
+.editor { border-top: 1px solid var(--border); padding-top: 16px; display: flex; flex-direction: column; gap: 16px; }
+.editTask { display: flex; flex-direction: column; gap: 12px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+.nudge { color: var(--accent); font-size: 13px; margin-top: 6px; }
+.error { color: var(--danger); font-size: 13px; overflow-wrap: anywhere; }
+.info { color: var(--text-muted); font-size: 12px; line-height: 1.6; border-top: 1px solid var(--border); }
+.info summary { cursor: pointer; min-height: 40px; align-content: center; width: fit-content; }
+.info p { margin-bottom: 8px; }
+@media (max-width: 640px) {
+  .panel { padding: 16px; }
+  .featured { padding: 8px 0 0 12px; }
+  .featured h3 { font-size: 20px; }
+  .field input, .field select { font-size: 16px; }
+  .button, .info summary { min-height: 44px; }
+}
+@media (pointer: coarse) { .button, .field input, .field select, .info summary { min-height: 44px; min-width: 44px; } }

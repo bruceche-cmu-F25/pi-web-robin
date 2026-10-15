@@ -90,7 +90,7 @@ try {
   const column = (status) => page.locator(`[data-column="${status}"]`);
   const settled = () => page.locator('[aria-busy="false"]').waitFor();
   await card("legacy").waitFor();
-  assert.equal(await page.locator('a[aria-current="page"]').getAttribute("href"), "/dashboard/kanban?session=kanban-test");
+  assert.equal(await page.locator('a[aria-current="page"]').count(), 0, "Kanban is no longer a navigation tab");
   assert.equal(await column("todo").locator("article").count(), 1);
   assert.equal(await column("done").locator("article").count(), 1);
   assert.equal(await card("pool").count(), 0, "Today is not the entire backlog");

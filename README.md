@@ -68,9 +68,11 @@ should come back sooner than one that needed none. Every seam resizes and rememb
   removes them immediately.
 - **Mail is untrusted input.** The tool prompts tell the model to extract facts from a message
   and never to follow instructions found inside one.
-- **Your data is plain JSON** under `~/.pi/robin` (`todos.json`, `events.json`, `links.json`,
-  `practice.json`, …). `grep` it, back it up, put it in git. The two credential files are the
-  exception and are written at mode `0600`.
+- **Your data stays local** under `~/.pi/robin`. Todos, OA/interview rounds, local calendar
+  events, saved links, jobs, tech events and registered operational state (scan progress,
+  leases, delivery history and mail review) support explicit SQLite migration/upgrade,
+  with transactions, verified backups and current-data exports. See [storage and rollback](./docs/robin-task-storage.md).
+  Credentials remain separate; keep backups private and never commit secrets.
 - **The pages are documents, not an admin panel.** Italic serif titles, tracked mono chrome,
   square hairlined panels and bracket buttons on the engineering-pad ground — a page margin
   beside the text rather than an app sidebar. See [docs/pi-visual-language.md](./docs/pi-visual-language.md).

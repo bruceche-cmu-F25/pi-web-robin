@@ -6,12 +6,14 @@ import { after, test } from "node:test";
 import { DEFAULT_JOB_PROFILE } from "./jobs.ts";
 import { absorb, admitPostings, compileAdmission, expireClosedPostings, freshnessCutoff } from "./job-intake.ts";
 import { readJobs, writeJobs } from "./store.ts";
+import { resetTaskStore } from "./task-store.test-support.mjs";
 
 // `absorb` persists through ./store.ts, which resolves its directory per call
 // from ROBIN_DATA_DIR. Without this the suite writes into the developer's own
 // ~/.pi/robin — clobbering their job list every time they run `npm test`.
 const dataDir = mkdtempSync(join(tmpdir(), "robin-intake-test-"));
 process.env.ROBIN_DATA_DIR = dataDir;
+resetTaskStore(dataDir);
 after(() => rmSync(dataDir, { recursive: true, force: true }));
 
 const profile = (over = {}) => ({ ...DEFAULT_JOB_PROFILE, ...over });

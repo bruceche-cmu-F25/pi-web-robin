@@ -1,0 +1,153 @@
+.calendar { container-type: inline-size; min-width: 0; color: var(--text); }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 16px; border-bottom: 1px solid var(--border); }
+.title { margin: 0 12px 0 0; }
+.paging { display: flex; align-items: center; gap: 0; box-shadow: inset 0 0 0 1px var(--border); }
+.paging .control { border-block: 0; background: transparent; }
+.viewPicker { position: relative; }
+.viewPicker > svg { position: absolute; right: 10px; top: calc(50% - 6px); pointer-events: none; color: var(--text-muted); }
+.calendar .viewSelect { appearance: none; -webkit-appearance: none; padding: 6px 28px 6px 10px; background: transparent; font: 12px/1.4 var(--font-mono); }
+.period { flex: 1; min-width: 160px; margin: 0 8px; font: italic 20px/1.3 var(--font-serif); }
+.control, .iconButton, .create { min-height: 36px; padding: 6px 12px; border: 1px solid var(--border); background: transparent; color: var(--text); font: 12px/1.4 var(--font-mono); cursor: pointer; }
+.iconButton { width: 36px; padding: 6px; border-color: transparent; font-size: 20px; }
+.create { display: inline-flex; align-items: center; justify-content: center; gap: 8px; background: var(--accent-faint); border-color: var(--accent-line); color: var(--accent); }
+.control:hover, .iconButton:hover, .create:hover { background: var(--bg-hover); }
+.calendar button:focus-visible, .calendar input:focus-visible, .calendar select:focus-visible, .editor :is(button,input):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.calendar button:disabled { opacity: .45; cursor: default; }
+.layout { display: grid; grid-template-columns: 196px minmax(0, 1fr); }
+.sidebar { padding: 18px 12px; border-right: 1px solid var(--border); }
+.sidebarToggle { display: none; }
+.main { min-width: 0; }
+.miniHeading { display: flex; align-items: center; justify-content: space-between; font: 13px var(--font-mono); margin-bottom: 8px; }
+.miniHeading > span:last-child { display: flex; flex-shrink: 0; }
+.miniHeading .iconButton { width: 28px; }
+.miniGrid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); text-align: center; font: 11px var(--font-mono); }
+.miniGrid span { padding: 6px 0; color: var(--text-muted); }
+.miniGrid button { min-height: 28px; padding: 0; cursor: pointer; }
+.miniGrid button:hover { background: var(--bg-hover); }
+.miniGrid [aria-pressed="true"] { box-shadow: inset 0 0 0 1px var(--accent); background: var(--accent-soft); }
+.miniGrid [aria-current="date"] { background: var(--today-mark); color: var(--on-accent); }
+.outside { color: var(--text-dim); }
+.sources { display: flex; flex-direction: column; gap: 8px; padding-top: 24px; }
+.sources legend { padding-top: 24px; font: 12px var(--font-mono); color: var(--text-muted); }
+.sources label { display: flex; align-items: center; gap: 8px; min-height: 32px; font-size: 14px; }
+.sources input { accent-color: var(--accent); }
+.note { margin: 16px 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+.feedback { padding: 8px 16px; color: var(--danger); font-size: 13px; }
+.footer { display: flex; flex-direction: column; gap: 4px; padding: 8px 16px; border-top: 1px solid var(--border); color: var(--text-muted); font-size: 12px; }
+/* Show the complete 06:00–21:00 canvas; vertical reading belongs to the page.
+   Keep horizontal scrolling on narrow screens without trapping vertical wheel/touch gestures. */
+.weekScroller { overflow-x: auto; overscroll-behavior-x: contain; position: relative; }
+.weekCanvas { min-width: 700px; }
+.weekCanvas[data-single] { min-width: 0; }
+.weekHeader { position: sticky; top: 0; z-index: 20; max-height: 260px; overflow-y: auto; overscroll-behavior: contain; background: var(--bg-panel); box-shadow: 0 1px 0 var(--border); }
+.weekRow { display: grid; grid-template-columns: 56px repeat(var(--days), minmax(0, 1fr)); }
+.weekDay { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 0; border-left: 1px solid var(--border); }
+.weekday { font: 11px var(--font-mono); color: var(--text-muted); }
+.dateNumber { display: inline-flex; align-items: center; justify-content: center; min-width: 36px; height: 36px; font: 25px/1 var(--font-serif); cursor: pointer; }
+.today { background: var(--today-mark); color: var(--on-accent); }
+.bandLabel { align-self: center; padding: 4px; text-align: right; color: var(--text-muted); font: 10px/1.3 var(--font-mono); overflow-wrap: anywhere; }
+.band { position: relative; grid-column: 2 / -1; }
+.bandTargets { position: absolute; inset: 0; display: grid; grid-template-columns: repeat(var(--days), minmax(0, 1fr)); }
+.bandTargets button { border-left: 1px solid var(--border); }
+.bandTargets button:hover { background: var(--bg-hover); }
+.span { position: absolute; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: left; padding: 2px 6px; font-size: 12px; line-height: 20px; }
+.todo { display: flex; align-items: center; gap: 4px; border: 1px dashed var(--accent-amber-line); background: var(--accent-amber-soft); }
+.todo input { flex-shrink: 0; accent-color: var(--accent-amber); }
+/* Compact previews retain date spans; full titles use the native popover top layer. */
+.taskBand { display: grid; grid-template-columns: repeat(var(--days), minmax(0, 1fr)); align-items: start; }
+.weekTodo { position: relative; min-width: 0; flex-direction: column; align-items: stretch; margin: 2px; padding: 4px 6px; font-size: 12px; line-height: 1.4; }
+.todoControls { display: flex; align-items: center; gap: 4px; min-height: 24px; }
+.todoCheck { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; min-width: 20px; min-height: 24px; cursor: pointer; }
+.todoCopy { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.weekTodoTitle { min-width: 0; white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.todoMore { margin-left: auto; flex-shrink: 0; width: 24px; min-height: 24px; color: var(--text-muted); cursor: pointer; }
+.todoMore:hover { color: var(--text); background: var(--bg-hover); }
+.todoPreview { position: fixed; inset: auto; margin: 0; width: min(360px, calc(100vw - 16px)); max-height: min(420px, calc(100dvh - 16px)); overflow: auto; overscroll-behavior: contain; padding: 16px; border: 1px solid var(--border-strong); background: var(--bg-panel); color: var(--text); box-shadow: var(--popover-shadow); font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.todoPreviewClose { float: right; width: 28px; height: 28px; margin: -8px -8px 4px 8px; color: var(--text-muted); cursor: pointer; }
+.todoPreview :is(button, a):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (pointer: coarse) {
+  .todoPreviewClose { width: 44px; height: 44px; }
+}
+.hour { height: 56px; position: relative; padding: 2px 6px 0 0; text-align: right; color: var(--text-muted); font: 10px var(--font-mono); }
+.endHour { height: 0; padding-top: 0; top: -14px; }
+.timeColumn { position: relative; border-left: 1px solid var(--border); }
+.timeColumn[data-today] { background: var(--today-wash-quiet); }
+.hourSlot { position: absolute; inset-inline: 0; height: 56px; border-top: 1px solid var(--border); cursor: crosshair; }
+.hourSlot::after { content: ""; position: absolute; top: 28px; inset-inline: 0; border-top: 1px dotted var(--border); opacity: .4; }
+.hourSlot:hover { background: var(--bg-hover); }
+.now { position: absolute; inset-inline: 0; border-top: 2px solid var(--today-mark); pointer-events: none; z-index: 5; }
+.now::before { content: ""; position: absolute; width: 6px; height: 6px; background: var(--today-mark); border-radius: 50%; left: -4px; top: -4px; }
+.event { position: absolute; display: flex; flex-direction: column; align-items: flex-start; padding: 4px 6px; overflow: hidden; text-align: left; border: 1px solid var(--border); }
+.eventTitle { width: 100%; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: break-word; font-size: 13px; line-height: 1.2; font-weight: 600; }
+.eventMeta { width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 10px/1.5 var(--font-mono); color: var(--text-muted); }
+.resize { position: absolute; bottom: 0; left: 0; right: 0; height: 9px; cursor: ns-resize; touch-action: none; }
+.resize::after { content: ""; display: block; width: 20px; margin: 3px auto; border-bottom: 2px solid currentColor; opacity: 0; }
+.event:hover .resize::after, .event:focus-visible .resize::after { opacity: .5; }
+.monthScroll { overflow-x: auto; }
+.month { min-width: 630px; }
+.monthWeekdays { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); padding: 10px 0; text-align: center; font: 11px var(--font-mono); color: var(--text-muted); }
+.monthWeek { position: relative; }
+.monthCells { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.monthCell { position: relative; min-height: 116px; border-top: 1px solid var(--border); border-left: 1px solid var(--border); }
+.monthCell:first-child { border-left: 0; }
+.monthCell[data-outside] { background: var(--bg); }
+.monthBlank { position: absolute; inset: 0; width: 100%; cursor: crosshair; }
+.monthBlank:hover { background: var(--bg-hover); }
+.monthContent { pointer-events: none; position: relative; min-height: 116px; display: flex; flex-direction: column; gap: 2px; padding: 0 3px 4px; }
+.monthNumbers { pointer-events: none; position: absolute; top: 0; inset-inline: 0; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); justify-items: center; }
+.monthNumbers button { pointer-events: auto; font: 12px var(--font-mono); min-width: 28px; height: 28px; margin-top: 3px; cursor: pointer; }
+.monthChip { pointer-events: auto; display: flex; align-items: baseline; gap: 4px; padding: 3px 4px; text-align: left; width: 100%; font-size: 12px; overflow: hidden; }
+.monthChip:hover { background: var(--bg-hover); }
+.monthChip time { font: 10px var(--font-mono); flex-shrink: 0; color: var(--text-muted); }
+.dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; align-self: center; }
+.more { pointer-events: auto; min-height: 24px; text-align: left; padding-left: 6px; font: 11px var(--font-mono); color: var(--text-muted); cursor: pointer; }
+.agenda { padding: 16px; }
+.editor { padding: 0; }
+.editorHeader { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; border-bottom: 1px solid var(--border); }
+.editorForm { padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+.editorForm fieldset { min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+.editorForm label { display: flex; flex-direction: column; gap: 6px; min-width: 0; font: 12px var(--font-mono); color: var(--text-muted); }
+.editorForm input:not([type="checkbox"]) { width: 100%; min-width: 0; padding: 9px; min-height: 40px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font: 14px var(--font-mono); }
+.editorForm .titleInput { font: 24px var(--font-serif) !important; border-width: 0 0 1px !important; background: transparent !important; }
+.editorDates { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.editorForm .allDay { flex-direction: row; align-items: center; gap: 8px; }
+.editorActions { display: flex; justify-content: flex-end; gap: 8px; }
+@container (max-width: 950px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  .sidebar { display: none; border-right: 0; border-bottom: 1px solid var(--border); }
+  .sidebar[data-open] { display: block; }
+  .sidebarToggle { display: inline-flex; }
+  .miniGrid { max-width: 300px; }
+  .miniHeading { max-width: 300px; }
+  .title { display: none; }
+}
+@container (max-width: 540px) {
+  .toolbar { display: grid; grid-template-columns: minmax(0, 1fr) 84px 44px; gap: 8px 4px; padding: 10px 12px; }
+  .period { grid-column: 1 / 3; grid-row: 1; min-width: 0; margin: 0; font-size: 18px; }
+  .toolbar > .create { grid-column: 3; grid-row: 1; width: 44px; min-height: 44px; margin: 0; padding: 0; justify-content: center; font-size: 24px; }
+  .createLabel { display: none; }
+  .paging { grid-column: 1; grid-row: 2; gap: 0; min-width: 0; }
+  .paging .iconButton { width: 44px; min-height: 44px; flex-shrink: 0; }
+  .paging .control { flex: 1; min-width: 44px; min-height: 44px; padding-inline: 4px; }
+  .viewPicker { grid-column: 2; grid-row: 2; min-width: 0; }
+  .calendar .viewSelect { width: 100%; min-width: 0; min-height: 44px; padding-inline: 8px 24px; font: 16px var(--font-serif); border-color: transparent; }
+  .sidebarToggle { grid-column: 3; grid-row: 2; width: 44px; min-height: 44px; justify-content: center; align-items: center; }
+  .sidebarToggle[aria-expanded="true"] { color: var(--accent); background: var(--accent-faint); }
+}
+@container (max-width: 300px) {
+  .toolbar { padding-inline: 8px; }
+}
+@media (max-width: 640px) {
+  .weekCanvas[data-single] .weekDates { display: none; }
+  .weekCanvas[data-single] .todoCheck,
+  .weekCanvas[data-single] .todoControls > [data-calendar-todo] { width: 44px; min-height: 44px; }
+  .dateNumber { min-width: 44px; height: 44px; }
+  .sources label { min-height: 44px; }
+  .miniHeading .iconButton { width: 44px; height: 44px; }
+  .miniGrid button { min-height: 40px; }
+  .weekTodoTitle { display: block; -webkit-line-clamp: unset; overflow: visible; }
+  .todoMore { display: none; }
+  .editorDates { grid-template-columns: minmax(0, 1fr); }
+  .editorForm input:not([type="checkbox"]) { font-size: 16px; }
+  .editorForm { max-height: 75dvh; overflow: auto; }
+}

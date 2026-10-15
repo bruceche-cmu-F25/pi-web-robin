@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { after, test } from "node:test";
+import { after, beforeEach, test } from "node:test";
+import { resetTaskStore } from "./task-store.test-support.mjs";
 
 const dir = mkdtempSync(join(tmpdir(), "robin-background-runs-"));
 const previous = process.env.ROBIN_DATA_DIR;
 process.env.ROBIN_DATA_DIR = dir;
+beforeEach(() => resetTaskStore(dir));
 after(() => {
   rmSync(dir, { recursive: true, force: true });
   if (previous === undefined) delete process.env.ROBIN_DATA_DIR;

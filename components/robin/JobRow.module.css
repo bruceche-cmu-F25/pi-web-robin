@@ -57,8 +57,9 @@
 .meta {
   min-width: 0;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--dashboard-meta-size, 11px);
   letter-spacing: 0.03em;
+  overflow-wrap: anywhere;
   color: var(--text-dim);
 }
 .meta a { color: var(--text-muted); text-decoration: none; border-bottom: 1px dotted var(--border); }
@@ -69,11 +70,11 @@
   margin-top: 4px;
   max-width: 74ch;
   font-family: var(--font-serif);
-  font-size: 13px;
+  font-size: var(--dashboard-body-size, 13px);
   line-height: 1.5;
   color: var(--copy);
 }
-.note { margin-top: 4px; font-size: 13px; font-style: italic; color: var(--text-muted); }
+.note { margin-top: 4px; font-size: var(--dashboard-body-size, 13px); font-style: italic; color: var(--text-muted); }
 
 .foot {
   display: flex;
@@ -82,7 +83,7 @@
   gap: 2px 16px;
   margin-top: 6px;
 }
-.flag { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
+.flag { font-family: var(--font-mono); font-size: var(--dashboard-meta-size, 11px); color: var(--text-muted); }
 .flag::before { content: "◦ "; color: var(--text-dim); }
 .flag[data-blocking] { color: var(--danger); }
 .flag[data-blocking]::before { content: "■ "; color: var(--danger); }
@@ -122,25 +123,6 @@
 }
 
 /* ── Used by JobsBoard around the rows ────────────────────────────────── */
-
-/* A dated section head: serif italic dateline, count, hairline to the edge. */
-.day {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  margin: 20px 0 2px;
-}
-.day:first-child { margin-top: 4px; }
-.day h3 {
-  font-family: var(--font-serif);
-  font-style: italic;
-  font-weight: 400;
-  font-size: 20px;
-  color: var(--text);
-  white-space: nowrap;
-}
-.day span { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
-.day i { flex: 1; border-bottom: 1px solid var(--border); transform: translateY(-5px); }
 
 /* The page's lede under its title: one sentence of what today holds. */
 .lede {

@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
+import { resetTaskStore } from "./task-store.test-support.mjs";
 import {
   runTechEventScan,
   startTechEventScan,
@@ -21,6 +22,7 @@ import { claimBackgroundRun, releaseBackgroundRun } from "./background-run-domai
 // developer's own ~/.pi/robin.
 const dataDir = mkdtempSync(join(tmpdir(), "robin-events-test-"));
 process.env.ROBIN_DATA_DIR = dataDir;
+resetTaskStore(dataDir);
 after(() => rmSync(dataDir, { recursive: true, force: true }));
 
 const source = (id, slug = id) => ({ id, kind: "place", slug, label: `Feed ${id}` });
@@ -153,6 +155,37 @@ test("a durable owner in another process blocks a duplicate event scan", () => {
     releaseBackgroundRun(TECH_EVENT_SCAN_RUN, owner);
   }
   assert.equal(techEventScanRunning(), false);
+});
+
+test("the ownership fence merges current flags and late rows, not the stale preview", async () => {
+  const { readTechEvents, writeTechEvents } = await import("./store.ts");
+  const { setTechEventFlags } = await import("./tech-event-domain.ts");
+  const existing = {
+    id: "luma:evt-1", title: "Original title", url: "https://luma.com/evt-1", source: "luma",
+    startAt: "2099-09-01T02:00:00.000Z", online: false, topics: ["ai"], score: 1,
+    matched: [], discoveredAt: "2026-01-01T00:00:00Z", saved: true,
+  };
+  writeTechEvents([existing]);
+  const result = await runTechEventScan({
+    sources: [source("sf")],
+    fetchImpl: stubFeeds({
+      "luma.com/sf": () => page("place-sf"),
+      "place-sf": () => feed([listing("evt-1", "Agent Build Night — updated host title")]),
+    }),
+    commit: (write) => {
+      // The scan has already built its preview at this point.
+      setTechEventFlags(existing.id, { saved: false, hidden: true });
+      writeTechEvents([...readTechEvents(), { ...existing, id: "late", title: "Late arrival" }]);
+      write();
+      return true;
+    },
+  });
+  const current = readTechEvents();
+  assert.equal(current.find((event) => event.id === existing.id).saved, undefined);
+  assert.equal(current.find((event) => event.id === existing.id).hidden, true);
+  assert.match(current.find((event) => event.id === existing.id).title, /updated host title/);
+  assert.ok(current.some((event) => event.id === "late"));
+  assert.deepEqual(result.events, current);
 });
 
 test("a rejected event commit cannot overwrite the stored scan", async () => {

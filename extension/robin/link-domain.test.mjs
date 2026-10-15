@@ -5,10 +5,12 @@ import { join } from "node:path";
 import { after, test } from "node:test";
 import { getLink, listLinks, refreshLinkIcon, updateLink } from "./link-domain.ts";
 import { readLinks, writeLinks } from "./store.ts";
+import { resetTaskStore } from "./task-store.test-support.mjs";
 
 const previousDataDir = process.env.ROBIN_DATA_DIR;
 const dataDir = mkdtempSync(join(tmpdir(), "robin-link-domain-test-"));
 process.env.ROBIN_DATA_DIR = dataDir;
+resetTaskStore(dataDir);
 
 after(() => {
   rmSync(dataDir, { recursive: true, force: true });

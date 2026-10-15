@@ -13,10 +13,17 @@ import { todoUrl } from "@/extension/robin/todo-links";
 import { formatLinkPaste } from "@/lib/clipboard";
 import { requestRefresh } from "./refreshBus";
 import { splitReplyLinks } from "./reply-links";
+import { usePolledResource } from "./usePolledResource";
 
 interface AssistantResponse {
   reply: string;
   usedTools: string[];
+  sessionId?: string;
+}
+
+interface AssistantTrace {
+  sessionId: string | null;
+  running: boolean;
 }
 
 /**
@@ -91,9 +98,21 @@ export function AssistantBar({
   const [busy, setBusy] = useState(false);
   const [reply, setReply] = useState<AssistantResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { data: trace, error: traceError, refresh: refreshTrace, updateData: updateTrace } = usePolledResource<AssistantTrace>("/api/robin/assistant");
+  useEffect(() => {
+    if (mode !== "execute") return;
+    void refreshTrace();
+    if (!busy && !trace?.running) return;
+    const timer = setInterval(() => { if (document.visibilityState === "visible") void refreshTrace(); }, 2_000);
+    return () => clearInterval(timer);
+  }, [mode, busy, trace?.running, refreshTrace]);
+  const executing = busy || trace?.running === true;
+  const traceId = reply?.sessionId ?? trace?.sessionId;
+  const traceHref = typeof traceId === "string" && traceId ? `/?session=${encodeURIComponent(traceId)}` : null;
   const [searchData, setSearchData] = useState<DashboardSearchData | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const traceLinkRef = useRef<HTMLAnchorElement>(null);
   const searchResultsRef = useRef<HTMLDivElement>(null);
   const inFlight = useRef(false);
   const fieldId = useId();
@@ -169,6 +188,7 @@ export function AssistantBar({
       return;
     }
 
+    if (trace?.running) return;
     inFlight.current = true;
     setBusy(true);
     setError(null);
@@ -185,7 +205,8 @@ export function AssistantBar({
 
       setMessage("");
       setSearchData(null);
-      setReply({ reply: body?.reply ?? "", usedTools: body?.usedTools ?? [] });
+      setReply({ reply: body?.reply ?? "", usedTools: body?.usedTools ?? [], sessionId: body?.sessionId });
+      if (body?.sessionId) updateTrace(() => ({ sessionId: body.sessionId!, running: false }));
       // The agent wrote straight to the JSON stores; pull the panels forward.
       requestRefresh();
     } catch (caught) {
@@ -193,6 +214,7 @@ export function AssistantBar({
     } finally {
       inFlight.current = false;
       setBusy(false);
+      void refreshTrace();
       // The input is disabled while busy; focus lands after React re-enables it.
       requestAnimationFrame(() => inputRef.current?.focus());
     }
@@ -217,6 +239,11 @@ export function AssistantBar({
   };
 
   const actions = reply ? describeTools(reply.usedTools, t) : null;
+  const changeMode = (next: "search" | "execute") => {
+    setMode(next); setError(null); setReply(null);
+    inputRef.current?.focus();
+  };
+  const submitLabel = busy ? t("robin.assistant.working") : t(mode === "execute" ? "robin.assistant.execute" : commandHref ? "robin.assistant.open" : "robin.assistant.searchMode");
 
   return (
     // One ruled line in the calendar card's vocabulary: the mode switch marks
@@ -239,16 +266,16 @@ export function AssistantBar({
               data-active={mode === value ? "true" : undefined}
               title={t(`robin.assistant.${value}Mode`)}
               className={`ui-action min-h-[44px] min-w-[44px] px-2.5 desktop:min-h-7 desktop:min-w-0 disabled:opacity-40${mode === value ? " pi-active-stripe" : ""}`}
-              onClick={() => {
-                setMode(value);
-                setError(null);
-                setReply(null);
-                inputRef.current?.focus();
-              }}
+              onClick={() => changeMode(value)}
             >
               {t(`robin.assistant.${value}Short`)}
             </button>
           ))}
+          <select className="robin-assistant-mobile-mode" aria-label={t("robin.assistant.mode")} value={mode} disabled={busy}
+            onChange={(event) => changeMode(event.target.value as "search" | "execute")}>
+            <option value="search">{t("robin.assistant.searchShort")}</option>
+            <option value="execute">{t("robin.assistant.executeShort")}</option>
+          </select>
         </div>
         <form
           onSubmit={submit}
@@ -280,11 +307,17 @@ export function AssistantBar({
           />
           <button
             type="submit"
-            disabled={busy || !message.trim()}
-            className="ui-action pi-bracket min-h-[44px] shrink-0 px-2 desktop:min-h-7 disabled:opacity-40"
+            disabled={busy || !message.trim() || (mode === "execute" && trace?.running === true)}
+            className="robin-assistant-submit ui-action pi-bracket min-h-[44px] shrink-0 px-2 desktop:min-h-7 disabled:opacity-40"
+            aria-label={submitLabel}
             data-state={mode === "execute" ? "accent" : undefined}
           >
-            {busy ? t("robin.assistant.working") : t(mode === "execute" ? "robin.assistant.execute" : commandHref ? "robin.assistant.open" : "robin.assistant.searchMode")}
+            <span className="robin-assistant-submit-label">{submitLabel}</span>
+            <span className="robin-assistant-submit-icon" aria-hidden="true">
+              {busy ? "…" : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                {mode === "search" && !commandHref ? <><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4 4" /></> : <path d="M5 12h14m-6-6 6 6-6 6" />}
+              </svg>}
+            </span>
           </button>
         </form>
       </div>
@@ -311,20 +344,32 @@ export function AssistantBar({
       )}
 
       <div role="status" aria-live="polite" aria-atomic="true" className="text-xs empty:hidden" style={{ color: "var(--text-muted)" }}>
-        {busy ? t("robin.assistant.working") : reply ? t("robin.assistant.finished") :
+        {mode === "execute" && executing ? t("robin.assistant.working") : reply ? t("robin.assistant.finished") :
           mode === "search" && message.trim() && !commandHref && !searchError ? (
             !searchData ? t("robin.assistant.searching") :
               searchResults.length ? t("robin.assistant.resultCount", { count: String(searchResults.length) }) : t("robin.assistant.noResults")
           ) : null}
       </div>
 
+      {mode === "execute" && (traceHref || reply || error || executing || traceError) && <div className="robin-assistant-result-toolbar">
+        {traceHref ? <a ref={traceLinkRef} href={traceHref} target="_blank" rel="noopener noreferrer" className="ui-action"
+          aria-label={t("robin.assistant.trace")}>
+          {t("robin.assistant.trace")} <span aria-hidden="true">↗</span>
+        </a> : <span className="text-xs">{t(traceError ? "robin.assistant.traceUnavailable" : "robin.assistant.tracePending")}</span>}
+        {(reply || error) && <button type="button" className="ui-action" aria-label={t("robin.assistant.dismissReply")}
+          onClick={() => { setReply(null); setError(null); traceLinkRef.current?.focus({ preventScroll: true }); }}>×</button>}
+      </div>}
+      {mode === "execute" && traceError && traceHref && <p role="status" className="text-xs">{t("robin.assistant.traceUnavailable")}</p>}
+
       {mode === "search" && searchError && message.trim() && (
         <p role="alert" className="text-xs" style={{ color: "var(--danger)" }}>{searchError}</p>
       )}
-      {error && <p role="alert" className="text-xs" style={{ color: "var(--danger)" }}>{error}</p>}
+      {error && <div role="alert" className="text-xs" style={{ color: "var(--danger)" }}>
+        <p>{error}</p><p>{t("robin.assistant.checkBeforeRetry")}</p>
+      </div>}
 
       {reply && !busy && (
-        <div className="flex flex-col gap-1">
+        <div className="robin-assistant-reply flex flex-col gap-1">
           {reply.reply && (
             <p className="whitespace-pre-wrap break-words text-sm" style={{ color: "var(--text-muted)" }}>
               {splitReplyLinks(reply.reply).map((segment, index) => segment.type === "link" ? (

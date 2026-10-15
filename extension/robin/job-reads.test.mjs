@@ -3,10 +3,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, beforeEach, test } from "node:test";
+import { resetTaskStore } from "./task-store.test-support.mjs";
 
 const previous = process.env.ROBIN_DATA_DIR;
 const dir = mkdtempSync(join(tmpdir(), "robin-job-reads-"));
 process.env.ROBIN_DATA_DIR = dir;
+resetTaskStore(dir);
 
 const { claimJobScoringRun, claimJobSweepRun, heartbeatJobScoringRun, heartbeatJobSweepRun, jobBoard, pendingJobCount, pendingJobIds, saveJobSweepState, saveScoringState, scorerName, scoringState, scoringStatus, sweepState } =
   await import("./job-domain.ts");

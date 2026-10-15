@@ -358,19 +358,27 @@ scripts/telegram/launchd/install.sh
 
 | 文件 | 内容 |
 | --- | --- |
-| `todos.json` | 待办列表 |
-| `events.json` | 本地创建的日历事件 |
-| `links.json` | 保存的链接 |
+| `todos.json`、`rounds.json` | 显式迁移前使用的待办和 OA/面试列表 |
+| `tasks.sqlite`、`task-storage.json` | SQLite 版本选择：v1 为待办/OA，v2 增加四类业务记录，v3 增加运行状态 |
+| `events.json` | v2 迁移前使用的本地日历事件 |
+| `links.json` | v2 迁移前使用的收藏链接 |
+| `jobs.json`、`tech-events.json` | v2 迁移前使用的岗位和活动列表 |
 | `assistant.json` | 各 Robin 助手当前使用的 pi 会话 id |
 | `assistant-session-history.json` | Robin 会话文件登记、各自最后活动时间及上次清理月份 |
-| `telegram-state.json` | 当天已成功发送每日简报的 chat |
+| `background-runs.json`、`job-scan.json`、`job-scoring.json`、`job-sweep.json` | v3 迁移前的后台任务租约、进度及扫描游标 |
+| `tech-event-scan.json`、`round-scan.json` | v3 迁移前的扫描进度 |
+| `telegram-state.json`、`job-digest-state.json` | v3 迁移前的每日简报/岗位发送记录 |
 | `secrets.json` | Google、Notion、Telegram、转写凭据和 Telegram 设置 —— **权限 0600** |
 | `google.json` | Google refresh token —— **长期有效的凭据，权限 0600** |
-| `gmail-digest-state.json` | 邮件简报每天向哪些 chat 发过 |
-| `mail-review.json` | 今天邮件的分类检查结果 |
-| `reminder-state.json` | 哪些事件已经提醒过 |
+| `gmail-digest-state.json` | v3 迁移前的邮件简报发送记录 |
+| `mail-review.json` | v3 迁移前的邮件分类结果及本地已处理标记 |
+| `reminder-state.json` | v3 迁移前的事件提醒记录 |
 
-前五个刻意用普通 JSON：可以 grep、可以进 git、可以像普通文件一样备份。
+上述六类记录及 11 个指定运行状态文件支持显式、停写后的 SQLite 迁移或升级，
+并校验备份，详见[迁移与回退说明](../../docs/robin-task-storage.md)。已迁移文件的
+旧 JSON 仅是历史副本，不再更新。导出包含当前发送记录、扫描进度和邮件处理标记；
+原本不存在的状态文件保持缺失，回退时不要复活旧副本。不要在 WAL 写入期间只复制
+SQLite 主文件。其他业务保持原存储方式，凭据不迁入数据库。
 
 `secrets.json` 和 `google.json` 是例外——它们存的是你日历、笔记和消息账号的长期凭据。
 不要放进任何你不会放密码的仓库或同步目录。

@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, beforeEach, test } from "node:test";
 import { createJiti } from "jiti";
+import { resetTaskStore } from "../../../../extension/robin/task-store.test-support.mjs";
 
 const jiti = createJiti(import.meta.url, { tsconfigPaths: true });
 const { GET, POST, PATCH, DELETE } = await jiti.import("./route.ts");
@@ -15,7 +16,7 @@ after(() => {
   if (previous === undefined) delete process.env.ROBIN_DATA_DIR;
   else process.env.ROBIN_DATA_DIR = previous;
 });
-beforeEach(() => writeFileSync(join(directory, "todos.json"), "[]"));
+beforeEach(() => resetTaskStore(directory));
 const request = (method, body, origin) => new Request("http://localhost:30141/api/robin/todos", {
   method,
   headers: { host: "localhost:30141", "content-type": "application/json", ...(origin ? { origin } : {}) },
@@ -50,6 +51,24 @@ test("HTTP revisions protect edits and deletions while legacy tools can still wr
   assert.equal(saved.todo.due, todo.due);
   assert.equal(saved.todo.title, "Fresh");
   assert.equal((await PATCH(request("PATCH", { id: todo.id, revision: null, title: "Bad" }))).status, 400);
+});
+
+test("calendar rescheduling changes only the deadline range and rejects stale, invalid or deleted tasks", async () => {
+  const { todo } = await (await POST(request("POST", {
+    title: "Multi-day task", startDate: "2030-05-10", due: "2030-05-15",
+    plannedOn: "2030-05-12", estimateMinutes: 45, url: "https://example.com/task",
+  }))).json();
+  const patch = { id: todo.id, revision: todo.revision, startDate: "2030-05-13", due: "2030-05-18" };
+  const response = await PATCH(request("PATCH", patch));
+  assert.equal(response.status, 200);
+  const { todo: saved } = await response.json();
+  assert.notEqual(saved.revision, todo.revision);
+  assert.deepEqual(saved, { ...todo, startDate: patch.startDate, due: patch.due, revision: saved.revision });
+  assert.equal((await PATCH(request("PATCH", patch))).status, 409);
+  assert.equal((await PATCH(request("PATCH", { ...patch, revision: saved.revision, due: "2030-05-11" }))).status, 400);
+  assert.deepEqual((await (await GET(request("GET"))).json()).todos, [saved]);
+  await DELETE(request("DELETE", { id: saved.id, revision: saved.revision }));
+  assert.equal((await PATCH(request("PATCH", { ...patch, revision: saved.revision }))).status, 404);
 });
 
 test("HTTP next-task selection is exclusive and validates the boundary", async () => {

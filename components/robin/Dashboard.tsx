@@ -5,16 +5,20 @@ import { useEffect, useState } from "react";
 import { localDate, parseLocalDate } from "@/extension/robin/dates";
 import { AssistantBar } from "./AssistantBar";
 import { CalendarPanel } from "./CalendarPanel";
+import { WorkQueuePanel } from "./WorkQueuePanel";
+import { AttentionPanel } from "./AttentionPanel";
 import { JobsPanel } from "./JobsPanel";
 import { LearningPanel } from "./LearningPanel";
 import { LinksPanel } from "./LinksPanel";
 import { TodoPanel } from "./TodoPanel";
+import styles from "./Dashboard.module.css";
+import { useDashboardLayout } from "./useDashboardLayout";
 
 const SHORTCUTS = [
-  { href: "#dashboard-todos", key: "robin.dashboard.todo" },
-  { href: "#dashboard-jobs", key: "robin.dashboard.apply" },
-  { href: "#fullstack-open", key: "robin.dashboard.practice" },
-  { href: "#dashboard-links", key: "robin.dashboard.links" },
+  { href: "#dashboard-todos", key: "robin.dashboard.todo", icon: "M9 6h11M9 12h11M9 18h11M3 6l1 1 2-2M3 12l1 1 2-2M3 18l1 1 2-2" },
+  { href: "/dashboard/jobs", key: "robin.dashboard.apply", icon: "M8 6V4h8v2M3 7h18v13H3zM3 12h18M10 12v3h4v-3" },
+  { href: "#fullstack-open", key: "robin.dashboard.practice", icon: "m8 6-6 6 6 6m8-12 6 6-6 6m-3-15-2 18" },
+  { href: "#dashboard-links", key: "robin.dashboard.links", icon: "m10 13 4-4m-6 6-2 2a3 3 0 0 1-4-4l4-4a3 3 0 0 1 4 0m4 6a3 3 0 0 0 4 0l4-4a3 3 0 0 0-4-4l-2 2" },
 ];
 
 /**
@@ -68,6 +72,7 @@ function DashboardClock({ locale }: { locale: string }) {
 export function Dashboard() {
   const { t, locale } = useI18n();
   const today = useLocalToday();
+  const panels = useDashboardLayout();
   const heading = today
     ? parseLocalDate(today).toLocaleDateString(locale, {
       weekday: "long",
@@ -80,14 +85,14 @@ export function Dashboard() {
     // globals.css locks html/body to the viewport height with
     // overflow:hidden for the chat shell. This page is a document, so it
     // supplies its own scroll container rather than changing that shared rule.
-    <div className="robin-page robin-page--sticky-top robin-dashboard flex-1 overflow-y-auto scroll-smooth motion-reduce:scroll-auto" style={{ minHeight: 0 }}>
+    <div className={`robin-page robin-page--sticky-top robin-dashboard flex-1 overflow-y-auto scroll-smooth motion-reduce:scroll-auto ${styles.viewport}`} style={{ minHeight: 0 }}>
       <header className="robin-dashboard-header sticky top-0" style={{ zIndex: "var(--z-sticky)" }}>
-        <div className="mx-auto w-full max-w-7xl px-4 py-2 desktop:px-6">
+        <div className={`${styles.frame} px-4 py-2 desktop:px-6`}>
           <AssistantBar />
         </div>
       </header>
 
-      <main className="mx-auto flex w-full max-w-7xl flex-col gap-4 p-4 desktop:p-6">
+      <main className={`${styles.frame} flex flex-col gap-4 p-4 desktop:p-6`}>
         {/* pi's page head: an italic serif title over a tracked mono dateline. */}
         <div className="flex flex-wrap items-baseline gap-4">
           <div className="flex flex-col gap-1">
@@ -95,7 +100,7 @@ export function Dashboard() {
               {t("sidebar.dashboard")}
             </h1>
             {/* Empty until the effect runs, so server and client markup agree. */}
-            <div className="flex items-baseline gap-3">
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
               <p className="pi-eyebrow" suppressHydrationWarning>
                 {heading}
               </p>
@@ -104,25 +109,20 @@ export function Dashboard() {
           </div>
         </div>
 
-        <nav aria-label={t("sidebar.dashboard")} className="flex flex-wrap items-center gap-2">
-          {SHORTCUTS.map(({ href, key }) => (
-            <a key={href} href={href}
-              className="ui-action pi-bracket inline-flex min-h-[28px] items-center gap-1.5 px-2 text-xs [@media(pointer:coarse)]:min-h-[44px]"
-              style={{ color: "var(--text-muted)" }}>
-              {t(key)} <span aria-hidden="true">↓</span>
+        <nav aria-label={t("sidebar.dashboard")} className={`robin-dashboard-shortcuts ${styles.shortcuts}`}>
+          {SHORTCUTS.map(({ href, key, icon }) => (
+            <a key={href} href={href} className={`ui-action ${styles.shortcut}`}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={icon} /></svg>
+              {t(key)}
             </a>
           ))}
         </nav>
 
-        {/* Full width: the week and month grids need the whole page to stay legible. */}
-        <CalendarPanel />
-
-        {/* Each section gets a full row; the links collection can grow without
-            making the todo list look like a narrow sidebar. */}
-        <div className="flex flex-col gap-4">
+        <div ref={panels} className={styles.panels} data-dashboard-panels>
+          <CalendarPanel />
+          <WorkQueuePanel />
           <TodoPanel />
-          {/* Between the todos and the links: the morning push lands here, and
-              this is the row you scan before deciding what today looks like. */}
+          <AttentionPanel />
           <JobsPanel />
           <LearningPanel />
           <LinksPanel />

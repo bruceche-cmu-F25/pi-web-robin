@@ -1,0 +1,53 @@
+.viewport {
+  container: dashboard / inline-size;
+  min-width: 0;
+}
+
+.frame {
+  width: 100%;
+  max-width: 1800px;
+  margin-inline: auto;
+}
+
+.shortcuts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; width: min(100%, 460px); }
+.shortcut { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; min-height: 44px; padding: 6px 10px; border: 1px solid var(--border); background: var(--bg-panel); color: var(--text-muted); font: 13px/1.2 var(--font-mono); text-transform: none; }
+.shortcut svg { flex-shrink: 0; color: var(--accent); }
+.shortcut:hover { color: var(--text); border-color: var(--accent-line); background: var(--accent-faint); }
+.shortcut:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+@media (max-width: 640px) { .shortcuts { width: 100%; gap: 6px; } .shortcut { gap: 5px; padding-inline: 4px; font-size: 12px; } }
+@media (max-width: 359px) { .shortcut svg { display: none; } }
+
+/* One DOM order at every size: calendar, work queue, tasks, attention, jobs, learning, links.
+   Size against the available workspace, not a viewport with navigation still in it. */
+.panels {
+  --dashboard-columns: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+}
+
+.panels > section { min-width: 0; }
+.panels > section > header { flex-wrap: wrap; }
+.panels > section > header > div { min-width: 0; flex-wrap: wrap; }
+
+@container dashboard (min-width: 800px) {
+  .panels { --dashboard-columns: 2; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .panels > :global(.robin-calendar) { grid-column: 1 / -1; }
+}
+
+/* Measured lanes remove shared row heights without remounting or reordering cards.
+   Until hydration (and on phones), the ordinary grid remains the fallback. */
+.panels[data-packed] {
+  row-gap: 0;
+}
+
+/* Leave roughly 900px for the calendar before introducing a task column. */
+@container dashboard (min-width: 1440px) {
+  .panels {
+    --dashboard-columns: 3;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 20px;
+  }
+  .panels > :is(:global(.robin-calendar), :global(#dashboard-work-queue), :global(#dashboard-attention), :global(#dashboard-jobs), :global(#fullstack-open)) { grid-column: span 2; }
+}

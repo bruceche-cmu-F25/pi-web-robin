@@ -9,7 +9,7 @@
 import { localDate } from "./dates.ts";
 import { isConnected } from "./google-calendar.ts";
 import type { MailReview } from "./mail.ts";
-import { readMailReview, writeMailReview } from "./store.ts";
+import { readMailReview, updateMailReview } from "./store.ts";
 
 export interface MailBoard {
   /** Whether a Google account is connected at all. */
@@ -51,14 +51,18 @@ export function mailBoard(): MailBoard {
  * you" so the page stops asking for attention it has already had.
  */
 export function markMailDone(id: string, done: boolean): MailBoard | { error: string } {
-  const review = readMailReview();
-  if (!review || review.day !== localDate()) return { error: "There is no review for today." };
-  const item = review.items.find((entry) => entry.id === id);
-  if (!item) return { error: `No email "${id}" in today's review.` };
-  if (done) item.done = true;
-  else delete item.done;
-  writeMailReview(review);
-  return mailBoard();
+  const error = updateMailReview<string | null>((review) => {
+    if (!review || review.day !== localDate()) return {
+      result: "There is no review for today.",
+      value: review ?? { day: localDate(), reviewedAt: "", items: [] }, changed: false,
+    };
+    const item = review.items.find((entry) => entry.id === id);
+    if (!item) return { result: `No email "${id}" in today's review.`, value: review, changed: false };
+    if (done) item.done = true;
+    else delete item.done;
+    return { result: null, value: review, changed: true };
+  });
+  return error ? { error } : mailBoard();
 }
 
 /**
@@ -72,10 +76,11 @@ export function markMailDone(id: string, done: boolean): MailBoard | { error: st
 export function attachMailReport(reply: string): void {
   const report = reply.trim();
   if (!report) return;
-  const review = readMailReview();
-  writeMailReview(review
-    ? { ...review, report }
-    : { day: localDate(), reviewedAt: new Date().toISOString(), items: [], report });
+  updateMailReview((review) => ({
+    result: undefined, changed: true,
+    value: review ? { ...review, report }
+      : { day: localDate(), reviewedAt: new Date().toISOString(), items: [], report },
+  }));
 }
 
 /** The stored review as written, whatever day it is from. */
@@ -95,14 +100,15 @@ export function saveMailReview(
   // A re-check re-reads mail the user already dealt with: newer_than:1d
   // overlaps the previous run, and a second check the same day reads it all.
   // Their "done" is a fact about the email, not about one review of it.
-  const handled = new Set((readMailReview()?.items ?? []).filter((item) => item.done).map((item) => item.id));
-  const review: MailReview = {
-    day: localDate(),
-    reviewedAt: new Date().toISOString(),
-    items: items.map((item) => (handled.has(item.id) ? { ...item, done: true } : item)),
-    ...(headline ? { headline } : {}),
-    ...(skipped ? { skipped } : {}),
-  };
-  writeMailReview(review);
-  return review;
+  return updateMailReview((current) => {
+    const handled = new Set((current?.items ?? []).filter((item) => item.done).map((item) => item.id));
+    const review: MailReview = {
+      day: localDate(),
+      reviewedAt: new Date().toISOString(),
+      items: items.map((item) => (handled.has(item.id) ? { ...item, done: true } : item)),
+      ...(headline ? { headline } : {}),
+      ...(skipped ? { skipped } : {}),
+    };
+    return { result: review, value: review, changed: true };
+  });
 }

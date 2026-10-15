@@ -1,5 +1,6 @@
 import { localDate } from "./dates.ts";
 import { normalizeUrl } from "./links.ts";
+import { LAUNCH_NODE_IDS, LAUNCH_STATUSES, type LaunchPlan, type LaunchNodeId, type LaunchStatus } from "./product-launch.ts";
 import {
   newId,
   readJsonArray,
@@ -52,6 +53,8 @@ export interface Idea {
   parked?: boolean;
   /** What has to be true for this to be worth the time. See IdeaBet. */
   bet?: IdeaBet;
+  /** Explicit user decisions on the product map; independent of pipeline stage. */
+  launchPlan?: LaunchPlan;
   /** The raw capture this came from, when it came from one. */
   sourceCaptureId?: string;
   createdAt: string;
@@ -186,6 +189,7 @@ function foldLegacy(raw: Idea & LegacyRecord): Idea {
     step: PLAYBOOK_STEPS.includes(raw.step) ? raw.step : LEGACY_STEP[raw.state ?? raw.stage ?? ""] ?? "spot",
     ...(raw.parked || raw.state === "parked" || raw.stage === "paused" ? { parked: true } : {}),
     ...(raw.bet?.claim?.trim() ? { bet: raw.bet } : {}),
+    ...(raw.launchPlan ? { launchPlan: raw.launchPlan } : {}),
     ...(raw.sourceCaptureId ? { sourceCaptureId: raw.sourceCaptureId } : {}),
     createdAt: raw.createdAt || now(),
     updatedAt: raw.updatedAt || raw.createdAt || now(),
@@ -237,6 +241,28 @@ export function updateIdea(id: string, patch: IdeaPatch): Idea | null {
     if (patch.bet?.settled === "broke" && current.bet?.settled !== "broke" && patch.parked === undefined) {
       next.parked = true;
     }
+    ideas[index] = next;
+    return { value: next, changed: true };
+  });
+}
+
+/** Patch only one branch under the store lock; concurrent branches never erase each other. */
+export function updateLaunchDecision(id: string, input: unknown): Idea | null {
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("launchNode is required");
+  const { nodeId, status, note, expectedUpdatedAt } = input as Record<string, unknown>;
+  if (!LAUNCH_NODE_IDS.includes(nodeId as LaunchNodeId)) throw new Error("invalid launch node");
+  if (!LAUNCH_STATUSES.includes(status as LaunchStatus)) throw new Error("invalid launch status");
+  if (typeof note !== "string" || note.length > 20_000) throw new Error("note must be text under 20000 characters");
+  if (expectedUpdatedAt !== null && typeof expectedUpdatedAt !== "string") throw new Error("expectedUpdatedAt is required");
+  return updateJsonArray<Idea & LegacyRecord, Idea | null>(IDEAS_FILE, (ideas) => {
+    const index = ideas.findIndex((idea) => idea.id === id);
+    if (index < 0) return { value: null, changed: false };
+    const idea = foldLegacy(ideas[index]!);
+    const key = nodeId as LaunchNodeId;
+    const previous = idea.launchPlan?.[key];
+    if ((previous?.updatedAt ?? null) !== expectedUpdatedAt) throw new Error("This branch changed elsewhere. Reload it before saving. / 此分支已在别处更改，请载入最新内容后再保存。");
+    const updatedAt = new Date(Math.max(Date.now(), (Date.parse(previous?.updatedAt ?? "") || 0) + 1)).toISOString();
+    const next = { ...idea, updatedAt, launchPlan: { ...idea.launchPlan, [key]: { status: status as LaunchStatus, note, updatedAt } } };
     ideas[index] = next;
     return { value: next, changed: true };
   });

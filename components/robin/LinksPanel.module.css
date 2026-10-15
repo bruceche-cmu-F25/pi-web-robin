@@ -1,0 +1,7 @@
+.panel { container-type: inline-size; }
+.groups { columns: 1; column-gap: 16px; }
+
+/* A wide screen does not mean the links card itself has two columns of room. */
+@container (min-width: 640px) {
+  .groups { columns: 2; }
+}

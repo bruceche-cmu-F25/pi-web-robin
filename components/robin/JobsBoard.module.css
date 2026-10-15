@@ -1,0 +1,60 @@
+/* Pipeline first, dates second. Reuse the document palette, not dashboard tiles. */
+.stages {
+  display: flex;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border);
+  gap: 4px 16px;
+}
+.stage {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-height: 44px;
+  padding: 10px 0;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  cursor: pointer;
+}
+.stage b { font-weight: 400; font-variant-numeric: tabular-nums; color: var(--text-dim); }
+.stage[aria-pressed="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+.stage[aria-pressed="true"] b { color: var(--accent); }
+.stage:hover { color: var(--text); }
+.stage:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+.toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
+.toolbar label { display: flex; min-width: 0; flex-direction: column; gap: 5px; }
+.toolbar label > span,
+.summary { font: 12px/1.5 var(--font-mono); color: var(--text-muted); }
+.search { flex: 1 1 220px; }
+.toolbar input,
+.toolbar select {
+  min-width: 0;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 10px;
+  font-size: 16px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+.toolbar input:focus-visible,
+.toolbar select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.band {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  padding: 18px 0 8px;
+  border-bottom: 1px solid var(--border);
+}
+.band:first-child { padding-top: 4px; }
+.band h3 { font: 400 20px/1.4 var(--font-serif); color: var(--text); }
+.band > span { font: 13px var(--font-mono); color: var(--accent); font-variant-numeric: tabular-nums; }
+.band p { flex-basis: 100%; font: 12px/1.5 var(--font-mono); color: var(--text-muted); }
+
+@media (max-width: 959px) {
+  .workspace .results { grid-row: 1; }
+}

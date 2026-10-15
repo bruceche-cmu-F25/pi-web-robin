@@ -31,7 +31,8 @@ import {
   type TechEventScanState,
   type TechEventSourceResult,
 } from "./tech-events.ts";
-import { readTechEvents, writeTechEventScanState, writeTechEvents } from "./store.ts";
+import { readTechEvents, updateTechEvents, writeTechEventScanState } from "./store.ts";
+import { withTaskTransaction } from "./task-store.ts";
 
 /**
  * Two at a time. Every source here is the same hostname, so a higher number is
@@ -66,7 +67,7 @@ export interface TechEventScanOptions {
   /** Cancels outbound reads when a durable owner is replaced. */
   signal?: AbortSignal;
   /** Transaction seam used by the durable runner to fence the final write. */
-  commit?: (events: TechEvent[], state: TechEventScanState) => boolean;
+  commit?: (write: () => void) => boolean;
 }
 
 /**
@@ -113,25 +114,36 @@ export async function runTechEventScan(
 
   const scanned = harvested.flatMap((entry) => entry.events);
   const stored = options.stored ?? (persist ? readTechEvents() : []);
-  const { events, added, expired } = mergeTechEvents(stored, scanned, now);
+  const preview = mergeTechEvents(stored, scanned, now);
+  let events = preview.events;
 
   const state: TechEventScanState = {
     startedAt,
     finishedAt: new Date().toISOString(),
     seen: harvested.reduce((total, entry) => total + entry.result.seen, 0),
     kept: scanned.length,
-    added,
-    expired,
+    added: preview.added,
+    expired: preview.expired,
     sources: harvested.map((entry) => entry.result),
   };
 
   if (persist) {
-    const commit = options.commit ?? ((nextEvents: TechEvent[], nextState: TechEventScanState) => {
-      writeTechEvents(nextEvents);
-      writeTechEventScanState(nextState);
-      return true;
-    });
-    commit(events, state);
+    const commit = options.commit ?? ((write: () => void) => { write(); return true; });
+    commit(() => withTaskTransaction(() => {
+      // Merge ONLY under the write transaction/file lock, after the ownership
+      // fence. Otherwise a stale preview overwrites a concurrent saved/hidden flag.
+      const merged = updateTechEvents((current) => {
+        const merged = mergeTechEvents(current, scanned, now);
+        current.length = 0;
+        for (const event of merged.events) current.push(event);
+        return { value: merged, changed: true };
+      });
+      events = merged.events;
+      state.added = merged.added;
+      state.expired = merged.expired;
+      // v3: the list, ownership fence and checkpoint share one transaction.
+      writeTechEventScanState(state);
+    }));
   }
   return { ...state, events };
 }
@@ -175,13 +187,7 @@ export function startTechEventScan(options: TechEventScanOptions = {}): boolean 
     signal: options.signal
       ? AbortSignal.any([options.signal, controller.signal])
       : controller.signal,
-    commit: (events, state) => {
-      const result = withBackgroundRunOwnership(TECH_EVENT_SCAN_RUN, ownerId, () => {
-        writeTechEvents(events);
-        writeTechEventScanState(state);
-      });
-      return result.owned;
-    },
+    commit: (write) => withBackgroundRunOwnership(TECH_EVENT_SCAN_RUN, ownerId, write).owned,
   }).finally(() => {
     clearInterval(heartbeat);
     releaseBackgroundRun(TECH_EVENT_SCAN_RUN, ownerId);

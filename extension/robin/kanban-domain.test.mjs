@@ -1,6 +1,6 @@
 process.env.TZ = "America/Los_Angeles";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, beforeEach, test } from "node:test";
@@ -9,6 +9,7 @@ import { addTodo, applyTodoPlan, listTodos, reviewTodo, todoRevision, updateTodo
 import { acceptPlan, kanbanContext, parsePlanReply, plannerMessage } from "./kanban-domain.ts";
 import { DEFAULT_PLANNING, needsReview } from "./kanban.ts";
 import { createCalendarEvent } from "./calendar-domain.ts";
+import { resetTaskStore } from "./task-store.test-support.mjs";
 
 const previous = process.env.ROBIN_DATA_DIR;
 const dir = mkdtempSync(join(tmpdir(), "robin-focus-"));
@@ -17,7 +18,7 @@ after(() => {
   rmSync(dir, { recursive: true, force: true });
   if (previous === undefined) delete process.env.ROBIN_DATA_DIR; else process.env.ROBIN_DATA_DIR = previous;
 });
-beforeEach(() => { writeFileSync(join(dir, "todos.json"), "[]"); writeFileSync(join(dir, "events.json"), "[]"); });
+beforeEach(() => resetTaskStore(dir));
 const snapshot = () => listTodos({ includeDone: true, includeArchived: true }).todos;
 
 test("planned work dates and estimates never overwrite deadlines or status", () => {

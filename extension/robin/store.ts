@@ -1,5 +1,5 @@
 /**
- * File-backed stores for the Robin dashboard.
+ * Persistence helpers for Robin: selected SQLite collections plus JSON stores.
  *
  * Server-only: this module reaches `node:fs` through ./paths.ts, so it must
  * never be imported for its *values* by a client component. Pure logic the
@@ -18,6 +18,7 @@ import { normalizePracticeRecord, type PracticeList, type PracticeRecord } from 
 import type { TechEvent, TechEventScanState } from "./tech-events.ts";
 import type { TechEventDetail } from "./tech-event-detail.ts";
 import { createDeliveryLedger } from "./delivery-ledger.ts";
+import { readTaskRecords, taskStoragePath, updateTaskRecords, writeTaskRecords, readRuntimeState, writeRuntimeState, updateRuntimeState } from "./task-store.ts";
 import {
   dataPath,
   readJsonArray,
@@ -89,13 +90,9 @@ export {
 } from "./jobs.ts";
 export { dataDir, newId } from "./paths.ts";
 
-const LINKS_FILE = "links.json";
-const EVENTS_FILE = "events.json";
-const TECH_EVENTS_FILE = "tech-events.json";
 const TECH_EVENT_SCAN_FILE = "tech-event-scan.json";
 const TECH_EVENT_DETAILS_FILE = "tech-event-details.json";
 const TELEGRAM_STATE_FILE = "telegram-state.json";
-const JOBS_FILE = "jobs.json";
 const JOB_PROFILE_FILE = "job-profile.json";
 const JOB_SCAN_FILE = "job-scan.json";
 const JOB_DIGEST_STATE_FILE = "job-digest-state.json";
@@ -125,59 +122,63 @@ const JOB_SWEEP_FILE = "job-sweep.json";
 const JOB_SCORING_FILE = "job-scoring.json";
 
 export function linksPath(): string {
-  return dataPath(LINKS_FILE);
+  return taskStoragePath("links");
 }
 
 export function readLinks(): Link[] {
-  return readJsonArray<Link>(LINKS_FILE);
+  return readTaskRecords<Link>("links");
 }
 
 export function writeLinks(links: Link[]): void {
-  writeJsonArray(LINKS_FILE, links);
+  writeTaskRecords("links", links);
 }
 
 export function updateLinks<R>(updater: (links: Link[]) => { value: R; changed: boolean }): R {
-  return updateJsonArray(LINKS_FILE, updater);
+  return updateTaskRecords("links", updater);
 }
 
 export function eventsPath(): string {
-  return dataPath(EVENTS_FILE);
+  return taskStoragePath("events");
 }
 
 export function readEvents(): CalendarEvent[] {
-  return readJsonArray<CalendarEvent>(EVENTS_FILE);
+  return readTaskRecords<CalendarEvent>("events");
 }
 
 export function updateEvents<R>(updater: (events: CalendarEvent[]) => { value: R; changed: boolean }): R {
-  return updateJsonArray(EVENTS_FILE, updater);
+  return updateTaskRecords("events", updater);
 }
 
 /**
  * Bay Area AI and software-engineering events, scraped weekly.
  *
- * A separate file from the calendar above, and deliberately so: these are
+ * A separate collection from the calendar above, deliberately so: these are
  * public events nobody has committed to, written by a scanner and pruned by
  * it. The calendar is the user's own agenda. Mixing them would mean a weekly
  * scrape could delete something they put there themselves.
  */
 export function techEventsPath(): string {
-  return dataPath(TECH_EVENTS_FILE);
+  return taskStoragePath("tech_events");
 }
 
 export function readTechEvents(): TechEvent[] {
-  return readJsonArray<TechEvent>(TECH_EVENTS_FILE);
+  return readTaskRecords<TechEvent>("tech_events");
 }
 
 export function writeTechEvents(events: TechEvent[]): void {
-  writeJsonArray(TECH_EVENTS_FILE, events);
+  writeTaskRecords("tech_events", events);
+}
+
+export function updateTechEvents<R>(updater: (events: TechEvent[]) => { value: R; changed: boolean }): R {
+  return updateTaskRecords("tech_events", updater);
 }
 
 export function readTechEventScanState(): TechEventScanState | null {
-  return readJsonObject<TechEventScanState>(TECH_EVENT_SCAN_FILE);
+  return readRuntimeState<TechEventScanState>(TECH_EVENT_SCAN_FILE);
 }
 
 export function writeTechEventScanState(state: TechEventScanState): void {
-  writeJsonObject(TECH_EVENT_SCAN_FILE, state);
+  writeRuntimeState(TECH_EVENT_SCAN_FILE, state);
 }
 
 /** Event pages read on demand, keyed by event id. A cache: losing it costs a refetch. */
@@ -199,19 +200,19 @@ export function updateTechEventDetails(
 /* ──────────────────────────── jobs ──────────────────────────── */
 
 export function jobsPath(): string {
-  return dataPath(JOBS_FILE);
+  return taskStoragePath("jobs");
 }
 
 export function readJobs(): Job[] {
-  return readJsonArray<Job>(JOBS_FILE);
+  return readTaskRecords<Job>("jobs");
 }
 
 export function writeJobs(jobs: Job[]): void {
-  writeJsonArray(JOBS_FILE, jobs);
+  writeTaskRecords("jobs", jobs);
 }
 
 export function updateJobs<R>(updater: (jobs: Job[]) => { value: R; changed: boolean }): R {
-  return updateJsonArray(JOBS_FILE, updater);
+  return updateTaskRecords("jobs", updater);
 }
 
 export function jobProfilePath(): string {
@@ -248,11 +249,11 @@ export interface JobScanState {
 }
 
 export function readJobScanState(): JobScanState | null {
-  return readJsonObject<JobScanState>(JOB_SCAN_FILE);
+  return readRuntimeState<JobScanState>(JOB_SCAN_FILE);
 }
 
 export function writeJobScanState(state: JobScanState): void {
-  writeJsonObject(JOB_SCAN_FILE, state);
+  writeRuntimeState(JOB_SCAN_FILE, state);
 }
 
 /**
@@ -287,15 +288,15 @@ export interface JobScoringState {
 }
 
 export function readJobScoringState(): JobScoringState | null {
-  return readJsonObject<JobScoringState>(JOB_SCORING_FILE);
+  return readRuntimeState<JobScoringState>(JOB_SCORING_FILE);
 }
 
 export function writeJobScoringState(state: JobScoringState): void {
-  writeJsonObject(JOB_SCORING_FILE, state);
+  writeRuntimeState(JOB_SCORING_FILE, state);
 }
 
 export function updateJobScoringState<R>(updater: (state: JobScoringState | null) => { value: JobScoringState; result: R; changed: boolean }): R {
-  return updateJsonObject<JobScoringState, R>(JOB_SCORING_FILE, updater);
+  return updateRuntimeState<JobScoringState, R>(JOB_SCORING_FILE, updater);
 }
 
 /**
@@ -338,15 +339,15 @@ export interface JobSweepState {
 }
 
 export function readJobSweepState(): JobSweepState | null {
-  return readJsonObject<JobSweepState>(JOB_SWEEP_FILE);
+  return readRuntimeState<JobSweepState>(JOB_SWEEP_FILE);
 }
 
 export function writeJobSweepState(state: JobSweepState): void {
-  writeJsonObject(JOB_SWEEP_FILE, state);
+  writeRuntimeState(JOB_SWEEP_FILE, state);
 }
 
 export function updateJobSweepState<R>(updater: (state: JobSweepState | null) => { value: JobSweepState; result: R; changed: boolean }): R {
-  return updateJsonObject<JobSweepState, R>(JOB_SWEEP_FILE, updater);
+  return updateRuntimeState<JobSweepState, R>(JOB_SWEEP_FILE, updater);
 }
 
 /**
@@ -358,11 +359,15 @@ export function updateJobSweepState<R>(updater: (state: JobSweepState | null) =>
  * without another Gmail call.
  */
 export function readMailReview(): MailReview | null {
-  return readJsonObject<MailReview>(MAIL_REVIEW_FILE);
+  return readRuntimeState<MailReview>(MAIL_REVIEW_FILE);
 }
 
 export function writeMailReview(review: MailReview): void {
-  writeJsonObject(MAIL_REVIEW_FILE, review);
+  writeRuntimeState(MAIL_REVIEW_FILE, review);
+}
+
+export function updateMailReview<R>(updater: (review: MailReview | null) => { value: MailReview; result: R; changed: boolean }): R {
+  return updateRuntimeState<MailReview, R>(MAIL_REVIEW_FILE, updater);
 }
 
 /* ──────────────────────────── practice ──────────────────────────── */

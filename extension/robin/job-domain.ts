@@ -26,6 +26,7 @@ import {
 import { experienceProblem, jobSummary, reviewProblem, scoringContext, type JobReview } from "./job-evidence.ts";
 import { hasFreshRunLease, type RunOwnershipResult } from "./run-lease.ts";
 import { enrichJob } from "./job-intake.ts";
+import { withTaskTransaction } from "./task-store.ts";
 import {
   findDeadPostings,
   hydrateDescriptions,
@@ -353,7 +354,7 @@ export function withJobSweepOwnership<T>(
       const empty: JobSweepState = { startedAt: new Date().toISOString(), finishedAt: null, running: false, boardsTotal: 0, boardsDone: 0, unreachable: 0, scanned: 0, matched: 0, added: 0, directories: [], cursors: {}, error: null };
       return { value: current ?? empty, result: { owned: false }, changed: false };
     }
-    return { value: current, result: { owned: true, value: action() }, changed: false };
+    return { value: current, result: { owned: true, value: withTaskTransaction(action) }, changed: false };
   });
 }
 

@@ -8,6 +8,8 @@ export interface PolledResource<T> {
   error: string | null;
   loading: boolean;
   refresh: () => Promise<void>;
+  /** Apply a confirmed server write and invalidate any reads started before it. */
+  updateData: (update: (current: T | null) => T | null) => void;
 }
 
 /**
@@ -63,6 +65,14 @@ export function usePolledResource<T>(url: string, intervalMs = 60_000): PolledRe
     }
   }, [url]);
 
+  const updateData = useCallback((update: (current: T | null) => T | null) => {
+    sequenceRef.current += 1;
+    abortRef.current?.abort();
+    lastTextRef.current = null;
+    setData(update);
+    setLoading(false);
+  }, []);
+
   // A different URL is a different resource: drop the previous payload and
   // any in-flight response so the old one cannot flash or overwrite the new.
   useEffect(() => {
@@ -106,11 +116,16 @@ export function usePolledResource<T>(url: string, intervalMs = 60_000): PolledRe
     };
   }, [refresh, intervalMs]);
 
-  return { data, error, loading, refresh };
+  return { data, error, loading, refresh, updateData };
 }
 
 /** POST/PATCH/DELETE helper that surfaces the API's error message. */
 export async function mutate(url: string, method: string, body: unknown): Promise<void> {
+  await mutateResponse(url, method, body);
+}
+
+/** For callers that need the server's saved values, not an optimistic approximation. */
+export async function mutateResponse(url: string, method: string, body: unknown): Promise<Response> {
   const response = await fetch(url, {
     method,
     headers: { "Content-Type": "application/json" },
@@ -120,4 +135,5 @@ export async function mutate(url: string, method: string, body: unknown): Promis
     const parsed = await response.json().catch(() => null) as { error?: string } | null;
     throw new Error(parsed?.error ?? `Request failed (${response.status})`);
   }
+  return response;
 }

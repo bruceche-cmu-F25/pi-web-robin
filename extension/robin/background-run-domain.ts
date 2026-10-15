@@ -6,7 +6,7 @@
  * Server-only: reaches node:fs through ./paths.ts.
  */
 import { randomUUID } from "node:crypto";
-import { readJsonObject, updateJsonObject } from "./paths.ts";
+import { readRuntimeState, updateRuntimeState, withTaskTransaction } from "./task-store.ts";
 import {
   hasFreshRunLease,
   RUN_LEASE_MS,
@@ -30,13 +30,13 @@ export function newBackgroundRunOwner(): string {
 }
 
 export function backgroundRunActive(name: string, nowMs = Date.now()): boolean {
-  const lease = readJsonObject<BackgroundRunRegistry>(STORE_FILE)?.[name];
+  const lease = readRuntimeState<BackgroundRunRegistry>(STORE_FILE)?.[name];
   return Boolean(lease && hasFreshRunLease(lease, nowMs));
 }
 
 /** Fresh named slots, for status views that need to report remote work. */
 export function activeBackgroundRunNames(prefix = "", nowMs = Date.now()): string[] {
-  const registry = readJsonObject<BackgroundRunRegistry>(STORE_FILE) ?? {};
+  const registry = readRuntimeState<BackgroundRunRegistry>(STORE_FILE) ?? {};
   return Object.entries(registry)
     .filter(([name, lease]) => name.startsWith(prefix) && hasFreshRunLease(lease, nowMs))
     .map(([name]) => name);
@@ -44,7 +44,7 @@ export function activeBackgroundRunNames(prefix = "", nowMs = Date.now()): strin
 
 /** Atomically take an empty or expired named slot. */
 export function claimBackgroundRun(name: string, ownerId: string, nowMs = Date.now()): boolean {
-  return updateJsonObject<BackgroundRunRegistry, boolean>(STORE_FILE, (stored) => {
+  return updateRuntimeState<BackgroundRunRegistry, boolean>(STORE_FILE, (stored) => {
     const registry = stored ?? {};
     const current = registry[name];
     if (current && hasFreshRunLease(current, nowMs)) {
@@ -67,7 +67,7 @@ export function heartbeatBackgroundRun(
   ownerId: string,
   at = new Date().toISOString(),
 ): boolean {
-  return updateJsonObject<BackgroundRunRegistry, boolean>(STORE_FILE, (stored) => {
+  return updateRuntimeState<BackgroundRunRegistry, boolean>(STORE_FILE, (stored) => {
     const registry = stored ?? {};
     const current = registry[name];
     if (current?.ownerId !== ownerId) {
@@ -92,7 +92,7 @@ export function withBackgroundRunOwnership<T>(
   action: () => T,
   nowMs = Date.now(),
 ): RunOwnershipResult<T> {
-  return updateJsonObject<BackgroundRunRegistry, RunOwnershipResult<T>>(
+  return updateRuntimeState<BackgroundRunRegistry, RunOwnershipResult<T>>(
     STORE_FILE,
     (stored) => {
       const registry = stored ?? {};
@@ -101,7 +101,7 @@ export function withBackgroundRunOwnership<T>(
         return { result: { owned: false }, value: registry, changed: false };
       }
       return {
-        result: { owned: true, value: action() },
+        result: { owned: true, value: withTaskTransaction(action) },
         value: registry,
         changed: false,
       };
@@ -156,7 +156,7 @@ export async function executeBackgroundRun<T>(
 
 /** Release only this owner; a replacement is never cleared by an old finally. */
 export function releaseBackgroundRun(name: string, ownerId: string): boolean {
-  return updateJsonObject<BackgroundRunRegistry, boolean>(STORE_FILE, (stored) => {
+  return updateRuntimeState<BackgroundRunRegistry, boolean>(STORE_FILE, (stored) => {
     const registry = stored ?? {};
     if (registry[name]?.ownerId !== ownerId) {
       return { result: false, value: registry, changed: false };
@@ -173,7 +173,7 @@ export function releaseBackgroundRun(name: string, ownerId: string): boolean {
  * local controller immediately as well.
  */
 export function cancelBackgroundRun(name: string): boolean {
-  return updateJsonObject<BackgroundRunRegistry, boolean>(STORE_FILE, (stored) => {
+  return updateRuntimeState<BackgroundRunRegistry, boolean>(STORE_FILE, (stored) => {
     const registry = stored ?? {};
     if (!registry[name]) return { result: false, value: registry, changed: false };
     const next = { ...registry };

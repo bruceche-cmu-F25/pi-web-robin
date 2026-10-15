@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import styles from "./JobRow.module.css";
+import { ReadableText } from "./ReadableText";
 import type { Job, JobStatus } from "@/extension/robin/jobs";
 
 /**
@@ -91,6 +92,7 @@ export function JobRow({
   also = [],
   active = false,
   minScore,
+  showDiscovered = false,
   onStatus,
   onNote,
   onDelete,
@@ -102,6 +104,7 @@ export function JobRow({
   /** The keyboard cursor is on this card. */
   active?: boolean;
   minScore: number;
+  showDiscovered?: boolean;
   onStatus?: (status: JobStatus) => void;
   onNote?: (note: string) => void;
   onDelete?: () => void;
@@ -116,6 +119,9 @@ export function JobRow({
   }, [active]);
   const posted = job.postedAt
     ? t("robin.jobs.posted", { date: new Date(`${job.postedAt}T12:00:00`).toLocaleDateString(locale, { month: "short", day: "numeric" }) })
+    : "";
+  const discovered = showDiscovered && job.discoveredAt
+    ? t("robin.jobs.discovered", { date: new Date(job.discoveredAt).toLocaleDateString(locale, { month: "short", day: "numeric" }) })
     : "";
   const flagList = job.flags ?? [];
   const reason = job.reason ? displayReason(job.reason, flagList) : "";
@@ -151,7 +157,7 @@ export function JobRow({
                 {" · "}
               </span>
             )}
-            {[posted, job.location, sourceLabel(job.source)].filter(Boolean).join(" · ")}
+            {[job.location, posted, discovered, sourceLabel(job.source)].filter(Boolean).join(" · ")}
             {alsoSources.length > 0 && (
               <>
                 {" · "}{t("robin.jobs.alsoListed")}{" "}
@@ -232,7 +238,11 @@ export function JobRow({
           )}
         </div>
 
-        {reason && <p className={styles.reason}>{reason}</p>}
+        {reason && (
+          <ReadableText>
+            <p className={styles.reason}>{reason}</p>
+          </ReadableText>
+        )}
         {job.note && !editingNote && <p className={styles.note}>{job.note}</p>}
 
         {flagList.length > 0 && (

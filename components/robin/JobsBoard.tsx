@@ -5,7 +5,6 @@ import { useI18n } from "@/hooks/useI18n";
 import {
   DEFAULT_JOB_PROFILE,
   JOB_STATUSES,
-  appliedJobs,
   roleKey,
   type Job,
   type JobProfile,
@@ -15,6 +14,8 @@ import { JobFilterDialog, type FilterCatalogue } from "./JobFilterDialog";
 import { JobLinks } from "./JobLinks";
 import { JobRow } from "./JobRow";
 import rowStyles from "./JobRow.module.css";
+import styles from "./JobsBoard.module.css";
+import { groupJobRoles, jobBand, orderJobGroups, searchJobGroups, type JobOrder } from "./jobs-view";
 import type { JobsResponse } from "./JobsPanel";
 import { RoundsSection } from "./RoundsSection";
 import { mutate, usePolledResource } from "./usePolledResource";
@@ -139,8 +140,7 @@ export function JobsBoard() {
   const { t, locale } = useI18n();
   const when = (iso: string) => new Date(iso).toLocaleString(locale, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   const number = (value: number) => value.toLocaleString(locale);
-  const dayLabel = (day: string) => new Date(`${day}T12:00:00`).toLocaleDateString(locale, { weekday: "long", month: "long", day: "numeric" });
-  const { data, error, refresh } = usePolledResource<JobsResponse>("/api/robin/jobs", 30000);
+  const { data, error, loading, refresh } = usePolledResource<JobsResponse>("/api/robin/jobs", 30000);
 
   const [profile, setProfile] = useState<JobProfile | null>(null);
   const [catalogue, setCatalogue] = useState<FilterCatalogue | null>(null);
@@ -150,6 +150,8 @@ export function JobsBoard() {
   const [notice, setNotice] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("new");
+  const [query, setQuery] = useState("");
+  const [order, setOrder] = useState<JobOrder>("priority");
   const [shown, setShown] = useState(PAGE_SIZE);
   const [preview, setPreview] = useState<string | null>(null);
   const [sweeping, setSweeping] = useState(false);
@@ -337,67 +339,42 @@ export function JobsBoard() {
 
   // Memoised so the identity is stable: `data?.jobs ?? []` would hand the
   // counts a fresh array on every render and re-tally the whole list each time.
-  const jobs = useMemo(() => data?.jobs ?? [], [data]);
+  const jobs = useMemo(() => (data?.jobs ?? []).filter((job) => !hidden.has(job.id)), [data, hidden]);
+  const allGroups = useMemo(() => groupJobRoles(jobs), [jobs]);
   const counts = useMemo(() => {
-    const tally = new Map<Filter, number>([["all", jobs.length]]);
+    const tally = new Map<Filter, number>([["all", allGroups.length]]);
     for (const status of JOB_STATUSES) {
-      tally.set(status, jobs.filter((job) => job.status === status).length);
+      tally.set(status, allGroups.filter(({ job }) => job.status === status).length);
     }
     return tally;
-  }, [jobs]);
-  // The applied list is a log, not a ranking: you browse it by when you sent
-  // things, and the score that got it there stopped mattering the moment you did.
+  }, [allGroups]);
   const visible = useMemo(() => {
-    const shown = jobs.filter((job) => !hidden.has(job.id));
-    return filter === "all"
-      ? shown
-      : filter === "applied"
-        ? appliedJobs(shown)
-        : shown.filter((job) => job.status === filter);
-  }, [jobs, filter, hidden]);
+    // Applied stays a dated log, never a recommendation ranking.
+    const scoped = filter === "applied" ? groupJobRoles(jobs, true)
+      : filter === "all" ? allGroups : allGroups.filter(({ job }) => job.status === filter);
+    return searchJobGroups(scoped, query);
+  }, [jobs, allGroups, filter, query]);
 
-  // "New" runs to a thousand rows, three quarters of them under 3: the few
-  // worth a look were buried. Below-floor rows fold into one line that can be
-  // opened or cleared in bulk. Unscored rows are not "below" — they are unknown.
   const minScore = data?.minScore ?? DEFAULT_JOB_PROFILE.minScore;
-  const { below, listed } = useMemo(() => {
-    const isBelow = (job: Job) => typeof job.score === "number" && job.score < minScore;
-    const low = filter === "new" ? visible.filter(isBelow) : [];
-    return { below: low, listed: low.length > 0 && !showBelow ? visible.filter((job) => !isBelow(job)) : visible };
-  }, [visible, filter, minScore, showBelow]);
-
-  // One card per role. The same opening arrives as a repost under a new
-  // requisition and again through BuiltIn's mirror; showing each as its own
-  // card made one MintMCP role three rows. The best-ranked copy leads, the
-  // others ride along as links, and a status change applies to all of them.
-  //
-  // "New" and "Shortlist" then read as dated sections, newest day first and
-  // best score inside a day: most of the list sits at 3.9, so score order alone
-  // was one undivided wall, and what you come back for is what arrived since.
-  // Below-floor rows, when opened, follow undated.
+  // Searching includes low matches automatically; a company must not disappear
+  // just because its score is below the normal browsing floor.
+  const belowExpanded = showBelow || query.trim().length > 0;
+  const below = useMemo(() => filter === "new"
+    ? visible.filter(({ job }) => jobBand(job, minScore) === "below") : [], [visible, filter, minScore]);
   const groups = useMemo(() => {
-    const byRole = new Map<string, { job: Job; also: Job[]; day?: string }>();
-    for (const job of listed) {
-      const key = roleKey(job);
-      const group = byRole.get(key);
-      if (group) group.also.push(job);
-      else byRole.set(key, { job, also: [] });
-    }
-    const all = [...byRole.values()];
-    if (filter !== "new" && filter !== "shortlist") return all;
-    const isBelow = (job: Job) => typeof job.score === "number" && job.score < minScore;
-    const dated = all
-      .filter((group) => !isBelow(group.job))
-      .map((group) => ({ ...group, day: localDay(group.job.discoveredAt) }))
-      .sort((a, b) => b.day.localeCompare(a.day) || (b.job.score ?? -1) - (a.job.score ?? -1));
-    return [...dated, ...all.filter((group) => isBelow(group.job))];
-  }, [listed, filter, minScore]);
-  const datedCount = groups.filter((group) => group.day !== undefined).length;
-  const dayCounts = useMemo(() => {
+    const listed = filter === "new" && !belowExpanded
+      ? visible.filter(({ job }) => jobBand(job, minScore) !== "below") : visible;
+    return filter === "applied" ? listed : orderJobGroups(listed, order, minScore);
+  }, [visible, filter, belowExpanded, order, minScore]);
+  const bandCounts = useMemo(() => {
     const tally = new Map<string, number>();
-    for (const group of groups) if (group.day) tally.set(group.day, (tally.get(group.day) ?? 0) + 1);
+    for (const { job } of groups) {
+      const band = jobBand(job, minScore);
+      tally.set(band, (tally.get(band) ?? 0) + 1);
+    }
     return tally;
-  }, [groups]);
+  }, [groups, minScore]);
+  const showBands = order === "priority" && (filter === "new" || filter === "shortlist");
 
   // The page's lede, independent of the tab: what today brought and what waits.
   const lede = useMemo(() => {
@@ -486,7 +463,7 @@ export function JobsBoard() {
 
   /** Drop every row below the floor, with an undo that puts exactly those back. */
   const dropBelow = async () => {
-    const ids = below.map((job) => job.id);
+    const ids = below.flatMap(({ job, also }) => [job.id, ...also.map((copy) => copy.id)]);
     if (ids.length === 0) return;
     setActionError(null);
     try {
@@ -494,7 +471,7 @@ export function JobsBoard() {
       await refresh();
       setShowBelow(false);
       offerUndo({
-        message: t("robin.jobs.bulkDropped", { count: String(ids.length) }),
+        message: t("robin.jobs.bulkDropped", { count: String(below.length) }),
         run: async () => { await setStatuses(ids, "new"); await refresh(); },
       });
     } catch (caught) {
@@ -551,14 +528,14 @@ export function JobsBoard() {
       <span className="text-xs" style={{ color: "var(--text-dim)" }}>
         {t("robin.jobs.belowFloor", { count: String(below.length), score: minScore.toFixed(2).replace(/0$/, "") })}
       </span>
-      <button
+      {!query.trim() && <button
         type="button"
-        onClick={() => setShowBelow((current) => !current)}
+        onClick={() => { setShowBelow((current) => !current); setCursor(null); }}
         className="ui-action pi-eyebrow"
         aria-expanded={showBelow}
       >
         {showBelow ? t("robin.jobs.hideBelow") : t("robin.jobs.showBelow")}
-      </button>
+      </button>}
       <button
         type="button"
         onClick={() => void dropBelow()}
@@ -634,7 +611,7 @@ export function JobsBoard() {
 
         {/* The margin holds what you set up once and glance at; the list is
             what you came for, so it starts at the top of the page. */}
-        <div className={sheet.sheet}>
+        <div className={`${sheet.sheet} ${styles.workspace}`}>
           <div className={`${sheet.margin} ${sheet.sticky}`}>
             <JobLinks group={profile?.linkGroup || DEFAULT_JOB_PROFILE.linkGroup} />
 
@@ -782,7 +759,7 @@ export function JobsBoard() {
           </div>
 
           {/* ── What you owe, then what is on offer ─────────────────────── */}
-          <div className={`${sheet.list} flex flex-col gap-4`}>
+          <div className={`${sheet.list} ${styles.results} flex flex-col gap-4`}>
             {/* Above the discoveries: an OA has a deadline and a posting does not. */}
             <RoundsSection />
 
@@ -798,20 +775,47 @@ export function JobsBoard() {
                 </button>
               )}
             >
-              <div className="flex flex-wrap gap-2">
+              <div className={styles.stages} role="group" aria-label={t("robin.jobs.stages")}>
                 {(["new", "shortlist", "applied", "dropped", "all"] as Filter[]).map((option) => (
                   <button
                     key={option}
                     type="button"
                     onClick={() => { setFilter(option); setShown(PAGE_SIZE); setShowBelow(false); setCursor(null); }}
-                    className="ui-action ui-action--chip pi-eyebrow px-2 py-1"
-                    data-state={filter === option ? "accent" : "muted"}
+                    className={styles.stage}
                     aria-pressed={filter === option}
                   >
-                    {t(`robin.jobs.filter.${option}`)} {counts.get(option) ?? 0}
+                    <span>{t(`robin.jobs.filter.${option}`)}</span>
+                    <b>{counts.get(option) ?? 0}</b>
                   </button>
                 ))}
               </div>
+
+              <div className={styles.toolbar}>
+                <label className={styles.search}>
+                  <span>{t("robin.jobs.search")}</span>
+                  <input
+                    type="search"
+                    value={query}
+                    placeholder={t("robin.jobs.searchPlaceholder")}
+                    onChange={(event) => { setQuery(event.target.value); setShown(PAGE_SIZE); setCursor(null); }}
+                  />
+                </label>
+                {filter !== "applied" && <label>
+                  <span>{t("robin.jobs.sort")}</span>
+                  <select value={order} onChange={(event) => {
+                    setOrder(event.target.value as JobOrder); setShown(PAGE_SIZE); setCursor(null);
+                  }}>
+                    <option value="priority">{t("robin.jobs.sort.priority")}</option>
+                    <option value="recent">{t("robin.jobs.sort.recent")}</option>
+                  </select>
+                </label>}
+              </div>
+              <p className={styles.summary} role="status">
+                {loading && !data ? t("robin.common.loading") : t("robin.jobs.results", {
+                  count: String(groups.length),
+                })}
+                {" · "}{t(filter === "applied" ? "robin.jobs.appliedOrder" : "robin.jobs.mergedSources")}
+              </p>
 
               {preview !== null && (
                 <div className="flex flex-col gap-1">
@@ -830,27 +834,33 @@ export function JobsBoard() {
                 </div>
               )}
 
+              {foldBar}
               {visible.length === 0
-                ? <p className="py-2 text-sm" style={{ color: "var(--text-dim)" }}>{t("robin.jobs.emptyList")}</p>
+                ? !loading && <div className="py-2 text-sm" style={{ color: "var(--text-dim)" }}>
+                    <p>{t(query.trim() ? "robin.jobs.noMatches" : "robin.jobs.emptyList")}</p>
+                    {query.trim() && <button type="button" className="ui-action pi-eyebrow" onClick={() => { setQuery(""); setShown(PAGE_SIZE); setCursor(null); }}>
+                      {t("robin.jobs.clearSearch")}
+                    </button>}
+                  </div>
                 : (
                   // A container, so JobRow can switch to ruled one-line-meta rows
                   // when it has the width. The dashboard panel is not one.
                   <div className="@container flex flex-col gap-3">
                     <div className="flex flex-col">
-                      {groups.slice(0, shown).map(({ job, also, day }, index, visibleGroups) => (
+                      {groups.slice(0, shown).map(({ job, also }, index, visibleGroups) => (
                         <Fragment key={job.id}>
-                          {day && day !== visibleGroups[index - 1]?.day && (
-                            <div className={rowStyles.day}>
-                              <h3>{dayLabel(day)}</h3>
-                              <span>{dayCounts.get(day)}</span>
-                              <i aria-hidden />
+                          {showBands && (index === 0 || jobBand(job, minScore) !== jobBand(visibleGroups[index - 1].job, minScore)) && (
+                            <div className={styles.band}>
+                              <h3>{t(`robin.jobs.band.${jobBand(job, minScore)}`)}</h3>
+                              <span>{bandCounts.get(jobBand(job, minScore))}</span>
+                              <p>{t(`robin.jobs.band.${jobBand(job, minScore)}Hint`)}</p>
                             </div>
                           )}
-                          {showBelow && index === datedCount && datedCount > 0 && foldBar}
                           <JobRow
                             job={job}
                             also={also}
                             minScore={minScore}
+                            showDiscovered
                             busy={busyJob === job.id}
                             active={index === activeIndex}
                             onStatus={(status) => changeStatus(job, also, status)}
@@ -873,7 +883,6 @@ export function JobsBoard() {
                         })}
                       </button>
                     )}
-                    {below.length > 0 && !(showBelow && shown > datedCount && datedCount > 0) && foldBar}
                     <p className="pi-eyebrow hidden desktop:block" style={{ color: "var(--text-dim)" }}>
                       {t("robin.jobs.keysHint")}
                     </p>

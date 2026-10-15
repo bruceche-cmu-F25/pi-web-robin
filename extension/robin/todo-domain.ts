@@ -3,11 +3,10 @@ import { createHash } from "node:crypto";
 import { addDays, dueBucket, localDate, normalizeDue, parseLocalDate, type DueBucket } from "./dates.ts";
 import { EVENT_COLOR_KEYS, type EventColorKey } from "./eventColors.ts";
 import { normalizeUrl } from "./links.ts";
-import { newId, readJsonArray, updateJsonArray } from "./paths.ts";
+import { newId } from "./paths.ts";
+import { readTaskRecords, updateTaskRecords } from "./task-store.ts";
 import { todoUrl } from "./todo-links.ts";
 import { isTodoStatus, todoStatus, type TodoStatus } from "./todo-status.ts";
-
-const TODOS_FILE = "todos.json";
 
 export interface Todo {
   id: string;
@@ -67,7 +66,7 @@ function findTodo(todos: Todo[], ref: TodoRef): TodoResult<Todo> {
 
 /** Reads never delete history. Completed and abandoned tasks remain recoverable. */
 export function listTodos(options: ListTodosOptions = {}): { todos: Todo[]; today: string } {
-  const todos = readJsonArray<Todo>(TODOS_FILE);
+  const todos = readTaskRecords<Todo>("todos");
   return {
     todos: todos.filter((todo) => (options.includeDone || !todo.done) && (options.includeArchived || !todo.archivedAt)),
     today: localDate(),
@@ -152,14 +151,14 @@ export function addTodo(input: { title: string; startDate?: string; due?: string
   if (!input.title.trim()) throw new Error("title is required");
   const todo: Todo = { id: newId(), title: input.title.trim(), done: false, status: "todo", createdAt: new Date().toISOString() };
   applyPatch(todo, input);
-  return updateJsonArray<Todo, { todo: Todo; open: number }>(TODOS_FILE, (todos) => {
+  return updateTaskRecords<Todo, { todo: Todo; open: number }>("todos", (todos) => {
     todos.push(todo);
     return { value: { todo, open: todos.filter((entry) => !entry.done && !entry.archivedAt).length }, changed: true };
   });
 }
 
 function changeTodo<T>(ref: TodoRef, change: (todo: Todo, todos: Todo[]) => T): TodoResult<T> {
-  return updateJsonArray<Todo, TodoResult<T>>(TODOS_FILE, (todos) => {
+  return updateTaskRecords<Todo, TodoResult<T>>("todos", (todos) => {
     const todo = findTodo(todos, ref);
     if ("error" in todo) return { value: todo, changed: false };
     if (ref.revision !== undefined && ref.revision !== todoRevision([todo])) throw new TodoConflictError();
@@ -219,7 +218,7 @@ export function todoRevision(todos: Todo[]): string {
 
 /** Batch acceptance is all-or-nothing, including the stale snapshot check. */
 export function applyTodoPlan(expectedRevision: string, items: { id: string; plannedOn: string; estimateMinutes: number }[]): void {
-  updateJsonArray<Todo, void>(TODOS_FILE, (todos) => {
+  updateTaskRecords<Todo, void>("todos", (todos) => {
     if (todoRevision(todos) !== expectedRevision) throw new Error("Tasks changed; regenerate the plan before accepting");
     const seen = new Set<string>();
     for (const item of items) {

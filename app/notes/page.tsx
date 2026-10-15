@@ -3,7 +3,7 @@ import { NotesWorkspace } from "@/components/robin/NotesWorkspace";
 
 export const metadata: Metadata = {
   title: "Notes — Pi Web",
-  description: "Capture Markdown notes, refine them with an agent, and archive them to Notion.",
+  description: "Capture Markdown notes, refine them with an agent, and archive them to Obsidian or Notion.",
 };
 
 export default function NotesPage() {
