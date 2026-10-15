@@ -37,6 +37,7 @@ export interface Viewport {
 export type ShellPanelEvent =
   | { type: "toggle_sidebar" }
   | { type: "close_sidebar" }
+  | { type: "restore_sidebar"; open: boolean }
   /** Ctrl/Cmd+F: show the sidebar and get everything else out of the way. */
   | { type: "focus_sidebar_for_search" }
   | { type: "toggle_right_panel" }
@@ -79,6 +80,9 @@ export function shellPanelReducer(
 
     case "close_sidebar":
       return state.sidebarOpen ? { ...state, sidebarOpen: false } : state;
+
+    case "restore_sidebar":
+      return { ...state, sidebarOpen: event.open };
 
     case "focus_sidebar_for_search":
       // Always shows the sidebar, on any viewport — the shortcut's whole point.

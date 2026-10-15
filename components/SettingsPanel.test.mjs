@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const panelSource = await readFile(new URL("./SettingsPanel.tsx", import.meta.url), "utf8");
+const themeCatalogSource = await readFile(new URL("../lib/theme.ts", import.meta.url), "utf8");
 const themePickerSource = await readFile(new URL("./ThemePicker.tsx", import.meta.url), "utf8");
 const cssSource = await readFile(new URL("../app/settings.css", import.meta.url), "utf8");
 const globalCssSource = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
@@ -13,15 +14,9 @@ const enSource = await readFile(new URL("../lib/i18n/messages/en.ts", import.met
 const zhSource = await readFile(new URL("../lib/i18n/messages/zh-CN.ts", import.meta.url), "utf8");
 const loginSource = await readFile(new URL("../app/login/page.tsx", import.meta.url), "utf8");
 
-test("opens one settings panel from direct sidebar shortcuts", () => {
-  assert.match(shellSource, /<SettingsPanel/);
-  assert.match(shellSource, /setSettingsSection\(section\)/);
-  assert.match(shellSource, /initialSection=\{settingsSection\}/);
-  assert.match(shellSource, /translate\("common\.settings"\)/);
-  assert.match(shellSource, /<SettingsSectionIcon section=\{section\} size=\{14\} strokeWidth=\{2\} \/>\s*<span>\{label\}<\/span>/);
-  assert.match(shellSource, /<SettingsSectionIcon section="general" size=\{14\} strokeWidth=\{2\} \/>/);
-  assert.doesNotMatch(shellSource, /\["plugins", translate\("common\.plugins"\)\]/);
-  assert.doesNotMatch(shellSource, /setModelsConfigOpen|setSkillsConfigOpen|setAgentsConfigOpen|setPluginsConfigOpen/);
+test("the trust dialog Settings › MCP opens stacks above Settings", () => {
+  const zIndex = (selector) => Number(cssSource.match(new RegExp(`\\${selector} \\{[^}]*z-index: (\\d+);`))?.[1]);
+  assert.ok(zIndex(".project-trust-backdrop") > zIndex(".settings-dialog-backdrop"));
 });
 
 test("keeps every requested configuration surface inside the settings panel", () => {
@@ -49,14 +44,14 @@ test("keeps visited settings sections mounted and contains nested Escape handlin
   const modelsSource = await readFile(new URL("./ModelsConfig.tsx", import.meta.url), "utf8");
   assert.match(panelSource, /mountedSections\.has\(id\)/);
   assert.match(panelSource, /hidden=\{section !== id\}/);
-  assert.match(panelSource, /event\.defaultPrevented/);
+  assert.match(panelSource, /listenForPanelEscape\(document, onClose\)/);
   assert.match(modelsSource, /e\.preventDefault\(\);\s*e\.stopPropagation\(\);\s*onClose\(\);/);
 });
 
 test("offers direct light, dark, and system theme selection", () => {
   assert.match(panelSource, /<ThemePicker \/>/);
   for (const preference of ["light", "dark", "auto"]) {
-    assert.match(themePickerSource, new RegExp(`id: "${preference}"`));
+    assert.match(themeCatalogSource, new RegExp(`id: "${preference}"`));
   }
   assert.match(themePickerSource, /setThemePreference\(option\.id\)/);
   assert.match(themeSource, /const setThemePreference = useCallback/);
@@ -71,18 +66,18 @@ test("keeps language selection in General settings", () => {
 test("groups chat display controls together without row backgrounds", () => {
   const appearanceSection = panelSource.slice(
     panelSource.indexOf('{t("settings.appearance")}'),
-    panelSource.indexOf('{t("settings.chat")}'),
+    panelSource.indexOf('{t("settings.typography")}'),
   );
   const chatSection = panelSource.slice(
     panelSource.indexOf('{t("settings.chat")}'),
-    panelSource.indexOf("{shellSettings?.isWindows"),
+    panelSource.indexOf('{t("settings.sidebar")}'),
   );
 
   assert.doesNotMatch(appearanceSection, /settings-chat-content/);
   assert.match(chatSection, /className="settings-chat-options"/);
   assert.equal((chatSection.match(/className="settings-chat-option(?: |")/g) ?? []).length, 4);
-  assert.equal((chatSection.match(/<ConfigSwitch/g) ?? []).length, 2);
-  for (const key of ["thinkingExpandedDefault", "chatContentWidth", "chatContentFontSize", "quoteSelection"]) {
+  assert.equal((chatSection.match(/<ConfigSwitch/g) ?? []).length, 3);
+  for (const key of ["thinkingExpandedDefault", "quoteSelection", "enterSendMode", "cacheMissNotices"]) {
     assert.match(chatSection, new RegExp(`t\\("settings\\.${key}"\\)`));
   }
   assert.doesNotMatch(panelSource, /ThinkingIcon|settings-thinking-/);
@@ -127,7 +122,7 @@ test("labels agent profiles as sub-agents", () => {
 test("uses the child-session robot glyph for the sub-agents tab", () => {
   const robotGlyph = /<rect x="5" y="7" width="14" height="11" rx="2" \/>\s*<path d="M9 11h\.01M15 11h\.01M9 15h6M12 7V4M10 4h4" \/>/;
   assert.match(panelSource, robotGlyph);
-  assert.match(sidebarSource, robotGlyph);
+  assert.match(sidebarSource, /SessionTree/);
   assert.match(panelSource, /section === "agents"[\s\S]*?className="settings-section-icon is-agent"/);
   assert.match(cssSource, /\.settings-section-icon\.is-agent \{[\s\S]*?transform: scale\(1\.25\)/);
 });

@@ -159,6 +159,7 @@ export function buildEnabledModelsView({
       name: model.name || model.id,
       ref,
       enabled: enabled.has(ref),
+      ...(model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow }),
       ...(pin ? { thinkingPin: pin } : {}),
     };
     const list = byProvider.get(model.provider);
@@ -201,7 +202,7 @@ export interface EnabledModelsSettings {
 }
 
 /** `~/.pi/agent/settings.json` reads better in a banner than the full path. */
-function displayPath(path: string): string {
+export function displaySettingsPath(path: string): string {
   const home = homedir();
   if (!home || !path.startsWith(home)) return path;
   const rest = path.slice(home.length);
@@ -225,7 +226,7 @@ export function readEnabledModelsSettings(
   return {
     patterns: settingsManager.getEnabledModels(),
     scope,
-    path: displayPath(scope === "project"
+    path: displaySettingsPath(scope === "project"
       ? join(cwd, ".pi", "settings.json")
       : join(agentDir, "settings.json")),
   };

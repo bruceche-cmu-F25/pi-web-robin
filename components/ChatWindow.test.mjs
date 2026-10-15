@@ -3,13 +3,16 @@ import test from "node:test";
 import { createJiti } from "jiti";
 
 const jiti = createJiti(import.meta.url, {
+  alias: { "next/image": new URL("./__fixtures__/next-image.mjs", import.meta.url).pathname },
   jsx: { runtime: "automatic" },
   tsconfigPaths: true,
 });
 const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
-const { ChatWindow, chatTailView, phaseLabel } = await jiti.import("./ChatWindow.tsx");
+const { ChatWindow, chatTailView } = await jiti.import("./ChatWindow.tsx");
 const { I18nProvider } = await jiti.import("@/hooks/useI18n");
+
+const { phaseLabel } = await jiti.import("@/lib/chat-phase-label");
 
 const idle = { isStreaming: false, streamingContentLength: 0, agentRunning: false, hasPhase: false };
 

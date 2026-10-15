@@ -19,7 +19,8 @@ export function setThinkingExpandedByDefault(expanded: boolean): void {
   try {
     window.localStorage.setItem(STORAGE_KEY, String(expanded));
   } catch {
-    // Not persisted; listeners re-read and keep the collapsed default.
+    // Nothing was saved, so there is no change to announce.
+    return;
   }
   window.dispatchEvent(new Event(THINKING_EXPANDED_EVENT));
 }

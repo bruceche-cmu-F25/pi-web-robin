@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const chatWindow = await readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8");
+const search = await readFile(new URL("./SessionSearch.tsx", import.meta.url), "utf8");
 const sidebar = await readFile(new URL("./SessionSidebar.tsx", import.meta.url), "utf8");
 const appShell = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
 const route = await readFile(new URL("../app/api/sessions/search/route.ts", import.meta.url), "utf8");
@@ -17,9 +18,11 @@ test("current-session search is wired to matching, navigation, and Ctrl/Cmd+F", 
 });
 
 test("all-session search is wired through the sidebar and guarded route", () => {
-  assert.match(sidebar, /\/api\/sessions\/search\?/);
-  assert.match(sidebar, /onSelectSessionMatch\(session, hit\.entryId, sessionSearchQuery\.trim\(\)\)/);
-  assert.match(appShell, /onSelectSessionMatch=\{handleSelectSessionMatch\}/);
+  assert.match(search, /\/api\/sessions\/search\?/);
+  assert.match(search, /response\?\.results\.map/);
+  assert.match(search, /onSelectSession\(session, entryId\)/);
+  assert.match(sidebar, /<SessionSearch/);
+  assert.match(appShell, /setChatSearchTarget\(entryId \? \{ sessionId: session\.id, entryId, blockIndex \} : null\)/);
   // The origin check lives in `apiRoute` (lib/api-route.ts), which the route is
   // wrapped in rather than calls; lib/api-route.test.mjs pins the policy itself.
   assert.match(route, /apiRoute\(/);

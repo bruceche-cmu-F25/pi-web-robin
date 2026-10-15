@@ -4,6 +4,8 @@ import { PwaRegistration } from "@/components/PwaRegistration";
 import { ThemeInitScript } from "@/components/ThemeInitScript";
 import "./globals.css";
 import "./settings.css";
+import "./sidebar.css";
+import "./sidebar-menu.css";
 
 const notoSansMono = Noto_Sans_Mono({
   subsets: ["latin", "cyrillic"],

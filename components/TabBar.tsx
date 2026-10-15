@@ -9,7 +9,7 @@ export interface Tab {
   id: string;
   label: string;
   filePath: string;
-  kind?: "file" | "terminal";
+  kind?: "file" | "terminal" | "agent";
   sourceSessionId?: string | null;
   /** A terminal tab waiting for its PTY to close or restart. */
   closing?: boolean;
@@ -171,10 +171,14 @@ export function TabBar({ tabs, activeTabId, mobile = false, onSelectTab, onClose
     <div
       role="tablist"
       style={{
+        // The tabs fill the scrollport, not a fixed 36px: once they overflow,
+        // the app's scrollbar (globals.css) takes its height out of the bar,
+        // and 36px tabs were pushed up past its top and clipped (#1225).
         display: "flex",
-        alignItems: "flex-end",
+        alignItems: "stretch",
         background: "var(--bg-panel)",
         overflowX: "auto",
+        overflowY: "hidden",
         flexShrink: 0,
         height: 36,
       }}
@@ -185,7 +189,7 @@ export function TabBar({ tabs, activeTabId, mobile = false, onSelectTab, onClose
           <div
             key={tab.id}
             role="tab"
-            aria-label={tab.kind === "terminal" ? t("terminal.tabLabel", { name: tab.label }) : tab.label}
+            aria-label={tab.kind === "terminal" ? t("terminal.tabLabel", { name: tab.label }) : tab.kind === "agent" ? t("subagent.tabLabel", { name: tab.label }) : tab.label}
             aria-selected={isActive}
             tabIndex={isActive || (!activeTabId && tabs[0].id === tab.id) ? 0 : -1}
             onKeyDown={(event) => {
@@ -216,7 +220,6 @@ export function TabBar({ tabs, activeTabId, mobile = false, onSelectTab, onClose
               display: "flex",
               alignItems: "center",
               gap: 6,
-              height: 36,
               paddingLeft: 12,
               paddingRight: 6,
               borderRight: "1px solid var(--border)",
@@ -233,7 +236,15 @@ export function TabBar({ tabs, activeTabId, mobile = false, onSelectTab, onClose
             }}
           >
             <span style={{ flexShrink: 0, opacity: isActive ? 1 : 0.7, display: "flex", alignItems: "center" }}>
-              <TabIcon tab={tab} />
+              {tab.kind === "terminal" ? (
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" />
+                </svg>
+              ) : tab.kind === "agent" ? (
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <rect x="5" y="7" width="14" height="11" rx="2" /><path d="M9 11h.01M15 11h.01M9 15h6M12 7V4M10 4h4" />
+                </svg>
+              ) : getFileIcon(tab.label, 13)}
             </span>
             <span
               style={{

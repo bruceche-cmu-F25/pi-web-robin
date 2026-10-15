@@ -1,46 +1,37 @@
 "use client";
 
 import { useI18n } from "@/hooks/useI18n";
-import { useTheme, type ThemePreference } from "@/hooks/useTheme";
+import { useTheme } from "@/hooks/useTheme";
+import { THEME_OPTIONS } from "@/lib/theme";
 
-function ThemeIcon({ preference }: { preference: ThemePreference }) {
-  if (preference === "light") {
-    return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.41M17.66 6.34l1.41-1.41" /></svg>;
-  }
-  if (preference === "dark") {
-    return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z" /></svg>;
-  }
-  return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8M12 17v4" /></svg>;
-}
-
-/** The single direct light/dark/system selector shared by both settings surfaces. */
+/** Shared by Pi Web and Robin settings; both expose the complete palette catalog. */
 export function ThemePicker() {
   const { t } = useI18n();
   const { preference, setThemePreference } = useTheme();
-  const options: { id: ThemePreference; label: string }[] = [
-    { id: "light", label: t("settings.themeLight") },
-    { id: "dark", label: t("settings.themeDark") },
-    { id: "auto", label: t("settings.themeSystem") },
-  ];
-
   return (
     <div role="radiogroup" aria-label={t("settings.appearance")} className="settings-theme-options">
-      {options.map((option) => {
-        const selected = preference === option.id;
-        return (
-          <button
-            key={option.id}
-            type="button"
-            role="radio"
-            aria-checked={selected}
-            onClick={() => setThemePreference(option.id)}
-            className="settings-theme-option"
-          >
-            <ThemeIcon preference={option.id} />
-            <span className="settings-theme-option-label">{option.label}</span>
-          </button>
-        );
-      })}
+      {THEME_OPTIONS.map((option) => (
+        <label key={option.id} className="settings-theme-option"
+          data-system={option.id === "auto" || undefined}
+          data-wide={option.id === "contrast-light" || option.id === "contrast-dark" || option.id === "zenburn" || undefined}>
+          <input type="radio" name="theme" value={option.id} checked={preference === option.id}
+            onChange={() => setThemePreference(option.id)} className="sr-only" />
+          {option.id === "auto" ? (
+            <span className="settings-theme-swatch settings-theme-system" aria-hidden="true">
+              <span data-theme="light" className="settings-theme-chip" />
+              <span data-theme="dark" className="settings-theme-chip" />
+              <span className="settings-theme-system-name">{t(option.label)}</span>
+            </span>
+          ) : (
+            <span className="settings-theme-swatch" aria-hidden="true">
+              <span data-theme={option.id} className="settings-theme-fill">
+                <span className="settings-theme-name">{t(option.label)}</span>
+              </span>
+            </span>
+          )}
+          <span className="sr-only">{t(option.label)}</span>
+        </label>
+      ))}
     </div>
   );
 }

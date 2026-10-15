@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const source = await readFile(new URL("./SettingsPanel.tsx", import.meta.url), "utf8");
+const themeCatalog = await readFile(new URL("../../lib/theme.ts", import.meta.url), "utf8");
 const themePicker = await readFile(new URL("../ThemePicker.tsx", import.meta.url), "utf8");
 const en = await readFile(new URL("../../lib/i18n/messages/en.ts", import.meta.url), "utf8");
 const zhCN = await readFile(new URL("../../lib/i18n/messages/zh-CN.ts", import.meta.url), "utf8");
@@ -12,7 +13,7 @@ test("Daily settings includes the app theme selector", () => {
   assert.match(source, /<ThemePicker \/>/);
   assert.match(themePicker, /role="radiogroup" aria-label=\{t\("settings\.appearance"\)\}/);
   for (const preference of ["light", "dark", "auto"]) {
-    assert.match(themePicker, new RegExp(`id: "${preference}"`));
+    assert.match(themeCatalog, new RegExp(`id: "${preference}"`));
   }
   assert.match(themePicker, /setThemePreference\(option\.id\)/);
 });
