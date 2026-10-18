@@ -72,6 +72,16 @@ Printed timings use mocked data and include browser automation overhead; they
 are diagnostic, not production benchmarks. Editors and chat remain native
 navigation boundaries; no route prefetching or data-cache changes are included.
 
+Robin theme integration (existing server, all application APIs mocked after login):
+
+```sh
+PLAYWRIGHT_CHANNEL=chrome node --env-file-if-exists=.env.local --experimental-strip-types e2e/robin-themes.mjs
+```
+
+Checks the actual painted navigation and session-sidebar backgrounds for every palette,
+Robin prose/accent tokens, unchanged default Light/Dark chrome, reload persistence,
+the mobile sidebar and system-theme changes. No sessions are created or prompted.
+
 Dashboard work queue (existing server, all dashboard APIs mocked):
 
 ```sh

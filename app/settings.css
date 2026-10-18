@@ -1603,11 +1603,11 @@
   margin: 6px 0 0;
 }
 
-/* Fifteen columns: System spans the first row; then five light themes and five dark ones
-   (three columns each), and a row of three wide tiles (five columns each). */
+/* Twenty columns: System spans the first row; then five light themes and five dark ones
+   (four columns each), and a row of four wide tiles (five columns each). */
 .settings-theme-options {
   display: grid;
-  grid-template-columns: repeat(15, minmax(0, 1fr));
+  grid-template-columns: repeat(20, minmax(0, 1fr));
   grid-auto-rows: 40px;
   gap: 10px;
   max-width: 428px;
@@ -1617,7 +1617,7 @@
 .settings-theme-option {
   position: relative;
   display: flex;
-  grid-column: span 3;
+  grid-column: span 4;
   min-width: 0;
   border-radius: 9px;
   cursor: pointer;
@@ -1629,6 +1629,13 @@
 
 .settings-theme-option[data-wide] {
   grid-column: span 5;
+}
+
+/* Keep long contrast labels readable rather than shrinking the font on phones. */
+@media (max-width: 640px) {
+  .settings-theme-option[data-wide] {
+    grid-column: span 10;
+  }
 }
 
 .settings-theme-swatch {
@@ -1664,7 +1671,7 @@
   white-space: nowrap;
 }
 
-/* "High contrast light" outgrows a third of the row on a phone: let the wide names take two lines. */
+/* Long names wrap within the last row's tiles, especially on phones. */
 .settings-theme-option[data-wide] .settings-theme-name {
   font-size: 11px;
   line-height: 1.2;

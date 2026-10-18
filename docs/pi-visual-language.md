@@ -82,6 +82,21 @@ parchment 纸，冷蓝放在暖纸上每一处都像外来件，而 pi.dev 自�
 `--accent-faint → subtle → soft → fill → line → line-strong` 是官网那套「一个色相、
 固定 alpha」的表面阶梯，需要染色表面时从这里取，不要新拌 `rgba()`。
 
+### 上游新增主题与 Robin 的扩展 token
+
+Light / Dark 保留上面的 parchment / 蓝色设计。其他 `data-theme` 调色板除了上游的
+`--bg`、`--bg-panel`、`--text-*`、`--accent`，也必须覆盖 Robin 的扩展 token：
+顶栏和会话侧栏共用的 `--nav-panel-background` 从当前 panel→bg 渐变，正文 `--copy`
+跟随 `--text-muted`，反白文字跟随 `--accent-contrast`，强调色阶梯、焦点、选区、滚动条、
+控件和纸背景都从当前语义色推导。不要让这些区域继续继承旧的蓝色或赤陶色。
+这层规则集中在 `app/globals.css`，不在组件中按主题名分支；日历的分类色仍保持自己的语义。
+`e2e/robin-themes.mjs` 检查所有主题实际绘制出的顶栏、侧栏及扩展 token，包含刷新、系统主题
+和手机侧栏；只检查根元素的 `--bg` 不足以发现局部区域没有换色的问题。
+
+Matrix（黑客帝国）是额外的内置深色调色板：近黑底、荧光绿强调、柔和浅绿正文，沿用同一层
+Robin 扩展 token；保留告警和日历分类的语义色，不加代码雨、闪烁或全局文字发光。
+入口与其他主题共用 `ThemePicker`，保存及首屏恢复由 `lib/theme.ts` 的目录自动覆盖。
+
 ### 跳色：`--accent-teal` / `--accent-amber`
 
 官网只有一个蓝，chrome 上这样是对的，但页面里每一类东西看起来就都一样了。所以额外留了

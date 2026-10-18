@@ -13,7 +13,7 @@ export function ThemePicker() {
       {THEME_OPTIONS.map((option) => (
         <label key={option.id} className="settings-theme-option"
           data-system={option.id === "auto" || undefined}
-          data-wide={option.id === "contrast-light" || option.id === "contrast-dark" || option.id === "zenburn" || undefined}>
+          data-wide={option.id === "contrast-light" || option.id === "contrast-dark" || option.id === "zenburn" || option.id === "matrix" || undefined}>
           <input type="radio" name="theme" value={option.id} checked={preference === option.id}
             onChange={() => setThemePreference(option.id)} className="sr-only" />
           {option.id === "auto" ? (

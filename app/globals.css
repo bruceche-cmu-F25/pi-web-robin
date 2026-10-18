@@ -747,6 +747,56 @@ html[data-theme="zenburn"],
   --bg-subtle: rgba(220,220,204,0.04);
 }
 
+/* Matrix: phosphor green on near-black, with softer greens for sustained reading. */
+html[data-theme="matrix"],
+[data-theme="matrix"] {
+  color-scheme: dark;
+  --bg: #030a06;
+  --bg-panel: #09170e;
+  --bg-hover: #102b19;
+  --bg-selected: #143820;
+  --border: #326844;
+  --text: #c4f5d2;
+  --text-muted: #98c8a6;
+  --text-dim: #7eac8a;
+  --accent: #39ff88;
+  --accent-hover: #8affb6;
+  --accent-contrast: #030a06;
+  --user-bg: #0c2415;
+  --assistant-bg: #030a06;
+  --tool-bg: #081b10;
+  --bg-subtle: rgba(57,255,136,0.04);
+}
+
+/* Named palettes also own Robin's extended tokens. Keep the original
+   parchment/blue light and dark themes intact; derive other palettes from their
+   semantic colors instead of inheriting that old two-theme chrome. */
+[data-theme]:not([data-theme="light"]):not([data-theme="dark"]) {
+  --nav-panel-background: linear-gradient(180deg, var(--bg-panel), var(--bg));
+  --bg-deep: var(--bg);
+  --border-strong: var(--border);
+  --copy: var(--text-muted);
+  --on-accent: var(--accent-contrast);
+
+  --accent-faint: color-mix(in srgb, var(--accent) 5%, transparent);
+  --accent-subtle: color-mix(in srgb, var(--accent) 10%, transparent);
+  --accent-soft: color-mix(in srgb, var(--accent) 15%, transparent);
+  --accent-fill: color-mix(in srgb, var(--accent) 24%, transparent);
+  --accent-line: color-mix(in srgb, var(--accent) 38%, transparent);
+  --accent-line-strong: color-mix(in srgb, var(--accent) 60%, transparent);
+  --focus-ring: color-mix(in srgb, var(--accent) 72%, transparent);
+  --selection-bg: var(--accent-fill);
+  --scrollbar-thumb: color-mix(in srgb, var(--accent) 30%, transparent);
+  --scrollbar-thumb-hover: color-mix(in srgb, var(--accent) 48%, transparent);
+
+  --control-bg: var(--bg-subtle);
+  --control-bg-hover: var(--bg-hover);
+  --dashboard-ground: color-mix(in srgb, var(--bg-panel) 20%, transparent);
+  --page-grid-minor: color-mix(in srgb, var(--text) 2%, transparent);
+  --page-grid-major: color-mix(in srgb, var(--text) 5%, transparent);
+  --page-grid-cross: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
 /* WebKit reports dvh/innerHeight without the status-bar strip for installed
    home-screen apps even though the layout still starts at the screen's top.
    In standalone mode there is no browser toolbar to make vh unstable, and vh
