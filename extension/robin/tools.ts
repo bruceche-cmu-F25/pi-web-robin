@@ -103,6 +103,12 @@ export const ROBIN_MAIL_TOOL_NAMES = [
   "round_update",
 ] as const;
 
+/** Paper research may acquire public sources and maintain generated summaries, never user goals, personal tools or vault files. */
+export const ROBIN_RESEARCH_TOOL_NAMES = [
+  "research_context", "research_search", "research_read", "research_save_summary", "research_relate",
+  "web_search",
+] as const;
+
 /**
  * The scoring turn's tool set — deliberately the narrowest of the four.
  *

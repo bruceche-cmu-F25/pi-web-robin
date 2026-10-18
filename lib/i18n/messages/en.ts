@@ -1,10 +1,12 @@
 import type { LocalePlugin } from "../types";
+import { researchEnglish } from "./research-workspace.ts";
 
 /** Pi Web 内置英语语言包。 */
 export const enLocale: LocalePlugin = {
   id: "en",
   label: "English",
   messages: {
+    ...researchEnglish,
     "focus.title": "Focus",
     "focus.open": "Open focus timer",
     "focus.focus": "Focus",

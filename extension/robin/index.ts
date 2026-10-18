@@ -19,6 +19,7 @@ import { registerNotionTools } from "./notion-tools.ts";
 import { registerPracticeTools } from "./practice-tools.ts";
 import { registerProductTools } from "./product-tools.ts";
 import { registerFsoTools } from "./fso-tools.ts";
+import { registerResearchTools } from "./research-tools.ts";
 import { taskStoragePath } from "./task-store.ts";
 import { registerProviderTools } from "./provider-tools.ts";
 import { registerRoundTools } from "./round-tools.ts";
@@ -37,6 +38,7 @@ const robin = (pi: ExtensionAPI) => {
   registerPracticeTools(pi);
   registerProductTools(pi);
   registerFsoTools(pi);
+  registerResearchTools(pi);
 
   // Confirms the extension actually loaded, and where its data went.
   pi.registerCommand("robin-status", {

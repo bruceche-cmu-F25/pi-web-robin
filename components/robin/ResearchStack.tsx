@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
+import { MarkdownBody } from "@/components/MarkdownBody";
 import { iconFallback } from "@/extension/robin/links";
 import {
   CATEGORY_TONE,
@@ -243,7 +244,7 @@ export function ResearchStack() {
 
 type Say = (value: Bilingual) => string;
 
-function ProjectResources() {
+export function ProjectResources() {
   const { t } = useI18n();
   return (
     <section
@@ -260,12 +261,22 @@ function ProjectResources() {
   );
 }
 
+/** The reference page edits the HEAT project's notes; the workspace holds every other project. */
+const HEAT_NOTES = "/api/research/objective?project=heat";
 const LEGACY_WEEKLY_OBJECTIVE_KEY = "pi-research-weekly-objective";
 type ResearchSaveState = "loading" | "saving" | "saved" | "error";
 
-function ResearchNotebook() {
+export function ResearchNotebook({ onFlushReady, onAppendReady, onObjectiveChange, rail = false }: {
+  onFlushReady?: (flush: (() => Promise<void>) | null) => void;
+  onAppendReady?: (append: ((text: string) => Promise<void>) | null) => void;
+  onObjectiveChange?: (objective: string) => void;
+  rail?: boolean;
+}) {
   const { t } = useI18n();
   const [objective, setObjective] = useState("");
+  const [editingNote, setEditingNote] = useState(false);
+  const [capturing, setCapturing] = useState(false);
+  const appendInFlight = useRef<Promise<void> | null>(null);
   const [note, setNote] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [saveState, setSaveState] = useState<ResearchSaveState>("loading");
@@ -284,7 +295,7 @@ function ResearchNotebook() {
 
   useEffect(() => {
     let cancelled = false;
-    void fetch("/api/research/objective", { cache: "no-store" })
+    void fetch(HEAT_NOTES, { cache: "no-store" })
       .then(async (response) => {
         const body = await response.json().catch(() => null) as {
           objective?: unknown;
@@ -336,7 +347,7 @@ function ResearchNotebook() {
           const nextObjective = objectiveRef.current;
           const nextNote = noteRef.current;
           if (mounted.current) setSaveState("saving");
-          const response = await fetch("/api/research/objective", {
+          const response = await fetch(HEAT_NOTES, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ objective: nextObjective, note: nextNote }),
@@ -372,49 +383,102 @@ function ResearchNotebook() {
     return () => window.clearTimeout(timer);
   }, [loaded, note, objective, saveLatest]);
 
+  useEffect(() => {
+    onFlushReady?.(async () => {
+      if (!loaded) throw new Error(t("research.objective.error"));
+      await appendInFlight.current;
+      await saveInFlight.current;
+      await saveLatest();
+      if (savedObjectiveRef.current !== objectiveRef.current || savedNoteRef.current !== noteRef.current) throw new Error(t("research.objective.error"));
+    });
+    return () => onFlushReady?.(null);
+  }, [loaded, onFlushReady, saveLatest, t]);
+
+  useEffect(() => { if (loaded) onObjectiveChange?.(objective); }, [loaded, objective, onObjectiveChange]);
+  useEffect(() => {
+    onAppendReady?.(async (text) => {
+      if (!loaded || appendInFlight.current) throw new Error(t("research.objective.error"));
+      setCapturing(true);
+      const append = (async () => {
+        await saveInFlight.current;
+        await saveLatest();
+        if (savedObjectiveRef.current !== objectiveRef.current || savedNoteRef.current !== noteRef.current) throw new Error(t("research.objective.error"));
+        const response = await fetch(HEAT_NOTES, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
+        const body = await response.json();
+        if (!response.ok) throw new Error(response.status === 413 ? t("papers.projectNoteLimit") : body.error ?? t("research.objective.error"));
+        if (typeof body.objective !== "string" || typeof body.note !== "string") throw new Error(t("research.objective.error"));
+        objectiveRef.current = savedObjectiveRef.current = body.objective;
+        noteRef.current = savedNoteRef.current = body.note;
+        setObjective(body.objective); setNote(body.note); setSaveState("saved");
+      })();
+      appendInFlight.current = append;
+      try { await append; }
+      finally { appendInFlight.current = null; setCapturing(false); }
+    });
+    return () => onAppendReady?.(null);
+  }, [loaded, onAppendReady, saveLatest, t]);
+
   return (
-    <section className="pi-card flex flex-col gap-3 p-4">
+    <section id="research-context" className="pi-card flex min-w-0 flex-col gap-4 p-5" aria-labelledby="research-notebook-title">
       <header className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="pi-label" style={{ fontSize: 12 }}>{t("research.notebook.title")}</h2>
-        <span className="pi-eyebrow" aria-live="polite" style={{ fontSize: 9 }}>
+        <h2 id="research-notebook-title" style={{ fontSize: rail ? 19 : 22, fontFamily: "var(--font-serif)" }}>{t("research.notebook.title")}</h2>
+        <span aria-live="polite" style={{ fontSize: 12, color: saveState === "error" ? "var(--danger)" : "var(--text-muted)" }}>
           {t(`research.objective.${saveState}`)}
         </span>
       </header>
-      <label htmlFor="research-weekly-objective" className="pi-eyebrow" style={{ fontSize: 9 }}>
-        {t("research.objective.title")}
-      </label>
-      <textarea
-        id="research-weekly-objective"
-        value={objective}
-        disabled={!loaded}
-        onChange={(event) => {
-          objectiveRef.current = event.target.value;
-          setObjective(event.target.value);
-        }}
-        onBlur={() => { void saveLatest(); }}
-        rows={3}
-        maxLength={10_000}
-        placeholder={t("research.objective.placeholder")}
-        className="w-full resize-y"
-      />
-      <div style={{ borderTop: "1px solid var(--border)" }} />
-      <label htmlFor="research-note" className="pi-eyebrow" style={{ fontSize: 9 }}>
-        {t("research.note.title")}
-      </label>
-      <textarea
-        id="research-note"
-        value={note}
-        disabled={!loaded}
-        onChange={(event) => {
-          noteRef.current = event.target.value;
-          setNote(event.target.value);
-        }}
-        onBlur={() => { void saveLatest(); }}
-        rows={10}
-        maxLength={100_000}
-        placeholder={t("research.note.placeholder")}
-        className="w-full resize-y"
-      />
+      <div className={`grid min-w-0 grid-cols-1 gap-5 ${rail ? "" : "min-[900px]:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]"}`}>
+        <div className="flex min-w-0 flex-col gap-2">
+          <label htmlFor="research-weekly-objective" style={{ fontSize: 14, color: "var(--text)" }}>
+            {t("research.objective.title")}
+          </label>
+          <textarea
+            id="research-weekly-objective"
+            value={objective}
+            disabled={!loaded || capturing}
+            onChange={(event) => {
+              objectiveRef.current = event.target.value;
+              setObjective(event.target.value);
+            }}
+            onBlur={() => { void saveLatest(); }}
+            rows={rail ? 3 : 4}
+            maxLength={10_000}
+            placeholder={t("research.objective.placeholder")}
+            className="w-full min-w-0 flex-1 resize-y"
+            style={{ fontSize: 16, lineHeight: 1.75, minHeight: rail ? 96 : 128 }}
+          />
+        </div>
+        <div className="flex min-w-0 flex-col gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            {rail && !editingNote ? <h3 style={{ fontSize: 14 }}>{t("research.note.title")}</h3> : <label htmlFor="research-note" style={{ fontSize: 14, color: "var(--text)" }}>{t("research.note.title")}</label>}
+            {rail && <div className="flex flex-wrap items-center gap-2">
+              <button type="button" className="ui-action px-2 py-2 text-sm" disabled={!loaded || capturing} onClick={() => setEditingNote(!editingNote)}>{t(editingNote ? "papers.doneEditing" : "papers.editNotes")}</button>
+              <button type="button" className="ui-action px-2 py-2 text-sm" disabled={!loaded || (!note.trim() && !objective.trim())} onClick={() => {
+                const text = `# HEAT\n\n## ${t("research.objective.title")}\n\n${objectiveRef.current}\n\n## ${t("research.note.title")}\n\n${noteRef.current}\n`;
+                const url = URL.createObjectURL(new Blob([text], { type: "text/markdown;charset=utf-8" }));
+                const link = document.createElement("a"); link.href = url; link.download = "HEAT-research-notes.md";
+                document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+              }}>{t("papers.download")}</button>
+            </div>}
+          </div>
+          {rail && !editingNote ? <div style={{ fontSize: 15, lineHeight: 1.8, maxHeight: 260, overflow: "auto", overflowWrap: "anywhere" }}>
+            {note ? <MarkdownBody>{note}</MarkdownBody> : <p style={{ color: "var(--text-muted)" }}>{t("papers.notebookEmpty")}</p>}
+          </div> : <textarea
+            id="research-note"
+            value={note}
+            disabled={!loaded || capturing}
+            onChange={(event) => {
+              noteRef.current = event.target.value;
+              setNote(event.target.value);
+            }}
+            onBlur={() => { void saveLatest(); }}
+            rows={rail ? 6 : 8}
+            maxLength={100_000}
+            placeholder={t("research.note.placeholder")}
+            className="w-full min-w-0 flex-1 resize-y"
+            style={{ fontSize: 16, lineHeight: 1.75, minHeight: 224 }}
+          />}
+        </div>
+      </div>
     </section>
   );
 }

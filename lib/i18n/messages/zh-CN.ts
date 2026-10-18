@@ -1,10 +1,12 @@
 import type { LocalePlugin } from "../types";
+import { researchChinese } from "./research-workspace.ts";
 
 /** Pi Web 内置简体中文语言包。 */
 export const zhCNLocale: LocalePlugin = {
   id: "zh-CN",
   label: "简体中文",
   messages: {
+    ...researchChinese,
     "focus.title": "专注",
     "focus.open": "打开专注计时器",
     "focus.focus": "专注",
