@@ -94,6 +94,17 @@ responsive English/Chinese layouts. No real task data is changed. See
 [`docs/dashboard-work-queue.md`](../docs/dashboard-work-queue.md) for storage and
 availability boundaries. `E2E_SCREENSHOT_DIR` captures both themes.
 
+Dashboard sticky daily card (existing server, all dashboard APIs mocked):
+
+```sh
+PLAYWRIGHT_CHANNEL=chrome node --env-file-if-exists=.env.local --experimental-strip-types e2e/robin-daily-rail.mjs
+```
+
+Checks one shared Todo/daily-links box aligned with Calendar, bounded sticky
+scrolling, unchanged column widths, exact category filtering, two-column footer
+links, preserved group ordering and mobile task drafts. Not a global sidebar.
+`E2E_SCREENSHOT_DIR` captures both themes; no personal data is changed.
+
 Dashboard responsive regression (existing server, all dashboard APIs mocked):
 
 ```sh

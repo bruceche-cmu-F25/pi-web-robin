@@ -251,55 +251,39 @@ try {
     await page.goto('/dashboard?calendar=week');
     await page.locator('.robin-calendar [data-calendar-minute]').first().waitFor();
     const checkGrid = async () => {
-      // ResizeObserver packs after responsive widths and fetched content settle.
-      await page.waitForFunction(() => {
-        const grid = document.querySelector('[data-dashboard-panels]');
-        const columns = Number(getComputedStyle(grid).getPropertyValue('--dashboard-columns'));
-        if (columns === 1) return !grid.dataset.packed;
-        if (!grid.dataset.packed) return false;
-        const visible = [...grid.children].filter((card) => getComputedStyle(card).display !== 'none');
-        const calendar = visible[0].getBoundingClientRect();
-        const main = visible.filter((card) => card !== visible[0] && !['dashboard-todos', 'dashboard-links'].includes(card.id)).map((card) => card.getBoundingClientRect());
-        const todos = document.querySelector('#dashboard-todos').getBoundingClientRect();
-        const links = document.querySelector('#dashboard-links').getBoundingClientRect();
-        const gap = parseFloat(getComputedStyle(grid).columnGap);
-        const follows = (next, previous) => Math.abs(next.y - previous.bottom - gap) < 2;
-        return main.every((card, index) => follows(card, index ? main[index - 1] : calendar))
-          && follows(links, todos) && (columns === 3 ? Math.abs(todos.y - calendar.y) < 2 : follows(todos, calendar));
-      });
+      await page.waitForFunction(() => Boolean(document.querySelector('#dashboard-daily-links')) === (window.innerWidth >= 960));
       await noOverflow();
       const layout = await page.locator('[data-dashboard-panels]').evaluate((grid) => ({
         available: document.querySelector('.robin-dashboard').clientWidth,
         columns: getComputedStyle(grid).gridTemplateColumns.split(' ').length,
-        panels: [...grid.children].filter((panel) => getComputedStyle(panel).display !== 'none').map((panel) => {
+        panels: [...grid.querySelectorAll(':scope > div > section, :scope > aside > #dashboard-todos')].filter((panel) => getComputedStyle(panel).display !== 'none').map((panel) => {
           const box = panel.getBoundingClientRect();
           return { id: panel.id || 'calendar', x: box.x, y: box.y, width: box.width, right: box.right, bottom: box.bottom };
         }),
       }));
-      const expected = layout.available >= 1440 ? 3 : layout.available >= 800 ? 2 : 1;
+      const expected = page.viewportSize().width < 960 ? 1 : layout.available >= 1440 ? 3 : 2;
       assert.equal(layout.columns, expected, `Available width ${layout.available}: ${JSON.stringify(layout)}`);
       const calendar = layout.panels.find((panel) => panel.id === 'calendar');
       const todos = layout.panels.find((panel) => panel.id === 'dashboard-todos');
       const main = layout.panels.filter((panel) => !['calendar', 'dashboard-todos', 'dashboard-links'].includes(panel.id));
-      assert.deepEqual(layout.panels.map((panel) => panel.id), ['calendar', 'dashboard-work-queue', 'dashboard-todos',
+      assert.deepEqual(layout.panels.map((panel) => panel.id), ['calendar', 'dashboard-work-queue',
         ...(layout.panels.some((panel) => panel.id === 'dashboard-attention') ? ['dashboard-attention'] : []),
-        ...(layout.panels.some((panel) => panel.id === 'dashboard-jobs') ? ['dashboard-jobs'] : []), 'fullstack-open', 'dashboard-links']);
-      if (expected === 3) {
-        assert.ok(Math.abs(calendar.y - todos.y) < 1 && todos.x >= calendar.right, 'Calendar and tasks share the first row');
-        assert.ok(calendar.width >= 890, 'Wide mode must leave the calendar legible');
-        assert.ok(main.every((panel) => Math.abs(panel.x - calendar.x) < 1 && Math.abs(panel.width - calendar.width) < 1), 'Attention, jobs and learning use the wide main lane');
-      } else if (expected === 2) {
-        assert.ok(todos.y >= calendar.bottom && Math.abs(todos.y - main[0].y) < 1, 'Calendar spans both lanes');
-        assert.ok(main.every((panel) => Math.abs(panel.x - calendar.x) < 1 && panel.right <= todos.x), 'Only tasks and links use the right lane');
+        ...(layout.panels.some((panel) => panel.id === 'dashboard-jobs') ? ['dashboard-jobs'] : []), 'fullstack-open', 'dashboard-links', 'dashboard-todos']);
+      const links = layout.panels.find((panel) => panel.id === 'dashboard-links');
+      assert.ok(links.y >= main.at(-1).bottom, 'Other links follow all left-hand cards');
+      if (expected > 1) {
+        assert.ok(todos.x >= calendar.right, 'Tasks share the daily-link box in the right lane');
+        assert.ok(main.every((panel) => Math.abs(panel.x - calendar.x) < 1 && Math.abs(panel.width - calendar.width) < 1));
       } else {
-        for (let i = 1; i < layout.panels.length; i++) assert.ok(layout.panels[i].y >= layout.panels[i - 1].bottom);
+        assert.ok(todos.y >= main[0].bottom, 'Mobile tasks still follow the work queue');
+        assert.ok(main[1].y >= todos.bottom, 'Mobile supporting cards follow tasks');
       }
       return layout;
     };
     for (const width of [768, 1024, 1366, 1440, 1920, 2560]) {
       await page.setViewportSize({ width, height: 1080 });
       await checkGrid();
-      const typography = await page.locator('[data-dashboard-panels] > section > header h2').evaluateAll((headings) => headings.map((heading) => ({
+      const typography = await page.locator('[data-dashboard-panels] > div > section > header h2, #dashboard-todos > header h2').evaluateAll((headings) => headings.map((heading) => ({
         style: getComputedStyle(heading).fontStyle, family: getComputedStyle(heading).fontFamily,
       })));
       assert.equal(typography.length, 6);
@@ -351,7 +335,8 @@ try {
     for (const width of [1024, 1920]) {
       await page.setViewportSize({ width, height: 1080 });
       await checkGrid();
-      assert.equal(await page.locator('[data-link-groups]').evaluate((el) => getComputedStyle(el).columnCount), '1', 'Link groups use card width, not viewport width');
+      const linkWidth = await page.locator('#dashboard-links').evaluate((el) => el.clientWidth - parseFloat(getComputedStyle(el).paddingLeft) - parseFloat(getComputedStyle(el).paddingRight));
+      assert.equal(await page.locator('#dashboard-links [data-link-groups]').evaluate((el) => getComputedStyle(el).columnCount), linkWidth >= 640 ? '2' : '1', 'Footer link groups use card width, not viewport width');
       const group = taskCard.locator(':scope > details:not(.robin-completed-todos)').last();
       await group.locator(':scope > summary').click();
       await checkGrid();

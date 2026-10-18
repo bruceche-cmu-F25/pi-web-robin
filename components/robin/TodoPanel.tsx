@@ -54,7 +54,7 @@ const BUCKET_COLOR: Partial<Record<DeadlineBucket, string>> = {
   today: "var(--accent-amber)",
 };
 
-export function TodoPanel() {
+export function TodoPanel({ embedded = false }: { embedded?: boolean }) {
   const { t, locale } = useI18n();
   const { data, error, loading, refresh } = usePolledResource<TodosResponse>("/api/robin/todos");
   const [actionError, setActionError] = useState<string | null>(null);
@@ -120,7 +120,7 @@ export function TodoPanel() {
     <section
       id="dashboard-todos"
       tabIndex={-1}
-      className="pi-card flex scroll-mt-24 flex-col gap-3 p-4"
+      className={`flex scroll-mt-24 flex-col gap-3${embedded ? "" : " pi-card p-4"}`}
     >
       <header className="flex items-baseline justify-between gap-3">
         <div className="flex items-baseline gap-3">

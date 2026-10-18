@@ -8,13 +8,20 @@ import { usePopoverDismiss } from "./usePopoverDismiss";
 import { iconFallback, type Link } from "@/extension/robin/links";
 import { linkSections } from "@/extension/robin/link-families";
 import { mutate, usePolledResource } from "./usePolledResource";
+import { requestRefresh } from "./refreshBus";
 import styles from "./LinksPanel.module.css";
 
 interface LinksResponse {
   links: Link[];
 }
 
-export function LinksPanel() {
+// This is the user's category, not the broader inferred "daily" family.
+const DAILY_GROUP = "日常入口";
+
+export function LinksPanel({ placement = "all", embedded = false }: {
+  placement?: "all" | "daily" | "other";
+  embedded?: boolean;
+}) {
   const { t } = useI18n();
   const mobile = useIsMobile();
   const [expandedLists, setExpandedLists] = useState<Set<string>>(() => new Set());
@@ -39,7 +46,9 @@ export function LinksPanel() {
     if (editingId) editRef.current?.select();
   }, [editingId]);
 
-  const sections = useMemo(() => linkSections(data?.links ?? []), [data]);
+  const links = useMemo(() => (data?.links ?? []).filter((link) =>
+    placement === "all" || (placement === "daily" ? link.group === DAILY_GROUP : link.group !== DAILY_GROUP)), [data, placement]);
+  const sections = useMemo(() => linkSections(links), [links]);
 
   // Links saved before icons existed have never been looked up. Backfill them
   // one at a time in the background rather than blocking the list on a batch of
@@ -47,7 +56,7 @@ export function LinksPanel() {
   // even when the site turned out to have no icon.
   const backfilling = useRef(false);
   useEffect(() => {
-    const pending = (data?.links ?? []).find((link) => !link.iconCheckedAt);
+    const pending = links.find((link) => !link.iconCheckedAt);
     if (!pending || backfilling.current) return;
     backfilling.current = true;
     void fetch(`/api/robin/links/icon/${pending.id}`, { method: "POST" })
@@ -56,13 +65,14 @@ export function LinksPanel() {
         backfilling.current = false;
         void refresh();
       });
-  }, [data, refresh]);
+  }, [links, refresh]);
 
   async function run(action: () => Promise<void>) {
     try {
       setActionError(null);
       await action();
       await refresh();
+      requestRefresh();
     } catch (caught) {
       setActionError(caught instanceof Error ? caught.message : String(caught));
     }
@@ -110,10 +120,15 @@ export function LinksPanel() {
    * are already adjacent — which is what keeps a move from being undone.
    */
   const persistOrder = (order: string[]) => {
+    // Reorder only this panel's slots; never drop or move the hidden category.
+    const visible = new Set(order);
+    let index = 0;
+    const groups = linkSections(data?.links ?? []).flatMap((section) => section.groups.map(({ group }) =>
+      visible.has(group) ? order[index++] : group));
     setReordering(true);
     void run(() => mutate("/api/robin/links", "PATCH", {
       action: "reorderGroups",
-      groups: order,
+      groups,
     })).finally(() => setReordering(false));
   };
 
@@ -157,7 +172,7 @@ export function LinksPanel() {
     setUrl("");
     setTitle("");
     // "Other" represents links without an explicit group in groupLinks().
-    setGroup(name === "Other" ? "" : name);
+    setGroup(placement === "daily" ? DAILY_GROUP : name === "Other" ? "" : name);
     setAddingGroup(name);
     if (name) {
       setCollapsedGroups((current) => {
@@ -241,16 +256,16 @@ export function LinksPanel() {
 
   return (
     <section
-      id="dashboard-links"
+      id={placement === "daily" ? "dashboard-daily-links" : "dashboard-links"}
       tabIndex={-1}
-      className={`pi-card flex scroll-mt-24 flex-col gap-3 p-4 ${styles.panel}`}
+      className={`flex scroll-mt-24 flex-col gap-3 ${styles.panel}${embedded ? "" : " pi-card p-4"}`}
     >
       <header className="flex items-baseline justify-between gap-2">
-        <h2 className="pi-section-title">{t("robin.links.title")}</h2>
+        <h2 className="pi-section-title">{placement === "daily" ? DAILY_GROUP : t("robin.links.title")}</h2>
         <div className="flex items-center gap-2">
-          <a href="https://www.notion.so/" target="_blank" rel="noopener noreferrer" className="ui-action pi-chrome-label pi-bracket text-xs">
+          {placement !== "daily" && <a href="https://www.notion.so/" target="_blank" rel="noopener noreferrer" className="ui-action pi-chrome-label pi-bracket text-xs">
             Notion ↗
-          </a>
+          </a>}
           <button
             type="button"
             onClick={() => toggleAdd("")}
@@ -261,7 +276,7 @@ export function LinksPanel() {
         </div>
       </header>
 
-      {addingGroup === "" && renderAddForm(true)}
+      {addingGroup === "" && renderAddForm(placement !== "daily")}
 
       {(error || actionError) && (
         <p className="text-xs" style={{ color: "var(--accent)" }}>{actionError ?? error}</p>

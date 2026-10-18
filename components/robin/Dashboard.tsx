@@ -1,7 +1,7 @@
 "use client";
 
 import { useI18n } from "@/hooks/useI18n";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { localDate, parseLocalDate } from "@/extension/robin/dates";
 import { AssistantBar } from "./AssistantBar";
 import { CalendarPanel } from "./CalendarPanel";
@@ -12,7 +12,7 @@ import { LearningPanel } from "./LearningPanel";
 import { LinksPanel } from "./LinksPanel";
 import { TodoPanel } from "./TodoPanel";
 import styles from "./Dashboard.module.css";
-import { useDashboardLayout } from "./useDashboardLayout";
+import { useIsSplitLayout } from "@/hooks/useIsMobile";
 
 const SHORTCUTS = [
   { href: "#dashboard-todos", key: "robin.dashboard.todo", icon: "M9 6h11M9 12h11M9 18h11M3 6l1 1 2-2M3 12l1 1 2-2M3 18l1 1 2-2" },
@@ -72,7 +72,24 @@ function DashboardClock({ locale }: { locale: string }) {
 export function Dashboard() {
   const { t, locale } = useI18n();
   const today = useLocalToday();
-  const panels = useDashboardLayout();
+  const desktop = useIsSplitLayout();
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    const header = headerRef.current;
+    if (!viewport || !header) return;
+    const measure = () => {
+      viewport.style.setProperty("--dashboard-sticky-top", `${header.offsetHeight + 16}px`);
+      viewport.style.setProperty("--dashboard-rail-height", `${Math.max(120, viewport.clientHeight - header.offsetHeight - 32)}px`);
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(viewport);
+    observer.observe(header);
+    measure();
+    return () => observer.disconnect();
+  }, []);
   const heading = today
     ? parseLocalDate(today).toLocaleDateString(locale, {
       weekday: "long",
@@ -85,8 +102,8 @@ export function Dashboard() {
     // globals.css locks html/body to the viewport height with
     // overflow:hidden for the chat shell. This page is a document, so it
     // supplies its own scroll container rather than changing that shared rule.
-    <div className={`robin-page robin-page--sticky-top robin-dashboard flex-1 overflow-y-auto scroll-smooth motion-reduce:scroll-auto ${styles.viewport}`} style={{ minHeight: 0 }}>
-      <header className="robin-dashboard-header sticky top-0" style={{ zIndex: "var(--z-sticky)" }}>
+    <div ref={viewportRef} className={`robin-page robin-page--sticky-top robin-dashboard flex-1 overflow-y-auto scroll-smooth motion-reduce:scroll-auto ${styles.viewport}`} style={{ minHeight: 0 }}>
+      <header ref={headerRef} className="robin-dashboard-header sticky top-0" style={{ zIndex: "var(--z-sticky)" }}>
         <div className={`${styles.frame} px-4 py-2 desktop:px-6`}>
           <AssistantBar />
         </div>
@@ -118,14 +135,19 @@ export function Dashboard() {
           ))}
         </nav>
 
-        <div ref={panels} className={styles.panels} data-dashboard-panels>
-          <CalendarPanel />
-          <WorkQueuePanel />
-          <TodoPanel />
-          <AttentionPanel />
-          <JobsPanel />
-          <LearningPanel />
-          <LinksPanel />
+        <div className={styles.panels} data-dashboard-panels>
+          <div className={styles.main}>
+            <CalendarPanel />
+            <WorkQueuePanel />
+            <AttentionPanel />
+            <JobsPanel />
+            <LearningPanel />
+            <LinksPanel placement={desktop ? "other" : "all"} />
+          </div>
+          <aside className={styles.rail} aria-label={t("robin.todos.title")}>
+            <TodoPanel embedded={desktop} />
+            {desktop && <LinksPanel placement="daily" embedded />}
+          </aside>
         </div>
       </main>
     </div>

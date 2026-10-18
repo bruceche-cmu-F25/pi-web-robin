@@ -17,37 +17,51 @@
 @media (max-width: 640px) { .shortcuts { width: 100%; gap: 6px; } .shortcut { gap: 5px; padding-inline: 4px; font-size: 12px; } }
 @media (max-width: 359px) { .shortcut svg { display: none; } }
 
-/* One DOM order at every size: calendar, work queue, tasks, attention, jobs, learning, links.
-   Size against the available workspace, not a viewport with navigation still in it. */
-.panels {
-  --dashboard-columns: 1;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  align-items: start;
-  gap: 16px;
-}
+/* Phones retain the original inline order. Desktop uses the same column
+   widths as before: equal lanes, then a 2:1 split at 1440px of workspace. */
+.panels { display: flex; flex-direction: column; gap: 16px; }
+.main, .rail { display: contents; }
+.panels section { min-width: 0; }
+.panels section > header { flex-wrap: wrap; }
+.panels section > header > div { min-width: 0; flex-wrap: wrap; }
+.main > :global(.robin-calendar) { order: 0; }
+.main > :global(#dashboard-work-queue) { order: 1; }
+.rail > :global(#dashboard-todos) { order: 2; }
+.main > :global(#dashboard-attention) { order: 3; }
+.main > :global(#dashboard-jobs) { order: 4; }
+.main > :global(#fullstack-open) { order: 5; }
+.main > :global(#dashboard-links) { order: 6; }
 
-.panels > section { min-width: 0; }
-.panels > section > header { flex-wrap: wrap; }
-.panels > section > header > div { min-width: 0; flex-wrap: wrap; }
-
-@container dashboard (min-width: 800px) {
-  .panels { --dashboard-columns: 2; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .panels > :global(.robin-calendar) { grid-column: 1 / -1; }
-}
-
-/* Measured lanes remove shared row heights without remounting or reordering cards.
-   Until hydration (and on phones), the ordinary grid remains the fallback. */
-.panels[data-packed] {
-  row-gap: 0;
-}
-
-/* Leave roughly 900px for the calendar before introducing a task column. */
-@container dashboard (min-width: 1440px) {
+@media (min-width: 960px) {
   .panels {
-    --dashboard-columns: 3;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 20px;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
   }
-  .panels > :is(:global(.robin-calendar), :global(#dashboard-work-queue), :global(#dashboard-attention), :global(#dashboard-jobs), :global(#fullstack-open)) { grid-column: span 2; }
+  .main { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  /* One card and one scrollbar, starting level with the calendar. Sticky is
+     bounded by this dashboard grid, never by the application shell. */
+  .rail {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    min-width: 0;
+    position: sticky;
+    top: var(--dashboard-sticky-top, 80px);
+    max-height: var(--dashboard-rail-height, calc(100dvh - 140px));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 16px;
+    border: 1px solid var(--border);
+    background: var(--bg-panel);
+    box-shadow: var(--card-shadow);
+  }
+  .rail > section { flex-shrink: 0; }
+  .rail > :global(#dashboard-todos) { order: 0; }
+  .rail > :global(#dashboard-daily-links) { padding-top: 20px; border-top: 1px solid var(--border); }
+}
+
+@container dashboard (min-width: 1440px) {
+  .panels { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+  .main { grid-column: span 2; gap: 20px; }
 }
