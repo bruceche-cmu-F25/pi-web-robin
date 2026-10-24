@@ -259,6 +259,13 @@ export function RobinMargin({ drawer, onClose, onNavigate, chatContext }: {
       status: { count: notesReady },
     },
     {
+      href: withChatContext("/obsidian"),
+      path: "/obsidian",
+      label: t("robin.nav.obsidian"),
+      icon: ObsidianIcon,
+      tone: "iris",
+    },
+    {
       href: withChatContext("/research"),
       path: "/research",
       label: t("robin.nav.research"),
@@ -372,6 +379,10 @@ function PodcastIcon(props: SVGProps<SVGSVGElement>) {
 
 function NotesIcon(props: SVGProps<SVGSVGElement>) {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M5 3h11l3 3v15H5z" /><path d="M16 3v4h4M8 11h8M8 15h8M8 19h5" /></svg>;
+}
+
+function ObsidianIcon(props: SVGProps<SVGSVGElement>) {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" {...props}><path d="m12 2 7 5 2 10-9 5-9-5 2-10zM12 2 8 12l4 10 4-10zM3 17l5-5M21 17l-5-5" /></svg>;
 }
 
 function ResearchIcon(props: SVGProps<SVGSVGElement>) {

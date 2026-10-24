@@ -1,4 +1,5 @@
 import type { LocalePlugin } from "../types";
+import { obsidianChinese } from "./obsidian.ts";
 import { plannerChinese } from "./planner.ts";
 import { researchChinese } from "./research-workspace.ts";
 import { recordingsChinese } from "./recordings.ts";
@@ -10,6 +11,7 @@ export const zhCNLocale: LocalePlugin = {
   id: "zh-CN",
   label: "简体中文",
   messages: {
+    ...obsidianChinese,
     ...researchChinese,
     ...recordingsChinese,
     ...voiceChinese,

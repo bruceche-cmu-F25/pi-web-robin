@@ -1,4 +1,5 @@
 import type { LocalePlugin } from "../types";
+import { obsidianEnglish } from "./obsidian.ts";
 import { plannerEnglish } from "./planner.ts";
 import { researchEnglish } from "./research-workspace.ts";
 import { recordingsEnglish } from "./recordings.ts";
@@ -11,6 +12,7 @@ export const enLocale: LocalePlugin = {
   label: "English",
   messages: {
     ...researchEnglish,
+    ...obsidianEnglish,
     ...recordingsEnglish,
     ...voiceEnglish,
     ...toolboxEnglish,

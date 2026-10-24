@@ -1,4 +1,5 @@
 import type { LocalePlugin } from "../types";
+import { obsidianTraditional } from "./obsidian.ts";
 import { researchTraditional } from "./research-workspace.ts";
 
 /** Pi Web 內建繁體中文語系。 */
@@ -7,6 +8,7 @@ export const zhTWLocale: LocalePlugin = {
   label: "繁體中文",
   messages: {
     ...researchTraditional,
+    ...obsidianTraditional,
     "common.ok": "確定",
     "common.language": "語言",
     "common.models": "模型",
