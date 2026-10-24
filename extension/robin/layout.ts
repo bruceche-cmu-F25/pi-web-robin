@@ -43,9 +43,10 @@ export const MIN_EVENT_MINUTES = 30;
  * cluster each event takes the first column free at its start time, and every
  * event in the cluster is divided by the same column count so their edges line
  * up. Zero-length and past-midnight ends are clamped so nothing renders
- * inverted or invisible.
+ * inverted or invisible. The ordinary calendar keeps a 30-minute visual floor;
+ * the planner passes 1 for true-duration previews with a separate detail target.
  */
-export function layoutDayEvents<T extends CalendarEvent>(events: T[]): PositionedEvent<T>[] {
+export function layoutDayEvents<T extends CalendarEvent>(events: T[], minimumMinutes = MIN_EVENT_MINUTES): PositionedEvent<T>[] {
   const timed = events
     .filter((event) => !isAllDayBand(event))
     .map((event) => {
@@ -54,7 +55,7 @@ export function layoutDayEvents<T extends CalendarEvent>(events: T[]): Positione
       return {
         event,
         startMinutes,
-        endMinutes: Math.min(Math.max(rawEnd, startMinutes + MIN_EVENT_MINUTES), MINUTES_PER_DAY),
+        endMinutes: Math.min(Math.max(rawEnd, startMinutes + Math.max(1, minimumMinutes)), MINUTES_PER_DAY),
       };
     })
     .sort((a, b) => a.startMinutes - b.startMinutes || a.endMinutes - b.endMinutes);

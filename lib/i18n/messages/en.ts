@@ -1,4 +1,5 @@
 import type { LocalePlugin } from "../types";
+import { plannerEnglish } from "./planner.ts";
 import { researchEnglish } from "./research-workspace.ts";
 import { recordingsEnglish } from "./recordings.ts";
 import { voiceEnglish } from "./voice.ts";
@@ -11,6 +12,7 @@ export const enLocale: LocalePlugin = {
     ...researchEnglish,
     ...recordingsEnglish,
     ...voiceEnglish,
+    ...plannerEnglish,
     "focus.title": "Focus",
     "focus.open": "Open focus timer",
     "focus.focus": "Focus",
@@ -462,7 +464,7 @@ export const enLocale: LocalePlugin = {
     "robin.kanban.windowEnd": "Available until",
     "robin.kanban.budget": "Daily focus budget (min)",
     "robin.kanban.allDayBusy": "Treat all-day events as busy",
-    "robin.kanban.capacityAssumptions": "Up to 3 tasks/day. Existing plans without an estimate reserve 30 min; events without an end reserve 60 min. Elapsed time is excluded. Work dates do not book calendar slots.",
+    "robin.kanban.capacityAssumptions": "Up to 3 tasks/day. Existing plans without an estimate reserve 30 min; events without an end reserve no time. Elapsed time is excluded. Work dates do not book calendar slots.",
     "robin.kanban.localCalendarOnly": "Google Calendar is not connected. Capacity uses local events only; check for missing commitments.",
     "robin.kanban.incompleteCalendar": "Calendar could not be fully read. Planning is paused to avoid overbooking.",
     "robin.kanban.capacityMinutes": "{count} min left to plan",

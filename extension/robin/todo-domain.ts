@@ -7,6 +7,7 @@ import { newId } from "./paths.ts";
 import { readTaskRecords, updateTaskRecords } from "./task-store.ts";
 import { todoUrl } from "./todo-links.ts";
 import { isTodoStatus, todoStatus, type TodoStatus } from "./todo-status.ts";
+import type { WorkPlan } from "./planner.ts";
 
 export interface Todo {
   id: string;
@@ -23,6 +24,8 @@ export interface Todo {
   estimateMinutes?: number;
   /** Absent means user-supplied; Agent estimates remain visibly tentative. */
   estimateSource?: "agent";
+  /** Confirmed focus slots; derived into the calendar, never copied into events. */
+  workPlan?: WorkPlan;
   /** Next local date to reconsider an overdue task after explicitly continuing it. */
   reviewAfter?: string;
   /** Abandoned, not completed; reversible and excluded from ordinary todo lists. */

@@ -90,6 +90,22 @@ test("Google is fetched for the visible month, not a fixed window around today",
   assert.equal(request.searchParams.get("timeMax"), new Date("2035-02-04T23:59:59").toISOString());
 });
 
+test("repeated creation reuses the same occurrence, even with a fresh request id", () => {
+  const input = { title: "Tech talk", date: "2030-03-04", start: "09:00", end: "10:00", location: "Room A" };
+  const first = createCalendarEvent(input);
+  const requestId = "b".repeat(32);
+  const duplicate = createCalendarEvent({ ...input, title: "  TECH   talk ", start: "9:00", endDate: input.date }, requestId);
+  assert.equal(duplicate.id, first.id);
+  assert.equal(createCalendarEvent(input, requestId).id, first.id);
+  assert.equal(readEvents().length, 1);
+  assert.throws(() => createCalendarEvent({ ...input, date: "2030-03-05" }, requestId), /already saved/,
+    "a reused request still cannot change its saved appointment");
+  for (const changes of [{ date: "2030-03-05" }, { start: "09:30" }, { end: "10:30" }, { location: "Room B" }, { title: "Different talk" }]) {
+    assert.notEqual(createCalendarEvent({ ...input, ...changes }).id, first.id);
+  }
+  assert.equal(readEvents().length, 6, "same title is not sufficient to collapse separate appointments");
+});
+
 test("an event created through the domain shows up on the next board read", async () => {
   assert.deepEqual((await calendarBoard()).events, []);
   const event = createCalendarEvent({ title: "Dentist", date: "2030-03-04", start: "10:00", end: "11:00" });

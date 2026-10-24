@@ -6,7 +6,7 @@ import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { MOBILE_MAX_WIDTH } from "@/lib/panel-layout";
 import { parseLocalDate } from "@/extension/robin/dates";
-import { eventsInRange, isReadOnlyEvent, type DashboardEvent } from "@/extension/robin/events";
+import { deduplicateCalendarEvents, eventsInRange, isReadOnlyEvent, type DashboardEvent } from "@/extension/robin/events";
 import { orderSeriesColors } from "@/extension/robin/eventColors";
 import type { EditableTodo, Todo } from "@/extension/robin/todo-domain";
 import { AgendaView, MonthView } from "./CalendarViews";
@@ -80,8 +80,8 @@ export function CalendarPanel() {
   const activeAnchor = anchor ?? today;
   const days = useMemo(() => activeAnchor ? calendarDays(view, activeAnchor) : [], [view, activeAnchor]);
   const palette = useMemo(() => orderSeriesColors(data?.events ?? []), [data]);
-  const visible = useMemo(() => days.length ? eventsInRange((data?.events ?? []).filter((event) =>
-    isReadOnlyEvent(event) ? sources.google : sources.local), days[0]!, days.at(-1)!) : [], [data, days, sources]);
+  const visible = useMemo(() => days.length ? eventsInRange(deduplicateCalendarEvents((data?.events ?? []).filter((event) =>
+    event.source === "google" ? sources.google : sources.local)), days[0]!, days.at(-1)!) : [], [data, days, sources]);
   const todos = useMemo(() => sources.todos && days.length ? (todosData?.todos ?? []).filter((todo) =>
     !todo.done && todo.due && (todo.startDate ?? todo.due) <= days.at(-1)! && todo.due >= days[0]!) : [], [todosData, days, sources.todos]);
   const heading = useMemo(() => {

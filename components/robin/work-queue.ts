@@ -60,9 +60,7 @@ export function queueCandidates<T extends Todo>(todos: T[], day: string): T[] {
 }
 
 export type QueueWindow = { kind: "free" | "busy" | "outside" | "uncertain" | "short"; minutes: number };
-/** Conservative wall-clock availability. Unknown ends never invent a free hour.
- * All-day entries may be reminders or trips: ask the person rather than guessing.
- */
+/** Only complete time intervals block suggestions. Missing endpoints reserve no time. */
 export function queueWindow(events: DashboardEvent[], now: Date, start: string, end: string, reliable = true): QueueWindow {
   if (!reliable || !validWorkHours(start, end)) return { kind: "uncertain", minutes: 0 };
   const minute = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
@@ -70,9 +68,9 @@ export function queueWindow(events: DashboardEvent[], now: Date, start: string, 
   let stop = timeMinutes(end);
   const today = localDate(now);
   for (const event of events.filter((item) => occursOn(item, today))) {
-    if (!event.start) return { kind: "uncertain", minutes: 0 };
+    if (!event.start || !event.end) continue;
     const begins = event.date < today ? 0 : timeMinutes(event.start);
-    const ends = (event.endDate ?? event.date) > today || !event.end ? 1440 : timeMinutes(event.end);
+    const ends = (event.endDate ?? event.date) > today ? 1440 : timeMinutes(event.end);
     if (!Number.isFinite(begins) || !Number.isFinite(ends) || ends < begins) return { kind: "uncertain", minutes: 0 };
     if (minute >= begins - 10 && minute < ends + 10) return { kind: "busy", minutes: 0 };
     if (begins > minute) stop = Math.min(stop, begins - 10);

@@ -36,7 +36,7 @@ test("a multi-day timed event keeps an inclusive end date", () => {
   assert.equal(event.date, "2026-08-19");
   assert.equal(event.start, "09:00");
   assert.equal(event.endDate, "2026-08-20", "timed ends are already inclusive");
-  assert.equal(event.end, undefined, "the end time belongs to a different day");
+  assert.equal(event.end, "18:00", "retain the real end on endDate for availability checks");
 });
 
 test("a timed event is resolved into local wall-clock time", () => {
@@ -66,7 +66,7 @@ test("an offset other than Z is honoured", () => {
   assert.equal(event.start, "17:00");
 });
 
-test("an end on a later day is dropped rather than shown as a backwards range", () => {
+test("an end on a later day is retained together with its date", () => {
   const event = map({
     id: "e",
     summary: "Overnight",
@@ -75,7 +75,15 @@ test("an end on a later day is dropped rather than shown as a backwards range", 
   });
   assert.equal(event.date, "2026-08-14");
   assert.equal(event.start, "22:00");
-  assert.equal(event.end, undefined, "a range crossing midnight would render as 22:00–08:00");
+  assert.equal(event.end, "08:00");
+  assert.equal(event.endDate, "2026-08-15");
+});
+
+test("an unspecified end is not mistaken for Google's compatibility end", () => {
+  const event = map({ id: "unspecified", start: { dateTime: "2026-08-15T16:00:00Z" }, end: { dateTime: "2026-08-16T17:00:00Z" }, endTimeUnspecified: true });
+  assert.equal(event.start, "09:00");
+  assert.equal(event.end, undefined);
+  assert.equal(event.endDate, undefined);
 });
 
 test("cancelled events and events without a start are skipped", () => {

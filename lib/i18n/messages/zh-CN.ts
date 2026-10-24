@@ -1,4 +1,5 @@
 import type { LocalePlugin } from "../types";
+import { plannerChinese } from "./planner.ts";
 import { researchChinese } from "./research-workspace.ts";
 import { recordingsChinese } from "./recordings.ts";
 import { voiceChinese } from "./voice.ts";
@@ -11,6 +12,7 @@ export const zhCNLocale: LocalePlugin = {
     ...researchChinese,
     ...recordingsChinese,
     ...voiceChinese,
+    ...plannerChinese,
     "focus.title": "专注",
     "focus.open": "打开专注计时器",
     "focus.focus": "专注",
@@ -463,7 +465,7 @@ export const zhCNLocale: LocalePlugin = {
     "robin.kanban.windowEnd": "可用时段结束",
     "robin.kanban.budget": "每天专注预算（分钟）",
     "robin.kanban.allDayBusy": "全天事件视为占满当天",
-    "robin.kanban.capacityAssumptions": "每天最多规划 3 项。已有计划缺少估时按 30 分钟预留，事件缺少结束时间按 60 分钟预留；已流逝的时间不计入容量。计划日期不会占用或写入日历。",
+    "robin.kanban.capacityAssumptions": "每天最多规划 3 项。已有计划缺少估时按 30 分钟预留，事件缺少结束时间不预留时段；已流逝的时间不计入容量。计划日期不会占用或写入日历。",
     "robin.kanban.localCalendarOnly": "未连接 Google 日历，目前仅计算本地日程；请确认是否遗漏其他安排。",
     "robin.kanban.incompleteCalendar": "未能完整读取日历，暂不生成或接受计划，避免超额安排。",
     "robin.kanban.capacityMinutes": "还可安排 {count} 分钟",

@@ -6,6 +6,7 @@ import { localDate, parseLocalDate } from "@/extension/robin/dates";
 import { AssistantBar } from "./AssistantBar";
 import { CalendarPanel } from "./CalendarPanel";
 import { WorkQueuePanel } from "./WorkQueuePanel";
+import { PlannerPanel } from "./PlannerPanel";
 import { AttentionPanel } from "./AttentionPanel";
 import { JobsPanel } from "./JobsPanel";
 import { LearningPanel } from "./LearningPanel";
@@ -138,6 +139,7 @@ export function Dashboard() {
         <div className={styles.panels} data-dashboard-panels>
           <div className={styles.main}>
             <CalendarPanel />
+            <PlannerPanel />
             <WorkQueuePanel />
             <AttentionPanel />
             <JobsPanel />

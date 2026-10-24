@@ -257,6 +257,8 @@ export interface GoogleEvent {
   iCalUID?: string;
   start?: GoogleEventTime;
   end?: GoogleEventTime;
+  /** Google may return a compatibility end even when the user set none. */
+  endTimeUnspecified?: boolean;
 }
 
 function httpUrl(value: string | undefined): string | undefined {
@@ -298,7 +300,7 @@ export function mapGoogleEvent(item: GoogleEvent, calendar: string, colorNamespa
   const startParts = toLocalParts(item.start);
   if (!startParts) return null;
 
-  const endParts = toLocalParts(item.end);
+  const endParts = item.endTimeUnspecified ? null : toLocalParts(item.end);
 
   // Google's all-day `end.date` is EXCLUSIVE — a one-day event on the 17th ends
   // on the 18th. Ours is inclusive, so step back a day. Timed events use the
@@ -311,11 +313,9 @@ export function mapGoogleEvent(item: GoogleEvent, calendar: string, colorNamespa
     if (rawEnd > startParts.date) endDate = rawEnd;
   }
 
-  // Only carry an end time when it lands on the same day; an end that spills
-  // into tomorrow would render as an impossible range like 22:00–01:00.
-  const end = startParts.start && endParts?.start && endParts.date === startParts.date
-    ? endParts.start
-    : undefined;
+  // Keep a real end across midnight too: endDate tells planners which day it
+  // belongs to. Dropping it would turn a known occupied interval into a reminder.
+  const end = startParts.start ? endParts?.start : undefined;
 
   const googleId = item.id ?? crypto.randomUUID();
   const baseColorSeed = item.recurringEventId ?? item.iCalUID ?? googleId;

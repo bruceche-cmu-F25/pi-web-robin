@@ -26,10 +26,10 @@ notifications, calendar writes, or another task collection.
 `work-queue.ts` is browser-safe pure scheduling and storage parsing logic. Times
 follow the device's wall clock, consistent with the calendar's floating-time model.
 The panel requests today's events independently of the calendar's selected view.
-Ten-minute buffers surround timed events; overlapping/multi-day events block the
-appropriate intervals. Missing end times conservatively block the rest of that
-day. All-day entries, loading, errors and partial Google reads suppress automatic
-free-time suggestions. Manual starts remain available. Disconnected Google is
+Ten-minute buffers surround events with both endpoints; overlapping/multi-day
+intervals block their actual times. All-day/date-only and missing-end entries
+reserve no time or buffers, including multi-day entries.
+Loading, errors and partial Google reads suppress automatic free-time suggestions. Manual starts remain available. Disconnected Google is
 explicitly described as local-calendar-only coverage.
 
 The first version deliberately stores queue/order, next-step notes, deferrals,

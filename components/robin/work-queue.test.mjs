@@ -23,12 +23,14 @@ test("free time respects event buffers, working hours and the nearest overlappin
   assert.equal(validWorkHours("24:00", "25:00"), false);
 });
 
-test("incomplete calendars, all-day entries, spanning events and unknown ends never invent free time", () => {
+test("all-day entries do not block free time; incomplete calendars and timed events still do", () => {
   assert.equal(windowAt([], "10:00", false).kind, "uncertain");
-  assert.equal(windowAt([event(undefined, undefined)]).kind, "uncertain");
-  assert.equal(windowAt([event(undefined, undefined, { date: "2030-05-10", endDate: "2030-05-15" })]).kind, "uncertain");
-  assert.equal(windowAt([event("09:00", undefined)]).kind, "busy");
-  assert.deepEqual(windowAt([event("11:00", undefined)]), { kind: "free", minutes: 50 });
+  assert.deepEqual(windowAt([event(undefined, undefined)]), windowAt([]));
+  assert.deepEqual(windowAt([event(undefined, undefined, { date: "2030-05-10", endDate: "2030-05-15" })]), windowAt([]));
+  assert.deepEqual(windowAt([event("09:00", undefined)]), windowAt([]));
+  assert.deepEqual(windowAt([event("11:00", undefined)]), windowAt([]));
+  assert.deepEqual(windowAt([event("09:00", undefined, { date: "2030-05-11", endDate: "2030-05-15" })]), windowAt([]));
+  assert.deepEqual(windowAt([event("09:00", undefined), event("11:00", "12:00")]), { kind: "free", minutes: 50 });
   assert.equal(windowAt([event("23:00", "11:00", { date: "2030-05-11", endDate: day })]).kind, "busy");
   assert.equal(windowAt([event("09:00", "01:00", { endDate: "2030-05-13" })]).kind, "busy");
   assert.equal(windowAt([event("bad", "time")]).kind, "uncertain");

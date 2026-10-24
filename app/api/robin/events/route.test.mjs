@@ -43,7 +43,7 @@ test("both calendar adapters reject reversed same-day times with an explicit end
 test("both adapters accept cross-day times, normalize same-day ranges and reject blank titles", async () => {
   const spanning = { ...event, endDate: "2030-01-02" };
   assert.equal((await POST(request("POST", spanning))).status, 200);
-  assert.match((await create(spanning)).content[0].text, /Added/);
+  assert.match((await create(spanning)).content[0].text, /On your calendar/);
   assert.ok(readEvents().every((item) => item.endDate === "2030-01-02"));
   const sameDay = { ...event, end: "16:00", endDate: event.date };
   const response = await (await POST(request("POST", sameDay))).json();
@@ -119,6 +119,20 @@ test("retrying a calendar create after a lost response does not insert a duplica
   }
 });
 
+test("fresh HTTP and tool requests reuse an existing appointment without losing retry safety", async () => {
+  const body = { title: "Same appointment", date: "2030-01-01", start: "09:00", end: "10:00" };
+  const original = (await (await POST(request("POST", body))).json()).event;
+  await create(body);
+  const requestId = "b".repeat(32);
+  for (let i = 0; i < 2; i++) {
+    const retry = await POST(request("POST", { ...body, requestId }));
+    assert.equal(retry.status, 200);
+    assert.equal((await retry.json()).event.id, original.id);
+  }
+  assert.equal(readEvents().length, 1);
+  assert.equal((await POST(request("POST", { ...body, requestId, title: "Changed draft" }))).status, 400);
+});
+
 test("legacy JSON concurrent calendar writers read inside the same lock as the write", { timeout: 15_000 }, async () => {
   // This pins the legacy lock regression; SQLite contention is tested separately.
   for (const name of ["task-storage.json", "tasks.sqlite", "tasks.sqlite-wal", "tasks.sqlite-shm"]) rmSync(join(directory, name), { force: true });
@@ -148,7 +162,7 @@ test("legacy JSON concurrent calendar writers read inside the same lock as the w
     await tools.get('calendar_create_event').execute('test', { title: process.argv[2], date: '2030-01-01' });
     process.disconnect();
   `);
-  const children = ["A", "B"].map((title) => fork(worker, [title], {
+  const children = ["A", "B", "A"].map((title) => fork(worker, [title], {
     execArgv: ["--experimental-strip-types"],
     env: { ...process.env, ROBIN_DATA_DIR: directory },
     stdio: ["ignore", "ignore", "pipe", "ipc"],

@@ -38,6 +38,7 @@ export function inKanbanView(todo: Todo, view: KanbanView, today: string): boole
   // Focus is a deliberate plan, never an inferred deadline. Completed work
   // remains visible for reflection even if it was not planned beforehand.
   return Boolean(todo.plannedOn && todo.plannedOn >= from && todo.plannedOn <= to)
+    || Boolean(todo.workPlan?.blocks.some((block) => block.date >= from && block.date <= to))
     || (todo.done && Boolean(todo.completedAt) && (view === "today"
       ? isInstantOnLocalDate(todo.completedAt, today)
       : Array.from({ length: 7 }, (_, i) => addDays(from, i)).some((day) => isInstantOnLocalDate(todo.completedAt, day))));
@@ -105,9 +106,9 @@ export function calendarCapacity(events: DashboardEvent[], todos: Todo[], today:
         if (options.allDayBusy) busy.push([windowStart, windowEnd]);
         continue;
       }
+      if (!event.end) continue;
       const start = event.date === date ? minute(event.start) : 0;
-      const end = event.endDate && event.endDate > date ? 1440
-        : event.end ? minute(event.end) : Math.min(1440, start + 60);
+      const end = event.endDate && event.endDate > date ? 1440 : minute(event.end);
       busy.push([Math.max(windowStart, start), Math.min(windowEnd, end)]);
     }
     // Union of intervals naturally deduplicates local + Google copies and overlaps.
@@ -121,8 +122,11 @@ export function calendarCapacity(events: DashboardEvent[], todos: Todo[], today:
     }
     if (cursor < windowEnd) gaps.push([cursor, windowEnd]);
     const freeMinutes = gaps.reduce((sum, [start, end]) => sum + end - start, 0);
-    const planned = todos.filter((todo) => !todo.archivedAt && todo.plannedOn === date);
-    const plannedMinutes = planned.reduce((sum, todo) => sum + (todo.estimateMinutes ?? UNKNOWN_ESTIMATE), 0);
+    const planned = todos.filter((todo) => !todo.archivedAt && todo.plannedOn === date && !todo.workPlan?.blocks.length);
+    const focus = dayEvents.filter((event) => event.source === "planner" && event.start && event.end);
+    const plannedCount = planned.length + new Set(focus.map((event) => event.todoId)).size;
+    const plannedMinutes = planned.reduce((sum, todo) => sum + (todo.estimateMinutes ?? UNKNOWN_ESTIMATE), 0)
+      + focus.reduce((sum, event) => sum + minute(event.end!) - minute(event.start!), 0);
     let fits = true;
     // Work already completed consumes the daily budget, not future free slots.
     for (const todo of planned.filter((entry) => !entry.done).sort((a, b) => (b.estimateMinutes ?? UNKNOWN_ESTIMATE) - (a.estimateMinutes ?? UNKNOWN_ESTIMATE))) {
@@ -130,12 +134,12 @@ export function calendarCapacity(events: DashboardEvent[], todos: Todo[], today:
     }
     const gapMinutes = gaps.reduce((sum, [start, end]) => sum + end - start, 0);
     days.push({
-      date, gaps, freeMinutes, plannedMinutes, plannedCount: planned.length,
+      date, gaps, freeMinutes, plannedMinutes, plannedCount,
       unknownEstimates: planned.filter((todo) => !todo.estimateMinutes).length,
       unknownEnds, allDayCount,
       remainingMinutes: fits ? Math.max(0, Math.min(options.dailyMinutes - plannedMinutes, gapMinutes)) : 0,
-      remainingTasks: Math.max(0, MAX_DAILY_TASKS - planned.length),
-      overbooked: !fits || plannedMinutes > options.dailyMinutes || planned.length > MAX_DAILY_TASKS,
+      remainingTasks: Math.max(0, MAX_DAILY_TASKS - plannedCount),
+      overbooked: !fits || plannedMinutes > options.dailyMinutes || plannedCount > MAX_DAILY_TASKS,
     });
   }
   return days;
@@ -145,7 +149,7 @@ export interface PlanItem { id: string; plannedOn: string; estimateMinutes: numb
 export interface PlanSuggestion { items: PlanItem[] }
 
 export function planningCandidates(todos: Todo[], today: string): Todo[] {
-  return todos.filter((todo) => !todo.done && !todo.archivedAt && !todo.plannedOn && !needsReview(todo, today));
+  return todos.filter((todo) => !todo.done && !todo.archivedAt && !todo.plannedOn && !todo.workPlan?.blocks.length && !needsReview(todo, today));
 }
 
 /** Validate model AND browser input. Unknown ids, estimates and overbooking fail closed. */

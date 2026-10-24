@@ -84,6 +84,12 @@ copied components; Pi's existing typography, straight edges and theme tokens sta
 
 ## Capacity and proposals
 
+The dashboard's [weekly planner](weekly-planner.md) adds concrete focus slots on
+`Todo.workPlan.blocks`, projected read-only into the calendar. Kanban shows their
+work dates too. Its day-only generator excludes tasks already carrying focus
+slots, and capacity charges the projected slots' duration and distinct-task count
+once rather than adding the same task's whole estimate again.
+
 The on-demand planning drawer uses existing local and connected Google events. Its
 preferences (daytime window, daily minute budget, horizon, all-day policy) are
 saved in this browser. Default budget: 120 minutes; at most three planned tasks
@@ -91,8 +97,8 @@ per day. The user can manually exceed these, with a capacity warning. Ongoing an
 next-task visibility does not reserve time: only dated plans consume that budget.
 
 Calendar intervals are clipped to the remaining daytime window and merged, so
-local/Google duplicates and overlapping meetings are not double-counted. Missing
-end times reserve 60 minutes. Existing plans without estimates reserve 30 minutes.
+local/Google duplicates and overlapping meetings are not double-counted. Entries
+without an end time reserve no time. Existing plans without estimates reserve 30 minutes.
 All-day entries are explicitly flagged but not deducted by default; the user can
 choose to block those days. No end-of-class/holiday semantics are guessed. This
 is a conservative capacity estimate, not a claim that the user's calendar is

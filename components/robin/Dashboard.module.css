@@ -25,12 +25,13 @@
 .panels section > header { flex-wrap: wrap; }
 .panels section > header > div { min-width: 0; flex-wrap: wrap; }
 .main > :global(.robin-calendar) { order: 0; }
-.main > :global(#dashboard-work-queue) { order: 1; }
-.rail > :global(#dashboard-todos) { order: 2; }
-.main > :global(#dashboard-attention) { order: 3; }
-.main > :global(#dashboard-jobs) { order: 4; }
-.main > :global(#fullstack-open) { order: 5; }
-.main > :global(#dashboard-links) { order: 6; }
+.main > :global(#dashboard-planner) { order: 1; }
+.main > :global(#dashboard-work-queue) { order: 2; }
+.rail > :global(#dashboard-todos) { order: 3; }
+.main > :global(#dashboard-attention) { order: 4; }
+.main > :global(#dashboard-jobs) { order: 5; }
+.main > :global(#fullstack-open) { order: 6; }
+.main > :global(#dashboard-links) { order: 8; }
 
 @media (min-width: 960px) {
   .panels {

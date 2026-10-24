@@ -1,8 +1,10 @@
 /** Calendar behavior shared by the HTTP and Pi tool adapters. */
 import { addDays, localDate, normalizeDue, parseLocalDate } from "./dates.ts";
-import { normalizeTime, type CalendarEvent, type DashboardEvent } from "./events.ts";
+import { calendarEventKey, normalizeTime, type CalendarEvent, type DashboardEvent } from "./events.ts";
 import { fetchEventsWithWarnings, isConnected } from "./google-calendar.ts";
 import { newId, readEvents, updateEvents } from "./store.ts";
+import { listTodos } from "./todo-domain.ts";
+import { focusEvents } from "./planner.ts";
 
 export interface CalendarBoard {
   /** Local events plus any read-only ones pulled from Google, unsorted. */
@@ -51,7 +53,7 @@ export async function calendarBoard(options: CalendarBoardOptions = {}): Promise
     parseLocalDate(options.from); parseLocalDate(options.to);
     if (options.to < options.from || options.to > addDays(options.from, 366)) throw new Error("Calendar range must be between 1 and 367 days");
   }
-  const events: DashboardEvent[] = readEvents();
+  const events: DashboardEvent[] = [...readEvents(), ...focusEvents(listTodos({ includeDone: true, includeArchived: true }).todos, today)];
   if (!isConnected()) return { events, today, google: { connected: false } };
 
   const from = options.from ?? addDays(today, -(options.before ?? 45));
@@ -124,14 +126,21 @@ export function createCalendarEvent(input: CalendarEventInput, requestId?: unkno
   const normalized = normalizeEventInput(input);
   const event: CalendarEvent = { ...normalized, id: requestId ? `calendar:${requestId}` : newId(), createdAt: new Date().toISOString() };
   return updateEvents((events) => {
-    const existing = requestId ? events.find((item) => item.id === event.id) : undefined;
+    const key = calendarEventKey(event);
+    const existing = requestId ? events.find((item) => item.id === event.id || item.creationRequestIds?.includes(event.id)) : undefined;
     if (existing) {
       // Never silently overwrite a saved event if the draft was edited after an uncertain response.
-      const keys = ["title", "date", "endDate", "start", "end", "location"] as const;
-      if (keys.some((key) => (existing[key] ?? "") !== (normalized[key] ?? ""))) {
+      if (calendarEventKey(existing) !== key) {
         throw new Error("This draft was already saved. Close it and reopen the saved event to edit.");
       }
       return { value: existing, changed: false };
+    }
+    // The check and write share the storage lock: tools and fresh UI/capture requests
+    // cannot create separate copies of the same occurrence, even concurrently.
+    const duplicate = events.find((item) => calendarEventKey(item) === key);
+    if (duplicate) {
+      if (requestId) duplicate.creationRequestIds = [...(duplicate.creationRequestIds ?? []), event.id];
+      return { value: duplicate, changed: Boolean(requestId) };
     }
     events.push(event);
     return { value: event, changed: true };

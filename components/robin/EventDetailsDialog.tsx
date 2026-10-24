@@ -102,7 +102,8 @@ export function EventDetailsDialog({
       day: "numeric",
     })}`;
   const readOnly = isReadOnlyEvent(event);
-  const calendarUrl = externalUrl(event.url) ?? (readOnly ? "https://calendar.google.com/calendar/u/0/r" : null);
+  const planner = event.source === "planner";
+  const calendarUrl = externalUrl(event.url) ?? (event.source === "google" ? "https://calendar.google.com/calendar/u/0/r" : null);
   const meetingUrl = externalUrl(event.meetingUrl);
   const copyUrl = meetingUrl ?? calendarUrl;
   const locationUrl = event.location
@@ -151,7 +152,7 @@ export function EventDetailsDialog({
         </header>
 
         <div className="min-h-0 overflow-y-auto px-4 py-4">
-          {readOnly && <p id={noticeId} role="status" className="mb-3 text-sm">{t("robin.calendar.editInGoogleHint")}</p>}
+          {readOnly && <p id={noticeId} role="status" className="mb-3 text-sm">{t(planner ? "planner.editInPlanner" : "robin.calendar.editInGoogleHint")}</p>}
           {error && <p role="alert" className="mb-3 text-sm" style={{ color: "var(--accent)" }}>{error}</p>}
           <dl className="flex flex-col gap-4">
             <DetailRow label={t("robin.calendar.date")}>{dateLabel}</DetailRow>
@@ -187,6 +188,7 @@ export function EventDetailsDialog({
           className="flex shrink-0 flex-wrap items-center gap-2 px-4 py-3"
           style={{ borderTop: "1px solid var(--border)" }}
         >
+          {planner && <a href="#dashboard-planner" onClick={close} className="ui-action min-h-11 px-3">{t("planner.goToPlanner")}</a>}
           {meetingUrl && (
             <a
               href={meetingUrl}

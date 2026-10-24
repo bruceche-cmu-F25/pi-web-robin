@@ -52,6 +52,8 @@ export interface CalendarEvent {
   organizer?: string;
   /** UTC instant, ISO 8601. */
   createdAt: string;
+  /** Additional create-request ids that resolved to this existing local event. */
+  creationRequestIds?: string[];
 }
 
 /** Last day the event covers, inclusive. */
@@ -84,15 +86,38 @@ export function occursOn(event: CalendarEvent, date: string): boolean {
  * on the wire — nothing with a non-local source is ever written to the store.
  */
 export interface DashboardEvent extends CalendarEvent {
-  source?: "local" | "google";
+  source?: "local" | "google" | "planner";
+  /** Planner slots are owned by the original task, not editable calendar copies. */
+  todoId?: string;
   /** Name of the originating calendar, for events that came from one. */
   calendar?: string;
   /** Stable identity used only to assign a display colour. Recurring events share it. */
   colorSeed?: string;
 }
 
+/** Conservative occurrence identity, not a fuzzy title match. Provider ids/organizers may differ for an imported copy. */
+export function calendarEventKey(event: Pick<CalendarEvent, "title" | "date" | "endDate" | "start" | "end" | "location" | "meetingUrl">): string {
+  return JSON.stringify([
+    event.title.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase(),
+    event.date, event.endDate && event.endDate > event.date ? event.endDate : event.date,
+    event.start ?? "", event.end ?? "", event.location?.trim() ?? "", event.meetingUrl ?? "",
+  ]);
+}
+
+/** Display only: keep the first copy after source filtering; never delete provider/local records. */
+export function deduplicateCalendarEvents<T extends DashboardEvent>(events: T[]): T[] {
+  const seen = new Set<string>();
+  return events.filter((event) => {
+    // Equal titles/times on different task slots must not hide a scheduling conflict.
+    const key = event.source === "planner" ? `planner:${event.id}` : calendarEventKey(event);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 export function isReadOnlyEvent(event: DashboardEvent): boolean {
-  return event.source === "google";
+  return event.source === "google" || event.source === "planner";
 }
 
 /** Coerce a supplied time into HH:MM (24h), rejecting anything ambiguous. */

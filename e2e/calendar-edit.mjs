@@ -21,6 +21,7 @@ try {
     { id: "meeting", title: "Local meeting", date: today, start: "09:00", end: "10:30", location: "Office", createdAt: "2030-01-01T00:00:00Z" },
     { id: "trip", title: "Long trip", date: "2030-05-11", endDate: "2030-05-15", createdAt: "2030-01-01T00:00:00Z" },
     { id: "google:1", title: "Google meeting", date: today, start: "11:00", end: "12:00", source: "google" },
+    { id: "google:copy", title: "Google meeting", date: today, start: "11:00", end: "12:00", source: "google" },
   ];
   const writes = [];
   const reads = [];
@@ -95,6 +96,10 @@ try {
   const settled = async () => page.waitForFunction(() => document.querySelector('[aria-busy="true"]') === null);
   await page.goto("/dashboard?calendar=week");
   await event("meeting").waitFor();
+  assert.equal(await event("google:1").count(), 1);
+  assert.equal(await event("google:copy").count(), 0, "identical imports display once without deleting either source");
+  assert.equal(events.filter((event) => event.source === "google").length, 2);
+  assert.equal(writes.length, 0);
 
   // Clicking still opens details, with a keyboard/touch alternative to dragging.
   await event("meeting").click();
@@ -225,6 +230,7 @@ try {
   await card.getByLabel('My calendar', { exact: true }).uncheck();
   assert.equal(await event('meeting').count(), 0);
   assert.equal(await event('google:1').count(), 1);
+  assert.equal(await event('google:copy').count(), 0, "month view uses the same duplicate projection");
   await card.getByLabel('My calendar', { exact: true }).check();
   await event('meeting').waitFor();
   await selectRange(await point('2030-05-20'), await point('2030-05-22'));
@@ -337,6 +343,8 @@ try {
   await page.goto("/dashboard?calendar=week");
   await event("meeting").waitFor();
   await event("meeting").scrollIntoViewIfNeeded();
+  assert.equal(await event('google:1').count(), 1);
+  assert.equal(await event('google:copy').count(), 0, "mobile view also collapses duplicates");
   const touchDrag = async (cancel = false, id = "meeting") => {
     // Keep this duration test away from page edges; edge auto-scroll is tested separately.
     await event(id).evaluate((node) => node.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' }));

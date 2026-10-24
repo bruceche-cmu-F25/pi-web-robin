@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   compareEvents,
+  deduplicateCalendarEvents,
   eventEndDate,
   eventsInRange,
   formatEventDay,
@@ -14,6 +15,30 @@ import {
 } from "./events.ts";
 
 const event = (fields) => ({ id: "x", title: "e", date: "2026-08-14", createdAt: "", ...fields });
+
+test("duplicate Google imports display once without changing either source record", () => {
+  const first = event({ id: "google:invite", title: "OpenAI talk", source: "google", start: "10:15", end: "11:00", location: "https://forum.example/talk", organizer: "Host" });
+  const copy = { ...first, id: "google:import", title: "  OpenAI   Talk ", organizer: "Me" };
+  const input = [first, copy];
+  const before = structuredClone(input);
+  assert.deepEqual(deduplicateCalendarEvents(input), [first]);
+  assert.deepEqual(input, before);
+  for (const changes of [{ date: "2026-08-15" }, { endDate: "2026-08-15" }, { start: "10:30" }, { end: "11:30" },
+    { location: "https://forum.example/another-talk" }, { meetingUrl: "https://meet.example/other" }, { title: "Different talk" }]) {
+    assert.equal(deduplicateCalendarEvents([first, { ...copy, ...changes }]).length, 2);
+  }
+});
+
+test("deduplication respects source filtering and does not hide distinct focus slots", () => {
+  const local = event({ id: "local", title: "Same appointment", start: "09:00", end: "10:00" });
+  const google = { ...local, id: "google:copy", source: "google" };
+  assert.deepEqual(deduplicateCalendarEvents([local, google]), [local]);
+  assert.deepEqual(deduplicateCalendarEvents([local, google].filter((e) => e.source === "google")), [google]);
+  const focus = { ...local, id: "focus:task:1", source: "planner" };
+  assert.equal(deduplicateCalendarEvents([local, google, focus, { ...focus, id: "focus:other:1" }]).length, 3);
+  const allDay = event({ id: "all-day" });
+  assert.deepEqual(deduplicateCalendarEvents([allDay, { ...allDay, id: "copy", endDate: allDay.date }]), [allDay]);
+});
 
 test("normalizeTime pads to HH:MM and rejects nonsense", () => {
   assert.equal(normalizeTime("9:05"), "09:05");

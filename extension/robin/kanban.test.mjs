@@ -19,6 +19,16 @@ test("focus is deliberate: deadlines do not auto-select tasks; Monday-first week
   assert.equal(inKanbanView(task({ archivedAt: "x" }), "archive", today), true);
 });
 
+test("weekly focus slots appear in Kanban without being planned or charged twice", () => {
+  const focused = task({ estimateMinutes: 120, workPlan: { continuous: false, blocks: [{ id: "slot", date: today, start: "09:00", end: "11:00" }] } });
+  assert.equal(inKanbanView(focused, "today", today), true);
+  assert.deepEqual(planningCandidates([focused], today), []);
+  const [day] = calendarCapacity([event("09:00", "11:00", { source: "planner", todoId: focused.id })], [focused], today, 480, options);
+  assert.equal(day.plannedMinutes, 120);
+  assert.equal(day.plannedCount, 1);
+  assert.equal(day.remainingMinutes, 60);
+});
+
 test("overdue and missed plans require review, then recur after the seven-day decision window", () => {
   const overdue = task({ due: "2030-05-12" });
   assert.equal(needsReview(overdue, today), true);
@@ -64,7 +74,9 @@ test("calendar edge cases are explicit: all-day policy, unknown end, spanning ti
   assert.equal(calendarCapacity([allDay], [], today, 0, { ...options, allDayBusy: true })[0].remainingMinutes, 0);
   const unknown = calendarCapacity([event("09:00", undefined)], [], today, 0, options)[0];
   assert.equal(unknown.unknownEnds, 1);
-  assert.equal(unknown.freeMinutes, 480);
+  assert.equal(unknown.freeMinutes, 540);
+  const unknownSpan = calendarCapacity([event("17:00", undefined, { date: "2030-05-12", endDate: "2030-05-14" })], [], today, 0, options)[0];
+  assert.deepEqual(unknownSpan.gaps, [[540, 1080]]);
   const spanning = event("17:00", "10:00", { date: "2030-05-12", endDate: "2030-05-14" });
   const days = calendarCapacity([spanning], [], today, 0, { ...options, horizon: "week" });
   assert.equal(days[0].freeMinutes, 0);

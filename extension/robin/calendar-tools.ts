@@ -8,6 +8,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { calendarBoard, createCalendarEvent } from "./calendar-domain.ts";
+import { deduplicateCalendarEvents } from "./events.ts";
 import {
   addDays,
   compareEvents,
@@ -52,11 +53,11 @@ export function registerCalendarTools(pi: ExtensionAPI): void {
         return text(error instanceof Error ? error.message : String(error));
       }
       const { date } = event;
-      const sameDay = readEvents().filter((e) => e.date === date).sort(compareEvents);
+      const sameDay = deduplicateCalendarEvents(readEvents().filter((e) => e.date === date)).sort(compareEvents);
       return text(
         event.endDate
-          ? `Added "${event.title}" from ${date} to ${event.endDate} (${formatEventTime(event)}).`
-          : `Added "${event.title}" on ${date} at ${formatEventTime(event)}.\n`
+          ? `On your calendar: "${event.title}" from ${date} to ${event.endDate} (${formatEventTime(event)}).`
+          : `On your calendar: "${event.title}" on ${date} at ${formatEventTime(event)}.\n`
             + `That day now has ${sameDay.length} event(s): ${sameDay.map((e) => `${formatEventTime(e)} ${e.title}`).join("; ")}`,
       );
     },
@@ -84,7 +85,7 @@ export function registerCalendarTools(pi: ExtensionAPI): void {
         ? "\n(Could not reach Google Calendar; only locally created events are listed.)"
         : "";
 
-      const upcoming = eventsInRange(board.events, today, until);
+      const upcoming = eventsInRange(deduplicateCalendarEvents(board.events), today, until);
       const header = `Today is ${today} (user's local date).`;
       if (upcoming.length === 0) {
         return text(`${header}\nNothing scheduled in the next ${span} day(s).${warning}`);
