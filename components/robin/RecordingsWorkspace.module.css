@@ -1,0 +1,77 @@
+.page { flex: 1; min-height: 0; overflow-y: auto; }
+.main { width: 100%; max-width: 1280px; margin: 0 auto; padding: 36px 28px 72px; display: flex; flex-direction: column; gap: 20px; }
+.heading { max-width: 760px; }
+.heading h1 { font: italic 40px/1.2 var(--font-serif); margin: 12px 0; }
+.heading p { font: 19px/1.6 var(--font-serif); color: var(--text-muted); }
+.card { border: 1px solid var(--border); background: var(--bg-panel); padding: 24px; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.card h2 { margin: 0; }
+.hint { color: var(--text-muted); font-size: 14px; line-height: 1.65; overflow-wrap: anywhere; }
+.feedback:has(:only-child:empty) { display: none; }
+.feedback p { margin: 0; line-height: 1.6; }
+.feedback p:not(:empty) { padding: 10px 12px; border-left: 2px solid currentColor; background: var(--bg); }
+.feedback p + p:not(:empty) { margin-top: 8px; }
+.success { color: var(--success); }
+.unsaved { color: var(--warning); }
+.working { color: var(--accent); }
+.working::before { content: ""; display: inline-block; width: 12px; height: 12px; margin-right: 10px; border: 2px solid var(--accent-line); border-top-color: currentColor; border-radius: 50%; vertical-align: -1px; animation: spin 1s linear infinite; }
+.error { color: var(--danger); overflow-wrap: anywhere; }
+.field { display: flex; flex-direction: column; gap: 8px; min-width: 0; font-size: 14px; }
+.field input, .field textarea { width: 100%; min-width: 0; padding: 10px 12px; font-size: 16px; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+.field input[type="file"] { border: 0; padding: 0; min-height: 44px; max-width: 100%; }
+.field input[type="file"]::file-selector-button { min-height: 44px; margin-right: 12px; padding: 10px 12px; border: 1px solid var(--border); background: var(--bg-panel); color: var(--accent); cursor: pointer; font: inherit; }
+.field input[type="file"]:disabled::file-selector-button { opacity: .5; cursor: not-allowed; }
+.field input, .field textarea { transition: border-color 160ms ease-out; }
+.field :is(input, textarea):focus { border-color: var(--accent); }
+.field textarea { resize: vertical; line-height: 1.75; font-family: var(--font-serif); }
+.actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.main button, .actions a { min-height: 44px; padding: 10px 12px; font-size: 14px; cursor: pointer; border: 1px solid var(--border); color: var(--accent); touch-action: manipulation; transition: background-color 160ms ease-out, border-color 160ms ease-out, box-shadow 160ms ease-out, transform 100ms ease-out; }
+@media (hover: hover) {
+  .main button:hover:not(:disabled), .actions a:hover, .setup summary:hover { background: var(--bg-hover); }
+  .field input[type="file"]:not(:disabled)::file-selector-button:hover { background: var(--bg-hover); }
+}
+.main button:active:not(:disabled), .actions a:active { background: var(--accent-soft); transform: translateY(1px); }
+.main button:disabled { opacity: .5; cursor: not-allowed; }
+.main :is(button, input, textarea, summary, a, [tabindex="-1"]):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.main .danger { color: var(--danger); }
+.micStatus { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; min-height: 44px; padding: 12px; background: var(--bg); color: var(--text-muted); animation: reveal 200ms ease-out; }
+.micStatus[data-phase="recording"] { color: var(--danger); }
+.recordDot { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: currentColor; }
+.micStatus[data-phase="recording"] .recordDot { animation: breathe 1.8s ease-in-out infinite; }
+.timer { margin-left: auto; font: 20px/1.4 var(--font-mono); font-variant-numeric: tabular-nums; }
+.draft { display: flex; flex-direction: column; gap: 12px; padding-top: 16px; border-top: 1px solid var(--border); animation: reveal 220ms ease-out; }
+.draftHeading, .editorHeading { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; }
+.draftHeading strong { overflow-wrap: anywhere; min-width: 0; }
+.draft p, .progressBlock p, .setupBody p { margin: 0; }
+.editorHeading span { font-size: 13px; }
+.editorHeading h2 { scroll-margin-top: 24px; }
+.setup { border: 1px solid var(--border); background: var(--bg-panel); scroll-margin-top: 24px; }
+.setup summary { padding: 16px 24px; min-height: 56px; cursor: pointer; transition: background-color 160ms ease-out; }
+.setup summary > span + span { margin-left: 16px; font: 13px/1.6 var(--font-mono); }
+.setupBody { display: flex; flex-direction: column; gap: 12px; padding: 0 24px 24px; animation: reveal 180ms ease-out; }
+.progressBlock { display: flex; flex-direction: column; gap: 8px; }
+.progressTrack { height: 4px; background: var(--accent-subtle); overflow: hidden; }
+.progressTrack span { display: block; width: 100%; height: 100%; background: var(--accent); transform-origin: left; transition: transform 320ms ease-out; }
+.main audio { width: 100%; }
+.workspace { display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr); gap: 24px; }
+.library { min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.main .entry { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; text-align: left; color: var(--text); border: 0; border-bottom: 1px solid var(--border); padding: 16px; overflow-wrap: anywhere; }
+.entry[aria-pressed="true"] { box-shadow: inset 3px 0 var(--accent); background: var(--accent-faint); }
+.entry strong { font: 18px/1.4 var(--font-serif); }
+.entry span { font: 12px/1.5 var(--font-mono); color: var(--text-muted); }
+.editor { align-self: start; animation: reveal 220ms ease-out; }
+@keyframes reveal { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes breathe { 50% { opacity: .4; } }
+@media (prefers-reduced-motion: reduce) {
+  .page *, .page *::before, .page *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  .main button:active:not(:disabled), .actions a:active { transform: none; }
+}
+@media (max-width: 720px) {
+  .main { padding: 28px 16px 56px; gap: 16px; }
+  .heading { padding-left: 32px; }
+  .heading h1 { font-size: 32px; }
+  .card { padding: 16px; }
+  .setup summary { padding: 16px; }
+  .setupBody { padding: 0 16px 16px; }
+  .workspace { grid-template-columns: minmax(0, 1fr); }
+}
