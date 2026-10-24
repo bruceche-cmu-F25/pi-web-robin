@@ -27,6 +27,7 @@ import { isBareMcpCommand, isBuiltinMcpCommand } from "@/lib/mcp-command";
 import { FolderIcon, getFileIcon } from "./FileIcons";
 import { ImagePreview } from "./ImagePreview";
 import { DismissButton } from "./DismissButton";
+import { VoiceControls, type VoiceHandle } from "./robin/VoiceControls";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useEnterSendMode } from "@/hooks/useEnterSendMode";
 import { useI18n } from "@/hooks/useI18n";
@@ -666,6 +667,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     : {};
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const voiceRef = useRef<VoiceHandle>(null);
+  const [voiceTrigger, setVoiceTrigger] = useState<HTMLSpanElement | null>(null);
   const toolDropdownRef = useRef<HTMLDivElement>(null);
   const thinkingDropdownRef = useRef<HTMLDivElement>(null);
   const controlsMenuRef = useRef<HTMLDivElement>(null);
@@ -688,6 +691,21 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const pendingImageCountRef = useRef(0);
   valueRef.current = value;
   attachedImagesRef.current = attachedImages;
+
+  // Shared by dictation and external inserts: keep selection, native undo and attachments.
+  const insertText = useCallback((text: string) => {
+    const ta = textareaRef.current;
+    if (!ta) {
+      setValue(v => v + (v ? " " : "") + text);
+      return;
+    }
+    const start = ta.selectionStart ?? ta.value.length;
+    const end = ta.selectionEnd ?? ta.value.length;
+    const before = ta.value.slice(0, start);
+    const sep = before.length > 0 && !before.endsWith(" ") ? " " : "";
+    replaceTextareaRange(ta, start, end, sep + text);
+    setAtQuery(null);
+  }, []);
 
   useImperativeHandle(ref, () => ({
     insertIfEmpty(text: string) {
@@ -747,6 +765,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     },
     rekeyDraft(previousKey: string, nextKey: string) {
       if (previousKey === nextKey) return;
+      voiceRef.current?.end();
       if (draftKeyRef.current !== previousKey) {
         rekeyStoredDraft(previousKey, nextKey);
         return;
@@ -841,19 +860,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
       });
     },
-    insertText(text: string) {
-      const ta = textareaRef.current;
-      if (!ta) {
-        setValue((v) => v + (v ? " " : "") + text);
-        return;
-      }
-      const start = ta.selectionStart ?? ta.value.length;
-      const end = ta.selectionEnd ?? ta.value.length;
-      const before = ta.value.slice(0, start);
-      const sep = before.length > 0 && !before.endsWith(" ") ? " " : "";
-      replaceTextareaRange(ta, start, end, sep + text);
-      setAtQuery(null);
-    },
+    insertText,
     addImages(files: File[]) {
       processImageFiles(files);
     },
@@ -963,6 +970,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   }, []);
 
   const clearInput = useCallback(() => {
+    voiceRef.current?.end();
     valueRef.current = "";
     setValue("");
     setAtQuery(null);
@@ -1061,6 +1069,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const runBuiltinCommand = useCallback(async (msg: string): Promise<boolean> => {
     if (attachedImages.length || !msg.startsWith("/") || !onBuiltinCommand) return false;
     if (builtinCommandPendingRef.current) return true;
+    voiceRef.current?.end();
     builtinCommandPendingRef.current = true;
     setBuiltinCommandPending(true);
     try {
@@ -1077,6 +1086,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const handleSend = useCallback(async () => {
     const msg = value.trim();
     if (!msg && !attachedImages.length) return;
+    voiceRef.current?.end();
     onAudioUnlock?.();
     const builtinAllowed = !isStreaming || offersBuiltinSlashCommandWhileStreaming(msg);
     if (builtinAllowed && await runBuiltinCommand(msg)) return;
@@ -2264,6 +2274,14 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
               </div>
             );
           })()}
+          {!compact && <div style={{ maxHeight: "min(35vh, 260px)", overflowY: "auto" }}>
+            <VoiceControls key={JSON.stringify([draftKey, cwd])} ref={voiceRef}
+              triggerTarget={voiceTrigger} dictationOnly inputKind="message"
+              onTranscript={text => {
+                if (!isComposingRef.current && !builtinCommandPendingRef.current) insertText(text);
+              }}
+              onSend={() => {}} canSend={false} busy={builtinCommandPending} />
+          </div>}
           <div
             style={{
               minWidth: 0,
@@ -2298,6 +2316,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
             }}
             onKeyDown={handleKeyDown}
             onCompositionStart={() => {
+              voiceRef.current?.end();
               isComposingRef.current = true;
             }}
             onCompositionEnd={(e) => {
@@ -2333,6 +2352,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
             }}
           />
 
+          {/* Keep the microphone beside the input, not in the toolbar hidden by mobile keyboards. */}
+          {!compact && <span ref={setVoiceTrigger} style={{ display: "flex", flexShrink: 0, alignSelf: "flex-end" }} />}
           {isStreaming ? (
             <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, alignSelf: "flex-end" }}>
               {onSteer && (

@@ -14,6 +14,7 @@ import { formatLinkPaste } from "@/lib/clipboard";
 import { requestRefresh } from "./refreshBus";
 import { splitReplyLinks } from "./reply-links";
 import { usePolledResource } from "./usePolledResource";
+import { VoiceControls, type VoiceHandle } from "./VoiceControls";
 
 interface AssistantResponse {
   reply: string;
@@ -115,6 +116,8 @@ export function AssistantBar({
   const traceLinkRef = useRef<HTMLAnchorElement>(null);
   const searchResultsRef = useRef<HTMLDivElement>(null);
   const inFlight = useRef(false);
+  const voiceRef = useRef<VoiceHandle>(null);
+  const [voiceTrigger, setVoiceTrigger] = useState<HTMLSpanElement | null>(null);
   const fieldId = useId();
   const hintId = `${fieldId}-hint`;
   const commandPath = mode === "search" ? dashboardCommandPath(message) : null;
@@ -162,12 +165,13 @@ export function AssistantBar({
     [searchData, message],
   );
 
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const submit = async (event?: React.FormEvent) => {
+    event?.preventDefault();
     const text = message.trim();
     if (!text || inFlight.current) return;
 
     if (mode === "search") {
+      voiceRef.current?.end();
       if (commandHref) {
         setMessage("");
         router.push(commandHref, { scroll: false });
@@ -190,6 +194,7 @@ export function AssistantBar({
 
     if (trace?.running) return;
     inFlight.current = true;
+    const speakReply = voiceRef.current?.prepareReply();
     setBusy(true);
     setError(null);
     setReply(null);
@@ -206,10 +211,12 @@ export function AssistantBar({
       setMessage("");
       setSearchData(null);
       setReply({ reply: body?.reply ?? "", usedTools: body?.usedTools ?? [], sessionId: body?.sessionId });
+      speakReply?.(body?.reply ?? null);
       if (body?.sessionId) updateTrace(() => ({ sessionId: body.sessionId!, running: false }));
       // The agent wrote straight to the JSON stores; pull the panels forward.
       requestRefresh();
     } catch (caught) {
+      speakReply?.(null);
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
       inFlight.current = false;
@@ -240,6 +247,7 @@ export function AssistantBar({
 
   const actions = reply ? describeTools(reply.usedTools, t) : null;
   const changeMode = (next: "search" | "execute") => {
+    voiceRef.current?.end();
     setMode(next); setError(null); setReply(null);
     inputRef.current?.focus();
   };
@@ -305,6 +313,7 @@ export function AssistantBar({
             placeholder={t(`robin.assistant.${mode}Placeholder`)}
             className="min-w-0 flex-1 py-2 text-sm disabled:opacity-60"
           />
+          <span ref={setVoiceTrigger} className="flex shrink-0 items-center" />
           <button
             type="submit"
             disabled={busy || !message.trim() || (mode === "execute" && trace?.running === true)}
@@ -321,6 +330,9 @@ export function AssistantBar({
           </button>
         </form>
       </div>
+      <VoiceControls key={mode} ref={voiceRef} triggerTarget={voiceTrigger} dictationOnly={mode === "search"}
+        onTranscript={text => setMessage(previous => [previous.trim(), text].filter(Boolean).join(" "))}
+        onSend={() => void submit()} canSend={!!message.trim()} busy={mode === "execute" && executing} replyText={reply?.reply} />
       <p id={hintId} className="sr-only">
         {t(`robin.assistant.${mode}Hint`)}
       </p>

@@ -47,6 +47,33 @@ test('Act records remain readable when idle; running reflects the live wrapper',
   globalThis.__actRoute.live.set('act-record', { isRunning: () => false });
   assert.deepEqual(await (await GET(request('GET'))).json(), { sessionId: 'act-record', running: false });
 });
+test('read-only requests pass disconnect cancellation to the scoped turn', async () => {
+  const controller = new AbortController();
+  const req = new Request(request('POST', { mode: 'readOnly', message: 'List my todos' }), { signal: controller.signal });
+  const started = Promise.withResolvers();
+  globalThis.__actRoute.run = async (mode, message, images, model, signal) => {
+    assert.equal(mode, 'readOnly');
+    assert.equal(signal, req.signal);
+    started.resolve();
+    await new Promise(resolve => signal.addEventListener('abort', resolve, { once: true }));
+    throw new Error('Generation stopped.');
+  };
+  const response = POST(req);
+  await Promise.race([started.promise, response]);
+  controller.abort();
+  const result = await response;
+  assert.equal(result.status, 500);
+  assert.equal((await result.json()).error, 'Generation stopped.');
+});
+
+test('write-capable requests keep running independently of HTTP disconnect', async () => {
+  globalThis.__actRoute.run = async (...args) => {
+    assert.equal(args[4], undefined);
+    return { reply: 'Done', usedTools: [], sessionId: 'write-session' };
+  };
+  assert.equal((await POST(request('POST', { message: 'Do this' }))).status, 200);
+});
+
 test('Act reply retains its exact execution session for the trace link', async () => {
   let calls = 0;
   globalThis.__actRoute.run = async (mode, message) => {

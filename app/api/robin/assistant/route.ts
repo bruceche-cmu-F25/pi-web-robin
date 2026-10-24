@@ -41,7 +41,11 @@ export const POST = apiRoute(async (req) => {
     }
 
     const mode = resolveMode(body);
-    const { reply, usedTools, sessionId } = await runAssistantTurn(mode, message, images);
+    // A read-only voice query may be abandoned mid-turn. Do not extend this
+    // to write modes: a disconnected UI must not imply rollback of an action.
+    const { reply, usedTools, sessionId } = await runAssistantTurn(
+      mode, message, images, undefined, mode === "readOnly" ? req.signal : undefined,
+    );
     // The mail-review turn is also run by the Telegram bridge; its report must
     // reach the dashboard's review store, not just the chat that asked for it.
     if (mode === "mail") attachMailReport(reply);

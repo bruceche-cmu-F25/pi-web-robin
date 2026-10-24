@@ -639,11 +639,13 @@ test("locks built-in command submission until it settles", async () => {
     onBuiltinCommand: async () => new Promise((resolve) => { callback.resolve = resolve; }),
     setBuiltinCommandPending(value) { callback.pendingStates.push(value); },
     valueRef: { current: "/reload" },
+    voiceRef: { current: { end() { callback.voiceEnded = true; } } },
   });
   callback.pendingStates = [];
 
   const first = callback("/reload");
   assert.deepEqual(callback.pendingStates, [true]);
+  assert.equal(callback.voiceEnded, true, "command submission ends pending dictation");
   assert.equal(await callback("/reload"), true);
   assert.deepEqual(callback.pendingStates, [true]);
   callback.resolve({ handled: true });
@@ -744,6 +746,7 @@ test("handleSend lets a handled /mcp through while streaming and sends an unowne
       onAudioUnlock() {},
       isStreaming,
       offersBuiltinSlashCommandWhileStreaming,
+      voiceRef: { current: { end() {} } },
       runBuiltinCommand: async (message) => { calls.builtin.push(message); return handled; },
       clearInput() {},
       onSend: (message) => calls.sent.push(message),
@@ -756,6 +759,29 @@ test("handleSend lets a handled /mcp through while streaming and sends an unowne
   assert.deepEqual(await run("/mcp", { isStreaming: false, handled: false }), { builtin: ["/mcp"], sent: ["/mcp"] });
   // Streaming without steer handlers keeps any other message in the composer, as before.
   assert.deepEqual(await run("/mcp login", { isStreaming: true, handled: false }), { builtin: [], sent: [] });
+});
+
+test("sending ends pending dictation before dispatch, even before a built-in lookup resolves", async () => {
+  const calls = [];
+  const send = chatInputCallback("handleSend", {
+    value: "existing draft", attachedImages: [], isStreaming: false,
+    voiceRef: { current: { end() { calls.push("end-voice"); } } },
+    onAudioUnlock() {}, runBuiltinCommand: async () => { calls.push("lookup"); return false; },
+    clearInput() {}, onSend() { calls.push("send"); },
+  });
+  await send();
+  assert.deepEqual(calls, ["end-voice", "lookup", "send"]);
+});
+
+test("dictation shares the native selection insert rather than replacing the draft", () => {
+  const textarea = { value: "before selected after", selectionStart: 7, selectionEnd: 15 };
+  let edit;
+  const insert = chatInputCallback("insertText", {
+    textareaRef: { current: textarea }, setAtQuery() {},
+    replaceTextareaRange(ta, start, end, text) { assert.equal(ta, textarea); edit = { start, end, text }; },
+  });
+  insert("语音");
+  assert.deepEqual(edit, { start: 7, end: 15, text: "语音" });
 });
 
 test("restores text and base64 images when editing a user message", () => {

@@ -8,6 +8,7 @@ function panelHarness() {
     "@/components/MarkdownBody": { MarkdownBody: () => null },
     "@/hooks/useI18n": { useI18n: () => ({ t: (key) => key }) },
     "./refreshBus": { requestRefresh() {} },
+    "./VoiceControls": { VoiceControls: () => null },
     "./agent-attachments": {
       MAX_AGENT_DOCUMENTS: 5,
       MAX_AGENT_IMAGES: 10,

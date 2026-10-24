@@ -11,6 +11,7 @@ import {
   type AgentAttachment,
 } from "./agent-attachments";
 import { requestRefresh } from "./refreshBus";
+import { VoiceControls, type VoiceHandle } from "./VoiceControls";
 
 interface Turn {
   /** "reset" marks where the server started a new session under the panel. */
@@ -127,6 +128,9 @@ export function AgentPanel({
   const sessionRef = useRef<string | null>(null);
   const activeTranscriptKeyRef = useRef<string | undefined>(undefined);
   const loadingTranscriptRef = useRef(false);
+  const voiceRef = useRef<VoiceHandle>(null);
+  const sendingRef = useRef(false);
+  useEffect(() => { if (disabled || collapsed) voiceRef.current?.end(); }, [disabled, collapsed]);
 
   useEffect(() => {
     if (activeTranscriptKeyRef.current === transcriptKey) return;
@@ -228,7 +232,9 @@ export function AgentPanel({
   const send = async (text: string) => {
     const trimmed = text.trim();
     const files = attachments ? attachedRef.current : [];
-    if ((!trimmed && files.length === 0) || busy || disabled || attaching > 0) return;
+    if ((!trimmed && files.length === 0) || sendingRef.current || busy || disabled || attaching > 0) return;
+    sendingRef.current = true;
+    const speakReply = voiceRef.current?.prepareReply();
     setTurns((previous) => [...previous, {
       role: "you",
       text: trimmed,
@@ -271,12 +277,15 @@ export function AgentPanel({
         const reset: Turn = { role: "reset", text: "" };
         return [...previous.slice(0, -1), reset, ...previous.slice(-1), reply];
       });
+      speakReply?.(body.reply ?? null);
       // Both personas write records through their tools; the rail is polling,
       // but the user is watching right now.
       if ((body.usedTools ?? []).length > 0) requestRefresh();
     } catch (caught) {
+      speakReply?.(null);
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
+      sendingRef.current = false;
       setBusy(false);
     }
   };
@@ -296,6 +305,7 @@ export function AgentPanel({
   }, [busy, disabled, pending]);
 
   const restart = async () => {
+    voiceRef.current?.end();
     setBusy(true);
     try {
       const response = await fetch(endpoint, {
@@ -349,7 +359,7 @@ export function AgentPanel({
         {onClose ? (
           <button
             type="button"
-            onClick={onClose}
+            onClick={() => { voiceRef.current?.end(); onClose(); }}
             className="ui-action pi-chrome-label pi-bracket ml-auto"
             style={{ fontSize: 10 }}
           >
@@ -562,6 +572,10 @@ export function AgentPanel({
             </span>
           </div>
         ) : null}
+        {!collapsed && <VoiceControls ref={voiceRef} key={`${endpoint}:${mode}:${transcriptKey ?? ""}:${JSON.stringify(requestBody)}`}
+          onTranscript={text => setMessage(previous => [previous.trim(), text].filter(Boolean).join("\n"))}
+          onSend={() => void send(message)} canSend={!!message.trim() || attached.length > 0}
+          busy={busy || disabled || attaching > 0} replyText={turns.filter(turn => turn.role === "agent").at(-1)?.text} />}
         {!collapsed && footer ? <div className="mt-2">{footer}</div> : null}
         {collapsed && attachments ? (
           <button
