@@ -1,5 +1,47 @@
 import assert from "node:assert/strict";
 import test, { mock } from "node:test";
+import { readFileSync } from "node:fs";
+import { runInNewContext } from "node:vm";
+
+test("push-only worker activates without precaching, clears old app caches, and never intercepts fetch", async () => {
+  const handlers = new Map();
+  const calls = [];
+  const worker = {
+    location: { href: "https://pi.test/sw.js?v=test&pushOnly=1", origin: "https://pi.test" },
+    addEventListener: (type, handler) => handlers.set(type, handler),
+    skipWaiting: async () => { calls.push("skipWaiting"); },
+    clients: { claim: async () => { calls.push("claim"); } },
+    registration: { showNotification: async (title) => { calls.push(title); } },
+  };
+  runInNewContext(readFileSync(new URL("./sw.js", import.meta.url), "utf8"), {
+    self: worker,
+    URL,
+    caches: {
+      open: () => assert.fail("dev must not precache anything"),
+      match: () => assert.fail("dev must not read cached responses"),
+      keys: async () => ["pi-web-static-old", "pi-web-static-test", "unrelated-cache"],
+      delete: async (key) => { calls.push(key); },
+    },
+  });
+  const pending = [];
+  const event = { waitUntil: (promise) => pending.push(promise) };
+  handlers.get("install")(event);
+  await Promise.all(pending);
+  handlers.get("activate")(event);
+  await Promise.all(pending);
+  assert.deepEqual(calls, ["skipWaiting", "pi-web-static-old", "pi-web-static-test", "claim"]);
+
+  for (const path of ["/", "/_next/static/chunk.js", "/_next/webpack-hmr", "/api/push/config", "/icons/icon-192.png"]) {
+    handlers.get("fetch")({
+      request: new Request(`https://pi.test${path}`),
+      respondWith: () => assert.fail(`dev must leave ${path} to the network`),
+    });
+  }
+  handlers.get("push")({ ...event, data: { json: () => ({ title: "Task finished", body: "Done" }) } });
+  await Promise.all(pending);
+  assert.equal(calls.at(-1), "Task finished", "push still works in dev");
+  assert.equal(typeof handlers.get("notificationclick"), "function");
+});
 
 const listeners = new Map();
 globalThis.self = {

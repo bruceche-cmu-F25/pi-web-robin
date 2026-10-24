@@ -6,6 +6,7 @@ import type {
   GmailDigestSettings,
   GoogleCalendarSource,
   JobDigestSettings,
+  NotificationChannel,
   ReminderSettings,
   TranscriptionSettings,
 } from "@/extension/robin/settings";
@@ -21,6 +22,7 @@ interface SecretStatus {
 }
 
 interface SettingsResponse {
+  notifications: { channel: NotificationChannel };
   google: {
     clientId: SecretStatus;
     clientSecret: SecretStatus;
@@ -46,7 +48,7 @@ interface SettingsResponse {
 type Translate = (key: string, params?: Record<string, string>) => string;
 type SaveAction =
   | "google" | "notion" | "playwright" | "token" | "chatIds" | "dailyAgenda" | "jobDigest" | "gmailDigest"
-  | "reminders" | "transcription";
+  | "reminders" | "transcription" | "notifications";
 type SavePhase = "saving" | "saved";
 
 const inputStyle = {
@@ -149,6 +151,9 @@ export function SettingsPanel() {
   const [notionToken, setNotionToken] = useState("");
   const [playwrightToken, setPlaywrightToken] = useState("");
   const [botToken, setBotToken] = useState("");
+  const [notificationChannel, setNotificationChannel] = useState<NotificationChannel>("telegram");
+  const [testingPush, setTestingPush] = useState(false);
+  const [pushTestResult, setPushTestResult] = useState<string | null>(null);
   const [chatIds, setChatIds] = useState("");
   const [jobChatIds, setJobChatIds] = useState("");
   const [dailyAgenda, setDailyAgenda] = useState<DailyAgendaSettings | null>(null);
@@ -169,6 +174,7 @@ export function SettingsPanel() {
       const body = await response.json() as SettingsResponse & { error?: string };
       if (!response.ok) throw new Error(body.error ?? `Request failed (${response.status})`);
       setData(body);
+      setNotificationChannel(body.notifications?.channel ?? "telegram");
       setChatIds(body.telegram.allowedChatIds.join(", "));
       setDailyAgenda(body.telegram.dailyAgenda);
       setJobDigest(body.telegram.jobDigest);
@@ -231,6 +237,24 @@ export function SettingsPanel() {
       setBusy(false);
     }
   }
+
+  const testPush = async () => {
+    setTestingPush(true);
+    setPushTestResult(null);
+    try {
+      const response = await fetch("/api/push/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(30_000),
+        body: JSON.stringify({ id: `test:${crypto.randomUUID()}`, title: "Robin",
+          body: t("robin.settings.pushTestBody"), url: "/dashboard", ttl: 60 }),
+      });
+      if (!response.ok) throw new Error("Push not accepted");
+      setPushTestResult(t("robin.settings.pushTestAccepted"));
+    } catch {
+      setPushTestResult(t("robin.settings.pushTestFailed"));
+    } finally { setTestingPush(false); }
+  };
 
   const detect = async () => {
     setBusy(true);
@@ -725,6 +749,36 @@ export function SettingsPanel() {
           )}
         </div>
 
+      </section>
+
+      <section id="notifications" className="flex flex-col gap-3 rounded-lg p-4 scroll-mt-4"
+        style={{ background: "var(--bg-panel)", border: "1px solid var(--border)" }}>
+        <h2 className="text-sm font-semibold" style={{ color: "var(--text)" }}>{t("robin.settings.notificationsTitle")}</h2>
+        <p id="notification-channel-hint" className="text-xs" style={{ color: "var(--text-muted)" }}>{t("robin.settings.notificationsHint")}</p>
+        <label className="flex flex-col gap-1 text-sm" style={{ color: "var(--text)" }}>
+          {t("robin.settings.notificationChannel")}
+          <select value={notificationChannel} disabled={busy || !data}
+            aria-describedby="notification-channel-hint"
+            onChange={(event) => setNotificationChannel(event.target.value === "push" ? "push" : "telegram")}
+            className="min-h-11 rounded px-2" style={inputStyle}>
+            <option value="push">{t("robin.settings.channelPush")}</option>
+            <option value="telegram">Telegram</option>
+          </select>
+        </label>
+        <div className="flex flex-wrap gap-2">
+          <SaveButton label={t("robin.common.save")} disabled={busy || !data}
+            phase={saveFeedback?.action === "notifications" ? saveFeedback.phase : undefined}
+            onClick={() => void send("POST", { section: "notifications", channel: notificationChannel },
+              t("robin.settings.notificationsSaved"), "notifications")} t={t} />
+          <button type="button" disabled={testingPush || busy} onClick={() => void testPush()}
+            aria-busy={testingPush} className="ui-action ui-action--outline min-h-11 rounded px-3 py-2 disabled:opacity-40">
+            {t(testingPush ? "robin.settings.pushTestSending" : "robin.settings.pushTest")}
+          </button>
+        </div>
+        {pushTestResult && <p role="status" className="text-sm">{pushTestResult}</p>}
+        {failedAction === "notifications" && error && <p role="alert" className="text-sm" style={{ color: "var(--danger)" }}>{error}</p>}
+        <p className="text-xs" style={{ color: "var(--text-dim)" }}>{t("robin.settings.notificationRuntime")}</p>
+
         <div className="flex flex-col gap-3 border-t pt-3" style={{ borderColor: "var(--border)" }}>
           <div>
             <h3 className="text-sm font-medium" style={{ color: "var(--text)" }}>
@@ -807,7 +861,7 @@ export function SettingsPanel() {
                 />
                 {t("robin.settings.jobDigestEnabled")}
               </label>
-              <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-muted)" }}>
+              <label hidden={notificationChannel === "push"} className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-muted)" }}>
                 {t("robin.settings.jobChatIds")}
                 <input
                   value={jobChatIds}
@@ -914,7 +968,7 @@ export function SettingsPanel() {
                 />
                 {t("robin.settings.gmailDigestEnabled")}
               </label>
-              <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-muted)" }}>
+              <label hidden={notificationChannel === "push"} className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-muted)" }}>
                 {t("robin.settings.gmailDigestChatIds")}
                 <input
                   value={gmailChatIds}
@@ -1000,7 +1054,7 @@ export function SettingsPanel() {
                 />
                 {t("robin.settings.remindersEnabled")}
               </label>
-              <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-muted)" }}>
+              <label hidden={notificationChannel === "push"} className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-muted)" }}>
                 {t("robin.settings.remindersChatIds")}
                 <input
                   value={reminderChatIds}
@@ -1058,7 +1112,11 @@ export function SettingsPanel() {
           )}
         </div>
 
-        <div className="flex flex-col gap-3 border-t pt-3" style={{ borderColor: "var(--border)" }}>
+      </section>
+
+      <section className="flex flex-col gap-3 rounded-lg p-4"
+        style={{ background: "var(--bg-panel)", border: "1px solid var(--border)" }}>
+        <div className="flex flex-col gap-3">
           <div>
             <h3 className="text-sm font-medium" style={{ color: "var(--text)" }}>
               {t("robin.settings.transcriptionTitle")}

@@ -26,7 +26,7 @@ import {
   setThinkingExpandedByDefault,
 } from "@/lib/thinking-expansion-preference";
 import { ModelsConfig } from "./ModelsConfig";
-import { setupPushSubscription } from "@/lib/push-client";
+import { registerPushNotifications } from "@/lib/push-client";
 import { SkillsConfig } from "./SkillsConfig";
 import { AgentsConfig } from "./AgentsConfig";
 import { PluginsConfig } from "./PluginsConfig";
@@ -190,18 +190,13 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
     setPushRegistering(true);
     setPushStatus(null);
     try {
-      if (typeof window === "undefined" || !("Notification" in window)) {
-        throw new Error("unsupported or not permitted");
-      }
-      const permission = Notification.permission === "default"
-        ? await Notification.requestPermission()
-        : Notification.permission;
-      if (permission !== "granted") throw new Error("unsupported or not permitted");
-      const ok = await setupPushSubscription(locale);
-      if (!ok) throw new Error("unsupported or not permitted");
+      await registerPushNotifications(locale);
       setPushStatus({ kind: "ok", message: t("settings.pushRegistered") });
     } catch (cause) {
-      setPushStatus({ kind: "error", message: `${t("settings.pushRegisterFailed")} ${cause instanceof Error ? cause.message : String(cause)}` });
+      const detail = cause instanceof Error && cause.name === "TimeoutError"
+        ? t("settings.pushRegisterTimeout")
+        : cause instanceof Error ? cause.message : String(cause);
+      setPushStatus({ kind: "error", message: `${t("settings.pushRegisterFailed")} ${detail}` });
     } finally {
       setPushRegistering(false);
     }

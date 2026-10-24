@@ -1,5 +1,6 @@
 const CACHE_PREFIX = "pi-web";
 const CACHE_VERSION = new URL(self.location.href).searchParams.get("v") || "dev";
+const PUSH_ONLY = new URL(self.location.href).searchParams.get("pushOnly") === "1";
 const STATIC_CACHE = `${CACHE_PREFIX}-static-${CACHE_VERSION}`;
 const OFFLINE_URL = "/offline.html";
 const PRECACHE_URLS = [
@@ -18,6 +19,10 @@ const NAVIGATION_TIMEOUT_MS = 8000;
 const ASSET_TIMEOUT_MS = 8000;
 
 self.addEventListener("install", (event) => {
+  if (PUSH_ONLY) {
+    event.waitUntil(self.skipWaiting());
+    return;
+  }
   event.waitUntil(
     caches
       .open(STATIC_CACHE)
@@ -33,7 +38,7 @@ self.addEventListener("activate", (event) => {
       .then((keys) =>
         Promise.all(
           keys
-            .filter((key) => key.startsWith(`${CACHE_PREFIX}-`) && key !== STATIC_CACHE)
+            .filter((key) => key.startsWith(`${CACHE_PREFIX}-`) && (PUSH_ONLY || key !== STATIC_CACHE))
             .map((key) => caches.delete(key)),
         ),
       )
@@ -42,6 +47,8 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
+  // Development uses this worker for push only; never intercept Next/HMR traffic.
+  if (PUSH_ONLY) return;
   const { request } = event;
   if (request.method !== "GET") return;
 

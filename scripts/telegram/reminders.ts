@@ -99,7 +99,7 @@ export interface ReminderRun {
   locale: BridgeLocale;
   now: () => number;
   log: (message: string) => void;
-  send: (chatId: number, text: string) => Promise<void>;
+  send: (chatId: number, text: string, event: DashboardEvent, key: string) => Promise<void>;
 }
 
 /**
@@ -138,7 +138,7 @@ export async function runReminders(run: ReminderRun): Promise<void> {
     const text = formatReminder(event, nowMinutes, run.locale);
     for (const chatId of pending) {
       try {
-        await run.send(chatId, text);
+        await run.send(chatId, text, event, key);
         run.ledger.mark(key, chatId);
       } catch (error) {
         if (deliveryMayHaveSucceeded(error)) {

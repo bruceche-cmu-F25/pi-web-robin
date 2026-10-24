@@ -312,6 +312,19 @@ test("a digest audience is accepted as a comma string or as an array", () => {
   assert.equal(gmail.locale, "en");
 });
 
+test("notification channel is explicit and preserves schedules and Telegram credentials", () => {
+  assert.equal(settingsView().notifications.channel, "telegram");
+  setTelegramToken("kept-token");
+  setDailyAgenda({ enabled: true, time: "09:15", locale: "zh" });
+  const before = telegramSettings();
+  assert.deepEqual(applySettingsSection("notifications", { channel: "push" }), { notifications: { channel: "push" } });
+  assert.deepEqual(telegramSettings(), { ...before, notificationChannel: "push" });
+  assert.throws(() => applySettingsSection("notifications", { channel: "both" }), /channel/);
+  assert.equal(settingsView().notifications.channel, "push");
+  applySettingsSection("notifications", { channel: "telegram" });
+  assert.deepEqual(telegramSettings(), before);
+});
+
 test("an unknown section is refused by both apply and clear", () => {
   assert.match(applySettingsSection("nonsense", {}).error, /section must be one of/);
   assert.match(applySettingsSection(undefined, {}).error, /section must be one of/);

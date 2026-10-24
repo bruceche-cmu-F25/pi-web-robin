@@ -25,6 +25,19 @@ import { dataPath, readJsonObject, writeJsonObject } from "./paths.ts";
 const SECRETS_FILE = "secrets.json";
 const CLOCK_TIME = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
 
+export type NotificationChannel = "push" | "telegram";
+
+/** Existing installations keep their channel until the user explicitly switches. */
+export function notificationSettings(): { channel: NotificationChannel } {
+  return { channel: read().notifications?.channel === "push" ? "push" : "telegram" };
+}
+
+export function setNotificationChannel(channel: unknown): void {
+  if (channel !== "push" && channel !== "telegram") throw new Error("Notification channel must be push or telegram");
+  const secrets = read();
+  write({ ...secrets, notifications: { channel } });
+}
+
 export interface DailyAgendaSettings {
   enabled: boolean;
   time: string;
@@ -160,6 +173,7 @@ export interface GoogleCalendarSource {
 }
 
 export interface RobinSecrets {
+  notifications?: { channel: NotificationChannel };
   outreachGoogle?: { clientId?: string; clientSecret?: string };
   google?: {
     clientId?: string;
@@ -469,6 +483,7 @@ function normalizeTranscription(stored: TranscriptionSettings | undefined): Tran
 }
 
 export function telegramSettings(): {
+  notificationChannel: NotificationChannel;
   botToken?: string;
   allowedChatIds: number[];
   dailyAgenda: DailyAgendaSettings;
@@ -482,6 +497,7 @@ export function telegramSettings(): {
   const fileIds = secrets.telegram?.allowedChatIds;
   const transcriptionKey = pick(secrets.transcription?.apiKey, process.env.OPENAI_API_KEY);
   return {
+    notificationChannel: secrets.notifications?.channel === "push" ? "push" : "telegram",
     botToken: token.value,
     allowedChatIds: Array.isArray(fileIds) && fileIds.length > 0
       ? fileIds
@@ -648,11 +664,12 @@ export function parseChatIds(raw: string | undefined): number[] {
  * setters and knew the shape of every field. Adding a setting meant editing
  * two files.
  */
-export const SETTINGS_SECTIONS = ["google", "googleCalendars", "notion", "playwright", "telegram"] as const;
+export const SETTINGS_SECTIONS = ["google", "googleCalendars", "notion", "playwright", "telegram", "notifications"] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 /** Configuration state as the screen renders it — presence and origin, never a secret. */
 export interface SettingsView {
+  notifications: ReturnType<typeof notificationSettings>;
   google: ReturnType<typeof describeGoogle>;
   notion: ReturnType<typeof describeNotion>;
   playwright: ReturnType<typeof describePlaywright>;
@@ -665,6 +682,7 @@ export type SettingsResult<T> = T | { error: string; status?: number };
 
 export function settingsView(): SettingsView {
   return {
+    notifications: notificationSettings(),
     google: describeGoogle(),
     notion: describeNotion(),
     playwright: describePlaywright(),
@@ -798,6 +816,9 @@ export function applySettingsSection(
       setPlaywrightExtensionToken(body.extensionToken);
       return { playwright: describePlaywright() };
     case "telegram": return applyTelegram(body);
+    case "notifications":
+      setNotificationChannel(body.channel);
+      return { notifications: notificationSettings() };
     default:
       return { error: `section must be one of: ${SETTINGS_SECTIONS.join(", ")}` };
   }

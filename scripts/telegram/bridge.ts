@@ -14,15 +14,13 @@
  * Long polling, never webhooks: getUpdates is an outbound call, so nothing
  * needs to listen on a public port and no certificate or tunnel is involved.
  *
- * ## The two loops
+ * ## Independent clocks
  *
- * Polling and scheduling run side by side, not in sequence. They used to share
- * one loop, which meant a morning job digest — scan, then score, then wait for
- * the scorer, up to twenty-odd minutes — held the poller shut for the whole
- * time. Messages were not lost (Telegram keeps updates for a day) but they
- * arrived in a silent heap half an hour later, which is indistinguishable from
- * the bot being down. `runSchedules` is now fired from the poll loop and left
- * to run on its own, guarded so only one pass is ever in flight.
+ * Telegram polling, scheduled digests and calendar reminders run independently.
+ * The existing supervised bridge owns a 30-second timer even in phone-only
+ * mode without a Telegram token. A Telegram outage or a long scoring run must
+ * not delay calendar reminders. Each schedule lane allows only one pass in
+ * flight; this is still one scheduler process, not a web-server duplicate.
  *
  * Run with:  npm run telegram
  */
@@ -38,6 +36,7 @@ import {
   type DailyAgendaSettings,
   type GmailDigestSettings,
   type JobDigestSettings,
+  type NotificationChannel,
   type ReminderSettings,
   type TranscriptionSettings,
 } from "../../extension/robin/settings.ts";
@@ -77,7 +76,8 @@ import {
   type IncomingMessage,
 } from "./protocol.ts";
 import { createRateLimit, DEFAULT_RATE_LIMIT, type RateLimit } from "./ratelimit.ts";
-import { runReminders } from "./reminders.ts";
+import { runReminders, minutesOfDay } from "./reminders.ts";
+import { PUSH_RECIPIENT, scheduledPush, type ScheduledNotificationKind } from "./push-notifications.ts";
 import { runIfDue, type Slot } from "./schedule.ts";
 import {
   answerCallbackQuery,
@@ -98,6 +98,7 @@ const BACKOFF_START_MS = 1_000;
 const BACKOFF_MAX_MS = 60_000;
 
 export interface BridgeConfig {
+  notificationChannel?: NotificationChannel;
   token: string;
   allowlist: number[];
   piWebUrl: string;
@@ -146,6 +147,7 @@ export function readConfig(
   env: NodeJS.ProcessEnv,
   stored: {
     botToken?: string;
+    notificationChannel?: NotificationChannel;
     allowedChatIds: number[];
     dailyAgenda?: DailyAgendaSettings;
     jobDigest?: JobDigestSettings;
@@ -155,7 +157,7 @@ export function readConfig(
   } = telegramSettings(),
 ): BridgeConfig {
   const token = stored.botToken?.trim() || env.TELEGRAM_BOT_TOKEN?.trim();
-  if (!token) {
+  if (!token && stored.notificationChannel !== "push") {
     throw new Error(
       "No Telegram bot token. Set one on the dashboard settings page (/dashboard/settings), "
       + "or put TELEGRAM_BOT_TOKEN in .env.local.",
@@ -166,7 +168,8 @@ export function readConfig(
     : parseAllowlist(env.TELEGRAM_ALLOWED_CHAT_IDS);
 
   return {
-    token,
+    token: token ?? "",
+    notificationChannel: stored.notificationChannel ?? "telegram",
     allowlist,
     piWebUrl: (env.PI_WEB_URL?.trim() || "http://127.0.0.1:30141").replace(/\/$/, ""),
     ...(env.PI_WEB_PASSWORD?.trim() ? { password: env.PI_WEB_PASSWORD.trim() } : {}),
@@ -235,6 +238,49 @@ export async function askAssistant(
   return formatReply(reply, usedTools, locale);
 }
 
+function scheduledAudience(config: BridgeConfig, telegramIds: number[]): number[] {
+  return config.notificationChannel === "push" ? [PUSH_RECIPIENT] : telegramIds;
+}
+
+/** Switching channels must not replay today's briefing or restart a completed nightly sweep. */
+function scheduledLedger(config: BridgeConfig, ledger: DeliveryLedger, telegramIds: number[]): DeliveryLedger {
+  return {
+    pending(key, audience) {
+      const previous = config.notificationChannel === "push" ? telegramIds : [PUSH_RECIPIENT];
+      if (previous.some((id) => ledger.pending(key, [id]).length === 0)) return [];
+      return ledger.pending(key, audience);
+    },
+    mark: (key, recipient) => ledger.mark(key, recipient),
+  };
+}
+
+async function sendScheduledMessage(
+  config: BridgeConfig,
+  deps: BridgeDeps,
+  recipient: number,
+  kind: ScheduledNotificationKind,
+  key: string,
+  text: string,
+  locale: BridgeLocale,
+  buttons?: InlineButton[][],
+  ttl?: number,
+): Promise<void> {
+  // A long model run must not deliver through a channel the user has since disabled.
+  if (deps.reloadConfig) {
+    const latest = deps.reloadConfig();
+    const enabled = { agenda: latest.dailyAgenda.enabled, jobs: latest.jobDigest.enabled,
+      mail: latest.gmailDigest.enabled, reminder: latest.reminders.enabled }[kind];
+    if (!enabled || (latest.notificationChannel ?? "telegram") !== (config.notificationChannel ?? "telegram")) {
+      throw new Error("Notification settings changed; delivery deferred to the next tick");
+    }
+  }
+  if (config.notificationChannel !== "push") return sendMessage(config, deps, recipient, text, buttons);
+  const result = await callPiWeb<{ accepted: number }>(
+    pi(config, deps), "/api/push/send", scheduledPush(kind, key, text, locale, ttl), 60_000,
+  );
+  if (!(result.accepted > 0)) throw new Error("No registered device accepted the notification");
+}
+
 /* ─────────────────────────── daily agenda ─────────────────────────── */
 
 /**
@@ -261,16 +307,16 @@ export async function sendDailyAgenda(
   config: BridgeConfig,
   deps: BridgeDeps,
   date: string,
-  chatIds = config.allowlist,
+  chatIds = scheduledAudience(config, config.allowlist),
 ): Promise<void> {
   const prompt = config.dailyAgenda.locale === "zh"
     ? [
         "#Role: 你是我的个人助理。",
-        `#Task: 生成 ${date} 的 Telegram 每日简报。`,
+        `#Task: 生成 ${date} 的每日简报。`,
         "#Topic: 今天的日程和未完成待办。",
         "#Format: 只返回可直接发送的简报，简洁列出今天的日程和未完成待办。",
         "#Tone / Style: 简洁、清晰。",
-        "#Context: 这条简报会在早上自动推送到 Telegram。",
+        "#Context: 这条简报会在早上自动通知我。",
         "#Goal: 让我一早就知道今天要做什么。",
         "#Requirements / Constraints:",
         "- 必须调用 todo_list 和 calendar_list_events。",
@@ -278,11 +324,11 @@ export async function sendDailyAgenda(
       ].join("\n")
     : [
         "#Role: You are my personal assistant.",
-        `#Task: Create my Telegram daily briefing for ${date}.`,
+        `#Task: Create my daily briefing for ${date}.`,
         "#Topic: Today's agenda and unfinished todos.",
         "#Format: Return only the ready-to-send briefing, concisely listing today's agenda and unfinished todos.",
         "#Tone / Style: Concise and clear.",
-        "#Context: This briefing is pushed to Telegram automatically in the morning.",
+        "#Context: This briefing is sent automatically in the morning.",
         "#Goal: Let me know first thing what today holds.",
         "#Requirements / Constraints:",
         "- You must call todo_list and calendar_list_events.",
@@ -294,10 +340,12 @@ export async function sendDailyAgenda(
   // fails because the todo list would not load is not.
   let buttons: InlineButton[][] | undefined;
   try {
-    const list = await callPiWeb<{ todos?: Todo[] }>(
-      pi(config, deps), "/api/robin/todos", undefined, 20_000, "GET");
-    const open = (list.todos ?? []).filter((todo) => !todo.done);
-    if (open.length > 0) buttons = todoButtons(open, config.dailyAgenda.locale);
+    if (config.notificationChannel !== "push") {
+      const list = await callPiWeb<{ todos?: Todo[] }>(
+        pi(config, deps), "/api/robin/todos", undefined, 20_000, "GET");
+      const open = (list.todos ?? []).filter((todo) => !todo.done);
+      if (open.length > 0) buttons = todoButtons(open, config.dailyAgenda.locale);
+    }
   } catch (error) {
     deps.log(`[daily agenda] no todo buttons — ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -305,7 +353,7 @@ export async function sendDailyAgenda(
   let delivered = 0;
   for (const chatId of chatIds) {
     try {
-      await sendMessage(config, deps, chatId, reply, buttons);
+      await sendScheduledMessage(config, deps, chatId, "agenda", date, reply, config.dailyAgenda.locale, buttons);
       deps.dailyAgendaLedger.mark(date, chatId);
       delivered += 1;
     } catch (error) {
@@ -331,7 +379,7 @@ export async function sendDailyAgenda(
  * field rather than a migration.
  */
 export function jobAudience(config: BridgeConfig): number[] {
-  return config.jobDigest.chatIds.length > 0 ? config.jobDigest.chatIds : config.allowlist;
+  return scheduledAudience(config, config.jobDigest.chatIds.length > 0 ? config.jobDigest.chatIds : config.allowlist);
 }
 
 /** Poll interval and ceiling while waiting for a scoring run to finish. */
@@ -432,6 +480,11 @@ export async function sendJobDigest(
     digest = await callPiWeb(ctx, "/api/robin/jobs/digest", { preview: true, limit: count, locale });
   }
 
+  if (config.notificationChannel === "push" && digest.jobIds.length === 0) {
+    for (const recipient of chatIds) deps.jobLedger.mark(runKey, recipient);
+    return; // No new matches: consume the checked slot without a phone alert.
+  }
+
   // Numbered action rows ride on the digest itself. One notification, and the
   // numbers line up with the list, so triage is a tap rather than a sentence.
   const buttons = digest.jobIds?.length ? numberedJobButtons(digest.jobIds, locale) : undefined;
@@ -439,7 +492,7 @@ export async function sendJobDigest(
   const delivered: number[] = [];
   for (const chatId of chatIds) {
     try {
-      await sendMessage(config, deps, chatId, digest.text, buttons);
+      await sendScheduledMessage(config, deps, chatId, "jobs", runKey, digest.text, locale, buttons);
       delivered.push(chatId);
       deps.jobLedger.mark(runKey, chatId);
     } catch (error) {
@@ -468,12 +521,12 @@ export async function sendJobDigest(
 
 /** Who the email digest goes to: its own list when set, else the allow-list. */
 export function gmailAudience(config: BridgeConfig): number[] {
-  return config.gmailDigest.chatIds.length > 0 ? config.gmailDigest.chatIds : config.allowlist;
+  return scheduledAudience(config, config.gmailDigest.chatIds.length > 0 ? config.gmailDigest.chatIds : config.allowlist);
 }
 
 /** Who gets event reminders: their own list when set, else the allow-list. */
 export function reminderAudience(config: BridgeConfig): number[] {
-  return config.reminders.chatIds.length > 0 ? config.reminders.chatIds : config.allowlist;
+  return scheduledAudience(config, config.reminders.chatIds.length > 0 ? config.reminders.chatIds : config.allowlist);
 }
 
 /**
@@ -498,12 +551,28 @@ export async function sendGmailDigest(
   }
 
   const { locale, query } = config.gmailDigest;
-  const reply = await askAssistant(config, deps, mailPrompt(locale, query), locale, "mail");
+  const startedAt = deps.now();
+  let reply = await askAssistant(config, deps, mailPrompt(locale, query), locale, "mail");
+  if (config.notificationChannel === "push") {
+    try {
+      const { review } = await callPiWeb<{ review?: { day: string; reviewedAt: string; headline?: string;
+        items: { triage?: string; done?: boolean }[] } }>(pi(config, deps), "/api/robin/gmail", undefined, 20_000, "GET");
+      // Only a fresh, structured review can establish that there is nothing to do.
+      // Missing/old evidence is never interpreted as a quiet inbox.
+      if (review?.day === runKey && Date.parse(review.reviewedAt) >= startedAt && Array.isArray(review.items)) {
+        if (review.items.every((item) => item.done || item.triage === "fyi")) {
+          for (const recipient of chatIds) deps.gmailLedger.mark(runKey, recipient);
+          return;
+        }
+        if (review.headline?.trim()) reply = review.headline;
+      }
+    } catch { deps.log("[gmail digest] review unavailable; sending the assistant report"); }
+  }
 
   let delivered = 0;
   for (const chatId of chatIds) {
     try {
-      await sendMessage(config, deps, chatId, reply);
+      await sendScheduledMessage(config, deps, chatId, "mail", runKey, reply, locale);
       deps.gmailLedger.mark(runKey, chatId);
       delivered += 1;
     } catch (error) {
@@ -777,33 +846,42 @@ export async function pollOnce(
 }
 
 /**
- * Everything that happens on a clock: the four digests and the reminders.
- *
- * Separated from `pollOnce` so it can take as long as it takes. A job digest
- * that scans, scores, and waits for the scorer can run for twenty minutes; the
- * poll loop keeps answering messages throughout.
+ * One complete pass, also useful to tests/manual callers. The running process
+ * ticks the two lanes separately so a slow digest does not hold reminders up.
  */
 export async function runSchedules(config: BridgeConfig, deps: BridgeDeps): Promise<void> {
+  await Promise.all([runDigests(config, deps), runScheduledReminders(config, deps)]);
+}
+
+async function pushReady(config: BridgeConfig, deps: BridgeDeps): Promise<boolean> {
+  if (config.notificationChannel !== "push") return true;
+  const status = await callPiWeb<{ subscriptions: number }>(pi(config, deps), "/api/push/send", undefined, 20_000, "GET");
+  return status.subscriptions > 0;
+}
+
+export async function runDigests(config: BridgeConfig, deps: BridgeDeps): Promise<void> {
+  if (!await pushReady(config, deps)) return;
   const now = deps.now();
 
   const agendaSlots: Slot[] = config.dailyAgenda.enabled
     ? [{ key: "", at: config.dailyAgenda.time }]
     : [];
-  await runIfDue(deps.dailyAgendaLedger, config.allowlist, agendaSlots, now,
+  await runIfDue(scheduledLedger(config, deps.dailyAgendaLedger, config.allowlist), scheduledAudience(config, config.allowlist), agendaSlots, now,
     (key, chats) => sendDailyAgenda(config, deps, key, chats));
 
   const mailChats = gmailAudience(config);
   const mailSlots: Slot[] = config.gmailDigest.enabled
     ? [{ key: "", at: config.gmailDigest.time }]
     : [];
-  await runIfDue(deps.gmailLedger, mailChats, mailSlots, now,
+  await runIfDue(scheduledLedger(config, deps.gmailLedger, config.gmailDigest.chatIds.length ? config.gmailDigest.chatIds : config.allowlist), mailChats, mailSlots, now,
     (key, chats) => sendGmailDigest(config, deps, key, chats));
 
   const jobChats = jobAudience(config);
+  const jobsLedger = scheduledLedger(config, deps.jobLedger, config.jobDigest.chatIds.length ? config.jobDigest.chatIds : config.allowlist);
   const sweepSlots: Slot[] = config.jobDigest.enabled && config.jobDigest.sweepAt
     ? [{ key: "sweep", at: config.jobDigest.sweepAt }]
     : [];
-  await runIfDue(deps.jobLedger, jobChats, sweepSlots, now,
+  await runIfDue(jobsLedger, jobChats, sweepSlots, now,
     (key) => startNightlySweep(config, deps, key));
 
   const digestSlots: Slot[] = config.jobDigest.enabled
@@ -812,21 +890,51 @@ export async function runSchedules(config: BridgeConfig, deps: BridgeDeps): Prom
         { key: "evening", at: config.jobDigest.evening },
       ]
     : [];
-  await runIfDue(deps.jobLedger, jobChats, digestSlots, now,
+  await runIfDue(jobsLedger, jobChats, digestSlots, now,
     (key, chats) => sendJobDigest(config, deps, key, chats));
 
-  if (config.reminders.enabled) {
+}
+
+export async function runScheduledReminders(config: BridgeConfig, deps: BridgeDeps): Promise<void> {
+  if (config.reminders.enabled && await pushReady(config, deps)) {
     await runReminders({
       ctx: pi(config, deps),
-      ledger: deps.reminderLedger,
+      ledger: scheduledLedger(config, deps.reminderLedger, config.reminders.chatIds.length ? config.reminders.chatIds : config.allowlist),
       audience: reminderAudience(config),
       leadMinutes: config.reminders.lead,
       locale: config.reminders.locale,
       now: deps.now,
       log: deps.log,
-      send: (chatId, text) => sendMessage(config, deps, chatId, text),
+      send: (chatId, text, event, key) => {
+        const now = new Date(deps.now());
+        const remaining = (minutesOfDay(event.start) ?? 0) - (now.getHours() * 60 + now.getMinutes());
+        return sendScheduledMessage(config, deps, chatId, "reminder", key, text, config.reminders.locale,
+          undefined, Math.max(1, remaining * 60 - now.getSeconds()));
+      },
     });
   }
+}
+
+/** One existing supervised process, with independent digest/reminder clocks, not a second scheduler. */
+export function startScheduleLoop(getConfig: () => BridgeConfig, deps: BridgeDeps): () => void {
+  let stopped = false;
+  const lanes = [runDigests, runScheduledReminders].map((run) => ({ run, busy: false }));
+  const tick = () => {
+    if (stopped) return;
+    let config: BridgeConfig;
+    try { config = getConfig(); }
+    catch { deps.log("[schedule] could not read settings"); return; }
+    for (const lane of lanes) {
+      if (lane.busy) continue;
+      lane.busy = true;
+      void lane.run(config, deps)
+        .catch((error) => deps.log(`[schedule error] ${error instanceof Error ? error.message : String(error)}`))
+        .finally(() => { lane.busy = false; });
+    }
+  };
+  const timer = setInterval(tick, 30_000);
+  tick();
+  return () => { stopped = true; clearInterval(timer); };
 }
 
 export async function run(config: BridgeConfig, deps: BridgeDeps): Promise<void> {
@@ -835,51 +943,38 @@ export async function run(config: BridgeConfig, deps: BridgeDeps): Promise<void>
 
   let offset: number | null = null;
   let backoff = BACKOFF_START_MS;
-  /** Guards the schedules: exactly one pass in flight, however long it takes. */
-  let scheduling = false;
+  const stopSchedules = startScheduleLoop(() => {
+    if (deps.reloadConfig) config = { ...deps.reloadConfig(), token: config.token };
+    return config;
+  }, deps);
 
-  for (;;) {
-    try {
-      // Settings are re-read every cycle, so a send time or an allow-list
-      // edited on the dashboard takes effect within the poll window instead of
-      // waiting for a restart nobody remembers to do. A token change is the one
-      // thing that cannot be picked up live — it is the address we long-poll on.
-      if (deps.reloadConfig) {
-        try {
-          const reloaded = deps.reloadConfig();
-          config = { ...reloaded, token: config.token };
-        } catch (error) {
-          deps.log(`[settings] keeping the running config — ${error instanceof Error ? error.message : String(error)}`);
+  try {
+    for (;;) {
+      try {
+        // A token change needs a restart; other settings apply on the next cycle.
+        if (deps.reloadConfig) {
+          try {
+            config = { ...deps.reloadConfig(), token: config.token };
+          } catch (error) {
+            deps.log(`[settings] keeping the running config — ${error instanceof Error ? error.message : String(error)}`);
+          }
         }
+        if (config.token) offset = await pollOnce(config, deps, offset);
+        else await new Promise((resolve) => setTimeout(resolve, 30_000));
+        backoff = BACKOFF_START_MS;
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        deps.log(`[poll error] ${detail} — retrying in ${Math.round(backoff / 1000)}s`);
+        await new Promise((resolve) => setTimeout(resolve, backoff));
+        backoff = Math.min(backoff * 2, BACKOFF_MAX_MS);
       }
-
-      offset = await pollOnce(config, deps, offset);
-
-      // Fired, not awaited. This is the fix for a digest holding the poller
-      // shut: the schedules run alongside the next getUpdates, not in front
-      // of it.
-      if (!scheduling) {
-        scheduling = true;
-        const scheduled = config;
-        void runSchedules(scheduled, deps)
-          .catch((error) => deps.log(`[schedule error] ${error instanceof Error ? error.message : String(error)}`))
-          .finally(() => { scheduling = false; });
-      }
-
-      backoff = BACKOFF_START_MS;
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      deps.log(`[poll error] ${detail} — retrying in ${Math.round(backoff / 1000)}s`);
-      await new Promise((resolve) => setTimeout(resolve, backoff));
-      // Exponential backoff keeps a dead network or a revoked token from
-      // hammering Telegram and burning rate limit.
-      backoff = Math.min(backoff * 2, BACKOFF_MAX_MS);
     }
-  }
+  } finally { stopSchedules(); }
 }
 
 /** What this bridge will and will not do, said once at startup. */
 function announce(config: BridgeConfig, deps: BridgeDeps): void {
+  deps.log(`Scheduled notification channel: ${config.notificationChannel ?? "telegram"}`);
   deps.log(
     config.allowlist.length === 0
       ? "No allow-list set — running in discovery mode. Message the bot to learn your chat id; nothing will be acted on."

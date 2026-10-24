@@ -18,6 +18,12 @@
 ## Sidebar breakpoint (`components/AppShell.tsx`)
 - The mobile drawer starts closed on entering the mobile breakpoint. Desktop open state is remembered separately, seeded from the URL's initial `sidebarCollapsed` value and updated only by explicit desktop toggles. Returning to desktop restores that preference; mobile drawer toggles, backdrop clicks and toolbar actions must not replace it.
 
+## Background push (`components/PwaRegistration.tsx`, `lib/push-client.ts`, `public/sw.js`)
+- Register the same root service worker in both modes. Development adds `pushOnly=1`: no precache or fetch interception; activation removes only `pi-web-*` caches. Do not unregister it in dev: that disables push (and can discard subscriptions), while an unbounded `serviceWorker.ready` leaves Settings stuck on “Registering”. Production keeps its offline/cache behavior.
+- Settings calls `registerPushNotifications()` directly from the click; permission must be requested before yielding the user gesture. Permission and subscription waits each have a 30 s ceiling, including non-abortable browser promises and response bodies. Timeout aborts fetch and fences late continuations; failed attempts release the shared in-flight slot so retry works. Background `setupPushSubscription()` never prompts or rejects. Keep the localized timeout message in Settings.
+
+- Scheduled Robin notifications reuse `lib/web-push.ts` through authenticated `/api/push/send`, with bounded payloads, local links, per-occurrence receipts and explicit delivery counts (acceptance is not display). The existing bridge owns independent digest/reminder timer lanes; never also start them in Pi Web. Settings only chooses the delivery channel, leaving schedule enables/times and Telegram chat intact. See [Robin notifications](../robin-notifications.md) for scope, the reserved ledger recipient `0`, channel-switch replay prevention and failure limits.
+
 ## Completion sound
 - `hooks/useAudio.ts` stores the toggle in `localStorage` as `pi-sound-enabled` and reuses one `AudioContext`.
 - Autoplay policy requires unlocking sound from a user gesture: `ChatInput` calls the unlock hook from interactive controls, and `ChatWindow` plays the tone from `onAgentEnd`.
