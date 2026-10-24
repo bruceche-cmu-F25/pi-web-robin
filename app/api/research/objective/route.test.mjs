@@ -16,6 +16,7 @@ const jiti = createJiti(import.meta.url, {
 });
 const { GET, PUT, PATCH } = await jiti.import("./route.ts");
 const projectsRoute = await jiti.import("../projects/route.ts");
+const { readResearchObjective } = await jiti.import("../../../../extension/robin/research-domain.ts");
 
 after(async () => {
   if (previousDataDir === undefined) delete process.env.ROBIN_DATA_DIR;
@@ -24,6 +25,7 @@ after(async () => {
 });
 
 function request(method = "GET", body, contentType = "application/json") {
+  if (method === "PUT" && body && typeof body === "object") body = { revision: readResearchObjective().revision, ...body };
   return new Request("http://localhost/api/research/objective", {
     method,
     headers: { Host: "localhost", ...(body === undefined ? {} : { "Content-Type": contentType }) },
@@ -34,12 +36,13 @@ function request(method = "GET", body, contentType = "application/json") {
 test("research objective and note are persisted on the server", async () => {
   let response = await GET(request());
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { objective: "", note: "", updatedAt: null });
+  const empty = await response.json();
+  assert.deepEqual(empty, { objective: "", note: "", updatedAt: null, revision: readResearchObjective().revision });
 
   response = await PUT(request("PUT", { objective: "Finish the HEAT baseline", note: "Ask Samuel about the labels" }));
   assert.equal(response.status, 200);
   assert.deepEqual(
-    Object.fromEntries(Object.entries(await response.json()).filter(([key]) => key !== "updatedAt")),
+    Object.fromEntries(Object.entries(await response.json()).filter(([key]) => key !== "updatedAt" && key !== "revision")),
     { objective: "Finish the HEAT baseline", note: "Ask Samuel about the labels" },
   );
 
@@ -58,7 +61,7 @@ test("each project keeps its own focus and notebook; unknown projects are refuse
   const first = (await (await create("Alpha")).json()).project;
   const second = (await (await create("Beta")).json()).project;
   const url = (id) => `http://localhost/api/research/objective?project=${id}`;
-  const at = (method, id, body) => new Request(url(id), { method, headers: { Host: "localhost", "Content-Type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}) });
+  const at = (method, id, body) => new Request(url(id), { method, headers: { Host: "localhost", "Content-Type": "application/json" }, ...(body ? { body: JSON.stringify(method === "PUT" ? { revision: readResearchObjective(id).revision, ...body } : body) } : {}) });
   await PUT(at("PUT", first.id, { objective: "Alpha focus", note: "" }));
   await PATCH(at("PATCH", second.id, { text: "Beta insight" }));
   assert.equal((await (await GET(at("GET", first.id))).json()).objective, "Alpha focus");
@@ -96,6 +99,18 @@ test("capture refuses invalid or over-limit appends without modifying the notebo
   await PUT(request("PUT", { objective: "Keep this", note: "n".repeat(100_000) }));
   assert.equal((await PATCH(request("PATCH", { text: "Extra insight" }))).status, 413);
   assert.equal((await (await GET(request())).json()).note.length, 100_000);
+});
+
+test("stale and unversioned PUTs return 409 after an append without changing the notebook", async () => {
+  await PUT(request("PUT", { note: "Original" }));
+  const stale = await (await GET(request())).json();
+  const kept = await (await PATCH(request("PATCH", { text: "Newly kept answer" }))).json();
+  const response = await PUT(request("PUT", { ...stale, objective: "New focus" }));
+  assert.equal(response.status, 409);
+  assert.deepEqual(await (await GET(request())).json(), kept);
+  assert.equal((await PUT(request("PUT", { objective: "Unversioned", revision: undefined }))).status, 409);
+  assert.equal((await PUT(request("PUT", { objective: "New focus", revision: kept.revision }))).status, 200);
+  assert.equal((await (await GET(request())).json()).note, kept.note);
 });
 
 test("research notes reject invalid writes", async () => {

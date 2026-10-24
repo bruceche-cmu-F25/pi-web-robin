@@ -50,6 +50,18 @@ _Avoid_: Cron job, batch, research run
 The renewable ownership claim for one active Cold Reach research run. It prevents another server process from starting overlapping paid research, and a stop request cancels the stored lease even when it reaches a different process.
 _Avoid_: In-memory lock, worker flag, queue
 
+**Research Project**:
+One line of inquiry in the Research workspace: its brief, current focus, notebook, gathered papers and conversations. The reserved `general` project is the research home, not a named project tab. Research behavior belongs to the Research domain module; see `docs/research-reading-room.md`.
+_Avoid_: Workspace (when meaning a project), paper collection
+
+**Research Conversation**:
+A human discussion within one Research Project, optionally associated with a paper. It retains its own history across many one-shot model executions; its conversation ID is not the underlying Pi execution's session ID.
+_Avoid_: Agent session, model execution
+
+**Research Notebook**:
+The human-edited notes shared by a Research Project's conversations. Explicit Keep appends a stored answer; replacement edits compare the reader's content revision under the same lock, so another page cannot silently overwrite newly kept content.
+_Avoid_: Conversation transcript, generated summary
+
 **Practice Problem**:
 A problem in the local NeetCode catalog, identified by its LeetCode slug. Read-only reference data, generated from published sources; the user's history on it is an Attempt, not part of the problem.
 _Avoid_: Question, exercise, card

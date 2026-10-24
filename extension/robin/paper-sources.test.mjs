@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { arxivId, parseArxivPapers, parseArxivPage, parseCrossrefPaper, readPaperResponse } from "./paper-sources.ts";
+import { arxivId, parseArxivPapers, parseArxivPage, parseCrossrefPaper, parseSemanticScholarPaper, readPaperResponse } from "./paper-sources.ts";
 
 const feed = `<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"><entry>
 <id>http://arxiv.org/abs/2303.08896v2</id><title>Evidence &amp; uncertainty\n in LLMs</title>
@@ -36,6 +36,17 @@ test("Crossref results are attributed and unsafe publisher PDF URLs are not foll
   assert.equal(paper.pdfUrl, "");
   assert.equal(paper.abstract, "Evidence & limits");
 });
+test("discovery retains catalog venue/DOI metadata without inferring publication from titles", () => {
+  const arxiv = parseArxivPapers(feed.replace("</entry>", "<arxiv:doi>10.1234/Test</arxiv:doi><arxiv:journal_ref>EMNLP 2024</arxiv:journal_ref></entry>"))[0];
+  assert.equal(arxiv.doi, "10.1234/test"); assert.equal(arxiv.venue, "EMNLP 2024");
+  const crossref = parseCrossrefPaper({ DOI: "10.1234/test", title: ["Test"], "container-title": ["Nature Machine Intelligence"] });
+  assert.equal(crossref.venue, "Nature Machine Intelligence");
+  const scholar = parseSemanticScholarPaper({ title: "Test", authors: [{ name: "Author" }], year: 2025, venue: "ICLR", externalIds: { DOI: "10.1234/TEST" }, openAccessPdf: { url: "http://127.0.0.1/private" } });
+  assert.equal(scholar.url, "https://doi.org/10.1234/test"); assert.equal(scholar.pdfUrl, ""); assert.equal(scholar.abstract, ""); assert.equal(scholar.venue, "ICLR");
+  assert.equal(parseSemanticScholarPaper({ title: "Preprint", authors: [], externalIds: { ArXiv: "2401.12345v2" } }).url, "https://arxiv.org/abs/2401.12345");
+  assert.throws(() => parseSemanticScholarPaper({ title: "Bad link", authors: [], url: "javascript:alert(1)" }));
+});
+
 test("remote responses are bounded even without a Content-Length", async () => {
   assert.equal(Buffer.from(await readPaperResponse(new Response("safe"), 4)).toString(), "safe");
   await assert.rejects(readPaperResponse(new Response("too long"), 4), /too large/);

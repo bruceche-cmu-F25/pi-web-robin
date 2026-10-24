@@ -28,15 +28,20 @@ function xmlText(value: string): string {
     }).replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
 }
 const element = (xml: string, tag: string) => xmlText(xml.match(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`))?.[1] ?? "");
+export type PaperCatalog = "arxiv" | "crossref" | "semantic-scholar";
+export type CatalogPaper = PaperMetadata & { doi?: string; venue?: string };
+
 /** arXiv's small Atom subset, not a general XML parser. No entities/DTD are evaluated. */
-export function parseArxivPapers(xml: string): PaperMetadata[] {
+export function parseArxivPapers(xml: string): CatalogPaper[] {
   if (!/<feed[\s>]/.test(xml)) throw new PaperError("arXiv did not return a paper feed", 502);
   return [...xml.matchAll(/<entry(?:\s[^>]*)?>([\s\S]*?)<\/entry>/g)].slice(0, 20).map(([, entry]) => {
     const id = element(entry, "id");
     if (!/^https?:\/\/(?:export\.)?arxiv\.org\/abs\//.test(id)) throw new PaperError(element(entry, "summary") || "Invalid arXiv entry", 502);
     const url = canonicalPaperUrl(id);
     return { title: element(entry, "title"), url, authors: [...entry.matchAll(/<author>([\s\S]*?)<\/author>/g)].slice(0, 100).map(([, author]) => element(author, "name")),
-      year: element(entry, "published").slice(0, 4), abstract: element(entry, "summary"), pdfUrl: url.replace("/abs/", "/pdf/"), provider: "arXiv" };
+      year: element(entry, "published").slice(0, 4), abstract: element(entry, "summary").slice(0, 30_000), pdfUrl: url.replace("/abs/", "/pdf/"), provider: "arXiv",
+      ...(element(entry, "arxiv:doi") ? { doi: element(entry, "arxiv:doi").toLowerCase() } : {}),
+      ...(element(entry, "arxiv:journal_ref") ? { venue: element(entry, "arxiv:journal_ref").slice(0, 500) } : {}) };
   });
 }
 export function arxivId(input: string): string | null {
@@ -63,17 +68,18 @@ export function parseArxivPage(html: string, id: string): PaperMetadata {
 }
 interface CrossrefWork {
   DOI?: string; title?: string[]; author?: Array<{ given?: string; family?: string }>;
-  published?: { "date-parts"?: number[][] }; abstract?: string;
+  published?: { "date-parts"?: number[][] }; abstract?: string; "container-title"?: string[];
   link?: Array<{ "content-type"?: string; URL?: string }>;
 }
-export function parseCrossrefPaper(data: CrossrefWork): PaperMetadata {
+export function parseCrossrefPaper(data: CrossrefWork): CatalogPaper {
   if (!data || typeof data.DOI !== "string" || !/^10\.\d{4,9}\/\S+$/i.test(data.DOI)) throw new PaperError("DOI metadata unavailable", 502);
   const pdf = Array.isArray(data.link) ? data.link.find((link) => link?.["content-type"] === "application/pdf") : null;
   let pdfUrl = "";
   try { pdfUrl = paperUrl(pdf?.URL, true); } catch { /* An unusable publisher link is not a readable PDF. */ }
   return { title: String(data.title?.[0] ?? data.DOI).slice(0, 1000), url: canonicalPaperUrl(`https://doi.org/${data.DOI}`),
     authors: (Array.isArray(data.author) ? data.author : []).slice(0, 100).map((author) => [author?.given, author?.family].filter(Boolean).join(" ").slice(0, 300)),
-    year: String(data.published?.["date-parts"]?.[0]?.[0] ?? "").slice(0, 10), abstract: xmlText(String(data.abstract ?? "")).slice(0, 30_000), pdfUrl, provider: "Crossref" };
+    year: String(data.published?.["date-parts"]?.[0]?.[0] ?? "").slice(0, 10), abstract: xmlText(String(data.abstract ?? "")).slice(0, 30_000), pdfUrl, provider: "Crossref",
+    doi: data.DOI.toLowerCase(), venue: String(data["container-title"]?.[0] ?? "").slice(0, 500) };
 }
 export async function searchPapers(query: string, sort: "relevance" | "submittedDate", signal?: AbortSignal): Promise<{ results: PaperMetadata[]; fallback?: true }> {
   paperText(query, 500, true);
@@ -110,6 +116,43 @@ export async function searchPapers(query: string, sort: "relevance" | "submitted
     } catch { throw error; }
   }
 }
+/** Independent catalogs: no silent fallback, so discovery can report partial outages honestly. */
+export async function searchPaperCatalog(catalog: PaperCatalog, query: string, signal?: AbortSignal): Promise<CatalogPaper[]> {
+  paperText(query, 500, true);
+  let url: string;
+  if (catalog === "arxiv") {
+    const params = new URLSearchParams({ search_query: query.split(/\s+/).filter(Boolean).map((word) => `all:${word.replace(/["():]/g, "")}`).join(" AND "), sortBy: "relevance", max_results: "12" });
+    url = `https://export.arxiv.org/api/query?${params}`;
+  } else if (catalog === "crossref") {
+    url = `https://api.crossref.org/works?${new URLSearchParams({ "query.bibliographic": query, rows: "12", sort: "relevance" })}`;
+  } else if (catalog === "semantic-scholar") {
+    url = `https://api.semanticscholar.org/graph/v1/paper/search?${new URLSearchParams({ query, limit: "12", fields: "title,abstract,authors,year,url,venue,externalIds,openAccessPdf" })}`;
+  } else throw new PaperError("Unknown paper catalog");
+  const response = await fetchPublicWeb(url, { signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(12_000)]) : AbortSignal.timeout(12_000) });
+  const content = Buffer.from(await readPaperResponse(response, 2_000_000)).toString("utf8");
+  if (catalog === "arxiv") return parseArxivPapers(content);
+  const body = JSON.parse(content);
+  const rows = catalog === "crossref" ? body.message?.items : body.data;
+  if (!Array.isArray(rows)) throw new PaperError("Paper catalog returned invalid metadata", 502);
+  return rows.slice(0, 12).flatMap((row) => {
+    try { return [catalog === "crossref" ? parseCrossrefPaper(row) : parseSemanticScholarPaper(row)]; }
+    catch { return []; } // A malformed record must not discard the other catalog results.
+  });
+}
+export function parseSemanticScholarPaper(value: unknown): CatalogPaper {
+  const row = value as { title?: string; url?: string; abstract?: string; year?: number; venue?: string; authors?: { name?: string }[]; externalIds?: { DOI?: string; ArXiv?: string }; openAccessPdf?: { url?: string } } | null;
+  if (!row || !row.title || !Array.isArray(row.authors)) throw new PaperError("Invalid Semantic Scholar paper", 502);
+  const doi = row.externalIds?.DOI;
+  const arxiv = row.externalIds?.ArXiv;
+  const url = doi && /^10\.\d{4,9}\/\S+$/i.test(doi) ? `https://doi.org/${doi}`
+    : arxiv && arxivId(arxiv) ? `https://arxiv.org/abs/${arxiv}` : row.url;
+  let pdfUrl = "";
+  try { pdfUrl = paperUrl(row.openAccessPdf?.url, true); } catch { /* Invalid OA links are not evidence. */ }
+  return { title: paperText(row.title, 1000, true), url: canonicalPaperUrl(url), abstract: String(row.abstract ?? "").slice(0, 30_000),
+    authors: row.authors.slice(0, 100).map((author) => String(author?.name ?? "").slice(0, 300)), year: String(row.year ?? "").slice(0, 10),
+    pdfUrl, provider: "Semantic Scholar", venue: String(row.venue ?? "").slice(0, 500), ...(doi ? { doi: doi.toLowerCase() } : {}) };
+}
+
 export async function downloadPaperPdf(url: string, signal?: AbortSignal): Promise<Uint8Array> {
   const target = paperUrl(url);
   const response = await fetchPublicWeb(target, { signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(45_000)]) : AbortSignal.timeout(45_000) });

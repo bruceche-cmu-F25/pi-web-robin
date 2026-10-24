@@ -1,126 +1,126 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useI18n } from "@/hooks/useI18n";
-import type { Paper } from "@/extension/robin/papers-domain";
 import { PaperSheet } from "./PaperSheet";
 import { NeedsPdf, paperState } from "./ResearchShelf";
 import { ResearchThread } from "./ResearchThread";
-import { GENERAL, paperSummary, researchHref, researchRequest, type PaperSummary, type ProjectSummary } from "./research-client";
-import { useResearchThread } from "./useResearchThread";
+import { ResearchSessions } from "./ResearchSessions";
+import { ResearchDiscovery } from "./ResearchDiscovery";
+import { ReadingQueue, ResearchMark } from "./ResearchDesk";
+import { GENERAL, type ProjectSummary } from "./research-client";
+import { useResearchReader, type SwitchResearchProject } from "./useResearchReader";
 import s from "./ResearchWorkspace.module.css";
 
 const noFlush = async () => {};
 
 /**
- * The research home: paste any paper link and get it read and summarised, or explore a topic, without
- * choosing a project first. Every paper in the library is listed here, tagged with its projects.
+ * Research home leads with projects and their goals; library and general discussion stay available
+ * as separate surfaces. Hidden surfaces remain mounted to retain drafts, uploads and search results.
  */
 export function HomeWorkspace({ projects, onProjectsChange, onSwitch, onNewProject }: {
-  projects: ProjectSummary[]; onProjectsChange: () => Promise<void>; onSwitch: (id: string | null) => Promise<void>; onNewProject: () => void;
+  projects: ProjectSummary[]; onProjectsChange: () => Promise<void>; onSwitch: SwitchResearchProject; onNewProject: () => void;
 }) {
-  const { t, locale } = useI18n();
-  const router = useRouter();
-  const selected = useSearchParams().get("paper");
-  const [papers, setPapers] = useState<PaperSummary[]>([]);
-  const [paper, setPaper] = useState<Paper | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [reload, setReload] = useState(0);
+  const { t } = useI18n();
+  const params = useSearchParams();
+  const [view, setView] = useState<"projects" | "papers" | "assistant">(() => params.has("conversation") ? "assistant" : "projects");
+  const { selected, papers, paper, loading, error, thread, titles, refresh, open, navigate, selectConversation, changed, uploaded, uploadPdf } =
+    useResearchReader({ projectId: GENERAL, onProjectsChange, onSwitch });
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<string>("all");
+  const [readingStatus, setReadingStatus] = useState("all");
   const home: ProjectSummary = useMemo(() => projects.find((item) => item.general) ?? {
     id: GENERAL, name: t("rw.home"), brief: "", objective: "", links: [], general: true, createdAt: "", updatedAt: "", objectiveUpdatedAt: null,
     hasNotes: false, papers: 0, needsPdf: 0, read: 0, messages: 0,
   }, [projects, t]);
   const named = projects.filter((item) => !item.general && !item.archived);
+  const archived = projects.filter((item) => !item.general && item.archived);
+  const unfiled = papers.filter((item) => !(item.projectIds ?? []).some(id => id !== GENERAL)).length;
   const projectName = useCallback((id: string) => projects.find((item) => item.id === id)?.name ?? "", [projects]);
-  const refresh = useCallback(() => { setReload((n) => n + 1); void onProjectsChange(); }, [onProjectsChange]);
-  const thread = useResearchThread({ projectId: GENERAL, locale, beforeAsk: noFlush, onChange: refresh, fallbackError: t("rw.error") });
-  useEffect(() => {
-    const controller = new AbortController();
-    setLoading(true);
-    void researchRequest<{ papers: PaperSummary[] }>("/api/research/papers", { signal: controller.signal })
-      .then((result) => { setPapers(result.papers); setError(""); })
-      .catch((failure) => { if (!controller.signal.aborted) setError(failure.message); })
-      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
-    return () => controller.abort();
-  }, [reload]);
-  useEffect(() => {
-    if (!selected) { setPaper(null); return; }
-    const controller = new AbortController();
-    void researchRequest<{ paper: Paper }>(`/api/research/papers?id=${encodeURIComponent(selected)}`, { signal: controller.signal })
-      .then((result) => setPaper(result.paper))
-      .catch((failure) => { if (!controller.signal.aborted) setError(failure.message); });
-    return () => controller.abort();
-  }, [selected, reload]);
-  const open = useCallback((id: string | null) => router.push(researchHref(GENERAL, id), { scroll: false }), [router]);
-  const navigate = useCallback((href: string) => {
-    const url = new URL(href, window.location.href);
-    if (url.origin === window.location.origin && url.pathname === "/research") {
-      const target = url.searchParams.get("project");
-      if (target && target !== GENERAL) router.push(url.pathname + url.search);
-      else open(url.searchParams.get("paper"));
-    } else if (url.origin === window.location.origin) router.push(url.pathname + url.search);
-    else if (["http:", "https:"].includes(url.protocol)) window.open(url.href, "_blank", "noopener,noreferrer");
-  }, [open, router]);
-  const titles = useMemo(() => new Map(papers.map((item) => [item.id, item.title])), [papers]);
+  const currentConversation = thread.state.conversation;
   const needs = papers.filter((item) => item.needsPdf);
-  const shown = papers.filter((item) => !item.needsPdf)
+  const filtered = papers.filter((item) => readingStatus === "all" || item.status === readingStatus)
     .filter((item) => filter === "all" || (filter === "none" ? !(item.projectIds ?? []).some((id) => id !== GENERAL) : item.projectIds?.includes(filter)))
     .filter((item) => `${item.title} ${item.authors.join(" ")} ${item.tags}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
-  function uploaded(item: PaperSummary) {
-    refresh();
-    if (!thread.busy && !thread.elsewhere) void thread.send(t("rw.home.readUploaded", { title: item.title }), item.id);
-  }
+  const shown = filtered.filter((item) => !item.needsPdf);
 
   return <>
     <header className={s.homeHead}>
+      <p className={s.deskEyebrow}><ResearchMark kind="desk" />{t("rw.desk.personal")}</p>
       <h1>{t("rw.home.title")}</h1>
       <p>{t("rw.home.lede")}</p>
     </header>
     {error && <p role="alert" className={s.error}>{error}</p>}
-    {!!needs.length && <a className={s.needsBanner} href="#research-needs-pdf">{t("rw.needsBanner", { count: needs.length })} ↓</a>}
-    <div className={s.workGrid} data-home="true">
-      <ResearchThread variant="home" thread={thread} projectId={GENERAL} projectName={home.name} paperTitles={titles} onOpenPaper={open} onNavigate={navigate} />
-      <aside className={s.margin} aria-label={t("rw.margin")}>
-        <NeedsPdf papers={needs} onUploaded={uploaded} onOpen={open} />
+    <nav className={s.workspaceNav} aria-label={t("rw.view.label")}>
+      {(["projects", "papers", "assistant"] as const).map((item) => <button key={item} type="button" aria-pressed={view === item} aria-controls={`research-home-${item}`} onClick={() => setView(item)}>
+        <ResearchMark kind={item === "projects" ? "desk" : item === "papers" ? "book" : "spark"} />{t(item === "projects" ? "rw.view.overview" : `rw.view.${item}`)}
+        {item === "assistant" && thread.busy && <span>{t("rw.view.working")}</span>}
+      </button>)}
+    </nav>
+    {!!needs.length && view !== "papers" && <button type="button" className={s.needsBanner} onClick={() => setView("papers")}>{t("rw.needsBanner", { count: needs.length })} →</button>}
+    <section id="research-home-projects" className={`${s.workspacePanel} ${s.homeDesk}`} hidden={view !== "projects"} aria-label={t("rw.projects")}>
+      <div className={s.projectCollection}>
+      <div className={s.sectionHeading}><h2>{t("rw.desk.activeProjects")}</h2><span className={s.collectionCount}>{named.length}</span></div>
+      <ul className={s.projectOverviewList}>
+        {named.map((item) => <li key={item.id}><button type="button" onClick={() => void onSwitch(item.id)}>
+          <span className={s.projectOverviewBrief}><span className={s.projectIdentity}><ResearchMark kind="folder" /><strong>{item.name}</strong><span aria-hidden="true">↗</span></span><span>{item.brief || t("rw.project.briefMissing")}</span></span>
+          <span className={s.projectOverviewFocus}><small>{t("rw.focus")}</small><span>{item.objective || t("rw.view.noFocus")}</span></span>
+          <span className={s.projectOverviewMeta}><span><ResearchMark kind="book" />{t("rw.view.paperCount", { count: item.papers })}</span>{item.hasNotes && <span><ResearchMark kind="note" />{t("rw.desk.hasNotes")}</span>}<span className={s.projectOpen}>{t("rw.desk.openProject")} →</span></span>
+        </button></li>)}
+      </ul>
+      {!named.length && <p className={s.marginHint}>{t("rw.setup.hint")}</p>}
+      {!named.length && <button type="button" className={s.textButton} onClick={onNewProject}>{t("rw.project.new")}</button>}
+      </div>
+      <aside className={s.homeAside}>
+        <ReadingQueue papers={papers} loading={loading} onOpen={open} onLibrary={() => setView("papers")} />
+        {unfiled > 0 && <button type="button" className={s.filingPrompt} onClick={() => { setFilter("none"); setReadingStatus("all"); setView("papers"); }}><ResearchMark kind="archive" /><span><strong>{t("rw.desk.unfiled", { count: unfiled })}</strong><small>{t("rw.desk.filePrompt")}</small></span><span aria-hidden="true">→</span></button>}
+      </aside>
+    </section>
+    <div id="research-home-assistant" className={s.workspacePanel} hidden={view !== "assistant"}>
+      <div className={s.conversationColumn}>
+        <ResearchSessions projectId={GENERAL} thread={thread} paperTitles={titles} onSelect={selectConversation} onOpenPaper={open} />
+        <ResearchThread onUpload={uploadPdf} variant="home" thread={thread} projectId={GENERAL} projectName={home.name} projectNames={new Map(projects.map((item) => [item.id, item.name]))} paperTitles={titles} onOpenPaper={open} onNavigate={navigate} />
+      </div>
+    </div>
+    <div id="research-home-papers" className={`${s.workspacePanel} ${s.paperWorkspace}`} hidden={view !== "papers"}>
+      <div className={s.paperCollection}>
+        <NeedsPdf papers={filtered.filter(item => item.needsPdf)} onUploaded={(item) => { setView("assistant"); void uploaded(item); }} onOpen={open} />
         <section className={s.marginSection} aria-labelledby="research-library-title">
-          <h2 id="research-library-title" className={s.marginTitle}>{t("rw.library")} <span>{papers.length}</span></h2>
+          <div className={s.sectionHeading}><h2 id="research-library-title">{t("rw.library")} · {papers.length}</h2>
+            <button type="button" className={s.textButton} onClick={() => setView("assistant")}>{t("rw.view.addPaper")}</button></div>
           {papers.length > 0 && <div className={s.libraryTools}>
             <select value={filter} onChange={(event) => setFilter(event.target.value)} aria-label={t("rw.library.filterProject")}>
               <option value="all">{t("rw.library.all")}</option>
               {named.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              {!!archived.length && <optgroup label={t("rw.archived")}>{archived.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</optgroup>}
               <option value="none">{t("rw.library.unfiled")}</option>
             </select>
-            {papers.length > 6 && <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("rw.filter")} aria-label={t("rw.filter")} />}
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("rw.filter")} aria-label={t("rw.filter")} />
           </div>}
+          <div className={s.readingFilters} role="group" aria-label={t("rw.paper.status")}>
+            {["all", "queued", "reading", "read"].map(status => <button type="button" key={status} aria-pressed={readingStatus === status} onClick={() => setReadingStatus(status)}>{t(status === "all" ? "rw.library.all" : `rw.paper.status.${status}`)}</button>)}
+          </div>
           <ul className={s.paperList}>
             {shown.map((item) => { const state = paperState(item); const tags = (item.projectIds ?? []).filter((id) => id !== GENERAL).map(projectName).filter(Boolean); return <li key={item.id}>
-              <button type="button" className={s.paperRow} onClick={() => open(item.id)}>
+              <button type="button" className={s.paperRow} aria-current={currentConversation?.paperId === item.id ? "true" : undefined} onClick={() => open(item.id)}>
                 <span className={s.paperTitle}>{item.title}</span>
-                <span className={s.paperMeta}><span className={s.stateDot} data-state={state} aria-hidden="true" />{t(`rw.state.${state}`)}{item.year ? ` · ${item.year}` : ""}</span>
+                <span className={s.paperMeta}><span className={s.readingStatus} data-status={item.status}>{t(`rw.paper.status.${item.status}`)}</span><span>{t(`rw.state.${state}`)}{item.year ? ` · ${item.year}` : ""}</span></span>
                 {!!tags.length && <span className={s.projectTags}>{tags.map((name) => <span key={name}>{name}</span>)}</span>}
               </button>
             </li>; })}
           </ul>
           {!shown.length && <p className={s.marginHint}>{t(loading ? "rw.loading" : papers.length ? "rw.noMatch" : "rw.home.libraryEmpty")}</p>}
         </section>
-        <section className={s.marginSection} aria-labelledby="research-projects-title">
-          <h2 id="research-projects-title" className={s.marginTitle}>{t("rw.projects")} <span>{named.length}</span></h2>
-          <ul className={s.paperList}>
-            {named.map((item) => <li key={item.id}><button type="button" className={s.paperRow} onClick={() => void onSwitch(item.id)}>
-              <span className={s.paperTitle}>{item.name}</span>
-              <span className={s.paperMeta}>{t("rw.home.projectCounts", { papers: item.papers, read: item.read })}{item.needsPdf ? ` · ${t("rw.home.projectNeeds", { count: item.needsPdf })}` : ""}</span>
-            </button></li>)}
-          </ul>
-          <button type="button" className={s.textButton} onClick={onNewProject}>+ {t("rw.project.new")}</button>
-        </section>
-      </aside>
+      </div>
+      <section className={s.catalogColumn} aria-label={t("rw.chat.catalogs")}>
+        <h2 className={s.sectionTitle}>{t("rw.chat.catalogs")}</h2>
+        <ResearchDiscovery projectId={GENERAL} general beforeSearch={noFlush} onAdded={refresh} onOpen={open} />
+      </section>
     </div>
     {selected && paper?.id === selected && <PaperSheet key={paper.id} paper={paper} project={home} projects={projects} thread={thread}
-      onChange={(next) => { setPaper(next); setPapers((current) => current.map((item) => item.id === next.id ? paperSummary(next) : item)); refresh(); }}
+      onSelectConversation={(id) => selectConversation(id, true)}
+      onChange={changed}
       onClose={() => open(null)} onNavigate={navigate} onRemoved={() => { open(null); refresh(); }} />}
   </>;
 }

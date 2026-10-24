@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { listPapers, paperProjects, PaperError, paperText } from "@/extension/robin/papers-domain";
-import { createResearchProject, listResearchProjects, readResearchConversation, setActiveResearchProject, updateResearchProject } from "@/extension/robin/research-domain";
+import { PaperError, paperText } from "@/extension/robin/papers-domain";
+import { createResearchProject, researchProjectBoard, setActiveResearchProject, updateResearchProject } from "@/extension/robin/research-domain";
 import { apiError, apiRoute } from "@/lib/api-route";
 import { parseJsonWithinLimit, RequestBodyTooLargeError } from "@/lib/bounded-form-data";
 
@@ -9,15 +9,8 @@ const failure = (error: unknown) => apiError(error, error instanceof RequestBody
 
 /** Projects with the counts a switcher needs; notebook bodies stay behind /api/research/objective. */
 export const GET = apiRoute(async () => {
-  try {
-    const { activeId, projects } = listResearchProjects();
-    const papers = listPapers();
-    return NextResponse.json({ activeId, projects: projects.map(({ note, ...project }) => {
-      const mine = papers.filter((paper) => paperProjects(paper).includes(project.id));
-      return { ...project, hasNotes: !!note.trim(), papers: mine.length, needsPdf: mine.filter((paper) => paper.access).length,
-        read: mine.filter((paper) => paper.analysis && !paper.analysis.outdated).length, messages: readResearchConversation(project.id).messages.length };
-    }) });
-  } catch (error) { return failure(error); }
+  try { return NextResponse.json(researchProjectBoard()); }
+  catch (error) { return failure(error); }
 });
 export const POST = apiRoute(async (req) => {
   try { return NextResponse.json({ project: createResearchProject(await parseJsonWithinLimit(req, 60_000)) }); }

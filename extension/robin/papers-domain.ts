@@ -8,10 +8,11 @@ const FILE = "research-papers.json";
 export const UNTITLED_PAPER = "Untitled paper / 未识别标题的论文";
 export type PaperStatus = "queued" | "reading" | "read";
 export interface PaperMetadata {
+  /** url is empty for a directly uploaded PDF with no public source link. */
   title: string; url: string; authors: string[]; year: string; abstract: string;
   pdfUrl: string; provider: string;
 }
-export interface PaperSource { text: string; kind: "pdf" | "pasted"; label: string; pages?: number; truncated: boolean; loadedAt: string }
+export interface PaperSource { text: string; kind: "pdf" | "pasted"; label: string; pages?: number; truncated: boolean; loadedAt: string; pdfHash?: string }
 export interface PaperMessage { id: string; role: "user" | "assistant"; text: string; at: string; source: string; sessionId?: string }
 /** How one paper bears on one research project, judged against that project's focus at the time. */
 export interface ProjectConnection { text: string; objective: string; createdAt: string; basis?: "full reading" | "saved reading" }
@@ -89,6 +90,25 @@ export function addPaper(input: unknown, projectId?: string): Paper {
     return { value: paper, changed: true };
   });
 }
+/** Publish a complete local reading source atomically; retries never overwrite existing notes or readings. */
+export function addUploadedPaper(source: PaperSource, projectId?: string): Paper {
+  validatePaperSource(source);
+  if (source.kind !== "pdf" || !/^[a-f0-9]{64}$/.test(source.pdfHash ?? "")) throw new PaperError("Invalid uploaded PDF reference");
+  return updateJsonArray<Paper, Paper>(FILE, (papers) => {
+    const existing = papers.find((paper) => paper.source?.pdfHash === source.pdfHash);
+    if (existing) {
+      if (!projectId || paperProjects(existing).includes(projectId)) return { value: existing, changed: false };
+      existing.projectIds = [...paperProjects(existing), projectId];
+      return { value: existing, changed: true };
+    }
+    const now = new Date().toISOString();
+    const paper: Paper = { id: randomUUID(), title: source.label.replace(/\.pdf$/i, "").trim() || UNTITLED_PAPER,
+      url: "", pdfUrl: "", authors: [], year: "", abstract: "", provider: "Uploaded PDF", source,
+      revision: 1, status: "queued", tags: "", note: "", messages: [], exports: [], createdAt: now, updatedAt: now, projectIds: projectId ? [projectId] : [] };
+    papers.push(paper);
+    return { value: paper, changed: true };
+  });
+}
 function mutatePaper(id: string, revision: unknown, change: (paper: Paper) => void): Paper {
   return updateJsonArray<Paper, Paper>(FILE, (papers) => {
     const paper = papers.find((item) => item.id === id);
@@ -130,11 +150,14 @@ export function updatePaper(id: string, revision: unknown, patch: unknown): Pape
     }
   });
 }
-export function savePaperSource(id: string, revision: unknown, source: PaperSource): Paper {
+export function validatePaperSource(source: PaperSource): void {
   paperText(source.text, 400_000, true);
   if (source.text.replace(/--- page \d+ ---/g, "").trim().length < 80) throw new PaperError("No usable text found. Scanned PDFs need OCR; paste the extracted text instead.");
   if (!["pdf", "pasted"].includes(source.kind)) throw new PaperError("Invalid source kind");
   paperText(source.label, 3000, true);
+}
+export function savePaperSource(id: string, revision: unknown, source: PaperSource): Paper {
+  validatePaperSource(source);
   return mutatePaper(id, revision, (paper) => {
     paper.source = source; delete paper.access;
     if (paper.analysis) paper.analysis.outdated = paper.analysis.sourceKey !== paperEvidenceKey(paper);
@@ -220,11 +243,11 @@ export function paperMarkdown(paper: Paper, includeDiscussion = true, projectNam
   const tags = [...new Set(["research", "paper", ...projects.map(tag).filter(Boolean), ...paper.tags.split(/[,，\n]/).map((s) => s.trim()).filter(Boolean)])];
   const connections = Object.entries(legacyConnections(paper.analysis)).filter(([id]) => projectNames[id] || id === LEGACY_PROJECT_ID);
   const content = [
-    "---", `title: ${JSON.stringify(paper.title)}`, `source: ${JSON.stringify(paper.url)}`, `authors: ${JSON.stringify(paper.authors)}`,
+    "---", `title: ${JSON.stringify(paper.title)}`, `source: ${JSON.stringify(paper.url || paper.source?.label || "")}`, `authors: ${JSON.stringify(paper.authors)}`,
     `projects: ${JSON.stringify(projects.map((name) => `[[${name.replace(/[[\]|]/g, "")}]]`))}`,
     `year: ${JSON.stringify(paper.year)}`, `tags: ${JSON.stringify(tags)}`, `reading_status: ${paper.status}`,
     `coverage: ${JSON.stringify(sourceDescription(paper))}`, `updated: ${JSON.stringify(paper.updatedAt)}`, "---", "",
-    `# ${paper.title.replace(/[\r\n]/g, " ")}`, "", `<${paper.url}>`, "",
+    `# ${paper.title.replace(/[\r\n]/g, " ")}`, "", ...(paper.url ? [`<${paper.url}>`, ""] : []),
     "## Reading notes / 阅读笔记", "", paper.note || "No curated note yet / 尚未整理笔记。", "",
     "## Abstract / 摘要", "", paper.abstract || "—", "",
     ...(paper.analysis ? ["## AI reading summary / AI 阅读整理", "", paper.analysis.outdated ? "> Outdated: source changed / 正文已变更，需要重新整理。" : "", "> " + paper.analysis.coverage,

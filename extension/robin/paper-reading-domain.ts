@@ -1,10 +1,28 @@
-import { UNTITLED_PAPER, addPaper, canonicalPaperUrl, getPaper, listPapers, paperText, paperUrl, savePaperAccess, savePaperSource, type Paper, type PaperMetadata } from "./papers-domain.ts";
+import { UNTITLED_PAPER, PaperError, addUploadedPaper, validatePaperSource, addPaper, canonicalPaperUrl, getPaper, listPapers, paperText, paperUrl, savePaperAccess, savePaperSource, type Paper, type PaperSource, type PaperMetadata } from "./papers-domain.ts";
 import { arxivId, downloadPaperPdf, parseArxivPage, readPaperResponse, searchPapers } from "./paper-sources.ts";
 import { fetchPublicWeb } from "./fetch-public-web.ts";
 import { readJsonArray, updateJsonArray } from "./paths.ts";
+import { storePaperPdf } from "./paper-pdf-domain.ts";
+import { getResearchProject } from "./research-domain.ts";
 
 export const PAPER_TEXT_LIMIT = 400_000;
 export type PdfExtractor = (bytes: Uint8Array, maxChars: number) => Promise<{ text: string; pages: number; truncated: boolean }>;
+
+/** A direct upload needs no URL or placeholder record. Invalid/empty sources never enter the library. */
+export async function importResearchPdf(bytes: Uint8Array, filename: string, projectId: string, options: { extract: PdfExtractor; signal?: AbortSignal }): Promise<Paper> {
+  const project = getResearchProject(paperText(projectId, 100, true));
+  if (project.archived) throw new PaperError("Restore the project before uploading", 409);
+  if (bytes.byteLength > 20 * 1024 * 1024) throw new PaperError("PDF must be under 20 MB", 413);
+  if (!Buffer.from(bytes.subarray(0, 1024)).includes(Buffer.from("%PDF-"))) throw new PaperError("The source is not a PDF", 422);
+  const label = paperText(filename, 1000, true).split(/[\\/]/).at(-1)!.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 200) || "upload.pdf";
+  options.signal?.throwIfAborted();
+  const source: PaperSource = { ...await options.extract(bytes, PAPER_TEXT_LIMIT), kind: "pdf", label, loadedAt: new Date().toISOString() };
+  options.signal?.throwIfAborted();
+  if (getResearchProject(project.id).archived) throw new PaperError("Restore the project before uploading", 409);
+  validatePaperSource(source);
+  source.pdfHash = storePaperPdf(bytes);
+  return addUploadedPaper(source, project.general ? undefined : project.id);
+}
 
 export function rememberPaperCandidates(results: PaperMetadata[]): void {
   updateJsonArray<PaperMetadata, void>("research-candidates.json", (current) => {
@@ -48,11 +66,17 @@ interface ReadOptions {
   extract: PdfExtractor; signal?: AbortSignal;
   download?: typeof downloadPaperPdf;
   fetchPage?: typeof fetchPublicWeb;
+  /** Fence each synchronous publication, never hold a lease lock across network/extraction awaits. */
+  commit?: <T>(write: () => T) => T;
 }
 /** Select -> resolve -> obtain -> extract -> persist. No human Add/Fetch step is required. */
 export async function readResearchPaper(input: string, options: ReadOptions, alternativePdf?: string): Promise<Paper> {
   paperText(input, 3000, true);
   const signal = options.signal ?? AbortSignal.timeout(120_000);
+  const commit = <T>(write: () => T): T => {
+    signal.throwIfAborted();
+    return options.commit ? options.commit(write) : write();
+  };
   const fetchPage = options.fetchPage ?? fetchPublicWeb;
   const download = options.download ?? downloadPaperPdf;
   let paper = listPapers().find((item) => item.id === input);
@@ -88,8 +112,8 @@ export async function readResearchPaper(input: string, options: ReadOptions, alt
         }
       }
       signal.throwIfAborted();
-      paper = addPaper(metadata ?? { title: landing?.title?.slice(0, 1000) || UNTITLED_PAPER, url,
-        authors: landing?.authors ?? [], year: landing?.year ?? "", abstract: landing?.abstract ?? "", pdfUrl: landing?.pdfUrl ?? knownPdfLinks(url)[0] ?? "", provider: new URL(url).hostname });
+      paper = commit(() => addPaper(metadata ?? { title: landing?.title?.slice(0, 1000) || UNTITLED_PAPER, url,
+        authors: landing?.authors ?? [], year: landing?.year ?? "", abstract: landing?.abstract ?? "", pdfUrl: landing?.pdfUrl ?? knownPdfLinks(url)[0] ?? "", provider: new URL(url).hostname }));
     }
   }
   if (paper.source && !alternativePdf) return paper;
@@ -102,19 +126,19 @@ export async function readResearchPaper(input: string, options: ReadOptions, alt
       const bytes = initialPdf && url === paper!.pdfUrl ? initialPdf : await download(url, signal);
       const extracted = await options.extract(bytes, PAPER_TEXT_LIMIT);
       signal.throwIfAborted();
-      return savePaperSource(paper!.id, paper!.revision, { ...extracted, kind: "pdf", label: url, loadedAt: new Date().toISOString() });
+      return commit(() => savePaperSource(paper!.id, paper!.revision, { ...extracted, kind: "pdf", label: url, loadedAt: new Date().toISOString(), pdfHash: storePaperPdf(bytes) }));
     } catch (error) {
-      signal.throwIfAborted();
+      commit(() => {}); // Lost ownership is not a failed download; stop before retrying.
       // A conflicting human upload/edit is not a download failure and must not be replaced.
       if (getPaper(paper!.id).revision !== paper!.revision) throw error;
       attempts.push({ url, error: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500) });
       return null;
     }
   }
-  for (const url of [alternativePdf ? paperUrl(alternativePdf) : "", paper.pdfUrl, ...knownPdfLinks(paper.url)]) {
+  for (const url of [alternativePdf ? paperUrl(alternativePdf) : "", paper.pdfUrl, ...(paper.url ? knownPdfLinks(paper.url) : [])]) {
     const loaded = await tryPdf(url); if (loaded) return loaded;
   }
-  if (!landingRead) {
+  if (!landingRead && paper.url) {
     try {
       const response = await fetchPage(paper.url, { signal: AbortSignal.any([signal, AbortSignal.timeout(20_000)]) });
       const html = Buffer.from(await readPaperResponse(response, 2_000_000)).toString("utf8");
@@ -127,7 +151,7 @@ export async function readResearchPaper(input: string, options: ReadOptions, alt
   }
   if (landing?.pdfUrl) { const loaded = await tryPdf(landing.pdfUrl); if (loaded) return loaded; }
   signal.throwIfAborted();
-  return savePaperAccess(paper.id, paper.revision, attempts, [paper.url, paper.pdfUrl, ...seen].filter(Boolean));
+  return commit(() => savePaperAccess(paper!.id, paper!.revision, attempts, [paper!.url, paper!.pdfUrl, ...seen].filter(Boolean)));
 }
 
 export function paperReadText(paper: Paper): string { return paper.source?.text ?? paper.abstract; }

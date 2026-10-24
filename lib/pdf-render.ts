@@ -60,6 +60,32 @@ export async function renderPdfPages(data: Uint8Array, maxPages: number): Promis
   }
 }
 
+/** Metadata and one-page rendering for the reading UI; never the attachment page cap. */
+export async function pdfPageCount(data: Uint8Array): Promise<number> {
+  if (!hasPdfHeader(data)) throw new Error("The selected file is not a valid PDF");
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "pi-web-pdf-info-"));
+  try {
+    const input = path.join(directory, "input.pdf");
+    await fs.writeFile(input, data);
+    const { stdout } = await execFileAsync("pdfinfo", [input], { timeout: PDF_RENDER_TIMEOUT_MS, maxBuffer: 1024 * 1024, env: { ...process.env, LC_ALL: "C" } });
+    const pages = Number(stdout.match(/^Pages:\s+(\d+)\s*$/m)?.[1]);
+    if (!Number.isInteger(pages) || pages < 1) throw new Error("Could not read the PDF page count");
+    return pages;
+  } finally { await fs.rm(directory, { recursive: true, force: true }); }
+}
+export async function renderPdfPage(data: Uint8Array, page: number): Promise<Uint8Array> {
+  if (!hasPdfHeader(data)) throw new Error("The selected file is not a valid PDF");
+  if (!Number.isInteger(page) || page < 1 || page > 2000) throw new Error("Invalid PDF page");
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "pi-web-pdf-page-"));
+  try {
+    const input = path.join(directory, "input.pdf"), output = path.join(directory, "page");
+    await fs.writeFile(input, data);
+    await execFileAsync("pdftoppm", ["-f", String(page), "-l", String(page), "-singlefile", "-scale-to", "2200", "-jpeg", "-jpegopt", "quality=90", "-q", input, output],
+      { timeout: PDF_RENDER_TIMEOUT_MS, maxBuffer: 1024 * 1024 });
+    return new Uint8Array(await fs.readFile(`${output}.jpg`));
+  } finally { await fs.rm(directory, { recursive: true, force: true }); }
+}
+
 export interface ExtractedPdfText {
   text: string;
   pages: number;

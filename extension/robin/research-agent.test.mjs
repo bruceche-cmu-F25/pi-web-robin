@@ -4,9 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, beforeEach, test } from "node:test";
 import { createJiti } from "jiti";
-import { writeFileSync, mkdirSync } from "node:fs";
+import { writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { readJsonObject, writeJsonObject } from "./paths.ts";
 import { UNTITLED_PAPER, addPaper, getPaper, listPapers, paperEvidenceKey, paperMarkdown, savePaperAnalysis, savePaperSource, updatePaper } from "./papers-domain.ts";
-import { appendResearchNote, attachResearchSession, beginResearchRun, cancelResearchRun, createResearchProject, finishResearchRun, listResearchProjects, readResearchConversation, readResearchObjective, researchContext, researchProgress, saveResearchObjective, setActiveResearchProject, updateResearchProject } from "./research-domain.ts";
+import { appendResearchNote, attachResearchSession, beginResearchRun, cancelResearchRun, createResearchProject, finishResearchRun, listResearchProjects, readResearchConversation, readResearchObjective, researchContext, researchProgress, researchSessionWriteFence, saveResearchObjective as writeObjective, setActiveResearchProject, updateResearchProject } from "./research-domain.ts";
 import { knownPdfLinks, paperPageMetadata, readResearchPaper, rememberPaperCandidates } from "./paper-reading-domain.ts";
 import { ROBIN_RESEARCH_TOOL_NAMES } from "./tools.ts";
 
@@ -20,9 +21,12 @@ const sourceText = "--- page 1 ---\n" + "We compare sampled answers, but agreeme
 const extract = async () => ({ text: sourceText, pages: 2, truncated: false });
 beforeEach(() => rmSync(directory, { recursive: true, force: true }));
 after(() => { rmSync(directory, { recursive: true, force: true }); if (oldData === undefined) delete process.env.ROBIN_DATA_DIR; else process.env.ROBIN_DATA_DIR = oldData; });
-function registry() {
+function saveResearchObjective(input, projectId) {
+  return writeObjective({ ...input, revision: readResearchObjective(projectId).revision }, projectId);
+}
+function registry(sessionId = "test-session") {
   const tools = new Map(); registerResearchTools({ registerTool: (tool) => tools.set(tool.name, tool) });
-  const call = async (name, params = {}, signal) => JSON.parse((await tools.get(name).execute("test", params, signal, undefined, { sessionManager: { getSessionId: () => "test-session" } })).content[0].text);
+  const call = async (name, params = {}, signal) => JSON.parse((await tools.get(name).execute("test", params, signal, undefined, { sessionManager: { getSessionId: () => sessionId } })).content[0].text);
   return { tools, call };
 }
 function storedPaper() {
@@ -128,7 +132,7 @@ test("the research home reads a paper without a project and files it into one la
   assert.throws(() => updateResearchProject("general", { archived: true }), /cannot be renamed or archived/);
   // A project reading still requires its connection.
   setActiveResearchProject(project.id);
-  const { call: projectCall } = registry();
+  const { call: projectCall } = registry("standalone-session");
   await projectCall("research_context");
   await projectCall("research_read", { reference: paper.id });
   await projectCall("research_read", { reference: paper.id, offset: chunk.nextOffset });
@@ -166,10 +170,86 @@ test("a new research turn serializes, keeps history, supports cancellation befor
   assert.equal(readResearchConversation().messages.at(-1).text, "Evidence and HEAT proposal");
 });
 
+for (const stop of ["cancel", "replace", "finish", "expire"]) test(`${stop}: an old run cannot save summaries or attach papers without local abort`, async () => {
+  const project = createResearchProject({ name: "Original" });
+  const paper = storedPaper();
+  const run = beginResearchRun("Read", paper.id, project.id);
+  attachResearchSession(run.id, "test-session");
+  const { call } = registry();
+  const signal = new AbortController().signal;
+  await call("research_context", {}, signal);
+  const chunk = await call("research_read", { reference: paper.id }, signal);
+  await call("research_read", { reference: paper.id, offset: chunk.nextOffset }, signal);
+  const before = getPaper(paper.id);
+  if (stop === "cancel") cancelResearchRun(run.id);
+  if (stop === "finish" || stop === "replace") finishResearchRun(run.id, {});
+  if (stop === "replace") {
+    const other = createResearchProject({ name: "Replacement" });
+    const replacement = beginResearchRun("New work", undefined, other.id);
+    attachResearchSession(replacement.id, "replacement-session");
+  }
+  if (stop === "expire") {
+    const state = readJsonObject("research-conversation.json");
+    state.run.startedAt = new Date(Date.now() - 13 * 60_000).toISOString();
+    writeJsonObject("research-conversation.json", state);
+  }
+  const state = readJsonObject("research-conversation.json");
+  await assert.rejects(call("research_save_summary", { id: paper.id, sourceKey: chunk.sourceKey, abstractExplanation: "A", summary: "Late summary", projectConnection: "Late connection" }, signal), /stopped|ownership/i);
+  await assert.rejects(call("research_relate", { id: paper.id, projectConnection: "Late connection" }, signal), /stopped|ownership/i);
+  await assert.rejects(call("research_read", { reference: paper.id }, signal), /stopped|ownership/i);
+  await assert.rejects(call("research_context", {}, signal), /stopped|ownership/i);
+  await assert.rejects(registry().call("research_context", {}, signal), /stopped|ownership/i);
+  assert.deepEqual(getPaper(paper.id), before);
+  assert.deepEqual(readJsonObject("research-conversation.json"), state);
+  assert.equal(signal.aborted, false);
+});
+
+test("remote cancellation during extraction prevents source and original-PDF publication", async () => {
+  const paper = addPaper(candidate);
+  const run = beginResearchRun("Read", paper.id);
+  attachResearchSession(run.id, "test-session");
+  const commit = researchSessionWriteFence("test-session");
+  commit(() => assert.ok(existsSync(join(directory, "research-conversation.json.lock")), "write fence holds the cancellation lock"));
+  await assert.rejects(readResearchPaper(paper.id, { commit,
+    download: async () => Buffer.from("%PDF-test"),
+    extract: async () => { cancelResearchRun(run.id); return extract(); },
+  }), /stopped|ownership/i);
+  assert.deepEqual(getPaper(paper.id), paper);
+  assert.equal(existsSync(join(directory, "paper-pdfs")), false);
+});
+
+test("remote cancellation during metadata fetch cannot add a paper", async () => {
+  const run = beginResearchRun("Find a paper"); attachResearchSession(run.id, "test-session");
+  const commit = researchSessionWriteFence("test-session"); commit(() => {});
+  await assert.rejects(readResearchPaper(candidate.url, { extract, commit, fetchPage: async () => {
+    cancelResearchRun(run.id); return new Response('<meta name="citation_title" content="Late paper">');
+  } }), /stopped|ownership/i);
+  assert.deepEqual(listPapers(), []);
+});
+
+test("remote cancellation during an access failure cannot publish needs-PDF state", async () => {
+  const paper = addPaper({ ...candidate, pdfUrl: "" });
+  const run = beginResearchRun("Read", paper.id); attachResearchSession(run.id, "test-session");
+  const commit = researchSessionWriteFence("test-session"); commit(() => {});
+  await assert.rejects(readResearchPaper(paper.id, { extract, commit, fetchPage: async () => {
+    cancelResearchRun(run.id); throw new Error("Offline");
+  } }), /stopped|ownership/i);
+  assert.deepEqual(getPaper(paper.id), paper);
+});
+
+test("a cancelled run cannot publish its final reply", () => {
+  const run = beginResearchRun("Read");
+  cancelResearchRun(run.id);
+  finishResearchRun(run.id, { reply: "Late response" });
+  const thread = readResearchConversation(run.projectId);
+  assert.equal(thread.messages.length, 1);
+  assert.equal(thread.stopped, true);
+});
+
 test("agent selection automatically adds, downloads, extracts and saves without human Add/Fetch steps", async () => {
   rememberPaperCandidates([candidate]);
   const requested = [];
-  const paper = await readResearchPaper(candidate.url, { extract, download: async (url) => { requested.push(url); return new Uint8Array([1]); }, fetchPage: async () => { throw new Error("No page fetch necessary"); } });
+  const paper = await readResearchPaper(candidate.url, { extract, download: async (url) => { requested.push(url); return Buffer.from("%PDF-test"); }, fetchPage: async () => { throw new Error("No page fetch necessary"); } });
   assert.equal(listPapers().length, 1);
   assert.deepEqual(requested, [candidate.pdfUrl]);
   assert.equal(paper.source.text, sourceText);
@@ -217,7 +297,7 @@ test("after a failed direct PDF the resolver tries landing-page citation metadat
   rememberPaperCandidates([candidate]);
   const attempts = [];
   const paper = await readResearchPaper(candidate.url, { extract,
-    download: async (url) => { attempts.push(url); if (url === candidate.pdfUrl) throw new Error("404"); return new Uint8Array([1]); },
+    download: async (url) => { attempts.push(url); if (url === candidate.pdfUrl) throw new Error("404"); return Buffer.from("%PDF-test"); },
     fetchPage: async () => new Response('<meta name="citation_pdf_url" content="/open-access.pdf">'),
   });
   assert.deepEqual(attempts, [candidate.pdfUrl, "https://example.org/open-access.pdf"]);
@@ -232,7 +312,7 @@ test("unavailable full text records real failures and source/download links, and
   assert.equal(paper.access.state, "needs-pdf");
   assert.deepEqual(paper.access.links, [candidate.url, candidate.pdfUrl]);
   assert.match(paper.access.attempts[0].error, /403/);
-  const recovered = await readResearchPaper(paper.id, { extract, download: async () => new Uint8Array([1]) }, "https://example.org/open.pdf");
+  const recovered = await readResearchPaper(paper.id, { extract, download: async () => Buffer.from("%PDF-test") }, "https://example.org/open.pdf");
   assert.equal(recovered.source.label, "https://example.org/open.pdf");
   assert.equal(recovered.access, undefined);
 });
@@ -240,9 +320,9 @@ test("unavailable full text records real failures and source/download links, and
 test("cancellation and concurrent human edits cannot publish extracted text over newer state", async () => {
   const paper = addPaper(candidate);
   const controller = new AbortController();
-  await assert.rejects(readResearchPaper(paper.id, { signal: controller.signal, download: async () => new Uint8Array([1]), extract: async () => { controller.abort(); return extract(); } }));
+  await assert.rejects(readResearchPaper(paper.id, { signal: controller.signal, download: async () => Buffer.from("%PDF-test"), extract: async () => { controller.abort(); return extract(); } }));
   assert.equal(getPaper(paper.id).source, null);
-  await assert.rejects(readResearchPaper(paper.id, { download: async () => new Uint8Array([1]), extract: async () => { updatePaper(paper.id, paper.revision, { note: "Concurrent human writing" }); return extract(); } }), /changed elsewhere/);
+  await assert.rejects(readResearchPaper(paper.id, { download: async () => Buffer.from("%PDF-test"), extract: async () => { updatePaper(paper.id, paper.revision, { note: "Concurrent human writing" }); return extract(); } }), /changed elsewhere/);
   assert.equal(getPaper(paper.id).note, "Concurrent human writing");
   assert.equal(getPaper(paper.id).source, null);
 });
@@ -251,6 +331,11 @@ test("summary tool requires every real source chunk and current HEAT context, wh
   const { tools, call } = registry();
   assert.deepEqual([...tools.keys()], ["research_context", "research_search", "research_read", "research_save_summary", "research_relate"]);
   assert.ok([...tools.values()].every((tool) => tool.defaultActive === false));
+  const reading = tools.get("research_save_summary");
+  assert.match(reading.description, /not a short synopsis/);
+  assert.match(reading.parameters.properties.summary.description, /Detailed standalone walkthrough/);
+  assert.match(reading.parameters.properties.projectConnection.description, /only after explaining the paper/);
+  assert.match(tools.get("research_relate").description, /explicit full reading or detailed explanation must use research_read/);
   assert.deepEqual(ROBIN_RESEARCH_TOOL_NAMES, [...tools.keys(), "web_search"]);
   let paper = storedPaper();
   saveResearchObjective({ objective: "Compare atomic and sentence-level consistency" });

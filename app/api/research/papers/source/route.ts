@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { getPaper, PaperError, paperText, savePaperSource } from "@/extension/robin/papers-domain";
-import { PAPER_TEXT_LIMIT } from "@/extension/robin/paper-reading-domain";
+import { importResearchPdf, PAPER_TEXT_LIMIT } from "@/extension/robin/paper-reading-domain";
 import { downloadPaperPdf } from "@/extension/robin/paper-sources";
+import { storePaperPdf } from "@/extension/robin/paper-pdf-domain";
 import { guardApiRequest } from "@/lib/api-route";
 import { parseFormDataWithinLimit, parseJsonWithinLimit, RequestBodyTooLargeError } from "@/lib/bounded-form-data";
 import { extractPdfText } from "@/lib/pdf-render";
@@ -16,6 +17,13 @@ export async function POST(req: Request) {
     let id: string, revision: unknown, bytes: Uint8Array, label: string;
     if (multipart) {
       const form = await parseFormDataWithinLimit(req, 20 * 1024 * 1024 + 10_000);
+      if (!form.has("id")) {
+        const file = form.get("file");
+        if (!file || typeof file === "string") throw new PaperError("Choose a PDF under 20 MB");
+        if (file.size > 20 * 1024 * 1024) throw new PaperError("PDF must be under 20 MB", 413);
+        const paper = await importResearchPdf(new Uint8Array(await file.arrayBuffer()), file.name, paperText(form.get("projectId"), 100, true), { extract: extractPdfText, signal: req.signal });
+        return NextResponse.json({ paper }, { headers: { "Cache-Control": "private, no-store" } });
+      }
       id = paperText(form.get("id"), 100, true);
       revision = Number(form.get("revision"));
       const paper = getPaper(id);
@@ -39,7 +47,7 @@ export async function POST(req: Request) {
     }
     const extracted = await extractPdfText(bytes, PAPER_TEXT_LIMIT);
     req.signal.throwIfAborted();
-    return NextResponse.json({ paper: savePaperSource(id, revision, { ...extracted, kind: "pdf", label, loadedAt: new Date().toISOString() }) });
+    return NextResponse.json({ paper: savePaperSource(id, revision, { ...extracted, kind: "pdf", label, loadedAt: new Date().toISOString(), pdfHash: storePaperPdf(bytes) }) });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return NextResponse.json({ error: "PDF reading needs Poppler (pdftotext) on the server. You can paste text instead." }, { status: 501 });
     return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, {

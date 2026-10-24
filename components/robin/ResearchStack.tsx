@@ -264,7 +264,7 @@ export function ProjectResources() {
 /** The reference page edits the HEAT project's notes; the workspace holds every other project. */
 const HEAT_NOTES = "/api/research/objective?project=heat";
 const LEGACY_WEEKLY_OBJECTIVE_KEY = "pi-research-weekly-objective";
-type ResearchSaveState = "loading" | "saving" | "saved" | "error";
+type ResearchSaveState = "loading" | "saving" | "saved" | "error" | "conflict";
 
 export function ResearchNotebook({ onFlushReady, onAppendReady, onObjectiveChange, rail = false }: {
   onFlushReady?: (flush: (() => Promise<void>) | null) => void;
@@ -284,6 +284,7 @@ export function ResearchNotebook({ onFlushReady, onAppendReady, onObjectiveChang
   const noteRef = useRef("");
   const savedObjectiveRef = useRef("");
   const savedNoteRef = useRef("");
+  const revision = useRef(""); const conflicted = useRef(false);
   const saveInFlight = useRef<Promise<void> | null>(null);
   const migratingLegacyValue = useRef(false);
   const mounted = useRef(true);
@@ -301,9 +302,10 @@ export function ResearchNotebook({ onFlushReady, onAppendReady, onObjectiveChang
           objective?: unknown;
           note?: unknown;
           updatedAt?: unknown;
+          revision?: unknown;
           error?: string;
         } | null;
-        if (!response.ok || typeof body?.objective !== "string" || typeof body.note !== "string") {
+        if (!response.ok || typeof body?.objective !== "string" || typeof body.note !== "string" || typeof body.revision !== "string") {
           throw new Error(body?.error ?? `Request failed (${response.status})`);
         }
         if (cancelled) return;
@@ -321,6 +323,7 @@ export function ResearchNotebook({ onFlushReady, onAppendReady, onObjectiveChang
           // Browser storage is only consulted once to migrate the old value.
         }
 
+        revision.current = body.revision;
         objectiveRef.current = value;
         noteRef.current = body.note;
         savedObjectiveRef.current = body.objective;
@@ -339,7 +342,7 @@ export function ResearchNotebook({ onFlushReady, onAppendReady, onObjectiveChang
   // Serialize writes and keep draining until the server has the newest edit.
   // This avoids a slow older request overwriting a newer value.
   const saveLatest = useCallback(async () => {
-    if (!loaded || saveInFlight.current || (savedObjectiveRef.current === objectiveRef.current && savedNoteRef.current === noteRef.current)) return;
+    if (!loaded || conflicted.current || saveInFlight.current || (savedObjectiveRef.current === objectiveRef.current && savedNoteRef.current === noteRef.current)) return;
 
     const save = (async () => {
       try {
@@ -350,10 +353,14 @@ export function ResearchNotebook({ onFlushReady, onAppendReady, onObjectiveChang
           const response = await fetch(HEAT_NOTES, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ objective: nextObjective, note: nextNote }),
+            body: JSON.stringify({ revision: revision.current,
+              ...(nextObjective !== savedObjectiveRef.current ? { objective: nextObjective } : {}),
+              ...(nextNote !== savedNoteRef.current ? { note: nextNote } : {}) }),
           });
-          const body = await response.json().catch(() => null) as { error?: string } | null;
-          if (!response.ok) throw new Error(body?.error ?? `Request failed (${response.status})`);
+          const body = await response.json().catch(() => null) as { revision?: unknown; error?: string } | null;
+          if (response.status === 409) conflicted.current = true;
+          if (!response.ok || typeof body?.revision !== "string") throw new Error(body?.error ?? `Request failed (${response.status})`);
+          revision.current = body.revision;
           savedObjectiveRef.current = nextObjective;
           savedNoteRef.current = nextNote;
           if (migratingLegacyValue.current) {
@@ -367,7 +374,7 @@ export function ResearchNotebook({ onFlushReady, onAppendReady, onObjectiveChang
         }
         if (mounted.current) setSaveState("saved");
       } catch {
-        if (mounted.current) setSaveState("error");
+        if (mounted.current) setSaveState(conflicted.current ? "conflict" : "error");
       } finally {
         saveInFlight.current = null;
       }
@@ -377,7 +384,7 @@ export function ResearchNotebook({ onFlushReady, onAppendReady, onObjectiveChang
   }, [loaded]);
 
   useEffect(() => {
-    if (!loaded || (objective === savedObjectiveRef.current && note === savedNoteRef.current)) return;
+    if (!loaded || conflicted.current || (objective === savedObjectiveRef.current && note === savedNoteRef.current)) return;
     setSaveState("saving");
     const timer = window.setTimeout(() => { void saveLatest(); }, 500);
     return () => window.clearTimeout(timer);
@@ -389,7 +396,7 @@ export function ResearchNotebook({ onFlushReady, onAppendReady, onObjectiveChang
       await appendInFlight.current;
       await saveInFlight.current;
       await saveLatest();
-      if (savedObjectiveRef.current !== objectiveRef.current || savedNoteRef.current !== noteRef.current) throw new Error(t("research.objective.error"));
+      if (conflicted.current || savedObjectiveRef.current !== objectiveRef.current || savedNoteRef.current !== noteRef.current) throw new Error(t("research.objective.error"));
     });
     return () => onFlushReady?.(null);
   }, [loaded, onFlushReady, saveLatest, t]);
@@ -402,11 +409,12 @@ export function ResearchNotebook({ onFlushReady, onAppendReady, onObjectiveChang
       const append = (async () => {
         await saveInFlight.current;
         await saveLatest();
-        if (savedObjectiveRef.current !== objectiveRef.current || savedNoteRef.current !== noteRef.current) throw new Error(t("research.objective.error"));
+        if (conflicted.current || savedObjectiveRef.current !== objectiveRef.current || savedNoteRef.current !== noteRef.current) throw new Error(t("research.objective.error"));
         const response = await fetch(HEAT_NOTES, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
         const body = await response.json();
         if (!response.ok) throw new Error(response.status === 413 ? t("papers.projectNoteLimit") : body.error ?? t("research.objective.error"));
-        if (typeof body.objective !== "string" || typeof body.note !== "string") throw new Error(t("research.objective.error"));
+        if (typeof body.objective !== "string" || typeof body.note !== "string" || typeof body.revision !== "string") throw new Error(t("research.objective.error"));
+        revision.current = body.revision;
         objectiveRef.current = savedObjectiveRef.current = body.objective;
         noteRef.current = savedNoteRef.current = body.note;
         setObjective(body.objective); setNote(body.note); setSaveState("saved");
@@ -423,9 +431,12 @@ export function ResearchNotebook({ onFlushReady, onAppendReady, onObjectiveChang
       <header className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 id="research-notebook-title" style={{ fontSize: rail ? 19 : 22, fontFamily: "var(--font-serif)" }}>{t("research.notebook.title")}</h2>
         <span aria-live="polite" style={{ fontSize: 12, color: saveState === "error" ? "var(--danger)" : "var(--text-muted)" }}>
-          {t(`research.objective.${saveState}`)}
+          {saveState === "conflict" ? t("rw.save.conflict") : t(`research.objective.${saveState}`)}
         </span>
       </header>
+      {saveState === "conflict" && <p role="alert">
+        {t("rw.notesConflict")} <button type="button" className="ui-action px-2 py-2" onClick={() => { if (window.confirm(t("rw.notesReload"))) window.location.reload(); }}>{t("papers.retry")}</button>
+      </p>}
       <div className={`grid min-w-0 grid-cols-1 gap-5 ${rail ? "" : "min-[900px]:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]"}`}>
         <div className="flex min-w-0 flex-col gap-2">
           <label htmlFor="research-weekly-objective" style={{ fontSize: 14, color: "var(--text)" }}>

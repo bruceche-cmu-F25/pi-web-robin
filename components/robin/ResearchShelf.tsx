@@ -1,12 +1,13 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { MarkdownBody } from "@/components/MarkdownBody";
+import { ResearchNotebook } from "./ResearchNotebook";
 import { useI18n } from "@/hooks/useI18n";
 import type { PaperSummary } from "./research-client";
 import type { ResearchReading } from "@/extension/robin/research";
 import { downloadMarkdown, researchJson, researchRequest, uploadPaperPdf } from "./research-client";
 import type { ProjectNotes } from "./useProjectNotes";
+import { ResearchMark } from "./ResearchDesk";
 import s from "./ResearchWorkspace.module.css";
 
 export function paperState(paper: PaperSummary): "needsPdf" | "ready" | "abstract" | "unread" {
@@ -47,19 +48,26 @@ export function NeedsPdf({ papers, onUploaded, onOpen }: { papers: PaperSummary[
   </section>;
 }
 
-export function ReadingList({ papers, loading, onOpen }: { papers: PaperSummary[]; loading: boolean; onOpen: (id: string) => void }) {
+export function ReadingList({ papers, loading, onOpen, currentPaperId }: { papers: PaperSummary[]; loading: boolean; onOpen: (id: string) => void; currentPaperId?: string }) {
   const { t } = useI18n();
   const [query, setQuery] = useState("");
+  const [status, setStatus] = useState("all");
   const shown = papers.filter((paper) => !paper.needsPdf)
+    .filter((paper) => status === "all" || paper.status === status)
     .filter((paper) => `${paper.title} ${paper.authors.join(" ")} ${paper.tags}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   return <section id="research-papers" className={s.marginSection} aria-labelledby="research-papers-title">
-    <h2 id="research-papers-title" className={s.marginTitle}>{t("rw.papers")} <span>{papers.length}</span></h2>
-    {papers.length > 6 && <input className={s.filter} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("rw.filter")} aria-label={t("rw.filter")} />}
+    <h3 id="research-papers-title" className={s.marginTitle}>{t("rw.paper.status")} <span>{shown.length}</span></h3>
+    <div className={s.readingFilters} role="group" aria-label={t("rw.paper.status")}>
+      {["all", "queued", "reading", "read"].map((item) => <button type="button" key={item} aria-pressed={status === item} onClick={() => setStatus(item)}>
+        {t(item === "all" ? "rw.library.all" : `rw.paper.status.${item}`)}
+      </button>)}
+    </div>
+    {papers.length > 0 && <input className={s.filter} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("rw.filter")} aria-label={t("rw.filter")} />}
     <ul className={s.paperList}>
       {shown.map((paper) => { const state = paperState(paper); return <li key={paper.id}>
-        <button type="button" className={s.paperRow} onClick={() => onOpen(paper.id)}>
+        <button type="button" className={s.paperRow} aria-current={currentPaperId === paper.id ? "true" : undefined} onClick={() => onOpen(paper.id)}>
           <span className={s.paperTitle}>{paper.title}</span>
-          <span className={s.paperMeta}><span className={s.stateDot} data-state={state} aria-hidden="true" />{t(`rw.state.${state}`)}{paper.year ? ` · ${paper.year}` : ""}{paper.archived ? ` · ${t("rw.inObsidian")}` : ""}</span>
+          <span className={s.paperMeta}><span className={s.readingStatus} data-status={paper.status}>{t(`rw.paper.status.${paper.status}`)}</span><span>{t(`rw.state.${state}`)}{paper.year ? ` · ${paper.year}` : ""}{paper.archived ? ` · ${t("rw.inObsidian")}` : ""}</span></span>
         </button>
       </li>; })}
     </ul>
@@ -67,21 +75,38 @@ export function ReadingList({ papers, loading, onOpen }: { papers: PaperSummary[
   </section>;
 }
 
-export function Notebook({ notes, projectName }: { notes: ProjectNotes; projectName: string }) {
+export function Notebook({ notes, projectName, planning = false }: { notes: ProjectNotes; projectName: string; planning?: boolean }) {
   const { t } = useI18n();
   const [editing, setEditing] = useState(false);
-  return <section id="research-notebook" className={s.marginSection} aria-labelledby="research-notebook-title">
-    <h2 id="research-notebook-title" className={s.marginTitle}>{t("rw.notebook")}
+  return <section id="research-notebook" className={`${s.marginSection} ${planning ? s.notebookPanel : ""}`} aria-labelledby="research-notebook-title">
+    <h2 id="research-notebook-title" className={planning ? s.sectionTitle : s.marginTitle}>{planning && <ResearchMark kind="note" />}{t(planning ? "rw.plan.title" : "rw.notebook")}
       <span aria-live="polite" data-state={notes.saveState}>{notes.saveState === "saved" ? "" : t(`rw.save.${notes.saveState}`)}</span></h2>
+    {notes.saveState === "conflict" && <p role="alert" className={s.error}>
+      {t("rw.notesConflict")} <button type="button" className={s.textButton} onClick={() => { if (window.confirm(t("rw.notesReload"))) window.location.reload(); }}>{t("papers.retry")}</button>
+    </p>}
+    {planning && <p className={s.marginHint}>{t("rw.plan.hint")}</p>}
     <div className={s.marginActions}>
       <button type="button" className={s.textButton} disabled={!notes.loaded || notes.capturing} onClick={() => { if (editing) notes.saveSoon(); setEditing(!editing); }}>{t(editing ? "rw.done" : "rw.edit")}</button>
+      {planning && <button type="button" className={s.textButton} disabled={!notes.loaded || notes.capturing || notes.note.length + t("rw.plan.template").length + 2 > 100_000}
+        onClick={() => { notes.setNote(`${t("rw.plan.template")}\n\n${notes.note}`); setEditing(true); }}>{t("rw.plan.addTemplate")}</button>}
       <button type="button" className={s.textButton} disabled={!notes.loaded || (!notes.note.trim() && !notes.objective.trim())}
         onClick={() => downloadMarkdown(`${projectName} notes`, `# ${projectName}\n\n## ${t("rw.focus")}\n\n${notes.objective}\n\n## ${t("rw.notebook")}\n\n${notes.note}\n`)}>{t("rw.download")}</button>
     </div>
-    {editing ? <textarea className={s.noteEditor} aria-label={t("rw.notebook")} value={notes.note} maxLength={100_000} autoFocus
+    {editing ? <textarea className={s.noteEditor} aria-label={t("rw.notebook")} value={notes.note} disabled={notes.capturing} maxLength={100_000} autoFocus
       onChange={(event) => notes.setNote(event.target.value)} onBlur={notes.saveSoon} placeholder={t("rw.notebookPlaceholder")} />
-      : notes.note.trim() ? <div className={`${s.prose} ${s.noteView}`}><MarkdownBody>{notes.note}</MarkdownBody></div>
+      : notes.note.trim() ? <ResearchNotebook markdown={notes.note} />
         : <p className={s.marginHint}>{t("rw.notebookEmpty")}</p>}
+    <details className={s.discoveryDrawer}>
+      <summary>{t("rw.plan.archiveSettings")}</summary>
+      <label className={s.field}>{t("rw.capture.destination")}
+        <select value={notes.captureState.vaultId} disabled={!notes.loaded || notes.capturing} onChange={(event) => notes.setVaultId(event.target.value)}>
+          <option value="">{t("papers.chooseVault")}</option>
+          {notes.captureState.vaults.map((vault) => <option key={vault.id} value={vault.id}>{vault.name} — {vault.path}</option>)}
+        </select>
+      </label>
+      <p className={s.marginHint}>{t(notes.captureState.vaults.length ? "rw.capture.hint" : "papers.noVault")}</p>
+    </details>
+    {notes.captureState.vaultError && <p role="alert" className={s.error}>{notes.captureState.vaultError}</p>}
   </section>;
 }
 

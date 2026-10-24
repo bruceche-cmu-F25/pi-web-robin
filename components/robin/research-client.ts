@@ -1,11 +1,11 @@
 import type { Paper } from "@/extension/robin/papers-domain";
-import type { ResearchProject } from "@/extension/robin/research-domain";
+import type { researchProjectBoard } from "@/extension/robin/research-domain";
 
 export type PaperSummary = Pick<Paper, "id" | "url" | "title" | "authors" | "year" | "status" | "tags" | "updatedAt"> & {
   archived: boolean; needsPdf?: boolean; hasAnalysis?: boolean; coverage?: "pdf" | "excerpt" | "abstract" | "none";
   projectIds?: string[]; downloadLinks?: string[];
 };
-export type ProjectSummary = Omit<ResearchProject, "note"> & { hasNotes: boolean; papers: number; needsPdf: number; read: number; messages: number };
+export type ProjectSummary = ReturnType<typeof researchProjectBoard>["projects"][number];
 export function paperSummary(paper: Paper): PaperSummary {
   return { id: paper.id, url: paper.url, title: paper.title, authors: paper.authors, year: paper.year, status: paper.status, tags: paper.tags, updatedAt: paper.updatedAt,
     archived: paper.exports.some((item) => item.archive), needsPdf: !!paper.access, hasAnalysis: !!paper.analysis && !paper.analysis.outdated,
@@ -25,6 +25,12 @@ export async function researchRequest<T>(url: string, init?: RequestInit): Promi
 export function researchJson(method: string, value: unknown, signal?: AbortSignal): RequestInit {
   return { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(value), signal };
 }
+/** Import a local PDF as a complete library entry; no public link or existing paper needed. */
+export async function importPaperPdf(projectId: string, file: File, signal?: AbortSignal): Promise<Paper> {
+  if (file.size > 20 * 1024 * 1024) throw new Error("PDF must be under 20 MB");
+  const form = new FormData(); form.set("projectId", projectId); form.set("file", file);
+  return (await researchRequest<{ paper: Paper }>("/api/research/papers/source", { method: "POST", body: form, signal })).paper;
+}
 /** Upload a PDF the agent could not obtain; the server extracts and stores its text. */
 export async function uploadPaperPdf(paper: { id: string }, file: File, signal?: AbortSignal): Promise<Paper> {
   if (file.size > 20 * 1024 * 1024) throw new Error("PDF must be under 20 MB");
@@ -34,9 +40,10 @@ export async function uploadPaperPdf(paper: { id: string }, file: File, signal?:
 }
 /** The research home's id: papers read and questions asked outside any project. */
 export const GENERAL = "general";
-export function researchHref(projectId: string, paperId?: string | null): string {
+export function researchHref(projectId: string, paperId?: string | null, conversationId?: string | null): string {
   const params = new URLSearchParams(projectId === GENERAL ? {} : { project: projectId });
   if (paperId) params.set("paper", paperId);
+  if (conversationId) params.set("conversation", conversationId);
   return params.size ? `/research?${params}` : "/research";
 }
 export function downloadMarkdown(name: string, text: string): void {
