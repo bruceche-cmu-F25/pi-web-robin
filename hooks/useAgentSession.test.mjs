@@ -254,7 +254,7 @@ test("stale fresh-session completion cannot replace the active composer", () => 
   );
 });
 
-test("abandoned fresh-session drafts are cleared and cannot be recreated by late rejection", () => {
+test("leaving a fresh composer keeps its draft; late rejection cannot recreate an abandoned submission", () => {
   const restoreSource = source.slice(
     source.indexOf("  const restoreSubmission = useCallback"),
     source.indexOf("  const sessionStats = useMemo"),
@@ -265,8 +265,7 @@ test("abandoned fresh-session drafts are cleared and cannot be recreated by late
   );
 
   assert.match(restoreSource, /!sessionHookMountedRef\.current[\s\S]*?!newSessionPromotedRef\.current/);
-  assert.match(mountSource, /const abandonedDraftKey = isNew \? newSessionDraftKey : null/);
-  assert.match(mountSource, /clearDraft\(abandonedDraftKey\)/);
+  assert.doesNotMatch(mountSource, /clearDraft\(/);
 });
 
 test("streaming submissions cannot be stranded in an idle direct queue", () => {

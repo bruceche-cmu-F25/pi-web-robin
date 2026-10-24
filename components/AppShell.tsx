@@ -42,7 +42,7 @@ import { setupPushSubscription } from "@/lib/push-client";
 import { getInitialNavigation, linkedSessionId, withTabOpen } from "@/lib/initial-navigation";
 import { clearTabOpenSession, getTabOpen, setTabOpenNewSession, setTabOpenSession } from "@/lib/tab-session";
 import { mergeCatalogRow } from "./session-catalog-helpers";
-import { getDraft, rekeyDraft } from "@/lib/draft-store";
+import { clearDraft, getDraft, rekeyDraft } from "@/lib/draft-store";
 import {
   contextForCwd,
   type NewSessionContext,
@@ -701,8 +701,9 @@ export function AppShell() {
       setTabOpenSession(selectedSession.id);
       return;
     }
-    if (newSessionCwd) setTabOpenNewSession(newSessionCwd);
-  }, [newSessionCwd, selectedSession]);
+    const cwd = newSessionCwd ?? activeCwd;
+    if (cwd) setTabOpenNewSession(cwd, newSessionDraftId);
+  }, [activeCwd, newSessionCwd, newSessionDraftId, selectedSession]);
 
   useEffect(() => {
     const requestedCwd = initialNavigation.requestedCwd;
@@ -727,7 +728,10 @@ export function AppShell() {
         // The sidebar will notify us when it adopts this cwd. Avoid remounting
         // the just-created empty chat during that initial synchronization.
         suppressCwdBumpRef.current = true;
-        const draftId = `initial:${requestedCwd}`;
+        const remembered = getTabOpen();
+        const draftId = remembered?.kind === "new" && remembered.cwd === data.cwd
+          ? remembered.draftId ?? `initial:${requestedCwd}`
+          : `initial:${requestedCwd}`;
         setNewSessionDraftId(draftId);
         activeNewSessionDraftKeyRef.current = `new:${draftId}:${data.cwd}`;
         setNewSessionCwd(data.cwd);
@@ -947,6 +951,9 @@ export function AppShell() {
       setCarriedNewSessionChoices(newSessionChoicesRef.current);
     } else if (activeDraftKey && activeDraftCwd && activeDraftCwd !== cwd) {
       rekeyDraft(activeDraftKey, parkedNewSessionDraftKey(activeDraftCwd));
+    } else if (activeDraftKey && activeDraftKey !== draftKey) {
+      // Explicit New abandons the old composer; leaving the page does not.
+      clearDraft(activeDraftKey);
     }
     // Adopt the target project before the sidebar reports its cwd, as an
     // explicit session pick does. Without a key (Ctrl+Alt+N) the current cwd

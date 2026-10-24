@@ -21,7 +21,7 @@ import {
   setSessionViewSnapshot,
   snapshotCoversLoadedEntries,
 } from "@/lib/session-view-cache";
-import { clearDraft, getDraft, rekeyDraft, restoreDraftSubmission } from "@/lib/draft-store";
+import { getDraft, rekeyDraft, restoreDraftSubmission } from "@/lib/draft-store";
 import { getPreferredToolPreset, setPreferredToolPreset } from "@/lib/tool-preset-preference";
 import { CONFIGURED_TOOL_PRESET, getPresetFromToolNames, getToolNamesForPreset, type ToolEntry, type ToolPreset } from "@/lib/tool-presets";
 import type { SessionStatsInfo } from "@/lib/pi-types";
@@ -2606,14 +2606,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
     return () => {
       sessionHookMountedRef.current = false;
-      const abandonedDraftKey = isNew ? newSessionDraftKey : null;
-      if (abandonedDraftKey) {
-        queueMicrotask(() => {
-          if (!sessionHookMountedRef.current && !newSessionPromotedRef.current) {
-            clearDraft(abandonedDraftKey);
-          }
-        });
-      }
+      // Unmount also means navigation to another page. Only an explicit New
+      // or a submission clears the composer draft, not leaving this view.
       // Persist the settled view of the outgoing session so switching back can
       // restore it instantly. Only when the cached window still covers every
       // entry the UI has loaded (paged-in history included).
