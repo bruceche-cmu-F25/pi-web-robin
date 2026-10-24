@@ -5,7 +5,9 @@ import test from "node:test";
 const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
 
 test("Daily keeps Learning after Jobs in document order at every layout width", () => {
-  assert.match(read("./Dashboard.tsx"), /<JobsPanel \/>\s*<LearningPanel \/>\s*<LinksPanel\b[^>]*\/>/);
+  const dashboard = read("./Dashboard.tsx");
+  assert.match(dashboard, /<JobsPanel \/>\s*<LearningPanel \/>/);
+  assert.match(dashboard, /<LearningPanel \/>\s*<nav id="dashboard-tools"[\s\S]*?<\/nav>\s*<LinksPanel\b[^>]*\/>/);
 });
 
 test("the hub adds course history without making the existing curriculum trackable", () => {

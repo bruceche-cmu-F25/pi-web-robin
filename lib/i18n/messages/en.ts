@@ -3,6 +3,7 @@ import { plannerEnglish } from "./planner.ts";
 import { researchEnglish } from "./research-workspace.ts";
 import { recordingsEnglish } from "./recordings.ts";
 import { voiceEnglish } from "./voice.ts";
+import { toolboxEnglish } from "./toolbox.ts";
 
 /** Pi Web 内置英语语言包。 */
 export const enLocale: LocalePlugin = {
@@ -12,6 +13,7 @@ export const enLocale: LocalePlugin = {
     ...researchEnglish,
     ...recordingsEnglish,
     ...voiceEnglish,
+    ...toolboxEnglish,
     ...plannerEnglish,
     "focus.title": "Focus",
     "focus.open": "Open focus timer",
@@ -1435,6 +1437,8 @@ export const enLocale: LocalePlugin = {
     "robin.dashboard.apply": "Apply",
     "robin.dashboard.practice": "Practice",
     "robin.dashboard.links": "Links",
+    "robin.dashboard.tools": "Tools",
+    "robin.dashboard.backToTools": "Back to dashboard tools",
 
     "robin.queue.mode": "Plan mode",
     "robin.queue.upNext": "Also in your queue",

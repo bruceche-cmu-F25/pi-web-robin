@@ -208,6 +208,7 @@ export function RobinMargin({ drawer, onClose, onNavigate, chatContext }: {
       tone: "clay",
       status: { count: dashboardActions },
       exact: true,
+      covers: ["/recordings", "/tools"],
     },
     {
       href: withChatContext("/dashboard/gmail"),

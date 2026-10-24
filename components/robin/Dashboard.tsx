@@ -22,6 +22,11 @@ const SHORTCUTS = [
   { href: "#dashboard-links", key: "robin.dashboard.links", icon: "m10 13 4-4m-6 6-2 2a3 3 0 0 1-4-4l4-4a3 3 0 0 1 4 0m4 6a3 3 0 0 0 4 0l4-4a3 3 0 0 0-4-4l-2 2" },
 ];
 
+// Small utilities belong here, not in the global workspace navigation.
+const TOOLS = [
+  { href: "/tools", key: "toolbox.title", icon: "M4 7h16v14H4zM8 7V3h8v4M4 12h16M10 10v4h4v-4" },
+];
+
 /**
  * Rendered on the client so the heading follows the viewer's clock. The panels
  * still bucket todos against the server's local date, which is where `due` was
@@ -144,6 +149,15 @@ export function Dashboard() {
             <AttentionPanel />
             <JobsPanel />
             <LearningPanel />
+            <nav id="dashboard-tools" aria-labelledby="dashboard-tools-title" className={styles.tools}>
+              <h2 id="dashboard-tools-title" className="pi-section-title">{t("robin.dashboard.tools")}</h2>
+              {TOOLS.map(({ href, key, icon }) => (
+                <a key={href} href={href} className={`ui-action ${styles.shortcut}`}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={icon} /></svg>
+                  {t(key)}
+                </a>
+              ))}
+            </nav>
             <LinksPanel placement={desktop ? "other" : "all"} />
           </div>
           <aside className={styles.rail} aria-label={t("robin.todos.title")}>

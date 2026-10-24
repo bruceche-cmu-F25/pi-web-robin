@@ -3,6 +3,7 @@ import { plannerChinese } from "./planner.ts";
 import { researchChinese } from "./research-workspace.ts";
 import { recordingsChinese } from "./recordings.ts";
 import { voiceChinese } from "./voice.ts";
+import { toolboxChinese } from "./toolbox.ts";
 
 /** Pi Web 内置简体中文语言包。 */
 export const zhCNLocale: LocalePlugin = {
@@ -12,6 +13,7 @@ export const zhCNLocale: LocalePlugin = {
     ...researchChinese,
     ...recordingsChinese,
     ...voiceChinese,
+    ...toolboxChinese,
     ...plannerChinese,
     "focus.title": "专注",
     "focus.open": "打开专注计时器",
@@ -1437,6 +1439,8 @@ export const zhCNLocale: LocalePlugin = {
     "robin.dashboard.apply": "投递",
     "robin.dashboard.practice": "练习",
     "robin.dashboard.links": "链接",
+    "robin.dashboard.tools": "工具",
+    "robin.dashboard.backToTools": "返回仪表盘工具",
 
     "robin.queue.mode": "Plan mode",
     "robin.queue.upNext": "队列里的其他事",

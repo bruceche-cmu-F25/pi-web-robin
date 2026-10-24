@@ -9,6 +9,9 @@
   margin-inline: auto;
 }
 
+.tools { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; scroll-margin-top: var(--dashboard-sticky-top, 80px); }
+.tools h2 { margin: 0; }
+
 .shortcuts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; width: min(100%, 460px); }
 .shortcut { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; min-height: 44px; padding: 6px 10px; border: 1px solid var(--border); background: var(--bg-panel); color: var(--text-muted); font: 13px/1.2 var(--font-mono); text-transform: none; }
 .shortcut svg { flex-shrink: 0; color: var(--accent); }
@@ -31,6 +34,7 @@
 .main > :global(#dashboard-attention) { order: 4; }
 .main > :global(#dashboard-jobs) { order: 5; }
 .main > :global(#fullstack-open) { order: 6; }
+.main > :global(#dashboard-tools) { order: 7; }
 .main > :global(#dashboard-links) { order: 8; }
 
 @media (min-width: 960px) {
