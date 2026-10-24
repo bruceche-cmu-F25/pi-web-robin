@@ -1,4 +1,5 @@
 import type { LocalePlugin } from "../types";
+import { aiWeeklyChinese } from "./ai-weekly.ts";
 import { obsidianChinese } from "./obsidian.ts";
 import { plannerChinese } from "./planner.ts";
 import { researchChinese } from "./research-workspace.ts";
@@ -11,6 +12,7 @@ export const zhCNLocale: LocalePlugin = {
   id: "zh-CN",
   label: "简体中文",
   messages: {
+    ...aiWeeklyChinese,
     ...obsidianChinese,
     ...researchChinese,
     ...recordingsChinese,
@@ -492,7 +494,7 @@ export const zhCNLocale: LocalePlugin = {
     "robin.nav.utilityNavigation": "辅助导航",
     "robin.nav.actionCount": "{count} 项需要处理",
     "robin.nav.newContent": "有新内容",
-    "robin.nav.gmail": "邮箱",
+    "robin.nav.gmail": "新信息",
     "robin.nav.learn": "学习中心",
     "robin.nav.podcasts": "播客",
     "robin.nav.research": "研究",

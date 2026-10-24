@@ -3,6 +3,7 @@ import { closeAllAgentEventStreams } from "@/lib/agent-event-stream";
 import { startRobinSessionCleanup } from "@/lib/robin-session-lifecycle";
 import { startJarvisOutbox } from "@/lib/jarvis-outbox";
 import { startJarvisDaily } from "@/lib/jarvis-daily";
+import { startWeeklyScheduler } from "@/lib/ai-weekly-runner";
 
 export function registerNodeInstrumentation(): void {
   // The pi CLI applies settings' `httpIdleTimeoutMs` to the same undici
@@ -13,6 +14,7 @@ export function registerNodeInstrumentation(): void {
   startRobinSessionCleanup();
   startJarvisOutbox();
   startJarvisDaily();
+  startWeeklyScheduler();
 
   // In production Next 16 answers SIGINT/SIGTERM with server.close() and waits
   // for every connection to end, without a timeout. SSE streams only end when

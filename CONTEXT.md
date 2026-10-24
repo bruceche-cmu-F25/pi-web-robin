@@ -23,6 +23,18 @@ _Avoid_: Job scan, directory sweep, provider lifecycle
 **Todo**:
 A personal task stored by Robin, including its title, due date, completion state, and display color. Todo behavior belongs to the Todo domain module; HTTP and Pi tools are adapters.
 
+**Incoming Information**:
+The shared Email and AI weekly entrance at `/dashboard/gmail`. Email triage and weekly reading are separate views of one destination, not separate global navigation tabs.
+_Avoid_: A second inbox, news feed
+
+**Weekly Edition**:
+An immutable AI briefing covering the previous calendar week, with seven dated Reading Slots: four practical developer events and three wider-world events. Missing reliable evidence leaves a slot empty rather than adding filler. See `docs/ai-weekly.md`.
+_Avoid_: Seven predictions, seven articles
+
+**Reading Slot**:
+One day assigned to at most one sourced event in a Weekly Edition. Reading status is explicitly set by the user; an unread slot is not an overdue Todo.
+_Avoid_: Task, deadline, notification
+
 **Saved Link**:
 A bookmarked URL stored by Robin with its resolved title, group, and cached icon. Saved Link behavior belongs to the Link domain module; HTTP and Pi tools are adapters.
 

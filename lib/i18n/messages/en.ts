@@ -1,4 +1,5 @@
 import type { LocalePlugin } from "../types";
+import { aiWeeklyEnglish } from "./ai-weekly.ts";
 import { obsidianEnglish } from "./obsidian.ts";
 import { plannerEnglish } from "./planner.ts";
 import { researchEnglish } from "./research-workspace.ts";
@@ -11,6 +12,7 @@ export const enLocale: LocalePlugin = {
   id: "en",
   label: "English",
   messages: {
+    ...aiWeeklyEnglish,
     ...researchEnglish,
     ...obsidianEnglish,
     ...recordingsEnglish,
@@ -490,7 +492,7 @@ export const enLocale: LocalePlugin = {
     "robin.nav.utilityNavigation": "Utility navigation",
     "robin.nav.actionCount": "Needs attention: {count}",
     "robin.nav.newContent": "New content",
-    "robin.nav.gmail": "Email",
+    "robin.nav.gmail": "Incoming",
     "robin.nav.learn": "Learning Hub",
     "robin.nav.podcasts": "Podcasts",
     "robin.nav.research": "Research",
