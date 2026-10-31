@@ -48,24 +48,19 @@ try {
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/dashboard");
-  const tools = page.getByRole("navigation", { name: "Tools", exact: true });
-  await tools.getByRole("link", { name: "Local toolbox", exact: true }).waitFor();
-  assert.equal(await tools.getByRole("link").count(), 1, "all utilities share the toolbox entry");
+  const toolboxEntry = page.locator('.robin-dashboard-shortcuts a[href="/tools"]');
+  await toolboxEntry.waitFor();
+  assert.equal(await toolboxEntry.count(), 1, "all utilities share the toolbox shortcut");
   assert.equal(await page.locator('.robin-nav-main a[href^="/recordings"]').count(), 0, "utilities do not get a global tab");
-  assert.equal(await page.locator('.robin-dashboard-shortcuts a').count(), 4, "the original shortcuts stay unchanged");
+  assert.equal(await page.locator('.robin-dashboard-shortcuts a').count(), 5);
   for (const width of [375, 1440]) {
     await page.setViewportSize({ width, height: 1100 });
-    const entry = tools.getByRole("link", { name: "Local toolbox", exact: true });
-    await entry.scrollIntoViewIfNeeded();
-    assert.ok((await entry.boundingBox()).height >= 44);
-    assert.ok(await tools.evaluate((el) => {
-      const links = document.getElementById("dashboard-links");
-      return el.nextElementSibling === links && links.getBoundingClientRect().top >= el.getBoundingClientRect().bottom;
-    }), `Tools sits directly above Links at ${width}px`);
+    await toolboxEntry.scrollIntoViewIfNeeded();
+    assert.ok((await toolboxEntry.boundingBox()).height >= 44);
     assert.ok(await page.locator('.robin-dashboard').evaluate((el) => el.scrollWidth <= el.clientWidth + 1));
     if (process.env.E2E_SCREENSHOT_DIR) await page.screenshot({ path: `${process.env.E2E_SCREENSHOT_DIR}/dashboard-tools-${width}.png` });
   }
-  await tools.getByRole("link", { name: "Local toolbox", exact: true }).click();
+  await toolboxEntry.click();
   await page.getByRole("heading", { name: "Local toolbox", exact: true }).waitFor();
   await page.getByRole("navigation", { name: "Choose a tool" }).getByRole("link", { name: "Speech to text", exact: true }).click();
   await page.getByRole("heading", { name: "Recordings", exact: true }).waitFor();
@@ -205,11 +200,20 @@ try {
   await page.reload();
   await page.getByRole("heading", { name: "录音转写", exact: true }).waitFor();
   for (const theme of ["dark", "light"]) {
-    await page.evaluate((value) => document.documentElement.setAttribute("data-theme", value), theme);
+    await page.evaluate((value) => { document.documentElement.setAttribute("data-theme", value); document.documentElement.classList.toggle("dark", value === "dark"); }, theme);
     for (const width of [320, 375, 768, 1440]) {
       await page.setViewportSize({ width, height: 1000 });
-      await page.waitForTimeout(150);
+      await page.waitForTimeout(400); // Let the theme and button color transition settle.
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${theme} ${width} overflow`);
+      assert.ok(await page.locator("main").evaluate((el) => el.scrollWidth <= el.clientWidth + 1), `${theme} ${width} workspace overflow`);
+      const cards = page.locator('section[aria-labelledby="record-capture"], section[aria-labelledby="record-transcript"], #recording-local-setup');
+      assert.equal(await cards.count(), 3);
+      assert.deepEqual(await cards.evaluateAll((nodes) => nodes.map((el) => getComputedStyle(el).borderTopLeftRadius)), Array(3).fill("16px"));
+      assert.ok(await page.locator("main input, main textarea").evaluateAll((nodes) => nodes.every((el) => getComputedStyle(el).borderTopLeftRadius === "8px" && el.getBoundingClientRect().height >= 44)));
+      const primaryStyle = await page.locator('button[aria-label="开始录音"]').evaluate((el) => {
+        const style = getComputedStyle(el); return { radius: style.borderTopLeftRadius, background: style.backgroundColor, color: style.color };
+      });
+      assert.deepEqual(primaryStyle, { radius: "8px", background: theme === "dark" ? "rgb(251, 146, 60)" : "rgb(194, 65, 12)", color: theme === "dark" ? "rgb(15, 23, 42)" : "rgb(255, 255, 255)" });
       if (process.env.E2E_SCREENSHOT_DIR && width === 375) await page.screenshot({ path: `${process.env.E2E_SCREENSHOT_DIR}/recordings-${theme}-mobile.png` });
     }
   }
@@ -219,9 +223,9 @@ try {
   assert.equal(records.length, 0);
   await page.getByRole("link", { name: /返回工具箱/ }).click();
   await page.getByRole("link", { name: "语音转文字", exact: true }).waitFor();
-  await page.getByRole("link", { name: /返回仪表盘工具/ }).click();
+  await page.locator('main a[href="/dashboard"]').click();
   await page.setViewportSize({ width: 375, height: 1000 });
-  await page.getByRole("navigation", { name: "工具", exact: true }).getByRole("link", { name: "本地工具箱", exact: true }).waitFor();
+  await page.locator('.robin-dashboard-shortcuts a[href="/tools"]').waitFor();
   assert.equal(await page.locator('.robin-nav-main a[href^="/recordings"]').count(), 0);
   assert.deepEqual(errors, []);
   console.log("Recordings: honest progress, inline feedback, safe stop, unsaved edits, keyboard/mobile focus, reduced motion, resumable transcription, editing/export, synthetic microphone, draft recovery and themes passed.");

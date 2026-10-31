@@ -44,6 +44,8 @@ export function ToolboxWorkspace() {
   const { t } = useI18n();
   const [tool, setTool] = useState<ToolboxTool>("audio");
   const [catalogOpen, setCatalogOpen] = useState(true);
+  const [query, setQuery] = useState("");
+  const searchInput = useRef<HTMLInputElement>(null);
   const [settings, setSettings] = useState(defaults);
   const [files, setFiles] = useState<File[]>([]);
   const [input, setInput] = useState("");
@@ -106,6 +108,7 @@ export function ToolboxWorkspace() {
   function showCatalog() {
     if (busy) return;
     workspace.current?.querySelectorAll<HTMLMediaElement>("audio, video").forEach((media) => media.pause());
+    setQuery("");
     setCatalogOpen(true);
     requestAnimationFrame(() => document.getElementById(`toolbox-card-${tool}`)?.focus());
   }
@@ -177,15 +180,48 @@ export function ToolboxWorkspace() {
     } catch (err) { if (controller.signal.aborted) setStatus(t("toolbox.cancelled")); else { setStatus(""); setError(err instanceof Error ? err.message : t("toolbox.error")); } }
     finally { abort.current = null; running.current = false; setBusy(false); }
   }
+  async function copyResult() {
+    if (output?.text === undefined) return;
+    setError("");
+    try { await navigator.clipboard.writeText(output.text); setStatus(t("toolbox.copied")); }
+    catch { setError(t("toolbox.copyError")); }
+  }
   const accept = tool === "pdf" ? ".pdf" : ["image", "ocr", "qr"].includes(tool) ? ".png,.jpg,.jpeg,.webp" : tool === "rename" ? undefined : ".mp3,.wav,.m4a,.mp4,.mov,.mkv,.webm,.avi,.ogg,.flac,.aac";
 
-  return <div className={`robin-page robin-dashboard ${styles.page}`}><main className={styles.main}>
-    <header className={styles.heading} data-compact={!catalogOpen || undefined}>
-      <a href="/dashboard#dashboard-tools">← {t("robin.dashboard.backToTools")}</a>
-      <div><h1>{t("toolbox.title")}</h1>{catalogOpen && <p>{t("toolbox.intro")}</p>}</div>
+  const search = query.trim().normalize("NFKC").toLocaleLowerCase();
+  const matches = (id: keyof typeof toolIcons | "mac") => {
+    const name = id === "recordings" ? "speech" : id;
+    const description = id === "mac" ? `${t("mac.title")} ${t("mac.card")}`
+      : `${t(`toolbox.${name}`)} ${t(`toolbox.card.${name}`)}`;
+    return `${id} ${description}`.normalize("NFKC").toLocaleLowerCase().includes(search);
+  };
+  const visibleGroups = toolGroups.map((group) => ({ ...group, tools: group.tools.filter(matches) }));
+  const showMac = matches("mac");
+  const matchCount = Number(showMac) + visibleGroups.reduce((count, group) => count + group.tools.length, 0);
+
+  return <div className={`robin-page robin-dashboard robin-workspace-ground ${styles.page}`} data-working={!catalogOpen || undefined}><main className={styles.main}>
+    <header className={styles.heading} hidden={!catalogOpen}>
+      <a href="/dashboard">← {t("sidebar.dashboard")}</a>
+      <div><h1>{t("toolbox.title")}</h1><p>{t("toolbox.intro")}</p></div>
+      <div className={styles.searchRow}>
+        <label className={styles.search}><span className="sr-only">{t("toolbox.search")}</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4 4" /></svg>
+          <input ref={searchInput} type="search" value={query} placeholder={t("toolbox.searchHint")} autoComplete="off" spellCheck={false} onChange={(event) => setQuery(event.target.value)} />
+        </label>
+        {query && <button type="button" onClick={() => { setQuery(""); searchInput.current?.focus(); }}>{t("toolbox.clearSearch")}</button>}
+        <span className={styles.searchStatus} role="status">{search ? t("toolbox.matches", { count: matchCount }) : ""}</span>
+      </div>
     </header>
+    {catalogOpen && !matchCount && <p className={styles.empty}>{t("toolbox.noMatches")}</p>}
     <nav className={styles.catalog} aria-label={t("toolbox.select")} hidden={!catalogOpen}>
-      {toolGroups.map((group) => <section key={group.id} className={styles.group} data-tool-group={group.id} aria-labelledby={`toolbox-group-${group.id}`}>
+      <section className={`${styles.group} ${styles.hostGroup}`} aria-labelledby="toolbox-mac-title" hidden={!showMac}>
+        <div className={styles.groupHeading}><h2 id="toolbox-mac-title">{t("mac.group")}</h2></div>
+        <div className={styles.cards}><a href="/tools/mac" className={styles.toolCard} aria-labelledby="toolbox-mac-label" aria-describedby="toolbox-mac-description">
+          <span className={styles.iconTile}><svg className={styles.toolIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true" focusable="false"><path d="M3 4h18v13H3zM8 21h8M12 17v4M5 11h3l2-4 4 7 2-3h3" /></svg></span>
+          <span className={styles.cardTitle} id="toolbox-mac-label">{t("mac.title")}</span><span className={styles.cardDescription} id="toolbox-mac-description">{t("mac.card")}</span>
+        </a></div>
+      </section>
+      {visibleGroups.map((group) => <section key={group.id} className={styles.group} hidden={!group.tools.length} data-tool-group={group.id} aria-labelledby={`toolbox-group-${group.id}`}>
         <div className={styles.groupHeading}><h2 id={`toolbox-group-${group.id}`}>{t(`toolbox.group.${group.id}`)}</h2></div>
         <div className={styles.cards}>{group.tools.map((id) => {
           const name = id === "recordings" ? "speech" : id;
@@ -201,14 +237,26 @@ export function ToolboxWorkspace() {
     <div ref={workspace} className={styles.workspace} data-tool-group={toolGroups.find((group) => group.tools.includes(tool))?.id} hidden={catalogOpen}>
     <div className={styles.workspaceNav}><button type="button" disabled={busy} aria-label={t("toolbox.allTools")} onClick={showCatalog}>← {t("toolbox.allTools")}</button></div>
     <section className={styles.panel} aria-labelledby="toolbox-tool-title">
-      <div className={styles.panelHeading}><div className={styles.toolHeading}><span className={styles.iconTile}><ToolIcon name={tool} /></span><h2 ref={heading} id="toolbox-tool-title" tabIndex={-1} className="pi-section-title">{t(`toolbox.${tool}`)}</h2></div><span className={styles.location}>{t(local ? "toolbox.local" : "toolbox.browser")}</span></div>
+      <div className={styles.panelHeading}><div className={styles.toolHeading}><span className={styles.iconTile}><ToolIcon name={tool} /></span><h1 ref={heading} id="toolbox-tool-title" tabIndex={-1}>{t(`toolbox.${tool}`)}</h1></div><span className={styles.location}>{t(local ? "toolbox.local" : "toolbox.browser")}</span></div>
       <p className={styles.hint}>{t(`toolbox.${tool}Hint`)}</p>
       {local && !ready && <div className={styles.notice}><p>{t(checked ? "toolbox.unavailable" : "toolbox.checking")}</p><div className={styles.actions}><button type="button" disabled={busy} onClick={() => void checkEngine()}>{t("toolbox.recheck")}</button><a href="/recordings">{t("toolbox.recordings")}</a></div></div>}
       <fieldset disabled={busy} className={styles.fields}>
-        {needsFile && <div className={styles.drop} data-dragging={dragging || undefined} onDragOver={(e) => { e.preventDefault(); if (!busy) setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={(e) => { e.preventDefault(); setDragging(false); acceptFiles(Array.from(e.dataTransfer.files)); }}>
-          <Field label={t("toolbox.files")}><input key={tool} ref={fileInput} type="file" accept={accept} multiple={multi} onChange={(e) => acceptFiles(Array.from(e.target.files || []))} /></Field>
-        </div>}
+        <div className={styles.editorLayout} data-simple={tool === "ocr" || undefined}>
+        <div className={styles.source}>
+        <h2 className={styles.sectionLabel}>{t("toolbox.source")}</h2>
+        {needsFile && <label className={styles.drop} data-dragging={dragging || undefined} onDragOver={(e) => { e.preventDefault(); if (!busy) setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={(e) => { e.preventDefault(); setDragging(false); acceptFiles(Array.from(e.dataTransfer.files)); }}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 16V3m-5 5 5-5 5 5M4 15v6h16v-6" /></svg>
+          <strong>{t(files.length ? "toolbox.replaceFiles" : "toolbox.chooseFiles")}</strong>
+          <span>{t(multi ? "toolbox.dropMany" : "toolbox.dropOne")}</span>
+          <input key={tool} ref={fileInput} className={styles.filePicker} aria-label={t("toolbox.files")} type="file" accept={accept} multiple={multi} onChange={(e) => acceptFiles(Array.from(e.target.files || []))} />
+        </label>}
         {needsFile && files.length > 0 && <ol className={styles.files}>{files.map((file, i) => <li key={`${i}-${file.name}`}><span>{file.name}<small>{(file.size / 1024 / 1024).toFixed(2)} MB</small></span><div className={styles.actions}>{multi && <><button type="button" aria-label={`${t("toolbox.up")} · ${file.name}`} disabled={busy || i === 0} onClick={() => moveFile(i, -1)}>↑</button><button type="button" aria-label={`${t("toolbox.down")} · ${file.name}`} disabled={busy || i === files.length - 1} onClick={() => moveFile(i, 1)}>↓</button></>}<button type="button" aria-label={`${t("toolbox.remove")} · ${file.name}`} onClick={() => { setFiles(files.filter((_, n) => n !== i)); invalidate(); if (fileInput.current) fileInput.current.value = ""; }}>×</button></div></li>)}</ol>}
+        {(["text", "dev", "csv"].includes(tool) || (tool === "qr" && settings.mode === "generate")) && <Field label={t("toolbox.input")}><textarea rows={10} maxLength={2_000_000} value={input} spellCheck={false} onChange={(e) => { setInput(e.target.value); invalidate(); }} /></Field>}
+        {tool === "dev" && settings.mode === "diff" && <Field label={t("toolbox.compare")}><textarea rows={10} maxLength={2_000_000} value={compare} spellCheck={false} onChange={(e) => { setCompare(e.target.value); invalidate(); }} /></Field>}
+        {tool === "qr" && settings.mode === "wifi" && <>{textField("ssid", "ssid")}{textField("password", "password", "password")}</>}
+        </div>
+        {tool !== "ocr" && <div className={styles.options}>
+        <h2 className={styles.sectionLabel}>{t("toolbox.options")}</h2>
         <div className={styles.grid}>
           {tool === "audio" && <>{select("mode", "format", ["mp3", "m4a", "wav", "flac"])}{select("bitrate", "bitrate", ["128", "192", "256"])}</>}
           {tool === "video" && select("mode", "operation", ["720p", "1080p", "mute", "gif"], true)}
@@ -218,26 +266,26 @@ export function ToolboxWorkspace() {
           {tool === "pdf" && <>{select("mode", "operation", ["merge", "extract", "split", "rotate"], true)}{settings.mode !== "merge" && textField("pages", "pages")}{settings.mode === "rotate" && select("rotation", "rotation", ["90", "180", "270"])}</>}
           {tool === "text" && select("mode", "operation", ["dedupe", "blank", "trim", "unwrap", "spacing"], true)}
           {tool === "rename" && <>{textField("pattern", "pattern")}{textField("date", "date", "date")}{textField("find", "find")}{textField("replace", "replace")}</>}
-          {tool === "qr" && <>{select("mode", "operation", ["generate", "wifi", "read"], true)}{settings.mode === "wifi" && <>{textField("ssid", "ssid")}{textField("password", "password", "password")}</>}</>}
+          {tool === "qr" && select("mode", "operation", ["generate", "wifi", "read"], true)}
           {tool === "dev" && select("mode", "operation", ["json", "minify", "diff", "url-encode", "url-decode", "base64-encode", "base64-decode", "seconds", "milliseconds", "iso"], true)}
           {tool === "csv" && <>{select("mode", "from", ["csv", "tsv", "json"])}{select("outputFormat", "format", ["csv", "tsv", "json"])}{textField("columns", "columns")}</>}
         </div>
         {tool === "csv" && <div className={styles.checks}><label><input type="checkbox" checked={dedupe} onChange={(e) => { setDedupe(e.target.checked); invalidate(); }} />{t("toolbox.dedupe")}</label><label><input type="checkbox" checked={safeCsv} onChange={(e) => { setSafeCsv(e.target.checked); invalidate(); }} />{t("toolbox.safeCsv")}</label></div>}
-        {(["text", "dev", "csv"].includes(tool) || (tool === "qr" && settings.mode === "generate")) && <Field label={t("toolbox.input")}><textarea rows={8} maxLength={2_000_000} value={input} spellCheck={false} onChange={(e) => { setInput(e.target.value); invalidate(); }} /></Field>}
-        {tool === "dev" && settings.mode === "diff" && <Field label={t("toolbox.compare")}><textarea rows={8} maxLength={2_000_000} value={compare} spellCheck={false} onChange={(e) => { setCompare(e.target.value); invalidate(); }} /></Field>}
-        <div className={styles.actions}>{tool === "rename" && <button type="button" onClick={() => void run(true)}>{t("toolbox.preview")}</button>}<button type="button" className={`pi-bracket ${styles.runButton}`} aria-label={t("toolbox.run")} disabled={busy || !ready} onClick={() => void run()}>{t("toolbox.run")}</button><button type="button" onClick={() => reset(tool)}>{t("toolbox.clear")}</button></div>
+        </div>}
+        </div>
+        <div className={`${styles.actions} ${styles.runActions}`}>{tool === "rename" && <button type="button" onClick={() => void run(true)}>{t("toolbox.preview")}</button>}<button type="button" className={`pi-bracket ${styles.runButton}`} aria-label={t("toolbox.run")} disabled={busy || !ready} onClick={() => void run()}>{t(busy ? "toolbox.processing" : "toolbox.run")}</button><button type="button" onClick={() => reset(tool)}>{t("toolbox.clear")}</button></div>
       </fieldset>
-      <div className={styles.feedback}>{error && <p role="alert">{error}</p>}<p role="status" className={busy ? styles.working : undefined}>{status}</p>{busy && local && <button type="button" onClick={() => abort.current?.abort()}>{t("toolbox.cancel")}</button>}</div>
+      <div className={styles.feedback} data-state={error ? "error" : busy ? "working" : "notice"}>{error && <p role="alert">{error}</p>}<p role="status" className={busy ? styles.working : undefined}>{status}</p>{busy && local && <button type="button" onClick={() => abort.current?.abort()}>{t("toolbox.cancel")}</button>}</div>
       {!!names.length && <ol className={styles.names}>{names.map((name, i) => <li key={i}><span>{files[i]?.name}</span><span>→ {name}</span></li>)}</ol>}
       {!!rows.length && <div className={styles.table}><table><thead><tr>{rows[0].map((cell, i) => <th key={i}>{cell}</th>)}</tr></thead><tbody>{rows.slice(1).map((row, i) => <tr key={i}>{row.map((cell, j) => <td key={j}>{cell}</td>)}</tr>)}</tbody></table></div>}
-      {output && <section className={styles.result} aria-labelledby="toolbox-result"><h3 ref={resultHeading} id="toolbox-result" tabIndex={-1}>{t("toolbox.result")} <small>{output.name} · {(output.blob.size / 1024).toFixed(1)} KB</small></h3>
+      {output && <section className={styles.result} aria-labelledby="toolbox-result"><div className={styles.resultHeading}><h2 ref={resultHeading} id="toolbox-result" tabIndex={-1}>{t("toolbox.result")} <small>{output.name} · {(output.blob.size / 1024).toFixed(1)} KB</small></h2>
+        <div className={styles.actions}><button type="button" className={styles.runButton} onClick={() => saveBlob(output.blob, output.name)}>{t("toolbox.download")}</button>{output.text !== undefined && <button type="button" onClick={() => void copyResult()}>{t("toolbox.copy")}</button>}</div></div>
         {output.text !== undefined && <Field label={t("toolbox.result")}><textarea rows={12} value={output.text} onChange={(e) => setOutput(textOutput(e.target.value, output.name, output.blob.type))} /></Field>}
         {/* Blob previews are local, untrusted text is never HTML, and Next Image cannot optimize blob URLs. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         {preview && output.blob.type.startsWith("image/") && <img src={preview} alt={t("toolbox.result")} className={styles.image} />}
         {preview && output.blob.type.startsWith("audio/") && <audio controls src={preview} />}
         {preview && output.blob.type.startsWith("video/") && <video controls src={preview} />}
-        <div className={styles.actions}><button type="button" onClick={() => saveBlob(output.blob, output.name)}>{t("toolbox.download")}</button>{output.text !== undefined && <button type="button" onClick={() => void navigator.clipboard.writeText(output.text!).then(() => setStatus(t("toolbox.copied"))).catch(() => setError(t("toolbox.error")))}>{t("toolbox.copy")}</button>}</div>
       </section>}
     </section>
     <p className={styles.hint}>{t("toolbox.privacy")}</p>

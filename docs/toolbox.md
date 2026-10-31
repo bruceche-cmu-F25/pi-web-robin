@@ -1,6 +1,6 @@
 # Local toolbox
 
-Open **Dashboard → Tools → Local toolbox** (`/tools`). The entry stays directly above Links; utilities do not get global navigation tabs. Dashboard remains selected on tool routes. The catalog includes **Speech to text**, linking to the existing `/recordings` workspace; its return link leads back to the toolbox. Existing recording URLs, saved audio and transcripts remain unchanged.
+Open **Dashboard → Toolbox** (`/tools`) from the header shortcuts. Utilities do not get global navigation tabs. Dashboard remains selected on tool routes. The catalog includes **Speech to text**, linking to the existing `/recordings` workspace; its return link leads back to the toolbox. Existing recording URLs, saved audio and transcripts remain unchanged.
 
 ## Shipped tools
 
@@ -44,11 +44,13 @@ Subprocesses use `execFile`, fixed argument lists and a minimal environment with
 
 `components/robin/toolbox-browser.ts` owns browser transforms; `ToolboxWorkspace.tsx` owns presentation. Libraries are imported lazily on first use: `pdf-lib` for a real PDF parser/writer, `fflate` for ZIP, `qrcode`/`jsqr` for QR generation/recognition, and `diff` for bounded line comparison. These formats have no sufficient cross-browser native API; do not replace them with hand-written encoders. Versions are pinned. Existing CSV parsing, native Canvas/Blob/download APIs and current FFmpeg/Whisper are reused.
 
-The catalog opens first, with twelve borderless entries in three named groups: audio/video, images/documents, and text/data. A solid paper surface, generous spacing and thin group separators replace boxed cards, shadows and gradients. Existing clay/plum/fern theme colors appear only behind the small icons; ordinary text retains its contrast. Each entry pairs a decorative 24px outline icon with a name and short use-case description. Repeated counts, arrows, badges and processing-location footers are omitted; exact processing boundaries remain visible inside each workspace. Wide screens show four entries per group; narrower screens show two, without clipping labels.
+The catalog opens first, with thirteen rounded cards in four named groups: this Mac, audio/video, images/documents, and text/data. The Mac entry links to the separate monitor/cleanup workspace, without starting scans here. A 24px rounded title/search surface and 16px tool cards sit on the theme ground with the existing subtle shadow. Catalog and workspaces share vivid teal/orange/purple/blue category colors: solid icon tiles, 3px top borders and short heading markers. Text retains its theme contrast; there are no gradients, moving hover effects or extra polls. Hover/press emphasize the border, keyboard focus uses a visible category-colored ring, and resumed work retains its explicit label. Each entry pairs a decorative 24px outline icon with a name and short use-case description. Repeated counts, arrows, badges and processing-location footers are omitted; exact processing boundaries remain visible inside each workspace. Wide screens show four entries per group, intermediate screens two, and phones up to 480px a single compact icon/title/description row per tool. The lone Mac entry uses the full available row instead of leaving three empty columns. Search filters localized names, short descriptions and tool ids in memory (case-insensitive, NFKC-normalized), with a result count, empty state and clear action; it never runs a job or uploads content.
 
 Selecting a card reveals only that tool's workspace and focuses its heading. **All tools** returns to the catalog without clearing files, settings or results; it focuses the current card, labeled **Continue your work** when it contains content. The workspace stays mounted but hidden, preserving file inputs and previews. Choosing a different populated tool still confirms clearing; cancellation stays in the catalog. The return action is disabled during processing. Speech to text remains a native link protected by the existing unload guard. No new dependency, backend tool kind or persistent draft store is added.
 
-UI tokens match the existing paper/straight-edge visual language. Controls are 44px, visible labels and keyboard focus are preserved, state does not depend on an animation ending, and reduced motion removes spinner/reveal/press animations and smooth scrolling. Small-screen tool selection focuses/scrolls to the working area; completion focuses the result heading without opening a mobile keyboard.
+The working view has one primary tool title, without repeating the catalog masthead. Source and processing options use two columns when the workspace itself is at least 720px wide (a CSS container query), and stack otherwise. OCR has no empty options column. The large drop target retains a native, labeled, keyboard-focusable file picker; selecting/dropping replaces the list, not the originals. All format/size/processing-location caveats remain visible. Download/copy actions sit beside the result heading, before the potentially long editable output. An unavailable clipboard reports manual-copy/download alternatives without discarding the result.
+
+The working view and catalog intentionally use the same vivid category palette. Per the requested tool-specific treatment, audio/video uses saturated orange, images/documents purple, and text/data blue. Local light/dark color pairs style the title icon, upload icon/border, section markers, solid primary action, focus ring and result border without changing global theme tokens. Source, options and results are independent 16px cards on the theme's ground, using shared panel/shadow tokens; controls and upload areas use the 8px control radius. Options keep their natural height instead of stretching into an empty card; the file drop area fills available source space. Error/warning states still use semantic colors and explicit text. Recordings uses the same orange family and rounded capture/editor/setup surfaces; Mac uses teal primary actions, separate rounded metric cards, disk/directory/cache cards and a 24px confirmation dialog. Neither recording behavior nor monitoring/cleanup logic changes. Catalog cards remain rounded on phones, with compact icon/title/description rows. Controls are 44px, fields at least 16px, labels and keyboard focus are preserved. Pointer hover is fine-pointer-only, press feedback changes color without moving controls, and results no longer animate in. Only active processing uses a spinner, disabled under reduced motion. Small-screen tool selection focuses/scrolls to the working area; completion focuses the result heading without opening a mobile keyboard. No animation library, additional polling, conversion engine or backend change was introduced.
 
 ## Validation
 
@@ -61,4 +63,28 @@ PLAYWRIGHT_CHANNEL=chrome node --env-file-if-exists=.env.local --experimental-st
 
 Pure/domain/API checks exercise generated PDFs and all media presets, Unicode/base64, archive names and contents, CSV quoting/injection protection, real macOS OCR of `fixtures/toolbox-ocr.png` (synthetic canvas text), cancellation/cleanup, validation and origin/body boundaries. Media/OCR tests skip only when their platform engine is absent. Whisper format/cancellation regression tests stub inference; a separate real local smoke check generated speech with macOS `say` and verified SRT timestamps and words using the installed checkpoint, with no paid call.
 
-Browser checks exercise grouped cards, focused workspaces, returning/reopening without losing inputs/results, focus restoration, all twelve catalog icons, keyboard navigation to/from speech transcription, cancelled speech navigation preserving inputs/results, all eleven conversion surfaces, actual client-side outputs/downloads, clipboard, cancelled navigation, no-upload boundaries for browser tools, editable server results, cancellation, dark/light layouts and reduced motion. Server conversions are mocked there, not invoked on personal files. The original recording tests guard the neighboring utility and dashboard placement.
+Browser checks exercise grouped cards, focused workspaces, returning/reopening without losing inputs/results, focus restoration, all thirteen catalog icons, keyboard navigation to/from speech transcription, cancelled speech navigation preserving inputs/results, all eleven conversion surfaces, actual client-side outputs/downloads, clipboard, cancelled navigation, no-upload boundaries for browser tools, editable server results, cancellation, dark/light layouts and reduced motion. Server conversions are mocked there, not invoked on personal files. The original recording tests guard the neighboring utility and dashboard placement.
+
+The UI follow-up reran the complete Toolbox browser script plus 11 browser-helper,
+locale and navigation unit checks, full TypeScript checking and targeted ESLint.
+New browser assertions cover search/empty states, bilingual queries, one workspace
+title, source/options reflow, keyboard file selection and its visible focus ring,
+long filenames at 320px, top-aligned result actions, unavailable clipboard, engine
+recheck preserving files, and Wi-Fi QR generation/decoding. Dark/light viewport
+checks cover 320, 375, 844 and 1440px; sampled catalog text remains ≥4.5:1 contrast.
+The rounded/color follow-up checks computed 16px source/options/result radii and
+8px controls across all eleven inline tools in light/dark mobile/desktop layouts,
+with primary-color saturation ≥65% and enabled primary text contrast ≥4.5:1.
+The complete recordings and Mac browser regressions were also rerun with computed
+card/button/dialog styling checks. Recordings uses synthetic microphone input and
+mocked APIs; Mac reads live metrics once, then mocks all scan/cleanup operations.
+The recordings test's obsolete Dashboard Tools row was updated to the existing
+header shortcut; no Dashboard behavior was changed here. Server conversions are
+mocked and files are synthetic. Real phone/Safari behavior remains unverified.
+
+The catalog follow-up additionally checks all thirteen actual 16px card radii,
+24px title/search surface, four distinct saturated category colors, matching top
+borders, icon contrast ≥4.5:1 and visible keyboard rings in both light/dark themes.
+Search, retained work, keyboard navigation and all eleven conversions still run
+through the complete browser regression. The change is CSS-only in production;
+no dependencies, backend behavior or persistent data were changed.

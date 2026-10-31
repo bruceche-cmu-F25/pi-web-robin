@@ -140,7 +140,7 @@ export function RecordingsWorkspace() {
   </div>;
 
   return (
-    <div className={`robin-page robin-dashboard ${styles.page}`}>
+    <div className={`robin-page robin-dashboard robin-workspace-ground ${styles.page}`}>
       <main className={styles.main}>
         <header className={styles.heading}>
           <div className={styles.actions}><a href="/tools">← {t("toolbox.back")}</a></div>

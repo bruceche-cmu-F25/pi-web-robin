@@ -1,6 +1,6 @@
 # Recordings workspace
 
-`/recordings` is reached from **Dashboard → Tools → Local toolbox → Speech to text**. The Dashboard tools entry stays directly above Links, after the learning panel; individual utilities live together in the toolbox rather than separate Dashboard entries or global navigation tabs. The recording page keeps Dashboard selected and returns to `/tools`. Existing `/recordings` links and saved recordings remain valid.
+`/recordings` is reached from **Dashboard → Toolbox → Speech to text**. Toolbox is the Dashboard header's fifth shortcut; individual utilities live together in the toolbox rather than separate Dashboard entries or global navigation tabs. The recording page keeps Dashboard selected and returns to `/tools`. Existing `/recordings` links and saved recordings remain valid.
 
 Record or choose audio, **Save audio**, then **Transcribe / resume**. Transcription uses **local OpenAI Whisper small on CPU**, not the OpenAI API. There is no API key, subscription requirement, per-minute API charge, or automatic cloud fallback. “Local” means the computer running Robin: accessing it from a phone still uploads the audio to that computer, not to a transcription provider.
 
@@ -34,7 +34,8 @@ Readiness checks the local executable and model presence. Missing setup has an e
 - Capture/upload feedback stays in the capture card; segment status/errors sit beside transcription controls; edit/copy results sit beside the editor actions. Completion, stop-after-segment and unsaved edits have explicit text. Permission waiting, live recording, pause and draft preparation are distinct; the timer is not a live region announcing every second.
 - The accessible progress bar counts **persisted segments**, never invented within-segment percentages. Its fill transitions only on saved progress; switching recordings resets the bar's identity, not the player on each progress update. Stop waits for the current segment, disables further stop clicks and retains saved parts.
 - An explicit save reveals/focuses the transcript; selecting a library item does so on mobile. A segment arriving never scrolls or steals focus. Cancelling the unsaved-text confirmation preserves the draft and selection.
-- CSS-only 100–320 ms press/reveal/progress feedback, with a live recording dot and a working indicator. Pause stops the recording pulse. `prefers-reduced-motion` removes scoped animation/transitions and smooth scrolling without hiding status; no animation dependency or animation-end-driven state. Native file input, 44px actions, visible keyboard focus and theme tokens are retained.
+- Capture/editor/setup use shared 16px rounded surfaces, controls use 8px, and the local audio-tool accent is vivid orange with separate light/dark solid-button contrast pairs. File selection has a dashed upload surface; status text keeps its semantic colors. These are scoped styles, not global palette or recording changes.
+- CSS-only color/reveal/progress feedback, with a live recording dot and a working indicator. Press feedback changes color without moving controls; hover is fine-pointer-only. Pause stops the recording pulse. `prefers-reduced-motion` removes scoped animation/transitions and smooth scrolling without hiding status; no animation dependency or animation-end-driven state. Native file input, 44px actions, visible keyboard focus and theme tokens are retained.
 
 ## Implementation and recovery
 
