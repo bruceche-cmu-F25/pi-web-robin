@@ -185,8 +185,8 @@
   transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.episode:hover .thumb img {
-  transform: scale(1.03);
+@media (hover: hover) and (pointer: fine) {
+  .episode:hover .thumb img { transform: scale(1.03); }
 }
 
 @media (prefers-reduced-motion: reduce) {

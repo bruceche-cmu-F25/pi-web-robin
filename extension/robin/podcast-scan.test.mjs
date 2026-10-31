@@ -10,6 +10,9 @@ after(() => rmSync(dir, { recursive: true, force: true }));
 
 const {
   PODCAST_SCAN_RUN,
+  fetchTranscript,
+  fetchVideoDetails,
+  readPodcastStore,
   podcastSummaryRun,
   podcastScanRunning,
   scanPodcasts,
@@ -98,6 +101,59 @@ test("when every feed 404s, uploads come from the browse endpoint and reuse know
   assert.deepEqual(players, [], "details the store already holds are not fetched again");
 });
 
+test("fallback channels share one 100-request / three-worker detail budget and retain partial data", async () => {
+  const channels = Array.from({ length: 12 }, (_, i) => ({ id: `budget-${i}`,
+    name: `Budget ${i}`, youtubeId: `UC${String(i).padStart(22, "0")}`, shelf: "ai", host: { en: "", zh: "" }, why: { en: "", zh: "" } }));
+  let expanded = false, active = 0, peak = 0;
+  const requested = [];
+  const videoId = (c, i) => `budget${String(c).padStart(2, "0")}${String(i).padStart(3, "0")}`;
+  const fetchImpl = async (url, init) => {
+    if (url.includes("/browse")) {
+      const channel = Number(JSON.parse(init.body).browseId.slice(6));
+      return Response.json({ items: Array.from({ length: expanded ? 15 : 1 }, (_, i) => ({
+        lockupViewModel: { contentId: videoId(channel, i), contentType: "LOCKUP_CONTENT_TYPE_VIDEO" },
+      })) });
+    }
+    if (url.includes("/player")) {
+      const { videoId } = JSON.parse(init.body);
+      requested.push(videoId); active++; peak = Math.max(peak, active);
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      active--;
+      return Response.json({ videoDetails: { title: videoId, lengthSeconds: "3600" },
+        microformat: { playerMicroformatRenderer: { publishDate: "2026-09-12T00:00:00Z" } } });
+    }
+    return new Response("", { status: 404 });
+  };
+  const options = { channels, fetchImpl, now: Date.parse("2026-09-16T00:00:00Z") };
+  await scanPodcasts(options);
+  requested.length = 0; peak = 0; expanded = true;
+  const partial = await scanPodcasts(options);
+  assert.equal(requested.length, 100);
+  assert.equal(new Set(requested).size, requested.length);
+  assert.ok(peak <= 3, `peak detail concurrency ${peak}`);
+  assert.ok(partial.failures.length > 0, "deferred work is not silently reported as complete");
+  for (let i = 0; i < channels.length; i++) assert.equal(partial.episodes.filter((e) => e.channelId === channels[i].id && e.videoId === videoId(i, 0)).length, 1);
+  requested.length = 0;
+  const complete = await scanPodcasts(options);
+  assert.ok(requested.length <= 100);
+  assert.equal(complete.episodes.length, 180);
+  assert.deepEqual(complete.failures, []);
+});
+
+test("an aborted scan cannot publish or launch another batch of details", async () => {
+  const before = JSON.stringify(readPodcastStore());
+  const controller = new AbortController();
+  let players = 0;
+  await assert.rejects(scanPodcasts({ channels: [{ id: "abort", youtubeId: "UCaaaaaaaaaaaaaaaaaaaaaa" }], signal: controller.signal,
+    fetchImpl: async (url) => {
+      if (url.includes("/player")) { players++; controller.abort(); return Response.json({}); }
+      return new Response(feed("abortVideo1"));
+    }, now: Date.parse("2026-09-11T00:00:00Z"),
+  }), /abort/i);
+  assert.ok(players <= 3);
+  assert.equal(JSON.stringify(readPodcastStore()), before);
+});
+
 test("a rejected podcast commit does not fall through to an unfenced write", async () => {
   const before = JSON.stringify((await import("./podcast-scan.ts")).readPodcastStore());
   let commits = 0;
@@ -152,6 +208,53 @@ test("a remote episode summary blocks duplicate model and transcript work", asyn
   } finally {
     releaseBackgroundRun(runName, "another-runtime");
   }
+});
+
+test("completed summaries are reused without another transcript or paid turn", async () => {
+  const videoId = "cachedVid01";
+  let requests = 0, asks = 0;
+  const fetchImpl = async (url, init) => {
+    requests++;
+    assert.equal(init.redirect, "error", "YouTube replies cannot redirect to another host");
+    return String(url).includes("/player")
+      ? Response.json({ captions: { playerCaptionsTracklistRenderer: { captionTracks: [
+        { baseUrl: `https://www.youtube.com/api/timedtext?v=${videoId}`, languageCode: "en" },
+      ] } } })
+      : new Response('<transcript><text start="0">test transcript</text></transcript>');
+  };
+  const ask = async () => { asks++; return JSON.stringify({
+    tldr: { en: "Saved summary.", zh: "已存摘要。" },
+    points: [{ at: "[0:00]", en: "Saved point.", zh: "已存要点。" }],
+  }); };
+  const first = await summarizeEpisode(videoId, ask, fetchImpl);
+  const second = await summarizeEpisode(videoId, ask, fetchImpl);
+  assert.deepEqual(second, first);
+  assert.equal(requests, 2);
+  assert.equal(asks, 1);
+});
+
+test("oversized network bodies are cancelled before parsing, including chunked replies", async () => {
+  let cancelled = false;
+  const oversized = () => new Response(new ReadableStream({
+    pull(controller) { controller.enqueue(new Uint8Array(1024 * 1024)); },
+    cancel() { cancelled = true; },
+  }));
+  await assert.rejects(fetchVideoDetails("oversize001", async () => oversized()), /response too large/);
+  assert.equal(cancelled, true);
+  await assert.rejects(fetchVideoDetails("oversize001", async () => new Response("", {
+    headers: { "content-length": String(9 * 1024 * 1024) },
+  })), /response too large/);
+});
+
+test("caption hosts are checked before a second network call", async () => {
+  let requests = 0;
+  await assert.rejects(fetchTranscript("badCaption1", async () => {
+    requests++;
+    return Response.json({ captions: { playerCaptionsTracklistRenderer: { captionTracks: [
+      { baseUrl: "http://127.0.0.1/private", languageCode: "en" },
+    ] } } });
+  }), /Unexpected caption host/);
+  assert.equal(requests, 1);
 });
 
 test("a replaced episode summarizer cannot publish its late model result", async () => {

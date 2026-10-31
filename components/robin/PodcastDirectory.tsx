@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   PODCAST_CHANNELS,
   PODCAST_PEOPLE,
@@ -70,7 +70,7 @@ const TOOLS = [
 
 function useText() {
   const { locale } = useI18n();
-  const zh = locale === "zh-CN";
+  const zh = locale.startsWith("zh");
   return {
     zh,
     locale,
@@ -277,14 +277,16 @@ function EpisodeCard(props: EpisodeCardProps) {
 
 // ---------------------------------------------------------------------------
 
-export function PodcastDirectory() {
+export function PodcastDirectory({ active = true }: { active?: boolean }) {
   const { t, L, locale } = useText();
   // The feeds change every few hours; a slow poll is only there to notice a scan finishing.
-  const resource = usePolledResource<Response>("/api/robin/podcasts", 120_000);
+  const resource = usePolledResource<Response>("/api/robin/podcasts", 120_000, active);
   const data = resource.data;
   const [shelf, setShelf] = useState<PodcastShelf | "all">("all");
   const [showAll, setShowAll] = useState(false);
   const [pending, setPending] = useState<Set<string>>(new Set());
+  const pendingRef = useRef(new Set<string>());
+  const refreshingRef = useRef(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
@@ -324,6 +326,8 @@ export function PodcastDirectory() {
   const lastPublished = data?.lastPublished ?? {};
 
   const summarize = async (videoId: string) => {
+    if (pendingRef.current.has(videoId)) return;
+    pendingRef.current.add(videoId);
     setPending((current) => new Set(current).add(videoId));
     setErrors((current) => {
       const next = { ...current };
@@ -344,6 +348,7 @@ export function PodcastDirectory() {
     } catch (caught) {
       setErrors((current) => ({ ...current, [videoId]: caught instanceof Error ? caught.message : String(caught) }));
     } finally {
+      pendingRef.current.delete(videoId);
       setPending((current) => {
         const next = new Set(current);
         next.delete(videoId);
@@ -353,6 +358,8 @@ export function PodcastDirectory() {
   };
 
   const refresh = async () => {
+    if (refreshingRef.current) return;
+    refreshingRef.current = true;
     setRefreshing(true);
     setRefreshError(null);
     try {
@@ -365,6 +372,7 @@ export function PodcastDirectory() {
     } catch (caught) {
       setRefreshError(caught instanceof Error ? caught.message : String(caught));
     } finally {
+      refreshingRef.current = false;
       setRefreshing(false);
     }
   };
@@ -414,7 +422,7 @@ export function PodcastDirectory() {
         <header className={styles.masthead}>
           <div className="flex min-w-0 flex-col gap-2">
             <span className="pi-eyebrow" style={{ color: "var(--accent)" }}>{L("Podcasts · listening shelf", "Podcasts · 收听书架")}</span>
-            <h1 className="text-3xl" style={{ fontStyle: "italic", fontWeight: 400, color: "var(--text)" }}>
+            <h1 className="pi-page-title">
               {L("Worth the two hours", "值得花两小时听的")}
             </h1>
             <p className="max-w-3xl text-sm" style={{ color: "var(--text-muted)" }}>
@@ -448,7 +456,7 @@ export function PodcastDirectory() {
           </div>
         </header>
 
-        {(refreshError ?? (resource.error && !data ? resource.error : null)) && (
+        {(refreshError ?? resource.error) && (
           <p role="alert" className={styles.error}>{refreshError ?? resource.error}</p>
         )}
 
@@ -499,6 +507,7 @@ export function PodcastDirectory() {
           {data && latest.length === 0 && (
             <p className={styles.empty}>{scanning ? L("Reading the channel feeds…", "正在读取频道…") : L("Nothing new in the last three weeks.", "近三周没有新节目。")}</p>
           )}
+          {data && latest.length > 0 && filtered.length === 0 && <p className={styles.empty} role="status">{L("No new episodes in this category.", "此类别暂无新节目。")}</p>}
           <div className={styles.latest}>{visible.map(feedCard)}</div>
           {filtered.length > LATEST_PAGE && (
             <button type="button" className="ui-action pi-chrome-label pi-bracket self-start min-h-11" onClick={() => setShowAll((value) => !value)}>

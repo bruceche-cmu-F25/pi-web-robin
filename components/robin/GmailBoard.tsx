@@ -1,6 +1,8 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { useBoardNavigation } from "./useBoardNavigation";
 import { MarkdownBody } from "@/components/MarkdownBody";
 import { useI18n } from "@/hooks/useI18n";
 import { addDays, dueBucket, localDate, parseLocalDate } from "@/extension/robin/dates";
@@ -52,14 +54,19 @@ function gmailHref(item: MailReviewItem): string {
 }
 
 /** A categorised review, not a second inbox. All mail actions stay in Gmail. */
-export function GmailBoard() {
+export function GmailBoard({ active = true }: { active?: boolean }) {
   const { t, locale } = useI18n();
-  const { data, error, loading, refresh } = usePolledResource<GmailResponse>("/api/robin/gmail", 30_000);
+  const { data, error, loading, refresh } = usePolledResource<GmailResponse>("/api/robin/gmail", 30_000, active);
   const [checking, setChecking] = useState(false);
   const checkInFlight = useRef(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-  const [fyiOpen, setFyiOpen] = useState(false);
+  const search = useSearchParams();
+  const [query, setQuery] = useState(() => search.get("mailq") ?? "");
+  const [fyiOpen, setFyiOpen] = useState(() => search.get("mailfyi") === "1");
+  const { scrollRef, updateView } = useBoardNavigation("/dashboard/gmail", search.toString(), active && Boolean(data));
+  useEffect(() => { setQuery(search.get("mailq") ?? ""); setFyiOpen(search.get("mailfyi") === "1"); }, [search]);
+  const changeQuery = (value: string) => { setQuery(value); updateView({ mailq: value || null }, "replace"); };
+  const changeFyi = (value: boolean) => { if (value === fyiOpen || !active) return; setFyiOpen(value); updateView({ mailfyi: value ? "1" : null }); };
   // Done/undo shows at once; the next poll confirms it or the error puts it back.
   const [pending, setPending] = useState<ReadonlyMap<string, boolean>>(new Map());
   const stored = data?.review ?? null;
@@ -141,7 +148,7 @@ export function GmailBoard() {
   };
 
   return (
-    <div className={`robin-page robin-dashboard flex-1 overflow-y-auto ${styles.page}`}>
+    <div ref={scrollRef} className={`robin-page robin-dashboard flex-1 overflow-y-auto ${styles.page}`}>
       {/* Stated in pixels: the root font size is 13px, so max-w-5xl is 832px. */}
       <main className="mx-auto flex w-full max-w-[1240px] flex-col gap-5 p-4 desktop:p-6">
         <header className={styles.header}>
@@ -221,7 +228,7 @@ export function GmailBoard() {
                   <section>
                     <label className={styles.search}>
                       <span className="pi-label">{t("robin.gmail.search")}</span>
-                      <input type="search" value={query} placeholder={t("robin.gmail.searchPlaceholder")} onChange={(event) => setQuery(event.target.value)} />
+                      <input type="search" value={query} placeholder={t("robin.gmail.searchPlaceholder")} onChange={(event) => changeQuery(event.target.value)} />
                     </label>
                   </section>
                 )}
@@ -258,7 +265,7 @@ export function GmailBoard() {
                   {needle && (
                     <div className={styles.results}>
                       <p role="status">{t("robin.gmail.results", { count: String(visibleCount), total: String(review.items.length) })}</p>
-                      <button type="button" className="ui-action" onClick={() => setQuery("")}>{t("robin.gmail.clearFilters")}</button>
+                      <button type="button" className="ui-action" onClick={() => changeQuery("")}>{t("robin.gmail.clearFilters")}</button>
                     </div>
                   )}
                   {needle && visibleCount === 0 && (
@@ -361,7 +368,7 @@ export function GmailBoard() {
                       id="mail-fyi"
                       className={styles.group}
                       open={fyiOpen || Boolean(needle)}
-                      onToggle={(event) => setFyiOpen(event.currentTarget.open)}
+                      onToggle={(event) => changeFyi(event.currentTarget.open)}
                     >
                       <summary className={styles.groupTitle} data-triage="fyi">
                         {t("robin.gmail.triage.fyi")} <span>{groups.fyi.length}</span>

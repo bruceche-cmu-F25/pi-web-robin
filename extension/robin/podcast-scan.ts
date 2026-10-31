@@ -46,6 +46,8 @@ import {
 
 const STORE_FILE = "podcasts.json";
 const TIMEOUT_MS = 15_000;
+/** Bound decoded network bodies before parsing XML/JSON, not only the model prompt. */
+const RESPONSE_MAX_BYTES = 8 * 1024 * 1024;
 const FEED_CONCURRENCY = 4;
 const DETAIL_CONCURRENCY = 3;
 /** New videos per scan that get a details request; the rest wait a scan. */
@@ -80,9 +82,11 @@ async function request(
   url: string,
   body?: unknown,
   parentSignal?: AbortSignal,
-): Promise<Response> {
+): Promise<string> {
   const timeout = AbortSignal.timeout(TIMEOUT_MS);
   const response = await fetchImpl(url, {
+    // Every endpoint is on YouTube; do not let a caption response redirect into the local network.
+    redirect: "error",
     signal: parentSignal ? AbortSignal.any([parentSignal, timeout]) : timeout,
     headers: {
       "Accept-Language": "en-US,en;q=0.9",
@@ -90,8 +94,23 @@ async function request(
     },
     ...(body === undefined ? {} : { method: "POST", body: JSON.stringify(body) }),
   });
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  return response;
+  if (!response.ok || Number(response.headers.get("content-length")) > RESPONSE_MAX_BYTES) {
+    await response.body?.cancel().catch(() => {});
+    throw new Error(response.ok ? "YouTube response too large" : `HTTP ${response.status}`);
+  }
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) return Buffer.concat(chunks).toString("utf8");
+      bytes += value.byteLength;
+      if (bytes > RESPONSE_MAX_BYTES) throw new Error("YouTube response too large");
+      chunks.push(value);
+    }
+  } finally { await reader.cancel().catch(() => {}); }
 }
 
 function player(
@@ -101,7 +120,7 @@ function player(
   signal?: AbortSignal,
 ) {
   return request(fetchImpl, PLAYER_URL, { context: { client }, videoId }, signal)
-    .then((response) => response.json() as Promise<Record<string, unknown>>);
+    .then((text) => JSON.parse(text) as Record<string, unknown>);
 }
 
 /**
@@ -113,49 +132,37 @@ function player(
 async function fetchFeed(
   fetchImpl: typeof fetch,
   channel: PodcastChannel,
-  details: Map<string, VideoDetails>,
   signal?: AbortSignal,
-): Promise<FeedEpisode[]> {
+): Promise<{ episodes: FeedEpisode[]; uploads?: string[] }> {
   const longForm = `https://www.youtube.com/feeds/videos.xml?playlist_id=UULF${channel.youtubeId.slice(2)}`;
   try {
     const response = await request(fetchImpl, longForm, undefined, signal)
       .catch(() => request(fetchImpl, `https://www.youtube.com/feeds/videos.xml?channel_id=${channel.youtubeId}`, undefined, signal));
-    return parseYouTubeFeed(await response.text(), channel.id);
+    return { episodes: parseYouTubeFeed(response, channel.id) };
   } catch (feedError) {
-    const episodes = await fetchUploads(fetchImpl, channel, details, signal).catch(() => []);
-    if (episodes.length === 0) throw feedError;
-    return episodes;
+    signal?.throwIfAborted();
+    const uploads = await fetchUploads(fetchImpl, channel, signal).catch(() => []);
+    if (uploads.length === 0) throw feedError;
+    return { episodes: [], uploads };
   }
 }
 
 /**
  * The same long-form playlist, read the way youtube.com reads it, for when
  * the feeds are down. It lists ids only, so each video the store has not seen
- * costs one player request; those details are handed back to the scan.
+ * costs one player request. Return ids only: the scan owns ONE shared detail
+ * pool and budget, including every fallback channel.
  */
 async function fetchUploads(
   fetchImpl: typeof fetch,
   channel: PodcastChannel,
-  details: Map<string, VideoDetails>,
   signal?: AbortSignal,
-): Promise<FeedEpisode[]> {
+): Promise<string[]> {
   const response = await request(fetchImpl, BROWSE_URL, {
     context: { client: WEB_CLIENT },
     browseId: `VLUULF${channel.youtubeId.slice(2)}`,
   }, signal);
-  const ids = parseBrowseVideoIds(await response.json());
-  const found = await pooled(ids, DETAIL_CONCURRENCY, async (id) => {
-    const known = details.get(id) ?? await fetchVideoDetails(id, fetchImpl, signal).catch(() => null);
-    if (known) details.set(id, known);
-    return known;
-  });
-  return found.flatMap((video) => video?.published ? [{
-    videoId: video.videoId,
-    channelId: channel.id,
-    title: video.title,
-    published: video.published,
-    description: video.description,
-  }] : []);
+  return parseBrowseVideoIds(JSON.parse(response));
 }
 
 /**
@@ -199,7 +206,7 @@ export async function fetchTranscript(
   if (url.protocol !== "https:" || !/(^|\.)youtube\.com$/.test(url.hostname)) throw new Error("Unexpected caption host");
   url.searchParams.delete("fmt");
   const response = await request(fetchImpl, url.toString(), undefined, signal);
-  return parseCaptionXml(await response.text());
+  return parseCaptionXml(response);
 }
 
 // ---------------------------------------------------------------------------
@@ -263,34 +270,52 @@ export async function scanPodcasts(options: PodcastScanOptions = {}): Promise<Po
 
   const failures: PodcastStore["failures"] = [];
   const known = readPodcastStore().details;
-  // Seeded with what the store knows; the browse fallback adds what it fetched.
   const seen = new Map(Object.entries(known));
   const feeds = await pooled(channels, FEED_CONCURRENCY, async (channel) => {
+    options.signal?.throwIfAborted();
     try {
-      return await fetchFeed(fetchImpl, channel, seen, options.signal);
+      return { channel, ...await fetchFeed(fetchImpl, channel, options.signal) };
     } catch (error) {
       failures.push({ channelId: channel.id, error: error instanceof Error ? error.message : String(error) });
-      return [];
+      return { channel, episodes: [], uploads: undefined };
     }
   });
-  const episodes = feeds.flat();
+  const episodes = feeds.flatMap((feed) => feed.episodes);
 
   const since = now - LATEST_WINDOW_DAYS * 86_400_000;
   const wanted = [
     ...INTERVIEW_IDS,
+    ...feeds.flatMap((feed) => feed.uploads ?? []),
     ...episodes.filter((episode) => Date.parse(episode.published) >= since).map((episode) => episode.videoId),
   ].filter((id, index, all) => !seen.has(id) && all.indexOf(id) === index).slice(0, DETAILS_PER_SCAN);
-  const fetched = await pooled(wanted, DETAIL_CONCURRENCY, (id) => fetchVideoDetails(id, fetchImpl, options.signal).catch(() => null));
+  const fetched = await pooled(wanted, DETAIL_CONCURRENCY, (id) => {
+    options.signal?.throwIfAborted();
+    return fetchVideoDetails(id, fetchImpl, options.signal).catch(() => null);
+  });
+  options.signal?.throwIfAborted();
+  for (const item of fetched) if (item) seen.set(item.videoId, item);
+  for (const { channel, uploads } of feeds) {
+    if (!uploads) continue;
+    // A partial fallback is not proof that a channel lost its older episodes.
+    if (uploads.some((id) => !seen.get(id)?.published)) failures.push({
+      channelId: channel.id, error: "Some video details are unavailable or deferred by the scan limit.",
+    });
+    for (const id of uploads) {
+      const video = seen.get(id);
+      if (video?.published) episodes.push({ videoId: id, channelId: channel.id,
+        title: video.title, published: video.published, description: video.description });
+    }
+  }
 
   const write = () => updateJsonObject<PodcastStore, PodcastStore>(STORE_FILE, (current) => {
     const base = { ...EMPTY_PODCAST_STORE, ...current };
     // A feed that failed is not a channel that went quiet: keep what it had,
     // whether one channel timed out or the whole machine is offline.
     const failed = new Set(failures.map((failure) => failure.channelId));
-    const keptEpisodes = [...episodes, ...base.episodes.filter((episode) => failed.has(episode.channelId))];
+    const keptEpisodes = [...episodes, ...base.episodes.filter((episode) => failed.has(episode.channelId)
+      && !episodes.some((fresh) => fresh.channelId === episode.channelId && fresh.videoId === episode.videoId))];
     const details: Record<string, VideoDetails> = { ...base.details };
     for (const [id, item] of seen) if (!known[id]) details[id] = item;
-    for (const item of fetched) if (item) details[item.videoId] = item;
     const live = new Set([...INTERVIEW_IDS, ...keptEpisodes.map((episode) => episode.videoId), ...Object.keys(base.summaries)]);
     for (const id of Object.keys(details)) if (!live.has(id)) delete details[id];
     const value: PodcastStore = {
@@ -346,6 +371,9 @@ export function summarizeEpisode(
     controller,
   );
   const run = (async () => {
+    // Recheck under the lease: completed summaries survive retries and process restarts.
+    const cached = readPodcastStore().summaries[videoId];
+    if (cached) return cached;
     const segments = await fetchTranscript(videoId, fetchImpl, controller.signal);
     if (segments.length === 0) throw new Error("The transcript came back empty.");
     const { text, truncated } = transcriptWithTimestamps(segments, TRANSCRIPT_MAX_CHARS);

@@ -18,10 +18,7 @@
 
 .title {
   margin: 4px 0 8px;
-  font-size: 36px;
-  font-style: italic;
-  font-weight: 400;
-  line-height: 1.2;
+  font: italic 400 var(--type-page-size)/1.25 var(--font-serif);
 }
 
 .meta, .results, .connection > p {

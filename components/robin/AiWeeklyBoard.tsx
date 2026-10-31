@@ -9,12 +9,12 @@ import styles from "./AiWeeklyBoard.module.css";
 
 const API = "/api/robin/ai-weekly";
 
-export function AiWeeklyBoard() {
+export function AiWeeklyBoard({ active = true }: { active?: boolean }) {
   const { t, locale } = useI18n();
   const search = useSearchParams();
   const [week, setWeek] = useState(search.get("week") ?? "");
   const [selected, setSelected] = useState(search.get("day") ?? "");
-  const resource = usePolledResource<WeeklyView>(`${API}${week ? `?week=${encodeURIComponent(week)}` : ""}`, 10_000);
+  const resource = usePolledResource<WeeklyView>(`${API}${week ? `?week=${encodeURIComponent(week)}` : ""}`, 10_000, active);
   const { data, loading, error, refresh } = resource;
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
