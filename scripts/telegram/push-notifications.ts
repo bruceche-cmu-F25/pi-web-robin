@@ -4,10 +4,11 @@ import type { BridgeLocale } from "./protocol.ts";
 
 /** Reserved delivery-ledger recipient: real Telegram chat IDs are never zero. */
 export const PUSH_RECIPIENT = 0;
-export type ScheduledNotificationKind = "agenda" | "jobs" | "mail" | "reminder";
+export type ScheduledNotificationKind = "agenda" | "jobs" | "jobs-status" | "mail" | "reminder";
 const DESTINATIONS = {
   agenda: { en: "Today's agenda", zh: "今日日程与待办", url: "/dashboard" },
   jobs: { en: "New matching jobs", zh: "新匹配岗位", url: "/dashboard/jobs" },
+  "jobs-status": { en: "Job pipeline needs attention", zh: "岗位流程需要检查", url: "/dashboard/jobs" },
   mail: { en: "Email review", zh: "邮件检查摘要", url: "/dashboard/gmail" },
   reminder: { en: "Upcoming event", zh: "日程即将开始", url: "/dashboard" },
 } as const;

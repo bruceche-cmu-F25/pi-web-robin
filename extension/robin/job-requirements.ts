@@ -123,6 +123,9 @@ export function extractYearsRequired(description: string): number | null {
     // A window either side: "5+ years of professional experience" puts the
     // keyword after, "experience: 5+ years" puts it before.
     const after = description.slice(match.index + match[0].length, match.index + match[0].length + 90);
+    // Age eligibility and future-facing company prose can sit immediately
+    // before an experience bullet; proximity alone does not make them a bar.
+    if (/^\s*(?:of age\b|old\b|from now\b|ago\b)/i.test(after)) continue;
     if (!EXPERIENCE_CONTEXT.test(`${before} ${after}`)) continue;
     // A trailing "preferred" only governs its own clause: in "2+ years
     // required; 5+ years preferred" it must disqualify the 5 and leave the 2.

@@ -48,6 +48,8 @@ export interface RawPosting {
    * board slug from one of those is guesswork. Never rendered, never stored.
    */
   ref?: { board: string; id: string };
+  /** Verified redirects, kept so a feed changing URL shapes cannot duplicate a requisition. */
+  alternateUrls?: string[];
 }
 
 export interface FetchRequest {
@@ -76,6 +78,8 @@ export interface FetchRequest {
   allowHost?: (hostname: string) => boolean;
   /** Stop reading after this many bytes. A page is not allowed to be a download. */
   maxBytes?: number;
+  /** Final checked URL, before reading the response body. */
+  onFinalUrl?: (url: string) => void;
 }
 
 export interface FetchContext {
@@ -178,10 +182,13 @@ export function makeFetchContext(fetchImpl: typeof fetch = fetch, parentSignal?:
         : null;
       if (!location || hop >= hops) {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        options.onFinalUrl?.(target);
         return response;
       }
 
+      await response.body?.cancel();
       const next = new URL(location, target);
+      if (next.username || next.password) throw new Error("redirect contains credentials");
       if (next.protocol !== "https:") throw new Error(`redirect left HTTPS: ${next.href}`);
       if (!options.allowHost?.(next.hostname)) {
         throw new Error(`redirect to untrusted host "${next.hostname}"`);
@@ -635,6 +642,13 @@ const smartrecruiters: Provider = {
   id: "smartrecruiters",
   label: "SmartRecruiters",
   detect: (company) => smartRecruitersSlug(company) !== null,
+  refFromUrl(url) {
+    const parsed = parseUrl(url);
+    if (parsed?.hostname !== "jobs.smartrecruiters.com") return null;
+    const [board, path] = parsed.pathname.split("/").filter(Boolean);
+    const id = path?.match(/^(\d+)(?:-|$)/)?.[1];
+    return board && id ? { board, id } : null;
+  },
   async fetch(company, ctx) {
     const slug = smartRecruitersSlug(company);
     if (!slug) throw new Error(`smartrecruiters: cannot derive a company slug from ${company.url}`);
@@ -820,8 +834,11 @@ const workday: Provider = {
       // employer costs one request and only a genuinely busy one costs more.
       const stale = (batch: Record<string, unknown>[]) => batch.every((job) => {
         const posted = workdayPostedAt(str(job.postedOn));
-        // No date means the unbounded "30+ Days Ago" form: old by definition.
-        return posted === undefined || posted < company.since!;
+        // Some tenants omit postedOn entirely. Unknown is not old: otherwise
+        // their first undated page hides every later posting in the sweep.
+        if (posted !== undefined) return posted < company.since!;
+        const lowerBound = str(job.postedOn).match(/posted\s+(\d+)\+\s*days?\s+ago/i);
+        return lowerBound !== null && toDateString(Date.now() - Number(lowerBound[1]) * 86_400_000)! < company.since!;
       });
       for (let index = 1; index < pages && !stale(batches[batches.length - 1]!); index += 1) {
         batches.push(await page(index));
@@ -890,6 +907,8 @@ const workday: Provider = {
       const info = (detail?.jobPostingInfo ?? {}) as Record<string, unknown>;
       const description = str(info.jobDescription);
       if (description) posting.description = cleanDescription(description);
+      const locations = [str(info.location), ...(Array.isArray(info.additionalLocations) ? info.additionalLocations.map(str) : [])].filter(Boolean);
+      if (locations.length) posting.location = [...new Set(locations)].join(" · ");
       const startDate = toDateString(info.startDate);
       if (startDate) posting.postedAt = startDate;
     });
@@ -2194,7 +2213,13 @@ export async function readUnknownBoard(url: string, ctx: FetchContext): Promise<
     return null;
   }
 
-  const candidates = [fromJsonLd(html), ...fromEmbeddedJson(html), fromBody(html)]
+  // A typed JobPosting describes this job; longer page furniture can include
+  // several unrelated employers. Length must never outrank that provenance.
+  const structured = fromJsonLd(html);
+  if (structured && hasSubstantiveDescription(structured) && proseRatio(structured) > 0.6 && looksLikeJobDescription(structured)) {
+    return cleanDescription(structured);
+  }
+  const candidates = [structured, ...fromEmbeddedJson(html), fromBody(html)]
     .filter((entry): entry is string => Boolean(entry) && entry!.length > 200);
   if (candidates.length === 0) return null;
   // Longest wins, but only after being discounted for looking like a blob.
@@ -2311,10 +2336,38 @@ export async function hydrateDescriptions(
   ctx: FetchContext,
   options: HydrateOptions = {},
 ): Promise<void> {
+  // The community feed switched direct ATS links to go.vansh.nyc redirects.
+  // Resolve only this known wrapper, after admission, even when a JD exists.
+  // Only recognisable posting URLs establish identity; a careers-home redirect
+  // must never merge all an employer's closed jobs into one requisition.
+  await eachLimited(postings.filter((posting) => parseUrl(posting.url)?.hostname === "go.vansh.nyc"), HYDRATE_CONCURRENCY, async (posting) => {
+    // Legacy short codes were once case-folded and could inherit another
+    // employer's JD/ref. They are unbound evidence even if resolving fails.
+    // Empty text explicitly invalidates it; an ordinary fetch miss does not.
+    posting.description = "";
+    delete posting.ref;
+    let resolved = posting.url;
+    await ctx.fetchText(posting.url, {
+      redirects: 3, maxBytes: 1,
+      // Do not turn readUnknownBoards off into permission to fetch arbitrary
+      // public hosts: identity resolution only follows this wrapper and ATSes.
+      allowHost: (host) => GREENHOUSE_HOSTS.has(host) || WORKDAY_HOST.test(host)
+        || ["go.vansh.nyc", "jobs.ashbyhq.com", "jobs.lever.co", "jobs.eu.lever.co",
+          "jobs.smartrecruiters.com", "amazon.jobs", "www.amazon.jobs"].includes(host),
+      onFinalUrl: (url) => { resolved = url; },
+    });
+    if (resolved === posting.url) return;
+    const parsed = parseUrl(resolved);
+    if (!PROVIDERS.some((provider) => provider.refFromUrl?.(resolved))
+      && !(parsed && /^(?:www\.)?amazon\.jobs$/.test(parsed.hostname) && /^\/(?:[a-z-]+\/)?jobs\/\d+(?:\/|$)/i.test(parsed.pathname))) return;
+    posting.alternateUrls = [...new Set([...(posting.alternateUrls ?? []), posting.url])].slice(0, 20);
+    posting.url = resolved;
+  });
   // Work on copies: clearing an old snippet must not erase it when a request
   // fails. Native hydrators that skip existing descriptions now get a chance
   // to upgrade snippets, not only completely empty rows.
-  const targets = postings.filter((posting) => !hasSubstantiveDescription(posting.description));
+  const targets = postings.filter((posting) => !hasSubstantiveDescription(posting.description)
+    || (!posting.location && workday.refFromUrl?.(posting.url)));
   const attempts: (RawPosting & { source: string })[] = targets.map((posting) => ({ ...posting, description: undefined }));
   const bySource = new Map<string, RawPosting[]>();
   for (const posting of attempts) {
@@ -2357,6 +2410,7 @@ export async function hydrateDescriptions(
     }
     if (attempt.ref) original.ref = attempt.ref;
     if (attempt.postedAt) original.postedAt = attempt.postedAt;
+    if (attempt.location) original.location = attempt.location;
   });
 }
 

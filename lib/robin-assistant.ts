@@ -415,7 +415,12 @@ async function runModeTurn(
   const preamble = fresh && "preamble" in mode ? mode.preamble : null;
   const prompt = preamble ? `${preamble}\n\n---\n\n${message}` : message;
   try {
-    if (modeName === "scoring") await prepareJobScoringSession(session);
+    if (modeName === "scoring") {
+      // Each batch is an internal step, not a finished user task. The job digest
+      // and pipeline-status alerts own delivery; never buzz once per scoring round.
+      session.silenceCompletionNotifications();
+      await prepareJobScoringSession(session);
+    }
     const { reply, final, usedTools } = await runTurn(
       session,
       prompt,

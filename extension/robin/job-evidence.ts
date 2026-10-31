@@ -80,7 +80,14 @@ export function reviewProblem(job: Job, profile: JobProfile, review?: JobReview)
       return `unsupported-${field}`;
     }
     if (check.status === "blocked") return `blocked-${field}`;
-    if (check.status === "unknown") return `unknown-${field}`;
+    if (check.status === "unknown") {
+      // The profile explicitly permits a numeric experience stretch. Require
+      // the actual experience clause, not a claim that the candidate meets it.
+      const quotedStretch = field === "experience" && experience === "stretch-experience"
+        && quotes(source(field), check.quote)
+        && extractYearsRequired(check.quote!) === (extractYearsRequired(job.description!) ?? job.yearsRequired);
+      if (!quotedStretch) return `unknown-${field}`;
+    }
   }
   return experience;
 }
@@ -96,6 +103,7 @@ export function jobSummary(job: Job, profile: JobProfile): Job {
   const summary = { ...job };
   delete summary.description;
   delete summary.review;
+  delete summary.application; // Full read-back evidence belongs to the application review endpoint.
   if (typeof job.score === "number" && (job.scoreStale || needsJobScoring(job, profile))) {
     summary.flags = [...new Set([...(job.flags ?? []), "needs-review"])];
   }

@@ -63,13 +63,23 @@ test("degree choices do not erase independent experience requirements or extend 
   assert.equal(extractYearsRequired("0–2 years of professional software engineering experience."), 0);
 });
 
+test("age limits and future company prose never become experience requirements", () => {
+  assert.equal(extractYearsRequired("Are 18 years of age or older - Experience with at least one general-purpose programming language."), null);
+  assert.equal(extractYearsRequired("Work you'll still be proud of in ten years from now. About the Role As an AI Security Engineer, you'll build tooling."), null);
+  assert.equal(extractYearsRequired("Must be 18 years old. Requirements: 2 years of software development experience."), 2);
+  assert.equal(extractYearsRequired("You have 10 years of experience building security tooling."), 10);
+});
+
 test("ATS identity ignores application routes/tracking but never merges distinct reqs", () => {
   assert.equal(jobKey("https://jobs.ashbyhq.com/acme/abc"), jobKey("https://jobs.ashbyhq.com/acme/abc/application?embed=true"));
   assert.equal(jobKey("https://boards.greenhouse.io/acme/jobs/123"), jobKey("https://job-boards.greenhouse.io/acme/jobs/123?utm_source=feed"));
   assert.equal(jobKey("https://jobs.lever.co/acme/abc"), jobKey("https://jobs.lever.co/acme/abc/apply?lever-source=feed"));
   assert.equal(jobKey("https://acme.wd5.myworkdayjobs.com/en-US/External/job/SF/Engineer_JR123"), jobKey("https://acme.wd5.myworkdayjobs.com/External/job/Remote/New-Title_JR123?source=feed"));
+  assert.equal(jobKey("https://jobs.smartrecruiters.com/Acme/744000123-engineer"), jobKey("https://jobs.smartrecruiters.com/Acme/744000123?utm_source=feed"));
+  assert.notEqual(jobKey("https://jobs.smartrecruiters.com/Acme/744000123"), jobKey("https://jobs.smartrecruiters.com/Acme/744000124"));
   assert.notEqual(jobKey("https://careers.ibm.com/careers/JobDetail?jobId=1"), jobKey("https://careers.ibm.com/careers/JobDetail?jobId=2"));
   assert.notEqual(jobKey("https://jobs.ashbyhq.com/acme/abc"), jobKey("https://jobs.ashbyhq.com/acme/def"));
+  assert.notEqual(jobKey("https://go.vansh.nyc/Aw"), jobKey("https://go.vansh.nyc/AW"));
 });
 
 test("budgeted sweeps resume from the first unvisited board, including partial final batches", async () => {
@@ -140,6 +150,29 @@ test("a replaced sweep owner cannot flush discovered jobs", async () => {
   });
   assert.match(result.error, /ownership was lost/);
   assert.deepEqual(readJobs(), []);
+});
+
+test("an undated Workday sweep hydrates geography before admitting the posting", async () => {
+  writeJobs([]);
+  const fake = async (url) => {
+    if (String(url).includes("raw.githubusercontent.com")) return Response.json(["acme|wd5|External"]);
+    if (String(url).endsWith("/jobs")) return Response.json({ total: 2, jobPostings: [
+      { title: "Software Engineer", externalPath: "/job/foreign_R1" },
+      { title: "Software Engineer", externalPath: "/job/local_R2" },
+    ] });
+    return Response.json({ jobPostingInfo: {
+      location: String(url).includes("foreign") ? "Bucharest, Romania" : "San Francisco, CA",
+      startDate: new Date().toISOString().slice(0, 10),
+      jobDescription: "Requirements: Python skills and software engineering experience. ".repeat(20),
+    } });
+  };
+  const result = await runDirectorySweep({
+    profile: { ...rules.profile, sinceDays: 7, locationBlock: ["Romania"] },
+    directories: ["workday"], fetchImpl: fake,
+  });
+  assert.equal(result.added, 1);
+  assert.equal(result.matched, 1);
+  assert.equal(readJobs()[0].location, "San Francisco, CA");
 });
 
 test("a better description enriches an existing row without changing user state", async () => {

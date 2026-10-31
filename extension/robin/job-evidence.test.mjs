@@ -8,6 +8,7 @@ import { ELIGIBILITY_CHECKS, jobSummary, scoringContext } from "./job-evidence.t
 import { scoreJob, getJobDetails } from "./job-domain.ts";
 import { readJobs, writeJobs, writeJobProfile } from "./store.ts";
 import { resetTaskStore } from "./task-store.test-support.mjs";
+import { makeFetchContext } from "./job-providers.ts";
 
 const previous = process.env.ROBIN_DATA_DIR;
 process.env.ROBIN_DATA_DIR = mkdtempSync(join(tmpdir(), "robin-job-evidence-"));
@@ -151,6 +152,27 @@ test("one or two year requirements are stretch roles, not hard rejections", () =
   }
 });
 
+test("honestly declared, quoted experience stretches can pass without claiming the requirement is met", () => {
+  const candidate = { ...profile, minScore: 3.75, professionalExperienceMonths: 8, experienceStretchYears: 2 };
+  const requirement = "Minimum 2 years of professional software engineering experience required.";
+  const posting = job({ description: job().description + requirement, yearsRequired: 2 });
+  for (const quote of [requirement, roleEvidence, undefined]) {
+    writeJobProfile(candidate); writeJobs([posting]);
+    const checked = review(posting, { context: scoringContext(posting, candidate) });
+    checked.checks.experience = { status: "unknown", quote };
+    const result = scoreJob({ id: "test", score: 4.2, reason: "Backend match; 8 months versus 2 years is a stretch", review: checked }).job;
+    assert.equal(digestCandidates(readJobs(), candidate).length, quote === requirement ? 1 : 0);
+    if (quote === requirement) {
+      assert.equal(result.score, 3.9);
+      assert.ok(result.flags.includes("stretch-experience"));
+      assert.equal(result.review.checks.experience.status, "unknown");
+      checked.checks.workAuthorization = { status: "unknown" };
+      scoreJob({ id: "test", score: 4.2, reason: "Authorization unresolved", review: checked });
+      assert.equal(digestCandidates(readJobs(), candidate).length, 0, "stretch is not a bypass for other unknown eligibility");
+    }
+  }
+});
+
 test("requirements above the stretch ceiling remain hard experience blockers", () => {
   const candidate = { ...profile, professionalExperienceMonths: 8, experienceStretchYears: 2 };
   const requirement = "Minimum 3 years of professional software engineering experience required.";
@@ -184,6 +206,47 @@ test("blacklist changes stop delivery without invalidating the role's evidence",
   assert.equal(digestCandidates(readJobs(), blocked).length, 0);
   assert.equal(digestCandidates([job({ score: 3.5 })], { ...blocked, minScore: 3 }).length, 0);
   assert.equal(readJobs()[0].status, "new");
+});
+
+test("resolving a legacy shortlink replaces its unbound JD, or clears it if the real JD is unavailable", async () => {
+  const short = "https://go.vansh.nyc/Aw";
+  const canonical = "https://jobs.ashbyhq.com/acme/1";
+  for (const available of [true, false]) {
+    seed(job({ source: "newgradlist", url: short, status: "applied", note: "Keep my note", score: 4.5,
+      description: "Wrong employer: Boeing security clearance and flight tests. ".repeat(20) }));
+    const ctx = makeFetchContext(async (url) => String(url) === short
+      ? new Response(null, { status: 302, headers: { location: canonical } })
+      : String(url).includes("api.ashbyhq.com")
+        ? available ? Response.json({ jobs: [{ id: "1", descriptionPlain: job().description }] }) : new Response(null, { status: 503 })
+        : new Response("Public job page"));
+    const result = await getJobDetails("test", ctx);
+    assert.equal(result.description, available ? job().description : undefined);
+    assert.equal(result.url, canonical);
+    assert.ok(result.alternateUrls.includes(short));
+    assert.equal(result.status, "applied");
+    assert.equal(result.note, "Keep my note");
+    assert.equal(result.scoreStale, true);
+  }
+});
+
+test("an unresolved legacy shortlink cannot keep recommending its unbound cached JD", async () => {
+  seed(job({ url: "https://go.vansh.nyc/Aw", source: "newgradlist", score: 4.5 }));
+  const ctx = makeFetchContext(async () => new Response(null, { status: 503 }));
+  const result = await getJobDetails("test", ctx);
+  assert.equal(result.url, "https://go.vansh.nyc/Aw");
+  assert.equal(result.description, undefined);
+  assert.equal(result.scoreStale, true);
+});
+
+test("explicit refresh removes suspect full text when the source cannot verify it", async () => {
+  seed(job({ score: 4.5, yearsRequired: 18, note: "Keep" }));
+  const ctx = { async fetchJson() { throw Error("HTTP 429"); }, async fetchText() { throw Error("HTTP 429"); } };
+  assert.equal((await getJobDetails("test", ctx)).description, job().description, "ordinary reads reuse full text");
+  const refreshed = await getJobDetails("test", ctx, true);
+  assert.equal(refreshed.description, undefined);
+  assert.equal(refreshed.yearsRequired, undefined);
+  assert.equal(refreshed.scoreStale, true);
+  assert.equal(refreshed.note, "Keep");
 });
 
 test("reading full details upgrades legacy snippets but never changes applied state", async () => {

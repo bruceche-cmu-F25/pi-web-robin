@@ -37,6 +37,10 @@ test("the scoring tools expose summaries first, full evidence on demand, and a v
   assert.ok(full.includes(description));
   assert.match(full, /<<untrusted-posting>>/);
   const context = full.match(/Review context: (\S+)/)[1];
+  const rejected = await invoke("job_score", { id: "role", score: 4.5, reason: "Looks promising" });
+  assert.match(rejected, /Review rejected \(needs-review\)/);
+  assert.match(rejected, /correct.*once/);
+  assert.equal(digestCandidates(readJobs(), profile).length, 0);
   await invoke("job_score", { id: "role", score: 4.5, reason: "Python/agent evidence matches", review: {
     context, roleEvidence: quote, cvEvidence: cv,
     checks: Object.fromEntries(ELIGIBILITY_CHECKS.map(field => [field, field === "location"

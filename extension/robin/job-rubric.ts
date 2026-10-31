@@ -97,6 +97,9 @@ mark a requirement not-stated just because it is absent from the summary. Check
 all degree/experience alternatives against the actual candidate, not the largest
 number. A requirement within the profile's experience-stretch ceiling is worth trying,
 but the gap must be stated and the score stays at or below 3.9; do not mark it met.
+For a numeric experience stretch, mark experience unknown and quote the exact years
+requirement; this verified stretch alone may pass the push floor. Other unknown
+eligibility dimensions still prevent a recommendation.
 An explicit start before the stated availability is a blocker, not a
 minor deduction. Security clearance/export-control is separate from sponsorship.
 A new-grad title is not proof of graduate-window eligibility. Generic company
@@ -157,7 +160,9 @@ experience、education、startDate、workAuthorization、location：
 
 缺失或截断的 JD、编造的引用都不能获得可推送的分数。学历/经验的 OR 替代条件要逐条对照
 候选人，不能一律取最大年数。经验要求在画像的可尝试上限内时可以申请，但必须明确
-写出差距、最多 3.9 分，不能标成 met。明确早于可入职日期的到岗要求是硬伤，不是轻微扣分。
+写出差距、最多 3.9 分，不能标成 met。年限明确且属于可尝试范围时，将 experience 标成 unknown
+并引用精确年限要求；只有这种已核实的经验差距可以通过推送门槛，其他资格未知仍不能推荐。
+明确早于可入职日期的到岗要求是硬伤，不是轻微扣分。
 安全许可/出口管制与 sponsorship 分开检查。New-grad 标题不等于符合毕业时间窗口；
 公司宣传不是技能匹配证据。来源核验不是录用概率，不能保证面试或补写候选人的资历。
 
@@ -195,6 +200,7 @@ export function scoringPrompt(batch: number, locale: RubricLocale = "en"): strin
       `- 再调用 job_pending（limit ${batch}），然后对它返回的**每一个**岗位调用一次 job_score。`,
       "- 一个都不要跳过 —— 包括那些明显不合适的，它们就该得低分。",
       "- 达到推送门槛的分数前用 job_pending(id) 阅读完整 JD 并提交 review；缺少证据不要抬分。",
+      "- 若 job_score 因 review 缺失、过期或引文不符拒绝核验，重新读完整 JD 并修正一次；不要把技术核验失败当作岗位不合适。",
     ].join("\n");
   }
   return [
@@ -211,5 +217,6 @@ export function scoringPrompt(batch: number, locale: RubricLocale = "en"): strin
     "- Skip none — including the obviously wrong ones, which simply score low.",
     "- Before scoring at or above the push floor, call job_pending with id for the full JD and submit review evidence.",
     "- Do not inflate missing evidence.",
+    "- If job_score rejects missing/stale review or mismatched quotes, re-read the full JD and correct it once; a verification error is not a poor-fit judgement.",
   ].join("\n");
 }

@@ -129,6 +129,11 @@ export function admitPostings(postings: ScannedPosting[], rules: IntakeRules): S
 export function enrichJob(job: Job, posting: ScannedPosting): boolean {
   let changed = false;
   const description = posting.description;
+  if (description === "" && job.description) {
+    delete job.description;
+    delete job.yearsRequired;
+    changed = true;
+  }
   if (description && description !== job.description
     && (hasSubstantiveDescription(description)
       || (!hasSubstantiveDescription(job.description) && description.length > (job.description?.length ?? 0)))) {
@@ -145,15 +150,26 @@ export function enrichJob(job: Job, posting: ScannedPosting): boolean {
       changed = true;
     }
   }
+  if (posting.location && !job.location) { job.location = posting.location; changed = true; }
+  if (job.url.startsWith("https://go.vansh.nyc/") && posting.url !== job.url
+    && posting.alternateUrls?.includes(job.url)) {
+    job.alternateUrls = [...new Set([job.url, ...(job.alternateUrls ?? [])])].filter((url) => url !== posting.url).slice(0, 20);
+    job.url = posting.url;
+    // A persisted ref is equally untrustworthy after rebinding identity.
+    delete job.ref;
+    changed = true;
+  }
   if (changed && typeof job.score === "number") {
     job.scoreStale = true;
     job.flags = [...new Set([...(job.flags ?? []).filter((flag) => !/^asks \d+\+ yrs$/.test(flag)), "score-stale"])];
   }
   if (posting.ref && !job.ref) { job.ref = posting.ref; changed = true; }
   if (posting.postedAt && !job.postedAt) { job.postedAt = posting.postedAt; changed = true; }
-  if (posting.url !== job.url && !job.alternateUrls?.includes(posting.url) && (job.alternateUrls?.length ?? 0) < 20) {
-    job.alternateUrls = [...(job.alternateUrls ?? []), posting.url];
-    changed = true;
+  for (const url of [posting.url, ...(posting.alternateUrls ?? [])]) {
+    if (url !== job.url && !job.alternateUrls?.includes(url) && (job.alternateUrls?.length ?? 0) < 20) {
+      job.alternateUrls = [...(job.alternateUrls ?? []), url];
+      changed = true;
+    }
   }
   return changed;
 }
@@ -190,10 +206,11 @@ function mergePostings(
     } catch {
       continue;
     }
-    const key = jobKey(url);
-    const known = seen.get(key);
+    const keys = [url, ...(posting.alternateUrls ?? [])].map(jobKey);
+    const known = keys.map((key) => seen.get(key)).find(Boolean);
     if (known) {
       updated = enrichJob(known, { ...posting, url }) || updated;
+      for (const key of keys) seen.set(key, known);
       continue;
     }
     const years = posting.description ? extractYearsRequired(posting.description) : null;
@@ -216,6 +233,7 @@ function mergePostings(
       source: posting.source,
       ...(posting.description ? { description: posting.description } : {}),
       ...(posting.ref ? { ref: posting.ref } : {}),
+      ...(posting.alternateUrls?.length ? { alternateUrls: posting.alternateUrls } : {}),
       // The description is the bounded full posting, not the scorer's summary.
       ...(years === null ? {} : { yearsRequired: years }),
       ...(overExperienced ? { flags: [`asks ${years}+ yrs`] } : {}),
@@ -223,7 +241,7 @@ function mergePostings(
       status: overExperienced ? "dropped" : "new",
     };
     added.push(job);
-    seen.set(key, job);
+    for (const key of keys) seen.set(key, job);
   }
 
   return { jobs: [...existing, ...added], added: added.length, updated };
@@ -272,7 +290,9 @@ export async function absorb(
   const added = write(() => updateJobs((jobs) => {
     const autoDropped = autoDropUnactedJobs(jobs);
     const pruned = pruneJobs(jobs);
-    const merged = mergePostings(pruned, postings, rules.profile);
+    // Detail endpoints can replace an unknown location or estimated date.
+    // Those authoritative fields must clear the same gates as list metadata.
+    const merged = mergePostings(pruned, admitPostings(postings, rules), rules.profile);
     const changed = autoDropped > 0 || pruned.length !== jobs.length || merged.added > 0 || merged.updated;
     if (changed) jobs.splice(0, jobs.length, ...merged.jobs);
     return { value: merged.added, changed };

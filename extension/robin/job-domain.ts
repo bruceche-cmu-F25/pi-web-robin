@@ -35,10 +35,13 @@ import {
 } from "./job-providers.ts";
 
 /** Fetch better evidence on demand, without running scan retention or changing statuses. */
-export async function getJobDetails(id: string, ctx: FetchContext = makeFetchContext()): Promise<Job | null> {
+export async function getJobDetails(id: string, ctx: FetchContext = makeFetchContext(), refresh = false): Promise<Job | null> {
   const original = readJobs().find((job) => job.id === id);
   if (!original) return null;
   const fetched = { ...original };
+  // Explicit refresh is for suspect/mismatched evidence, not routine reads.
+  // If fetching fails, do not continue scoring the known-suspect cached JD.
+  if (refresh) fetched.description = "";
   await hydrateDescriptions([fetched], ctx, { readUnknownBoards: readJobProfile().readUnknownBoards });
   return updateJobs((jobs) => {
     const job = jobs.find((entry) => entry.id === id);

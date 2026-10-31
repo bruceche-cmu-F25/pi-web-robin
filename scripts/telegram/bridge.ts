@@ -269,7 +269,7 @@ async function sendScheduledMessage(
   if (deps.reloadConfig) {
     const latest = deps.reloadConfig();
     const enabled = { agenda: latest.dailyAgenda.enabled, jobs: latest.jobDigest.enabled,
-      mail: latest.gmailDigest.enabled, reminder: latest.reminders.enabled }[kind];
+      "jobs-status": latest.jobDigest.enabled, mail: latest.gmailDigest.enabled, reminder: latest.reminders.enabled }[kind];
     if (!enabled || (latest.notificationChannel ?? "telegram") !== (config.notificationChannel ?? "telegram")) {
       throw new Error("Notification settings changed; delivery deferred to the next tick");
     }
@@ -394,20 +394,20 @@ const SCORING_WAIT_MS = 20 * 60_000;
  * Since the schedules no longer share the poll loop, this waiting no longer
  * costs anyone their replies.
  */
-export async function waitForScoring(config: BridgeConfig, deps: BridgeDeps): Promise<void> {
+export async function waitForScoring(config: BridgeConfig, deps: BridgeDeps): Promise<string | null> {
   const deadline = deps.now() + SCORING_WAIT_MS;
   for (;;) {
-    const state = await callPiWeb<{ scoring?: { running?: boolean } | null }>(
+    const state = await callPiWeb<{ scoring?: { running?: boolean; error?: string | null } | null }>(
       pi(config, deps),
       "/api/robin/jobs/score",
       {},
       30_000,
       "GET",
     );
-    if (!state.scoring?.running) return;
+    if (!state.scoring?.running) return state.scoring?.error ?? null;
     if (deps.now() >= deadline) {
       deps.log("[jobs] scoring still running after 20 min — sending what is scored so far");
-      return;
+      return "Scoring is still running after 20 minutes.";
     }
     await new Promise((resolve) => setTimeout(resolve, SCORING_POLL_MS));
   }
@@ -430,6 +430,7 @@ export async function sendJobDigest(
 ): Promise<void> {
   const { locale, count } = config.jobDigest;
   const ctx = pi(config, deps);
+  let incomplete = false;
 
   try {
     const scan = await callPiWeb<{ scan?: { scanned: number; matched: number; added: number } }>(
@@ -444,6 +445,7 @@ export async function sendJobDigest(
       );
     }
   } catch (error) {
+    incomplete = true;
     deps.log(`[jobs] scan failed — ${error instanceof Error ? error.message : String(error)}`);
   }
 
@@ -471,18 +473,37 @@ export async function sendJobDigest(
     // eight in the morning draws the same bar as one started from the page.
     deps.log(`[jobs] ${pending} unscored — asking pi-web to score`);
     try {
-      await callPiWeb(ctx, "/api/robin/jobs/score", {});
-      await waitForScoring(config, deps);
+      // A web-process restart can interrupt the paid turn. Recover that
+      // expired lease once; provider/validation failures do not get a spend loop.
+      for (let attempt = 0; attempt < 2; attempt++) {
+        await callPiWeb(ctx, "/api/robin/jobs/score", {});
+        const error = await waitForScoring(config, deps);
+        if (!error) break;
+        if (attempt === 0 && error.startsWith("Scoring lease expired.")) {
+          deps.log("[jobs] scoring was interrupted — recovering once");
+          continue;
+        }
+        throw new Error(error);
+      }
     } catch (error) {
+      incomplete = true;
       deps.log(`[jobs] scoring failed — ${error instanceof Error ? error.message : String(error)}`);
     }
     // Re-read: the batch to send is chosen from what the scorer just produced.
     digest = await callPiWeb(ctx, "/api/robin/jobs/digest", { preview: true, limit: count, locale });
   }
 
-  if (config.notificationChannel === "push" && digest.jobIds.length === 0) {
+  let notificationKind: ScheduledNotificationKind = "jobs";
+  if (digest.jobIds.length === 0 && (incomplete || digest.pending > 0)) {
+    notificationKind = "jobs-status";
+    // No provider error text on a lock screen. This is a pipeline alert, not
+    // a fabricated recommendation or proof that today's market is quiet.
+    digest.text = locale === "zh"
+      ? `岗位检查尚未完成，${digest.pending || 0} 条仍待评分。请打开 Jobs 查看状态；本次没有已核实的新推荐。`
+      : `Job checks are incomplete; ${digest.pending || 0} postings still need scoring. Open Jobs for status. No verified new recommendations this run.`;
+  } else if (config.notificationChannel === "push" && digest.jobIds.length === 0) {
     for (const recipient of chatIds) deps.jobLedger.mark(runKey, recipient);
-    return; // No new matches: consume the checked slot without a phone alert.
+    return; // A completed, genuinely empty check stays quiet.
   }
 
   // Numbered action rows ride on the digest itself. One notification, and the
@@ -492,7 +513,7 @@ export async function sendJobDigest(
   const delivered: number[] = [];
   for (const chatId of chatIds) {
     try {
-      await sendScheduledMessage(config, deps, chatId, "jobs", runKey, digest.text, locale, buttons);
+      await sendScheduledMessage(config, deps, chatId, notificationKind, runKey, digest.text, locale, buttons);
       delivered.push(chatId);
       deps.jobLedger.mark(runKey, chatId);
     } catch (error) {

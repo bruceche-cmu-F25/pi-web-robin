@@ -75,6 +75,44 @@ test("job delivery claims only after push acceptance; no matches sends no notifi
   assert.deepEqual(deps.jobLedger.rows.get("2026-10-24:morning"), [0]);
 });
 
+test("a scoring lease lost during a digest is recovered once, not mistaken for no matches", async () => {
+  let starts = 0;
+  const { deps, calls } = env(call => {
+    if (call.path === "/api/robin/jobs/score") {
+      if (call.method === "POST") { starts++; return { body: { started: true } }; }
+      return { body: { scoring: { running: false, error: starts === 1 ? "Scoring lease expired. Completed scores are kept; start again to continue." : null } } };
+    }
+    if (call.path === "/api/robin/jobs/digest") return { body: starts < 2
+      ? { text: "Not scored", jobIds: [], count: 0, pending: 2 }
+      : { text: "1. Acme", jobIds: ["j1"], count: 1, pending: 0 } };
+  });
+  await sendJobDigest(config(), deps, "2026-10-24:morning");
+  assert.equal(starts, 2);
+  assert.equal(pushes(calls).length, 1);
+  assert.match(pushes(calls)[0].body.title, /新匹配/);
+  assert.ok(calls.some(call => call.body?.claim?.includes("j1")));
+});
+
+test("incomplete scoring sends a pipeline-status alert, never a silent empty digest or endless retry", async () => {
+  for (const error of ["Scoring lease expired. Completed scores are kept; start again to continue.", "Model error: unavailable", null]) {
+    let starts = 0;
+    const { deps, calls } = env(call => {
+      if (call.path === "/api/robin/jobs/score") {
+        if (call.method === "POST") starts++;
+        return { body: { scoring: { running: false, error } } };
+      }
+      if (call.path === "/api/robin/jobs/digest") return { body: { text: "No verified recommendations", jobIds: [], count: 0, pending: 23 } };
+    });
+    await sendJobDigest(config(), deps, "2026-10-24:morning");
+    assert.equal(starts, error?.startsWith("Scoring lease expired") ? 2 : 1);
+    assert.equal(pushes(calls).length, 1);
+    assert.match(pushes(calls)[0].body.title, /岗位流程/);
+    assert.match(pushes(calls)[0].body.body, /23/);
+    assert.equal(calls.some(call => call.body?.claim), false);
+    assert.deepEqual(deps.jobLedger.rows.get("2026-10-24:morning"), [0]);
+  }
+});
+
 test("scheduled slots are not regenerated after acceptance, and no subscriber means no paid work", async () => {
   const ready = env();
   const configured = config({ dailyAgenda: { enabled: true, time: "08:00", locale: "zh" } });

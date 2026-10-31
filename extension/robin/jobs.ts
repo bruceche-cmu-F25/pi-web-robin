@@ -688,6 +688,9 @@ export function jobKey(url: string): string {
   try {
     const parsed = new URL(url);
     const host = parsed.hostname.toLowerCase();
+    // Short codes are case-sensitive: /Aw and /AW can redirect to different
+    // requisitions. Preserve them until the checked redirect proves identity.
+    if (host === "go.vansh.nyc") return `${host}${parsed.pathname}${parsed.search}`;
     const path = parsed.pathname.replace(/\/$/, "").toLowerCase();
     const parts = path.split("/").filter(Boolean);
     if (host === "jobs.ashbyhq.com" && parts[0] && parts[1]) {
@@ -699,6 +702,10 @@ export function jobKey(url: string): string {
     if (/^(?:boards|job-boards|job-boards\.eu)\.greenhouse\.io$/.test(host)
       && parts[1] === "jobs" && /^\d+$/.test(parts[2] ?? "")) {
       return `greenhouse:${host.includes(".eu.") ? "eu" : "us"}:${parts[0]}:${parts[2]}`;
+    }
+    if (host === "jobs.smartrecruiters.com" && parts[0]) {
+      const id = parts[1]?.match(/^(\d+)(?:-|$)/)?.[1];
+      if (id) return `smartrecruiters:${parts[0]}:${id}`;
     }
     if (/^[a-z0-9-]+\.wd\d+\.myworkdayjobs\.com$/.test(host)) {
       const req = path.match(/_((?:jr|req|r)[a-z0-9][a-z0-9-]*)(?:\/apply)?$/i)?.[1];

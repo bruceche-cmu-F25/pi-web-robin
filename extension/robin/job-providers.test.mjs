@@ -311,6 +311,30 @@ test("a Workday posting URL round-trips back into the ref its detail endpoint wa
   assert.deepEqual(ref, { board: "nvidia/NVIDIAExternalCareerSite", id: "/job/US-CA-Santa-Clara/Engineer_JR123" });
 });
 
+test("Workday unknown dates do not stop paging, but explicitly old pages do", async () => {
+  for (const label of [undefined, "Posted 30+ Days Ago", "Posted 12 Days Ago"]) {
+    const offsets = [];
+    const ctx = { async fetchJson(_url, options) {
+      offsets.push(options.body.offset);
+      return { total: 40, jobPostings: [{ title: "Software Engineer", externalPath: "/job/Engineer_R1", postedOn: label }] };
+    } };
+    await providerById("workday").fetch(company({ url: "https://acme.wd5.myworkdayjobs.com/External", since: new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10) }), ctx);
+    assert.equal(offsets.length, label === undefined ? 2 : 1, String(label));
+  }
+});
+
+test("Workday hydration preserves primary and additional locations through the dispatcher", async () => {
+  const job = { source: "workday", title: "Software Engineer", company: "Acme", location: "",
+    description: "An already complete description with requirements and responsibilities. ".repeat(20),
+    url: "https://acme.wd5.myworkdayjobs.com/External/job/Engineer_R1" };
+  await hydrateDescriptions([job], { async fetchJson() { return { jobPostingInfo: {
+    location: "BUCHAREST, ROMANIA", additionalLocations: ["San Francisco, CA"],
+    jobDescription: "Requirements: Python skills and software engineering experience. ".repeat(20), startDate: "2026-10-22",
+  } }; } });
+  assert.equal(job.location, "BUCHAREST, ROMANIA · San Francisco, CA");
+  assert.equal(job.postedAt, "2026-10-22");
+});
+
 /* ── markdown feeds ── */
 
 test("markdown rows are split so a pipe inside a cell cannot shift the columns", () => {
@@ -532,6 +556,15 @@ test("a careers page yields its description, preferring JSON-LD over page furnit
   const out = await readUnknownBoard("https://careers.example.com/jobs/1", ctx);
   assert.match(out, /build data pipelines/);
   assert.ok(!out.includes("Cookie notice"));
+});
+
+test("structured JobPosting beats longer related-job prose instead of merging employers", async () => {
+  const actual = "About the role: build Python services. Requirements: API experience and testing skills. ".repeat(10);
+  const unrelated = "OtherCo is hiring. Requirements: 10 years of experience and security clearance. Benefits for our team. ".repeat(80);
+  const html = `<script type="application/ld+json">${JSON.stringify({ "@type": "JobPosting", description: actual })}</script><div>${unrelated}</div>`;
+  const result = await readUnknownBoard("https://careers.example.com/jobs/1", { async fetchText() { return html; } });
+  assert.match(result, /build Python/);
+  assert.doesNotMatch(result, /OtherCo|security clearance/);
 });
 
 test("page furniture is dropped in favour of the one block that is actually the posting", async () => {

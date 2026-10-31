@@ -7,6 +7,7 @@ import { DEFAULT_JOB_PROFILE } from "./jobs.ts";
 import { absorb, admitPostings, compileAdmission, expireClosedPostings, freshnessCutoff } from "./job-intake.ts";
 import { readJobs, writeJobs } from "./store.ts";
 import { resetTaskStore } from "./task-store.test-support.mjs";
+import { makeFetchContext } from "./job-providers.ts";
 
 // `absorb` persists through ./store.ts, which resolves its directory per call
 // from ROBIN_DATA_DIR. Without this the suite writes into the developer's own
@@ -37,7 +38,9 @@ const offline = {
 };
 
 /** Seed the store, run one intake, and hand back what is in there afterwards. */
-async function intake(existing, postings, ctx = offline, set = rules()) {
+// Merge-only fixtures deliberately admit arbitrary titles/cities. Tests of
+// admission and hydrated metadata pass their own restrictive profile below.
+async function intake(existing, postings, ctx = offline, set = rules({ titles: [], locationAllow: [] })) {
   writeJobs(existing);
   const { added } = await absorb(postings, set, ctx);
   return { added, jobs: readJobs() };
@@ -254,6 +257,62 @@ test("untouched jobs auto-drop after two weeks, even when a scan finds nothing",
   assert.equal(byId.saved.status, "shortlist");
   assert.equal(byId.sent.status, "applied");
   assert.equal(byId.fresh.status, "new");
+});
+
+test("hydrated dates and locations are rechecked before a new row reaches storage", async () => {
+  const today = days(0);
+  const batch = ["foreign", "old", "local"].map(id => posting({ title: "Software Engineer", source: "workday", location: "",
+    url: `https://acme.wd5.myworkdayjobs.com/External/job/${id}_R1`, postedAt: today }));
+  const ctx = { async fetchJson(url) { return { jobPostingInfo: {
+    location: url.includes("foreign") ? "BUCHAREST, ROMANIA" : "San Francisco, CA",
+    startDate: url.includes("old") ? days(90) : today,
+    jobDescription: "Requirements: Python skills and software engineering experience. ".repeat(20),
+  } }; } };
+  const result = await intake([], batch, ctx, rules({ titles: ["Software Engineer"], sinceDays: 7, locationBlock: ["Romania"] }));
+  assert.equal(result.added, 1);
+  assert.equal(result.jobs[0].location, "San Francisco, CA");
+  assert.match(result.jobs[0].url, /local/);
+});
+
+test("community shortlinks merge by resolved ATS identity while retaining their alias", async () => {
+  const short = "https://go.vansh.nyc/As";
+  const direct = "https://jobs.ashbyhq.com/acme/role-1";
+  const ctx = makeFetchContext(async (url) => String(url) === short
+    ? new Response(null, { status: 302, headers: { location: `${direct}/application` } })
+    : new Response("public posting"));
+  const full = "Requirements: Python skills and software engineering experience. ".repeat(20);
+  const result = await intake([stored({ url: direct, status: "applied", note: "keep me" })], [
+    posting({ source: "newgradlist", url: short, description: full }),
+  ], ctx);
+  assert.equal(result.added, 0);
+  assert.equal(result.jobs.length, 1);
+  assert.equal(result.jobs[0].status, "applied");
+  assert.equal(result.jobs[0].note, "keep me");
+  assert.ok(result.jobs[0].alternateUrls.includes(short));
+});
+
+test("a shortlink redirected to a careers home does not establish posting identity", async () => {
+  const short = "https://go.vansh.nyc/closed";
+  const ctx = makeFetchContext(async (url) => String(url) === short
+    ? new Response(null, { status: 302, headers: { location: "https://jobs.ashbyhq.com/acme" } })
+    : new Response("Careers home"));
+  const result = await intake([], [posting({ source: "newgradlist", url: short })], ctx);
+  assert.equal(result.jobs[0].url, short);
+  assert.equal(result.jobs[0].alternateUrls, undefined);
+});
+
+test("shortlink resolution rejects private, unknown and credentialed redirect targets", async () => {
+  for (const target of ["https://127.0.0.1/private", "https://untrusted.example/jobs/1", "https://user:pass@jobs.ashbyhq.com/acme/1"]) {
+    const asked = [];
+    const short = "https://go.vansh.nyc/private";
+    const ctx = makeFetchContext(async (url) => {
+      asked.push(String(url));
+      return new Response(null, { status: 302, headers: { location: target } });
+    });
+    const result = await intake([], [posting({ source: "newgradlist", url: short })], ctx);
+    assert.deepEqual(asked, [short]);
+    assert.equal(result.jobs[0].url, short);
+  }
 });
 
 /* ── retiring what closed ── */
