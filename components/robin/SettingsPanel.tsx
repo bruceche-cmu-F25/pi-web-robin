@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type {
   DailyAgendaSettings,
   GmailDigestSettings,
@@ -13,6 +13,29 @@ import type {
 import { useI18n } from "@/hooks/useI18n";
 import { GoogleConnect } from "./GoogleConnect";
 import { ThemePicker } from "../ThemePicker";
+import { NavigationPlacementSetting } from "../NavigationPlacementSetting";
+import { VoiceSettings } from "./VoiceSettings";
+import styles from "./SettingsPanel.module.css";
+
+const settingGroups = [
+  { label: "robin.settings.preferences", items: [
+    { id: "general", label: "settings.general", icon: "M4 5h16M4 12h16M4 19h16M8 3v4M16 10v4M9 17v4" },
+    { id: "voice", label: "voice.settingsTitle", icon: "M9 5a3 3 0 0 1 6 0v7a3 3 0 0 1-6 0V5ZM5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8" },
+    { id: "notifications", label: "robin.settings.notificationsNav", icon: "M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" },
+  ] },
+  { label: "robin.settings.connections", items: [
+    { id: "google", label: "robin.settings.googleNav", icon: "M4 5h16v15H4zM4 9h16M8 3v4M16 3v4M8 13h3M13 16h3" },
+    { id: "cold-reach-email", label: "robin.settings.outreachNav", icon: "M3 5h18v14H3zM3 6l9 7 9-7" },
+    { id: "notion", label: "robin.settings.notionTitle", icon: "M5 3h14v18H5zM9 16V8l6 8V8" },
+    { id: "telegram", label: "robin.settings.telegramTitle", icon: "m3 10 18-7-6 18-4-7-8-4Zm8 4L21 3" },
+    { id: "playwright", label: "robin.settings.browserNav", icon: "M3 4h18v16H3zM3 9h18M7 6.5h.01M11 6.5h.01M9 13l-2 2 2 2M15 13l2 2-2 2" },
+  ] },
+  { label: "robin.settings.advanced", items: [
+    { id: "transcription", label: "robin.settings.transcriptionTitle", icon: "M9 5a3 3 0 0 1 6 0v7a3 3 0 0 1-6 0V5ZM5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8" },
+    { id: "privacy", label: "robin.settings.privacyTitle", icon: "m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3ZM9 12l2 2 4-4" },
+  ] },
+] as const;
+type SettingsCategory = typeof settingGroups[number]["items"][number]["id"];
 
 interface SecretStatus {
   set: boolean;
@@ -51,8 +74,38 @@ type SaveAction =
   | "reminders" | "transcription" | "notifications";
 type SavePhase = "saving" | "saved";
 
+// Compare each editable field with its own last acknowledged value. Refreshing
+// credential status must not replace another form's draft (or edits made mid-save).
+const sameDraft = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+function refreshDraft<T>(set: Dispatch<SetStateAction<T>>, next: NoInfer<T>, previous: unknown) {
+  set(current => previous === undefined || sameDraft(current, previous) ? next : current);
+}
+function settingsDrafts(body: SettingsResponse) {
+  return {
+    notificationChannel: body.notifications?.channel ?? "telegram",
+    chatIds: body.telegram.allowedChatIds.join(", "),
+    dailyAgenda: body.telegram.dailyAgenda,
+    jobDigest: body.telegram.jobDigest,
+    jobChatIds: (body.telegram.jobDigest.chatIds ?? []).join(", "),
+    gmailDigest: body.telegram.gmailDigest,
+    gmailChatIds: (body.telegram.gmailDigest.chatIds ?? []).join(", "),
+    reminders: body.telegram.reminders,
+    reminderChatIds: (body.telegram.reminders.chatIds ?? []).join(", "),
+    transcription: {
+      enabled: body.telegram.transcription.enabled,
+      baseUrl: body.telegram.transcription.baseUrl,
+      model: body.telegram.transcription.model,
+    },
+  };
+}
+const savedFields: Partial<Record<SaveAction, (keyof ReturnType<typeof settingsDrafts>)[]>> = {
+  notifications: ["notificationChannel"], chatIds: ["chatIds"], dailyAgenda: ["dailyAgenda"],
+  jobDigest: ["jobDigest", "jobChatIds"], gmailDigest: ["gmailDigest", "gmailChatIds"],
+  reminders: ["reminders", "reminderChatIds"], transcription: ["transcription"],
+};
+
 const inputStyle = {
-  background: "var(--bg)",
+  background: "var(--settings-field-background, var(--bg))",
   border: "1px solid var(--border)",
   color: "var(--text)",
 } as const;
@@ -80,7 +133,7 @@ function SaveButton({
       onClick={onClick}
       aria-live="polite"
       aria-busy={phase === "saving"}
-      className={`ui-action ui-action--outline pi-bracket min-h-11 cursor-pointer px-3 py-2 disabled:cursor-default ${className}`}
+      className={`${styles.saveButton} ui-action ui-action--primary min-h-11 cursor-pointer px-3 py-2 disabled:cursor-default ${className}`}
       data-state={saved ? "success" : "accent"}
       style={{
         opacity: disabled && phase === undefined ? 0.4 : 1,
@@ -88,8 +141,7 @@ function SaveButton({
         alignItems: "center",
         justifyContent: "center",
         gap: 6,
-        transition: "background-color 0.2s ease",
-        animation: saved ? "saved-pop 0.45s ease" : undefined,
+
       }}
     >
       {saved && (
@@ -103,7 +155,6 @@ function SaveButton({
           strokeWidth="3"
           strokeLinecap="round"
           strokeLinejoin="round"
-          style={{ strokeDasharray: 18, animation: "saved-check-draw 0.35s ease forwards" }}
         >
           <polyline points="20 6 9 17 4 12" />
         </svg>
@@ -136,8 +187,40 @@ function StatusLine({ label, status, t }: { label: string; status: SecretStatus;
 
 export function SettingsPanel() {
   const { locale, setLocale, supportedLocales, t } = useI18n();
+  const [category, setCategory] = useState<SettingsCategory>("general");
+  const contentRef = useRef<HTMLDivElement>(null);
+  const pageRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const syncCategory = () => {
+      const id = window.location.hash.slice(1);
+      const item = settingGroups.flatMap((group) => [...group.items]).find((item) => item.id === id);
+      setCategory(item?.id ?? "general");
+      setNotice(null);
+    };
+    syncCategory();
+    window.addEventListener("hashchange", syncCategory);
+    return () => window.removeEventListener("hashchange", syncCategory);
+  }, []);
+
+  useEffect(() => {
+    contentRef.current?.scrollTo(0, 0);
+    pageRef.current?.scrollTo(0, 0);
+  }, [category]);
+
+  function selectCategory(next: SettingsCategory) {
+    if (next === category) return;
+    window.history.pushState(null, "", `#${next}`);
+    setCategory(next);
+    setNotice(null);
+  }
+
   const [data, setData] = useState<SettingsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const errorRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (error) errorRef.current?.focus();
+  }, [error]);
   const [failedAction, setFailedAction] = useState<SaveAction | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -167,34 +250,62 @@ export function SettingsPanel() {
   const [transcriptionKey, setTranscriptionKey] = useState("");
   const [gmailChatIds, setGmailChatIds] = useState("");
   const [detected, setDetected] = useState<{ id: number; name: string }[] | null>(null);
+  const [baseline, setBaseline] = useState<Record<string, unknown> | null>(null);
+  const baselineRef = useRef<Record<string, unknown> | null>(null);
+  const savingRef = useRef(false);
+  const readRef = useRef<AbortController | null>(null);
+  const form = { notificationChannel, chatIds, dailyAgenda, jobDigest, jobChatIds, gmailDigest,
+    gmailChatIds, reminders, reminderChatIds, transcription };
+  const dirty = Boolean(clientId || clientSecret || calendarInput || calendarLabel || notionToken
+    || playwrightToken || botToken || transcriptionKey
+    || (baseline && Object.entries(form).some(([key, value]) => !sameDraft(value, baseline[key]))));
+  useEffect(() => {
+    if (!dirty && !busy) return;
+    // Settings entry/exit are native links, including Back (RobinMargin's
+    // client-navigation allow-list excludes editors). Never persist secrets.
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty, busy]);
 
   const load = useCallback(async () => {
+    readRef.current?.abort();
+    const controller = new AbortController();
+    readRef.current = controller;
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; controller.abort(); }, 30_000);
     try {
-      const response = await fetch("/api/robin/settings");
+      const response = await fetch("/api/robin/settings", { signal: controller.signal });
       const body = await response.json() as SettingsResponse & { error?: string };
+      if (controller.signal.aborted || readRef.current !== controller) return false;
       if (!response.ok) throw new Error(body.error ?? `Request failed (${response.status})`);
       setData(body);
-      setNotificationChannel(body.notifications?.channel ?? "telegram");
-      setChatIds(body.telegram.allowedChatIds.join(", "));
-      setDailyAgenda(body.telegram.dailyAgenda);
-      setJobDigest(body.telegram.jobDigest);
-      setJobChatIds((body.telegram.jobDigest.chatIds ?? []).join(", "));
-      setGmailDigest(body.telegram.gmailDigest);
-      setGmailChatIds((body.telegram.gmailDigest.chatIds ?? []).join(", "));
-      setReminders(body.telegram.reminders);
-      setReminderChatIds((body.telegram.reminders.chatIds ?? []).join(", "));
-      setTranscription({
-        enabled: body.telegram.transcription.enabled,
-        baseUrl: body.telegram.transcription.baseUrl,
-        model: body.telegram.transcription.model,
-      });
+      const next = settingsDrafts(body);
+      const previous = baselineRef.current;
+      refreshDraft(setNotificationChannel, next.notificationChannel, previous?.notificationChannel);
+      refreshDraft(setChatIds, next.chatIds, previous?.chatIds);
+      refreshDraft(setDailyAgenda, next.dailyAgenda, previous?.dailyAgenda);
+      refreshDraft(setJobDigest, next.jobDigest, previous?.jobDigest);
+      refreshDraft(setJobChatIds, next.jobChatIds, previous?.jobChatIds);
+      refreshDraft(setGmailDigest, next.gmailDigest, previous?.gmailDigest);
+      refreshDraft(setGmailChatIds, next.gmailChatIds, previous?.gmailChatIds);
+      refreshDraft(setReminders, next.reminders, previous?.reminders);
+      refreshDraft(setReminderChatIds, next.reminderChatIds, previous?.reminderChatIds);
+      refreshDraft(setTranscription, next.transcription, previous?.transcription);
+      baselineRef.current = next;
+      setBaseline(next);
+      return true;
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    }
-  }, []);
+      if (readRef.current === controller && (!controller.signal.aborted || timedOut)) {
+        setError(timedOut ? t("robin.common.readTimeout") : caught instanceof Error ? caught.message : String(caught));
+      }
+      return false;
+    } finally { clearTimeout(timer); }
+  }, [t]);
 
   useEffect(() => {
     void load();
+    return () => readRef.current?.abort();
   }, [load]);
 
   useEffect(() => () => {
@@ -207,22 +318,38 @@ export function SettingsPanel() {
     message: string,
     action?: SaveAction,
   ): Promise<boolean> {
+    if (savingRef.current) return false;
+    savingRef.current = true;
     if (feedbackTimer.current) clearTimeout(feedbackTimer.current);
     setBusy(true);
     setError(null);
     setFailedAction(null);
     setNotice(null);
     setSaveFeedback(action ? { action, phase: "saving" } : null);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30_000);
+    let confirmedResponse = false;
     try {
       const response = await fetch("/api/robin/settings", {
         method,
+        signal: controller.signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const body = await response.json().catch(() => null) as { error?: string } | null;
+      const body = await response.json().catch(error => { if (controller.signal.aborted) throw error; return null; }) as { error?: string } | null;
+      clearTimeout(timer);
+      confirmedResponse = true;
       if (!response.ok) throw new Error(body?.error ?? `Request failed (${response.status})`);
+      // Only the submitted snapshot is acknowledged. A newer edit in the same
+      // field stays dirty and survives the subsequent status read.
+      if (action && baselineRef.current) {
+        const acknowledged = { ...baselineRef.current };
+        for (const key of savedFields[action] ?? []) acknowledged[key] = form[key];
+        baselineRef.current = acknowledged;
+        setBaseline(acknowledged);
+      }
       setNotice(message);
-      await load();
+      if (!await load()) setError(t("robin.settings.savedRefreshFailed"));
       if (action) {
         setSaveFeedback({ action, phase: "saved" });
         feedbackTimer.current = setTimeout(() => setSaveFeedback(null), 2000);
@@ -231,9 +358,11 @@ export function SettingsPanel() {
     } catch (caught) {
       setSaveFeedback(null);
       setFailedAction(action ?? null);
-      setError(caught instanceof Error ? caught.message : String(caught));
+      setError(!confirmedResponse ? t("robin.settings.writeUncertain") : caught instanceof Error ? caught.message : String(caught));
       return false;
     } finally {
+      clearTimeout(timer);
+      savingRef.current = false;
       setBusy(false);
     }
   }
@@ -280,31 +409,62 @@ export function SettingsPanel() {
     // globals.css locks html/body to the viewport height with
     // overflow:hidden for the chat shell. This page is a document, so it
     // supplies its own scroll container rather than changing that shared rule.
-    <div className="robin-page flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
-      <main className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-4 desktop:p-6">
-      <header className="flex items-baseline justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-semibold" style={{ color: "var(--text)" }}>
-            {t("robin.settings.title")}
-          </h1>
-          <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-            {t("robin.settings.subtitle")}
-          </p>
-        </div>
-      </header>
+    <div ref={pageRef} className={`robin-page ${styles.page}`}>
+      <main className={styles.layout}>
+        <aside className={styles.sidebar}>
+          <header className={styles.pageHeader}>
+            <h1>{t("robin.settings.title")}</h1>
+            <p>{t("robin.settings.workspaceHint")}</p>
+          </header>
+          <nav className={styles.navigation} aria-label={t("robin.settings.categories")}>
+            {settingGroups.map((group) => (
+              <div className={styles.navGroup} key={group.label}>
+                <h2>{t(group.label)}</h2>
+                {group.items.map((item) => (
+                  <a key={item.id} href={`#${item.id}`} aria-current={category === item.id ? "location" : undefined}
+                    onClick={(event) => {
+                      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                      event.preventDefault();
+                      selectCategory(item.id);
+                    }}>
+                    <span className={styles.navIcon} aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d={item.icon} /></svg>
+                    </span>
+                    <span>{t(item.label)}</span>
+                    <span className={styles.navChevron} aria-hidden="true">›</span>
+                  </a>
+                ))}
+              </div>
+            ))}
+          </nav>
+          <label className={styles.mobileNavigation}>
+            <span>{t("robin.settings.categories")}</span>
+            <select value={category} onChange={(event) => selectCategory(event.target.value as SettingsCategory)}>
+              {settingGroups.map((group) => (
+                <optgroup key={group.label} label={t(group.label)}>
+                  {group.items.map((item) => <option key={item.id} value={item.id}>{t(item.label)}</option>)}
+                </optgroup>
+              ))}
+            </select>
+          </label>
+        </aside>
+        <div ref={contentRef} className={styles.content}>
+        <div className={styles.detail}>
+          {dirty && <p role="status" className="text-sm" style={{ color: "var(--text-muted)" }}>{t("robin.settings.unsaved")}</p>}
+          {error && <div ref={errorRef} role="alert" tabIndex={-1} className={styles.error}>
+            <p>{error}</p>
+            <button type="button" disabled={busy} onClick={() => { setError(null); void load(); }}>{t("robin.settings.retryLoad")}</button>
+          </div>}
+          {notice && <p role="status" className={styles.notice}>{notice}</p>}
+          {!data && !error && <p role="status" className={styles.notice}>{t("robin.settings.loading")}</p>}
 
-      <section
-        className="flex flex-col gap-2 rounded-lg p-4 text-xs"
-        style={{ background: "var(--bg-panel)", border: "1px solid var(--border)", color: "var(--text-muted)" }}
-      >
+      <section id="privacy" hidden={category !== "privacy"} className={styles.card}>
+        <h2>{t("robin.settings.privacyTitle")}</h2>
         <p>{t("robin.settings.storedAt", { path: data?.storedAt ?? "~/.pi/robin/secrets.json" })}</p>
-        <p style={{ color: "var(--text-dim)" }}>{t("robin.settings.privacyNote")}</p>
+        <p>{t("robin.settings.privacyNote")}</p>
       </section>
 
-      <section
-        className="flex flex-col gap-2 rounded-lg p-4"
-        style={{ background: "var(--bg-panel)", border: "1px solid var(--border)" }}
-      >
+      <section id="general" hidden={category !== "general"} className={styles.card}>
         <div>
           <h2 className="text-sm font-semibold" style={{ color: "var(--text)" }}>
             {t("settings.appearance")}
@@ -314,12 +474,10 @@ export function SettingsPanel() {
           </p>
         </div>
         <ThemePicker />
+        <NavigationPlacementSetting />
       </section>
 
-      <section
-        className="flex flex-col gap-2 rounded-lg p-4"
-        style={{ background: "var(--bg-panel)", border: "1px solid var(--border)" }}
-      >
+      <section hidden={category !== "general"} className={styles.card}>
         <div>
           <h2 className="text-sm font-semibold" style={{ color: "var(--text)" }}>
             {t("common.language")}
@@ -328,36 +486,28 @@ export function SettingsPanel() {
             {t("settings.languageDescription")}
           </p>
         </div>
-        <div role="radiogroup" aria-label={t("common.language")} className="flex flex-wrap gap-2">
+        <div role="radiogroup" aria-label={t("common.language")} className={styles.languageOptions}>
           {supportedLocales.map((plugin) => {
             const selected = locale === plugin.id;
             return (
-              <button
-                key={plugin.id}
-                type="button"
-                role="radio"
-                aria-checked={selected}
-                onClick={() => setLocale(plugin.id as typeof locale)}
-                className="ui-action ui-action--outline min-h-11 rounded px-3 py-2 text-sm"
-                data-state={selected ? "accent" : undefined}
-              >
-                {plugin.label}
-              </button>
+              <label key={plugin.id}>
+                <input type="radio" name="settings-language" value={plugin.id} checked={selected}
+                  onChange={() => setLocale(plugin.id as typeof locale)} className="sr-only" />
+                <span>{plugin.label}</span>
+              </label>
             );
           })}
         </div>
       </section>
 
-      {error && <p className="text-sm" style={{ color: "var(--accent)" }}>{error}</p>}
-      {notice && <p role="status" className="text-sm" style={{ color: "var(--success)" }}>{notice}</p>}
+      <section id="voice" hidden={category !== "voice"} className={styles.card}>
+        {category === "voice" && <VoiceSettings />}
+      </section>
 
       {/* ---------- Google ---------- */}
-      <section
-        className="flex flex-col gap-3 rounded-lg p-4"
-        style={{ background: "var(--bg-panel)", border: "1px solid var(--border)" }}
-      >
+      <section id="google" hidden={category !== "google"} className={styles.card}>
         <h2 className="text-sm font-semibold" style={{ color: "var(--text)" }}>
-          {locale.startsWith("zh") ? "学校邮箱与 Google 日历" : "School email & Google Calendar"}
+          {t("robin.settings.googleTitle")}
         </h2>
 
         <div className="flex flex-col gap-1">
@@ -377,6 +527,8 @@ export function SettingsPanel() {
           {data?.googleRedirectUri ?? "…"}
         </code>
 
+        <label className={styles.field}>
+          {t("robin.settings.clientId")}
         <input
           value={clientId}
           onChange={(event) => setClientId(event.target.value)}
@@ -386,6 +538,9 @@ export function SettingsPanel() {
           className="rounded px-2 py-1 text-sm outline-none"
           style={inputStyle}
         />
+        </label>
+        <label className={styles.field}>
+          {t("robin.settings.clientSecret")}
         <input
           type="password"
           value={clientSecret}
@@ -395,6 +550,7 @@ export function SettingsPanel() {
           className="rounded px-2 py-1 text-sm outline-none"
           style={inputStyle}
         />
+        </label>
         <div className="flex flex-wrap gap-2">
           <SaveButton
             label={t("robin.common.save")}
@@ -406,7 +562,7 @@ export function SettingsPanel() {
               t("robin.settings.googleSaved"),
               "google",
             ).then((saved) => {
-              if (saved) { setClientId(""); setClientSecret(""); }
+              if (saved) { setClientId(current => current === clientId ? "" : current); setClientSecret(current => current === clientSecret ? "" : current); }
             })}
             t={t}
           />
@@ -433,6 +589,8 @@ export function SettingsPanel() {
             </p>
           </div>
           <div className="grid gap-2 desktop:grid-cols-[minmax(0,1fr)_minmax(10rem,0.4fr)_auto]">
+            <label className={styles.field}>
+              {t("robin.settings.calendarUrlPlaceholder")}
             <input
               value={calendarInput}
               onChange={(event) => setCalendarInput(event.target.value)}
@@ -441,6 +599,9 @@ export function SettingsPanel() {
               className="min-h-11 rounded px-2 text-sm outline-none"
               style={inputStyle}
             />
+            </label>
+            <label className={styles.field}>
+              {t("robin.settings.calendarNamePlaceholder")}
             <input
               value={calendarLabel}
               onChange={(event) => setCalendarLabel(event.target.value)}
@@ -448,6 +609,7 @@ export function SettingsPanel() {
               className="min-h-11 rounded px-2 text-sm outline-none"
               style={inputStyle}
             />
+            </label>
             <button
               type="button"
               disabled={busy || !calendarInput.trim()}
@@ -461,7 +623,7 @@ export function SettingsPanel() {
                 },
                 t("robin.settings.calendarAdded"),
               ).then((saved) => {
-                if (saved) { setCalendarInput(""); setCalendarLabel(""); }
+                if (saved) { setCalendarInput(current => current === calendarInput ? "" : current); setCalendarLabel(current => current === calendarLabel ? "" : current); }
               })}
               className="ui-action ui-action--outline pi-bracket min-h-11 px-3 disabled:opacity-40"
               data-state="accent"
@@ -523,16 +685,13 @@ export function SettingsPanel() {
         </div>
       </section>
 
-      <section id="cold-reach-email" className="flex flex-col gap-3 rounded-lg p-4 scroll-mt-4" style={{ background: "var(--bg-panel)", border: "1px solid var(--border)" }}>
-        <h2 className="text-sm font-semibold" style={{ color: "var(--text)" }}>{locale.startsWith("zh") ? "Cold Reach · 个人发件邮箱" : "Cold Reach · Personal sender"}</h2>
+      <section id="cold-reach-email" hidden={category !== "cold-reach-email"} className={styles.card}>
+        <h2>{t("robin.settings.outreachTitle")}</h2>
         <GoogleConnect account="outreach" showClientConfig onChanged={() => void load()} />
       </section>
 
       {/* ---------- Notion ---------- */}
-      <section
-        className="flex flex-col gap-3 rounded-lg p-4"
-        style={{ background: "var(--bg-panel)", border: "1px solid var(--border)" }}
-      >
+      <section id="notion" hidden={category !== "notion"} className={styles.card}>
         <div>
           <h2 className="text-sm font-semibold" style={{ color: "var(--text)" }}>
             {t("robin.settings.notionTitle")}
@@ -587,7 +746,7 @@ export function SettingsPanel() {
               t("robin.settings.notionSaved"),
               "notion",
             ).then((saved) => {
-              if (saved) setNotionToken("");
+              if (saved) setNotionToken(current => current === notionToken ? "" : current);
             })}
             t={t}
           />
@@ -604,7 +763,7 @@ export function SettingsPanel() {
       </section>
 
       {/* ---------- Playwright Extension ---------- */}
-      <section className="flex flex-col gap-3 rounded-lg p-4" style={{ background: "var(--bg-panel)", border: "1px solid var(--border)" }}>
+      <section id="playwright" hidden={category !== "playwright"} className={styles.card}>
         <div>
           <h2 className="text-sm font-semibold" style={{ color: "var(--text)" }}>{t("robin.settings.playwrightTitle")}</h2>
           <p className="text-xs" style={{ color: "var(--text-dim)" }}>{t("robin.settings.playwrightHint")}</p>
@@ -633,7 +792,7 @@ export function SettingsPanel() {
             onClick={() => void send(
               "POST", { section: "playwright", extensionToken: playwrightToken },
               t("robin.settings.playwrightSaved"), "playwright",
-            ).then((saved) => { if (saved) setPlaywrightToken(""); })}
+            ).then((saved) => { if (saved) setPlaywrightToken(current => current === playwrightToken ? "" : current); })}
             t={t}
           />
           <button
@@ -650,16 +809,15 @@ export function SettingsPanel() {
       </section>
 
       {/* ---------- Telegram ---------- */}
-      <section
-        className="flex flex-col gap-3 rounded-lg p-4"
-        style={{ background: "var(--bg-panel)", border: "1px solid var(--border)" }}
-      >
+      <section id="telegram" hidden={category !== "telegram"} className={styles.card}>
         <h2 className="text-sm font-semibold" style={{ color: "var(--text)" }}>
           {t("robin.settings.telegramTitle")}
         </h2>
 
         <StatusLine label={t("robin.settings.botToken")} status={data?.telegram.botToken ?? { set: false }} t={t} />
 
+        <label className={styles.field}>
+          {t("robin.settings.botToken")}
         <input
           type="password"
           value={botToken}
@@ -669,6 +827,7 @@ export function SettingsPanel() {
           className="rounded px-2 py-1 text-sm outline-none"
           style={inputStyle}
         />
+        </label>
         <SaveButton
           label={t("robin.settings.saveToken")}
           phase={saveFeedback?.action === "token" ? saveFeedback.phase : undefined}
@@ -679,7 +838,7 @@ export function SettingsPanel() {
             t("robin.settings.tokenSaved"),
             "token",
           ).then((saved) => {
-            if (saved) setBotToken("");
+            if (saved) setBotToken(current => current === botToken ? "" : current);
           })}
           className="self-start"
           t={t}
@@ -687,14 +846,17 @@ export function SettingsPanel() {
 
         <div className="mt-2 flex flex-col gap-2 border-t pt-3" style={{ borderColor: "var(--border)" }}>
           <p className="text-xs" style={{ color: "var(--text-dim)" }}>{t("robin.settings.chatIdsHint")}</p>
+          <label className={styles.field}>
+            {t("robin.settings.allowedChats")}
           <input
             value={chatIds}
+            disabled={!data}
             onChange={(event) => setChatIds(event.target.value)}
             placeholder={t("robin.settings.chatIdsPlaceholder")}
-            inputMode="numeric"
             className="rounded px-2 py-1 text-sm outline-none"
             style={inputStyle}
           />
+          </label>
           <div className="flex flex-wrap gap-2">
             <SaveButton
               label={t("robin.settings.saveChatIds")}
@@ -748,11 +910,21 @@ export function SettingsPanel() {
             )
           )}
         </div>
-
+        <div className="flex flex-wrap gap-2 border-t pt-3" style={{ borderColor: "var(--border)" }}>
+          <button
+            type="button"
+            disabled={busy || !data?.telegram.botToken.set}
+            onClick={() => void send("DELETE", { section: "telegram" }, t("robin.settings.telegramCleared"))}
+            className="inline-flex min-h-11 items-center rounded px-3 py-1 text-sm disabled:opacity-40"
+            style={{ border: "1px solid var(--border)", color: "var(--danger)" }}
+          >
+            {t("robin.settings.clearTelegram")}
+          </button>
+        </div>
+        <p className="text-xs" style={{ color: "var(--text-dim)" }}>{t("robin.settings.restartBridge")}</p>
       </section>
 
-      <section id="notifications" className="flex flex-col gap-3 rounded-lg p-4 scroll-mt-4"
-        style={{ background: "var(--bg-panel)", border: "1px solid var(--border)" }}>
+      <section id="notifications" hidden={category !== "notifications"} className={styles.card}>
         <h2 className="text-sm font-semibold" style={{ color: "var(--text)" }}>{t("robin.settings.notificationsTitle")}</h2>
         <p id="notification-channel-hint" className="text-xs" style={{ color: "var(--text-muted)" }}>{t("robin.settings.notificationsHint")}</p>
         <label className="flex flex-col gap-1 text-sm" style={{ color: "var(--text)" }}>
@@ -793,6 +965,7 @@ export function SettingsPanel() {
               <label className="flex min-h-11 items-center gap-2 text-sm" style={{ color: "var(--text)" }}>
                 <input
                   type="checkbox"
+                  role="switch"
                   checked={dailyAgenda.enabled}
                   onChange={(event) => setDailyAgenda({ ...dailyAgenda, enabled: event.target.checked })}
                 />
@@ -856,6 +1029,7 @@ export function SettingsPanel() {
               <label className="flex min-h-11 items-center gap-2 text-sm" style={{ color: "var(--text)" }}>
                 <input
                   type="checkbox"
+                  role="switch"
                   checked={jobDigest.enabled}
                   onChange={(event) => setJobDigest({ ...jobDigest, enabled: event.target.checked })}
                 />
@@ -963,6 +1137,7 @@ export function SettingsPanel() {
               <label className="flex min-h-11 items-center gap-2 text-sm" style={{ color: "var(--text)" }}>
                 <input
                   type="checkbox"
+                  role="switch"
                   checked={gmailDigest.enabled}
                   onChange={(event) => setGmailDigest({ ...gmailDigest, enabled: event.target.checked })}
                 />
@@ -1049,6 +1224,7 @@ export function SettingsPanel() {
               <label className="flex min-h-11 items-center gap-2 text-sm" style={{ color: "var(--text)" }}>
                 <input
                   type="checkbox"
+                  role="switch"
                   checked={reminders.enabled}
                   onChange={(event) => setReminders({ ...reminders, enabled: event.target.checked })}
                 />
@@ -1114,8 +1290,7 @@ export function SettingsPanel() {
 
       </section>
 
-      <section className="flex flex-col gap-3 rounded-lg p-4"
-        style={{ background: "var(--bg-panel)", border: "1px solid var(--border)" }}>
+      <section id="transcription" hidden={category !== "transcription"} className={styles.card}>
         <div className="flex flex-col gap-3">
           <div>
             <h3 className="text-sm font-medium" style={{ color: "var(--text)" }}>
@@ -1130,6 +1305,7 @@ export function SettingsPanel() {
               <label className="flex min-h-11 items-center gap-2 text-sm" style={{ color: "var(--text)" }}>
                 <input
                   type="checkbox"
+                  role="switch"
                   checked={transcription.enabled}
                   onChange={(event) => setTranscription({ ...transcription, enabled: event.target.checked })}
                 />
@@ -1141,6 +1317,7 @@ export function SettingsPanel() {
                 t={t}
               />
               <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-muted)" }}>
+                {t("robin.settings.transcriptionKey")}
                 <input
                   type="password"
                   value={transcriptionKey}
@@ -1195,8 +1372,7 @@ export function SettingsPanel() {
                     },
                     t("robin.settings.transcriptionSaved"),
                     "transcription",
-                  );
-                  setTranscriptionKey("");
+                  ).then((saved) => { if (saved) setTranscriptionKey(current => current === transcriptionKey ? "" : current); });
                 }}
                 className="self-start"
                 t={t}
@@ -1205,20 +1381,9 @@ export function SettingsPanel() {
           )}
         </div>
 
-        <div className="flex flex-wrap gap-2 border-t pt-3" style={{ borderColor: "var(--border)" }}>
-          <button
-            type="button"
-            disabled={busy || !data?.telegram.botToken.set}
-            onClick={() => void send("DELETE", { section: "telegram" }, t("robin.settings.telegramCleared"))}
-            className="inline-flex min-h-11 items-center rounded px-3 py-1 text-sm disabled:opacity-40"
-            style={{ border: "1px solid var(--border)", color: "var(--text-muted)" }}
-          >
-            {t("robin.settings.clearTelegram")}
-          </button>
-        </div>
-
-        <p className="text-xs" style={{ color: "var(--text-dim)" }}>{t("robin.settings.restartBridge")}</p>
       </section>
+        </div>
+        </div>
       </main>
     </div>
   );

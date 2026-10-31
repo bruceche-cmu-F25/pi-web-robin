@@ -1,185 +1,250 @@
-// Existing dev server; synthetic microphone and mocked ASR/TTS/agent. No paid calls or personal data.
+// Existing dev server; real browser capture with a synthetic microphone, mocked ASR/agent/TTS.
+// No paid calls, real microphone, saved tasks or sessions.
 import assert from 'node:assert/strict';
 import { mkdirSync } from 'node:fs';
 import { chromium } from 'playwright';
-import { fullstackPlan, practicePlan } from '../extension/robin/learning.ts';
 import { validateVoiceWav } from '../extension/robin/voice-domain.ts';
+import { fullstackPlan, practicePlan } from '../extension/robin/learning.ts';
 const baseURL = process.env.E2E_BASE_URL || 'http://127.0.0.1:30141';
-const browser = await chromium.launch({ headless: true, channel: process.env.PLAYWRIGHT_CHANNEL || 'chrome', args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] });
-function wav() {
-  const bytes = Buffer.alloc(44 + 16_000 * 2 * 3);
-  bytes.write('RIFF'); bytes.writeUInt32LE(bytes.length - 8, 4); bytes.write('WAVEfmt ', 8); bytes.writeUInt32LE(16, 16);
-  bytes.writeUInt16LE(1, 20); bytes.writeUInt16LE(1, 22); bytes.writeUInt32LE(16_000, 24); bytes.writeUInt32LE(32_000, 28);
-  bytes.writeUInt16LE(2, 32); bytes.writeUInt16LE(16, 34); bytes.write('data', 36); bytes.writeUInt32LE(bytes.length - 44, 40);
-  return bytes;
-}
+const browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || 'chrome', headless: true,
+  args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] });
 try {
-  const context = await browser.newContext({ baseURL, viewport: { width: 1440, height: 1000 }, permissions: ['microphone'], serviceWorkers: 'block' });
+  const context = await browser.newContext({ baseURL, viewport: { width: 390, height: 844 }, permissions: ['microphone'], serviceWorkers: 'block' });
   if (process.env.PI_WEB_PASSWORD) assert.ok((await context.request.post('/api/web-auth', { headers: { Origin: baseURL }, data: { password: process.env.PI_WEB_PASSWORD } })).ok());
   await context.addInitScript(() => {
     localStorage.setItem('pi-locale', 'en');
-    window.__voiceStreams = [];
+    window.__streams = []; window.__permissionReady = true; window.__meterReads = 0;
+    const readSamples = AnalyserNode.prototype.getFloatTimeDomainData;
+    AnalyserNode.prototype.getFloatTimeDomainData = function(samples) {
+      window.__meterReads++;
+      if (typeof window.__meterAmplitude !== 'number') return readSamples.call(this, samples);
+      // Deterministic synthetic level fixtures for the visual meter only; capture still uses MediaRecorder.
+      for (let i = 0; i < samples.length; i++) samples[i] = Math.sin(i / 8) * window.__meterAmplitude;
+    };
     const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
-    navigator.mediaDevices.getUserMedia = async (...args) => { const stream = await original(...args); window.__voiceStreams.push(stream); return stream; };
+    navigator.mediaDevices.getUserMedia = async (...args) => {
+      if (!window.__permissionReady) await new Promise(resolve => { window.__grant = resolve; });
+      const stream = await original(...args); window.__streams.push(stream); return stream;
+    };
   });
-  let configured = false, ttsConfigured = false, asr = 0, tts = 0, turns = 0, holdSpeech = false, releaseSpeech;
-  const sent = [], spoken = [], errors = [];
+  let ttsConfigured = false, tts = 0;
+  let asr = 0, turns = 0, holdASR = false, releaseASR, failASR = false, holdTurn = false, releaseTurn, failTurn = false;
+  const messages = [], errors = [];
   await context.route('**/api/**', async route => {
-    const req = route.request(), url = new URL(req.url());
+    const request = route.request(), url = new URL(request.url());
     if (url.pathname === '/api/robin/voice') {
-      if (req.method() === 'GET') return route.fulfill({ json: { configured, ttsConfigured, asrModel: 'whisper.cpp (local)', ttsModel: 'qwen3-tts-flash' } });
-      if (url.searchParams.get('op') === 'transcribe') {
-        asr++; validateVoiceWav(req.postDataBuffer());
-        return route.fulfill({ json: { text: '请查今天的待办，不要修改。' } });
+      if (request.method() === 'GET') return route.fulfill({ json: { configured: true, ttsConfigured } });
+      if (url.searchParams.get('op') === 'speak') {
+        tts++;
+        const bytes = Buffer.alloc(44 + 16_000 * 2 * 3);
+        bytes.write('RIFF'); bytes.writeUInt32LE(bytes.length - 8, 4); bytes.write('WAVEfmt ', 8); bytes.writeUInt32LE(16, 16);
+        bytes.writeUInt16LE(1, 20); bytes.writeUInt16LE(1, 22); bytes.writeUInt32LE(16_000, 24); bytes.writeUInt32LE(32_000, 28);
+        bytes.writeUInt16LE(2, 32); bytes.writeUInt16LE(16, 34); bytes.write('data', 36); bytes.writeUInt32LE(bytes.length - 44, 40);
+        return route.fulfill({ contentType: 'audio/wav', body: bytes });
       }
-      tts++; spoken.push(req.postDataJSON().text);
-      if (holdSpeech) await new Promise(resolve => { releaseSpeech = resolve; });
-      return route.fulfill({ contentType: 'audio/wav', body: wav() });
+      assert.equal(url.searchParams.get('op'), 'transcribe');
+      asr++; validateVoiceWav(request.postDataBuffer());
+      if (holdASR) await new Promise(resolve => { releaseASR = resolve; });
+      return route.fulfill(failASR ? { status: 422, json: { code: 'empty' } } : { json: { text: '明天下午三点提醒我开会，不是今天。' } }).catch(() => {});
     }
     if (url.pathname === '/api/robin/assistant') {
-      if (req.method() === 'GET') return route.fulfill({ json: { sessionId: null, running: false } });
-      turns++; sent.push(req.postDataJSON());
-      return route.fulfill({ json: { reply: '今天有两项待办。没有修改任何记录。详情在屏幕上。第四句不播报。', usedTools: ['todo_list'], sessionId: 'voice-fixture' } });
+      if (request.method() === 'GET') return route.fulfill({ json: { sessionId: 'voice-fixture', running: false } });
+      turns++; messages.push(request.postDataJSON());
+      if (holdTurn) await new Promise(resolve => { releaseTurn = resolve; });
+      return route.fulfill(failTurn ? { status: 500, json: { error: 'unconfirmed' } } : { json: { reply: '已记录明天下午三点开会。', usedTools: ['todo_add'], sessionId: 'voice-fixture' } });
     }
-    if (url.pathname === '/api/robin/links') return route.fulfill({ json: { links: [] } });
     if (url.pathname === '/api/robin/todos') return route.fulfill({ json: { todos: [] } });
+    if (url.pathname === '/api/robin/events') return route.fulfill({ json: { events: [] } });
+    if (url.pathname === '/api/robin/links') return route.fulfill({ json: { links: [] } });
     if (url.pathname === '/api/robin/learning') return route.fulfill({ json: { practice: practicePlan([], 'neetcode150', '2030-01-01'), fullstack: fullstackPlan([]) } });
     return route.fulfill({ json: {} });
   });
-  const page = await context.newPage(); page.on('pageerror', error => errors.push(error.message));
+  mkdirSync('outputs/robin-voice', { recursive: true });
+  const page = await context.newPage(); page.on('pageerror', e => { errors.push(e.message); console.error('pageerror:', e.message); });
   await page.goto('/dashboard');
-  const bar = page.locator('.robin-assistant-bar');
-  // Search owns a visible, keyboard-accessible microphone; it cannot dispatch an agent.
-  const mic = bar.locator('.robin-assistant-form').getByRole('button', { name: 'Voice', exact: true });
-  await mic.click();
-  await bar.getByText('Local dictation is not ready.', { exact: false }).waitFor();
-  assert.equal(await bar.getByRole('button', { name: 'Voice conversation', exact: true }).count(), 0);
-  assert.equal(await bar.getByRole('button', { name: 'Confirm and send', exact: true }).count(), 0);
-  configured = true;
-  await bar.getByRole('button', { name: 'Check configuration', exact: true }).click();
-  const searchInput = bar.locator('input[name="query"]');
-  await searchInput.fill('Existing search.');
-  await bar.getByRole('button', { name: 'Dictate', exact: true }).click();
-  await bar.getByRole('button', { name: 'Done speaking', exact: true }).waitFor();
-  assert.equal(await mic.getAttribute('data-recording'), 'true');
-  await page.waitForTimeout(800);
-  await bar.getByRole('button', { name: 'Done speaking', exact: true }).click();
-  await page.waitForFunction(() => document.querySelector('input[name="query"]')?.value.includes('不要修改'));
-  assert.match(await searchInput.inputValue(), /^Existing search\./);
-  assert.equal(asr, 1); assert.equal(turns + tts, 0);
-  assert.equal(new URL(page.url()).pathname, '/dashboard');
+  const launch = () => page.getByRole('button', { name: 'Talk to Robin', exact: true });
+  const panel = page.locator('[data-voice-panel]');
+  const recording = () => page.locator('[data-voice-panel][data-voice-phase="recording"]').waitFor();
+  const stopTracks = () => page.waitForFunction(() => window.__streams.every(s => s.getTracks().every(t => t.readyState === 'ended')));
+  const finish = async () => { await page.waitForTimeout(750); await panel.getByRole('button', { name: 'Done speaking', exact: true }).click(); };
+  const confirm = async () => {
+    await panel.getByRole('textbox', { name: 'Robin heard', exact: true }).waitFor();
+    await panel.getByRole('button', { name: 'Confirm and send', exact: true }).click();
+  };
+  const close = async () => { await panel.getByRole('button', { name: /^(Close voice|Cancel recording)$/ }).click(); await panel.waitFor({ state: 'hidden' }); };
+
+  // One tap starts immediately. The same original button finishes; no menu or keyboard.
+  await launch().click(); await recording();
+  assert.equal(await page.evaluate(() => ['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)), false);
+  assert.equal(turns + asr, 0);
+  await page.waitForTimeout(750);
+  await page.locator('.robin-dashboard-toolbar').getByRole('button', { name: 'Done speaking', exact: true }).click();
+  const transcript = panel.getByRole('textbox', { name: 'Robin heard', exact: true });
+  await transcript.waitFor();
+  assert.equal(await transcript.inputValue(), '明天下午三点提醒我开会，不是今天。');
+  assert.equal(turns, 0, 'Finishing never submits unreviewed recognition');
+  await transcript.fill('');
+  assert.equal(await transcript.isVisible(), true, 'Deleting all recognized text keeps an editable field');
+  assert.equal(await panel.getByRole('button', { name: 'Confirm and send', exact: true }).isEnabled(), false);
+  await transcript.fill('明天下午四点提醒我开会，不是今天。');
+  await page.screenshot({ path: 'outputs/robin-voice/review-390.png' });
+  await page.evaluate(() => document.documentElement.style.setProperty('--app-viewport-height', '420px'));
+  const reviewSend = await panel.getByRole('button', { name: 'Confirm and send', exact: true }).boundingBox();
+  assert.ok(reviewSend.y + reviewSend.height <= 420, 'Send follows the app keyboard viewport');
+  await page.evaluate(() => document.documentElement.style.removeProperty('--app-viewport-height'));
+  await close();
+  const streamsBeforeReview = await page.evaluate(() => window.__streams.length);
+  await launch().click(); await transcript.waitFor();
+  assert.equal(await transcript.inputValue(), '明天下午四点提醒我开会，不是今天。');
+  assert.equal(await page.evaluate(() => window.__streams.length), streamsBeforeReview, 'Reopening a draft does not turn on the microphone');
+  await confirm();
+  await panel.getByText('已记录明天下午三点开会。', { exact: true }).waitFor();
+  assert.equal(turns, 1); assert.equal(asr, 1);
+  assert.deepEqual(messages[0], { message: '明天下午四点提醒我开会，不是今天。' });
+  await stopTracks(); await close();
+
+  // Hold/release through real pointer capture and a nonmodal top-layer panel.
+  let box = await launch().boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2); await page.mouse.down();
+  await recording(); await page.waitForTimeout(800);
+  await panel.getByText('Release to finish · slide up to cancel', { exact: true }).waitFor();
+  await page.mouse.up(); await transcript.waitFor();
+  assert.equal(turns, 1, 'Hold/release also requires a separate Send');
+  await confirm(); await panel.getByText('已记录明天下午三点开会。', { exact: true }).waitFor();
+  assert.equal(turns, 2); await close();
+
+  // Slide-up cancellation: no transcription upload and no turn.
+  box = await launch().boundingBox();
+  await page.mouse.move(box.x + 22, box.y + 22); await page.mouse.down(); await recording();
+  await page.waitForTimeout(400); await page.mouse.move(box.x + 22, box.y - 50);
+  await panel.getByText('Release to cancel', { exact: true }).waitFor();
+  await page.mouse.up(); await stopTracks();
+  assert.equal(asr, 2); assert.equal(turns, 2); await close();
+
+  // A late permission grant after release stays in tap mode; nothing auto-submits.
+  await page.evaluate(() => { window.__permissionReady = false; });
+  box = await launch().boundingBox();
+  await page.mouse.move(box.x + 22, box.y + 22); await page.mouse.down(); await page.waitForTimeout(450); await page.mouse.up();
+  await page.waitForFunction(() => typeof window.__grant === 'function');
+  await page.evaluate(() => { window.__permissionReady = true; window.__grant(); });
+  await recording(); assert.equal(turns, 2);
+  await finish(); await confirm(); await panel.getByText('已记录明天下午三点开会。', { exact: true }).waitFor();
+  assert.equal(turns, 3); await close();
+
+  // Closing during recognition aborts it and fences its late result.
+  holdASR = true; await launch().click(); await recording(); await finish();
+  while (!releaseASR) await page.waitForTimeout(10);
+  await close(); holdASR = false; releaseASR(); await page.waitForTimeout(150);
+  assert.equal(turns, 3);
+
+  // Recognition errors never become instructions. Retry requires a new user recording.
+  failASR = true; await launch().click(); await recording(); await finish();
+  await panel.getByRole('alert').waitFor(); assert.equal(turns, 3); await close(); failASR = false;
+
+  // Once submitted, close/reopen is only a voice UI action, not cancellation or resubmission.
+  holdTurn = true; await launch().click(); await recording(); await finish(); await confirm();
+  while (!releaseTurn) await page.waitForTimeout(10);
+  assert.equal(turns, 4); await close();
+  await launch().click(); await panel.getByText(/Robin is working/).waitFor();
+  assert.equal(turns, 4);
+  holdTurn = false; releaseTurn(); await panel.getByText('已记录明天下午三点开会。', { exact: true }).waitFor(); await close();
+
+  failTurn = true; await launch().click(); await recording(); await finish(); await confirm();
+  await panel.getByRole('alert').waitFor(); assert.match(await panel.getByRole('alert').textContent(), /may still have run/);
+  assert.equal(turns, 5); assert.equal(await panel.getByRole('link', { name: /execution record/i }).count(), 1);
+  await close(); failTurn = false;
+
+  // Pointer cancellation discards, while keyboard activation remains available.
+  await launch().focus(); await page.keyboard.press('Enter'); await recording();
+  await close(); await stopTracks();
+
+  // Layout, real waveform, dark/reduced-motion, secure fallback bounds. Synthetic data only.
+  await page.evaluate(() => { document.documentElement.setAttribute('data-theme', 'glass'); window.__meterAmplitude = 0.03; });
   for (const width of [320, 390, 1440]) {
-    await page.setViewportSize({ width, height: 1000 });
-    assert.ok(await bar.evaluate(el => el.scrollWidth <= el.clientWidth + 1), `search voice fits ${width}px`);
-    const bounds = await mic.boundingBox();
-    assert.ok(bounds.width >= 44 && bounds.height >= 44);
-    await mic.focus(); assert.equal(await mic.evaluate(el => el === document.activeElement), true);
-  }
-  await bar.getByRole('button', { name: 'Dictate', exact: true }).click();
-  await bar.getByRole('button', { name: 'Done speaking', exact: true }).waitFor();
-  configured = false;
-  await bar.getByRole('button', { name: 'Act', exact: true }).click();
-  await page.waitForFunction(() => window.__voiceStreams.every(s => s.getTracks().every(t => t.readyState === 'ended')));
-  assert.equal(asr, 1, 'switching modes discards recording');
-  assert.equal(await mic.getAttribute('aria-expanded'), 'false');
-  await bar.locator('input[name="instruction"]').fill('');
-  asr = 0;
-  await bar.getByRole('button', { name: 'Voice', exact: true }).click();
-  await bar.getByText('Local dictation is not ready.', { exact: false }).waitFor();
-  assert.equal(await bar.getByRole('button', { name: 'Dictate', exact: true }).isDisabled(), true);
-  assert.equal(asr + tts + turns, 0);
-  configured = true;
-  await bar.getByRole('button', { name: 'Check configuration', exact: true }).click();
-  await page.waitForFunction(() => [...document.querySelectorAll('button')].some(b => b.textContent === 'Dictate' && !b.disabled));
-
-  // Real MediaRecorder → Web Audio decode/resample → canonical WAV upload.
-  const input = bar.getByRole('textbox', { name: 'Instruction for Pi', exact: true });
-  await input.fill('Existing draft.');
-  await bar.getByRole('button', { name: 'Dictate', exact: true }).click();
-  await bar.getByRole('button', { name: 'Done speaking', exact: true }).waitFor();
-  await page.waitForTimeout(800);
-  await bar.getByRole('button', { name: 'Done speaking', exact: true }).click();
-  await page.waitForFunction(() => document.querySelector('input[name="instruction"]')?.value.includes('不要修改'));
-  assert.match(await input.inputValue(), /^Existing draft\./);
-  assert.equal(asr, 1); assert.equal(turns, 0, 'recognition never auto-submits an action');
-  assert.ok(await page.evaluate(() => window.__voiceStreams.every(s => s.getTracks().every(t => t.readyState === 'ended'))));
-  await bar.getByRole('button', { name: 'Confirm and send', exact: true }).click();
-  await bar.locator('.robin-assistant-reply').waitFor();
-  assert.equal(turns, 1); assert.equal(tts, 0, 'dictation does not turn on speech');
-  assert.equal(sent[0].mode, undefined, 'uses the existing default Robin conversation, not a new voice agent');
-
-  assert.equal(await bar.getByRole('button', { name: 'Voice conversation', exact: true }).count(), 0, 'local dictation works without TTS setup');
-  assert.equal(await bar.getByRole('button', { name: 'Read reply excerpt', exact: true }).count(), 0);
-  // Existing optional TTS is tested separately; it is not needed to dictate.
-  ttsConfigured = true;
-  await page.reload();
-  await bar.getByRole('button', { name: 'Act', exact: true }).click();
-  await bar.getByRole('button', { name: 'Voice', exact: true }).click();
-  // Conversation is explicit consent to audio replies, not to automatic actions.
-  await bar.getByRole('button', { name: 'Voice conversation', exact: true }).click();
-  await bar.getByRole('button', { name: 'Done speaking', exact: true }).waitFor();
-  await page.waitForTimeout(800); await bar.getByRole('button', { name: 'Done speaking', exact: true }).click();
-  await page.waitForFunction(() => document.querySelector('input[name="instruction"]')?.value.includes('不要修改'));
-  assert.equal(turns, 1);
-  await bar.getByRole('button', { name: 'Confirm and send', exact: true }).click();
-  await bar.getByRole('button', { name: 'Stop playback', exact: true }).waitFor();
-  await bar.locator('audio').waitFor({ state: 'visible' });
-  await page.waitForFunction(() => { const audio = document.querySelector('.robin-assistant-bar audio'); return audio && !audio.paused && audio.currentTime > 0; });
-  assert.equal(tts, 1); assert.deepEqual(spoken, ['今天有两项待办。没有修改任何记录。详情在屏幕上。']);
-  await bar.getByRole('button', { name: 'Stop playback', exact: true }).click();
-  assert.equal(await bar.locator('audio').evaluate(a => a.paused && !a.hasAttribute('src')), true);
-  assert.equal(turns, 2);
-
-  // End during synthesis: no late audio, automatic replay or task cancel request.
-  holdSpeech = true; await input.fill('Another question.');
-  await bar.getByRole('button', { name: 'Confirm and send', exact: true }).click();
-  await bar.getByText('Microphone off · preparing a spoken excerpt…', { exact: true }).waitFor();
-  await page.waitForTimeout(200);
-  assert.equal(typeof releaseSpeech, 'function');
-  await bar.getByRole('button', { name: 'End voice', exact: true }).click();
-  holdSpeech = false; releaseSpeech(); await page.waitForTimeout(200);
-  assert.equal(await bar.locator('audio').isHidden(), true);
-  assert.equal(turns, 3); assert.equal(tts, 2);
-
-  // Closing UI while recording stops tracks and discards, without another ASR call.
-  await bar.getByRole('button', { name: 'Dictate', exact: true }).click();
-  await bar.getByRole('button', { name: 'Done speaking', exact: true }).waitFor();
-  await bar.getByRole('button', { name: 'Voice', exact: true }).click();
-  assert.ok(await page.evaluate(() => window.__voiceStreams.every(s => s.getTracks().every(t => t.readyState === 'ended'))));
-  assert.equal(asr, 2);
-  await bar.getByRole('button', { name: 'Voice', exact: true }).click();
-  await bar.getByRole('button', { name: 'Dictate', exact: true }).click();
-  await bar.getByRole('button', { name: 'Done speaking', exact: true }).waitFor();
-  await bar.evaluate(el => { el.style.display = 'none'; });
-  await page.waitForFunction(() => window.__voiceStreams.every(s => s.getTracks().every(t => t.readyState === 'ended')));
-  await bar.evaluate(el => { el.style.display = ''; });
-  assert.equal(asr, 2, 'hiding a mounted workspace discards capture');
-  await bar.getByRole('button', { name: 'Voice', exact: true }).click();
-
-  const screenshots = process.env.E2E_SCREENSHOT_DIR || 'outputs/robin-voice'; mkdirSync(screenshots, { recursive: true });
-  await bar.getByRole('button', { name: 'Voice', exact: true }).click();
-  for (const width of [1440, 390, 320]) {
-    await page.setViewportSize({ width, height: 1000 });
-    assert.ok(await bar.evaluate(el => el.scrollWidth <= el.clientWidth + 1), `voice controls must not overflow ${width}px`);
-    const record = bar.getByRole('button', { name: 'Dictate', exact: true });
-    assert.ok((await record.boundingBox()).height >= 44);
-    await record.focus(); assert.equal(await record.evaluate(el => el === document.activeElement), true);
-    await bar.screenshot({ path: `${screenshots}/voice-${width}.png` });
+    await page.setViewportSize({ width, height: 844 });
+    await launch().waitFor(); await launch().click(); await recording();
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `page fits ${width}`);
+    const bounds = await panel.boundingBox(); assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width + 1);
+    assert.ok(await panel.evaluate(el => el.scrollWidth <= el.clientWidth + 1));
+    const material = await panel.evaluate(el => ({ fill: getComputedStyle(el).backgroundColor, filter: getComputedStyle(el).backdropFilter, rim: getComputedStyle(el, '::after').pointerEvents }));
+    assert.match(material.fill, /rgba\(.+, 0\.56\)/, 'shared translucent overlay tint');
+    assert.match(material.filter, /blur\(10px\)/, 'one frost layer on the panel');
+    assert.equal(material.rim, 'none', 'glass rim never steals gestures');
+    assert.ok(bounds.height <= 160, `Capture stays compact at ${width}px, not a full voice sheet: ${bounds.height}`);
+    assert.ok((await panel.getByRole('button', { name: 'Done speaking', exact: true }).boundingBox()).height >= 44);
+    await page.waitForTimeout(950);
+    const bars = panel.locator('[data-voice-meter] > span');
+    assert.equal(await bars.count(), 9);
+    assert.ok(await bars.nth(4).evaluate(el => Number(el.style.transform.match(/scaleY\((.+)\)/)[1]) > 0.4), 'quiet speech has a visible envelope');
+    await page.screenshot({ path: `outputs/robin-voice/direct-${width}.png` });
+    if (width === 390) {
+      await page.evaluate(() => { window.__meterAmplitude = 0; }); await page.waitForTimeout(2400);
+      const resting = await bars.evaluateAll(es => es.map(el => Number(el.style.transform.match(/scaleY\((.+)\)/)[1])));
+      assert.ok(resting.every(value => value < 0.085), `silence settles; no fake looping wave: ${resting.join(',')}`);
+      await page.evaluate(() => { window.__meterAmplitude = 0.03; });
+    }
+    await close();
+    const reads = await page.evaluate(() => window.__meterReads);
+    await page.waitForTimeout(120); assert.equal(await page.evaluate(() => window.__meterReads), reads, 'meter sampling stops with capture');
   }
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
-  await page.setViewportSize({ width: 844, height: 500 });
-  assert.ok(await bar.evaluate(el => el.scrollWidth <= el.clientWidth + 1));
-  await bar.screenshot({ path: `${screenshots}/voice-dark-landscape.png` });
-  // Initial setup screen in Chinese, still no paid calls or key field sent through chat.
-  configured = false;
+  await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'glass-dark'));
+  await page.setViewportSize({ width: 844, height: 390 });
+  await launch().click(); await recording(); await page.waitForTimeout(350);
+  assert.ok(await panel.locator('[data-voice-meter] > span').evaluateAll(es => es.every(el => el.style.transform === 'scaleY(0.0833)')), 'reduced motion uses stationary level dots');
+  await page.screenshot({ path: 'outputs/robin-voice/direct-landscape.png' });
+  const materialCdp = await context.newCDPSession(page);
+  await materialCdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-transparency', value: 'reduce' }] });
+  assert.equal(await panel.evaluate(el => getComputedStyle(el).backdropFilter), 'none');
+  assert.equal(await panel.evaluate(el => getComputedStyle(el).backgroundColor), 'rgb(44, 44, 46)');
+  await materialCdp.send('Emulation.setEmulatedMedia', { features: [] }); await materialCdp.detach();
+  await close();
+
+  // Search dictation inside the existing modal stays read-only and appends the draft.
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('robin-assistant-open', { detail: 'search' })));
+  const dialog = page.locator('dialog[open]');
+  await dialog.locator('input[name="query"]').fill('Existing search.');
+  await dialog.getByRole('button', { name: 'Dictate', exact: true }).click(); await recording();
+  await page.waitForTimeout(750); await panel.getByRole('button', { name: 'Done speaking', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('dialog[open] input[name="query"]')?.value.includes('不是今天'));
+  assert.match(await dialog.locator('input[name="query"]').inputValue(), /^Existing search\./);
+  assert.equal(turns, 5); await close();
+  await page.keyboard.press('Escape');
+
+  // Actual Chromium touch events, not mouse events on a narrow viewport.
+  await page.setViewportSize({ width: 390, height: 844 });
+  const cdp = await context.newCDPSession(page);
+  box = await launch().boundingBox();
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: box.x + 22, y: box.y + 22 }] });
+  await recording(); await page.waitForTimeout(800);
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await transcript.waitFor(); assert.equal(turns, 5, 'Touch release only transcribes');
+  await confirm();
+  await panel.getByText('已记录明天下午三点开会。', { exact: true }).waitFor();
+  assert.equal(turns, 6); assert.equal(tts, 0); await close(); await cdp.detach();
+
+  // Existing optional speech remains explicit; closing suppresses it, not the action.
+  ttsConfigured = true; await page.reload();
+  await launch().click(); await recording(); await finish(); await transcript.waitFor();
+  await panel.locator('summary').filter({ hasText: 'Voice options' }).click();
+  await panel.getByRole('checkbox', { name: 'Read Robin’s replies aloud', exact: true }).check();
+  await confirm();
+  await panel.locator('audio').waitFor({ state: 'visible' });
+  assert.equal(tts, 1); assert.equal(turns, 7);
+  await panel.getByRole('button', { name: 'Stop playback', exact: true }).click();
+  assert.equal(await panel.locator('audio').evaluate(el => el.paused && !el.hasAttribute('src')), true);
+  await close();
   await context.addInitScript(() => localStorage.setItem('pi-locale', 'zh-CN'));
-  await page.setViewportSize({ width: 1440, height: 1000 }); await page.reload();
-  await bar.getByRole('button', { name: '执行', exact: true }).click();
-  await bar.getByRole('button', { name: '语音', exact: true }).click();
-  await bar.getByText('本地语音输入尚未就绪。', { exact: false }).waitFor();
-  await bar.screenshot({ path: `${screenshots}/voice-setup-zh.png` });
+  await page.reload(); await page.evaluate(() => { window.__meterAmplitude = 0.025; });
+  await page.getByRole('button', { name: '跟 Robin 说', exact: true }).click(); await recording(); await page.waitForTimeout(950);
+  assert.equal(await page.getByRole('dialog', { name: '跟 Robin 说', exact: true }).count(), 1, 'Compact panel retains an accessible name');
+  assert.ok((await panel.boundingBox()).height <= 160, 'Chinese capture stays compact');
+  await page.screenshot({ path: 'outputs/robin-voice/direct-zh.png' });
+  await panel.getByRole('button', { name: '说完了', exact: true }).click();
+  await panel.getByRole('textbox', { name: 'Robin 听到的是', exact: true }).waitFor();
+  assert.equal(turns, 7, 'Chinese recognition also waits for explicit Send');
+  await page.screenshot({ path: 'outputs/robin-voice/review-zh.png' });
+  await panel.getByRole('button', { name: '关闭语音', exact: true }).click();
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ ok: true, asr, tts, turns, screenshots, note: 'synthetic microphone + mocked local ASR, optional TTS and agent responses; no live provider calls' }));
-  await context.close();
+  console.log(JSON.stringify({ ok: true, asr, turns, tts, note: 'synthetic microphone, mocked ASR/agent; not physical iOS/Android validation' }));
 } finally { await browser.close(); }

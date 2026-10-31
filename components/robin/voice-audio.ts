@@ -21,5 +21,9 @@ export async function recordingToWav(blob: Blob, context: AudioContext): Promise
   const offline = new OfflineAudioContext(1, frames, VOICE_SAMPLE_RATE);
   const source = offline.createBufferSource(); source.buffer = decoded; source.connect(offline.destination); source.start();
   const rendered = await offline.startRendering();
-  return pcmVoiceWav(rendered.getChannelData(0));
+  const samples = rendered.getChannelData(0);
+  // Reject digital silence before Whisper can hallucinate words from an empty recording.
+  // This is a near-silence guard, not speech detection or automatic end-of-turn.
+  if (!samples.some(value => Math.abs(value) > 0.001)) throw new Error("empty");
+  return pcmVoiceWav(samples);
 }

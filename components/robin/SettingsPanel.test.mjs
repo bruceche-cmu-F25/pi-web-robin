@@ -21,9 +21,9 @@ test("Daily settings includes the app theme selector", () => {
 test("Daily settings includes the app language switch", () => {
   assert.match(source, /const \{ locale, setLocale, supportedLocales, t \} = useI18n\(\)/);
   assert.match(source, /supportedLocales\.map\(\(plugin\) =>/);
-  assert.match(source, /onClick=\{\(\) => setLocale\(plugin\.id as typeof locale\)\}/);
+  assert.match(source, /onChange=\{\(\) => setLocale\(plugin\.id as typeof locale\)\}/);
   assert.match(source, /role="radiogroup" aria-label=\{t\("common\.language"\)\}/);
-  assert.match(source, /aria-checked=\{selected\}/);
+  assert.match(source, /type="radio" name="settings-language" value=\{plugin\.id\} checked=\{selected\}/);
 });
 
 test("Daily settings includes a write-only Notion connection entry", () => {

@@ -1,20 +1,102 @@
-.root { min-width: 0; color: var(--text-muted); font-family: var(--font-mono); font-size: 12px; }
-.trigger { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; color: var(--text-muted); }
+.root { flex-shrink: 0; min-width: 0; }
+.inlinePanel { display: flex; align-items: center; gap: 8px; min-height: 64px; padding: 6px; margin-bottom: 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-panel); color: var(--text); box-shadow: var(--card-shadow); }
+.inlinePanel .inlineButton { display: grid; place-items: center; flex: 0 0 44px; min-width: 44px; min-height: 44px; padding: 0; border: none; border-radius: 50%; background: var(--bg-hover); color: var(--text); }
+.inlinePanel .inlineFinish { background: var(--text); color: var(--bg); touch-action: none; }
+.inlinePanel .inlineButton:disabled { opacity: .4; cursor: default; }
+.inlinePanel .inlineButton:not(:disabled):active { opacity: .7; }
+.inlinePanel[data-cancelling="true"] { border-color: var(--danger); color: var(--danger); }
+.inlineStatus { flex: 1; min-width: 0; margin: 0; text-align: center; overflow-wrap: anywhere; font: 400 max(13px, .875rem)/1.4 var(--font-ui); }
+.inlinePanel .compactMeter { flex: 1; min-width: 0; margin: 0; padding: 0; color: var(--text-muted); }
+.compactMeter .bars { height: 34px; gap: 3px; justify-content: space-between; }
+.compactMeter .bars > span { flex: 1 1 3px; min-width: 2px; max-width: 4px; height: 32px; }
+.compactMeter .elapsed { margin-top: 0; font-size: 10px; line-height: 14px; }
+.inlinePanel :is(button, a):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+:global(html[data-theme^="glass"]) .inlinePanel { background: var(--glass-overlay-fill); border-color: var(--glass-edge); -webkit-backdrop-filter: var(--glass-clear-filter); backdrop-filter: var(--glass-clear-filter); box-shadow: inset 0 1px 0 var(--glass-edge), var(--card-shadow); }
+@media (hover: hover) and (pointer: fine) { .inlinePanel .inlineButton:not(:disabled):hover { opacity: .8; } }
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more), (forced-colors: active) {
+  :global(html[data-theme^="glass"]) .inlinePanel { background: var(--bg-panel); border-color: var(--border); -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: none; }
+}
+@media (forced-colors: active) { .inlinePanel .inlineButton { border: 1px solid ButtonText; } }
+.trigger { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; color: var(--text-muted); border-radius: var(--control-radius); }
 .trigger[aria-expanded="true"] { color: var(--accent); }
-.trigger[data-recording="true"] { color: var(--danger); box-shadow: inset 0 -2px var(--danger); }
-.trigger:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.actions { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; }
-.actions button, .setup button { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 4px 6px; }
-.actions button:disabled { opacity: .45; cursor: not-allowed; }
-.panel { border-top: 1px solid var(--border); padding: 8px 0; display: grid; gap: 8px; }
-.hint, .setup p, .status, .excerpt p { margin: 0; line-height: 1.6; overflow-wrap: anywhere; }
-.hint { font-family: var(--font-ui); font-size: 13px; }
-.setup { border-left: 2px solid var(--border); padding-left: 10px; display: grid; gap: 8px; }
-.setup code { display: block; overflow-wrap: anywhere; color: var(--text); }
-.setup a { display: inline-block; margin-top: 8px; color: var(--accent); text-decoration: underline; }
-.setup summary, .excerpt summary { cursor: pointer; min-height: 44px; align-content: center; }
-.status { color: var(--text); }
-.root[data-voice-phase="recording"] .status { border-left: 3px solid var(--danger); padding-left: 8px; }
-.error { color: var(--danger); line-height: 1.6; margin: 0; }
-.root audio { width: 100%; max-width: 100%; height: 40px; }
-.root button:focus-visible, .root summary:focus-visible, .root a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.trigger[data-recording="true"] { color: var(--danger); background: var(--danger-soft); }
+.trigger, .record { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+/* Nonmodal: the original held trigger remains live. iOS 16.2 uses this fixed fallback. */
+.panel { position: fixed; inset: calc(var(--app-viewport-height, 100dvh) - 24px) 24px auto auto; transform: translateY(-100%); z-index: 1000; margin: 0; width: min(380px, calc(100vw - 32px)); max-height: calc(var(--app-viewport-height, 100dvh) - 32px); overflow-y: auto; overscroll-behavior: contain; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--panel-radius); background: var(--bg-panel); color: var(--text); box-shadow: var(--popover-shadow); font: 400 max(14px, .875rem)/1.55 var(--font-ui); }
+.panel::backdrop { background: transparent; pointer-events: none; }
+.captureRow { display: flex; align-items: center; gap: 10px; }
+.captureRow :is(.close, .record) { display: grid; place-items: center; flex: 0 0 44px; width: 44px; min-height: 44px; padding: 0; border-radius: 50%; color: var(--text); }
+.captureRow .record { border: 1px solid var(--border); background: var(--bg-hover); }
+.panel[data-voice-phase="recording"] .record { background: var(--text); color: var(--bg-panel); }
+.feedback { flex: 1; min-width: 0; text-align: center; }
+.status { margin: 0; color: var(--text-muted); font: 400 max(13px, .8125rem)/1.5 var(--font-ui); overflow-wrap: anywhere; }
+.panel[data-voice-phase="recording"] .status { color: var(--text); }
+.meter { margin: 4px 0 0; color: var(--accent); text-align: center; }
+.bars { display: flex; align-items: center; justify-content: center; gap: 4px; height: 30px; }
+.bars > span { flex: 0 0 4px; height: 28px; border-radius: 999px; background: currentColor; transform: scaleY(.0833); transform-origin: center; opacity: .3; }
+.elapsed { display: block; font: 11px/1.5 var(--font-mono); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.instruction { margin: 6px 0 0; text-align: center; color: var(--text-muted); font-size: max(12px, .75rem); }
+.processing { display: flex; justify-content: center; gap: 5px; padding: 8px; }
+.processing i { width: 4px; height: 4px; border-radius: 50%; background: var(--accent); animation: recognizing 1s linear infinite; }
+.processing i:nth-child(2) { animation-delay: 150ms; }
+.processing i:nth-child(3) { animation-delay: 300ms; }
+@keyframes recognizing { 0%, 100% { opacity: .3; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .processing i { animation: none; opacity: .6; } }
+.panel[data-cancelling="true"] { border-color: var(--danger); }
+.panel[data-cancelling="true"] .instruction { color: var(--danger); }
+.footer { display: flex; align-items: flex-start; gap: 12px; margin-top: 8px; }
+.options { flex: 1; min-width: 0; color: var(--text-muted); font-size: max(12px, .75rem); }
+.options > summary { width: fit-content; padding-inline: 4px; }
+.options p { margin: 8px 0; overflow-wrap: anywhere; }
+.footer .send { flex: 0 0 auto; min-height: 44px; padding: 8px 16px; border-radius: var(--pill-radius); background: var(--text); color: var(--bg-panel); font: 400 max(14px, .875rem)/1.4 var(--font-ui); }
+.footer .send:not(:disabled):active { opacity: .75; }
+.setup button { min-height: 44px; padding: 8px 12px; }
+.panel button:disabled, .trigger:disabled { opacity: .45; cursor: not-allowed; }
+.setup { display: grid; gap: 8px; margin-top: 12px; }
+.setup p { margin: 0; overflow-wrap: anywhere; }
+.panel summary { cursor: pointer; min-height: 44px; padding-block: 12px; }
+.settingsLink { display: flex; align-items: center; justify-content: center; min-height: 44px; padding: 4px 8px; color: var(--text-muted); font-size: max(12px, .75rem); text-decoration: underline; text-underline-offset: 3px; }
+.error { color: var(--danger); line-height: 1.6; margin: 12px 0; overflow-wrap: anywhere; }
+.speech { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px; font-size: max(13px, .8125rem); }
+.speech label, .speech button { display: inline-flex; gap: 8px; align-items: center; min-height: 44px; }
+.panel audio { width: 100%; max-width: 100%; height: 40px; margin-top: 12px; }
+.panel :is(button, summary, a):focus-visible, .trigger:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.result { max-height: min(40dvh, 260px); overflow: auto; overscroll-behavior: contain; margin-top: 8px; overflow-wrap: anywhere; }
+.result p { margin: 8px 0; white-space: pre-wrap; }
+.result textarea { display: block; width: 100%; padding: 8px; min-height: 96px; resize: vertical; background: transparent; color: var(--text); border: 0; border-radius: var(--control-radius); font: 16px/1.6 var(--font-ui); }
+.result textarea:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.result blockquote { margin: 8px 0; padding-left: 12px; border-left: 2px solid var(--border); white-space: pre-wrap; }
+.result a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; display: inline-flex; align-items: center; min-height: 44px; }
+/* Reuse the app's overlay material: one CSS frost layer, never blurred text or
+   nested blur. Safari gets the same material without Chromium-only SVG maps. */
+:global(html[data-theme^="glass"]) .panel {
+  --text-muted: var(--text);
+  --accent: var(--glass-overlay-accent);
+  background: var(--glass-overlay-fill);
+  -webkit-backdrop-filter: var(--glass-frost-filter); backdrop-filter: var(--glass-frost-filter);
+  border-color: var(--glass-edge); border-radius: 30px;
+  box-shadow: var(--glass-shadow), var(--overlay-shadow);
+}
+:global(html[data-theme^="glass"]) .panel::after {
+  content: ""; position: absolute; inset: 0; z-index: 1; padding: 1px; border-radius: inherit; background: var(--glass-rim);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0); mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude; pointer-events: none;
+}
+:global(html[data-theme^="glass"]) .captureRow .record { background: var(--glass-active-fill); border-color: var(--glass-edge); }
+:global(html[data-theme^="glass"]) .panel[data-voice-phase="recording"] .record { background: var(--text); color: var(--bg-panel); }
+:global(html[data-theme^="glass"]) .panel[data-cancelling="true"] { border-color: var(--danger); }
+@media (hover: hover) and (pointer: fine) {
+  .panel .record:not(:disabled):hover { opacity: .8; }
+  .panel .close:hover { background: var(--bg-hover); }
+}
+.panel .record:not(:disabled):active { opacity: .75; }
+.panel .close:active { background: var(--bg-selected); }
+@media (max-width: 640px) {
+  .panel { inset: calc(var(--app-viewport-height, 100dvh) - max(12px, env(safe-area-inset-bottom))) max(12px, env(safe-area-inset-right)) auto max(12px, env(safe-area-inset-left)); width: auto; max-height: calc(var(--app-viewport-height, 100dvh) - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 24px); padding: 10px 12px; }
+}
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more), (forced-colors: active) {
+  :global(html[data-theme^="glass"]) .panel { background: var(--bg-panel); -webkit-backdrop-filter: none; backdrop-filter: none; border-color: var(--border); box-shadow: none; }
+  :global(html[data-theme^="glass"]) .panel::after { display: none; }
+  :global(html[data-theme^="glass"]) .record { background: var(--bg-selected); border-color: var(--text); }
+}
+@media (forced-colors: active) { .panel { border: 2px solid CanvasText; } .footer .send { border: 1px solid ButtonText; } }

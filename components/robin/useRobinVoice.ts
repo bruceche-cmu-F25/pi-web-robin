@@ -6,8 +6,8 @@ import { recordingToWav } from "./voice-audio";
 export type VoicePhase = "idle" | "permission" | "recording" | "transcribing" | "review" | "waiting" | "synthesizing" | "speaking";
 const CLAIM = "robin-voice-claim";
 
-export function useRobinVoice(onTranscript: (text: string) => void) {
-  const [phase, setPhase] = useState<VoicePhase>("idle");
+export function useRobinVoice(onTranscript: (text: string, committed: boolean) => void) {
+  const [phase, setPhaseState] = useState<VoicePhase>("idle");
   const [talk, setTalk] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
@@ -15,7 +15,9 @@ export function useRobinVoice(onTranscript: (text: string) => void) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const current = useRef({ epoch: 0, talk: false, mounted: false, stream: null as MediaStream | null,
     recorder: null as MediaRecorder | null, context: null as AudioContext | null,
+    analyser: null as AnalyserNode | null, phase: "idle" as VoicePhase, startedAt: 0, committed: false,
     request: null as AbortController | null, timer: null as ReturnType<typeof setTimeout> | null, url: null as string | null });
+  function setPhase(next: VoicePhase) { current.current.phase = next; setPhaseState(next); }
   const transcriptRef = useRef(onTranscript);
   useEffect(() => { transcriptRef.current = onTranscript; });
 
@@ -29,6 +31,7 @@ export function useRobinVoice(onTranscript: (text: string) => void) {
       if (s.recorder.state !== "inactive") s.recorder.stop(); s.recorder = null;
     }
     s.stream?.getTracks().forEach(track => { track.onended = null; track.stop(); }); s.stream = null;
+    s.analyser?.disconnect(); s.analyser = null; s.committed = false;
     if (s.context && s.context.state !== "closed") void s.context.close().catch(() => {}); s.context = null;
     if (audioRef.current) { audioRef.current.pause(); audioRef.current.removeAttribute("src"); audioRef.current.load(); }
     if (s.url) URL.revokeObjectURL(s.url); s.url = null;
@@ -46,7 +49,11 @@ export function useRobinVoice(onTranscript: (text: string) => void) {
   useEffect(() => {
     const state = current.current;
     state.mounted = true;
-    const hidden = () => { if (document.visibilityState === "hidden") end(); };
+    const hidden = () => {
+      if (document.visibilityState !== "hidden") return;
+      const interrupted = ["permission", "recording", "transcribing"].includes(state.phase);
+      end(); if (interrupted) setError("interrupted");
+    };
     const other = (event: Event) => { if ((event as CustomEvent).detail !== state) end(); };
     const leave = () => end();
     document.addEventListener("visibilitychange", hidden);
@@ -76,11 +83,13 @@ export function useRobinVoice(onTranscript: (text: string) => void) {
   }
 
   async function start(conversation: boolean) {
+    // Re-entrant pointer/click handlers must not ask for a second stream or permission.
+    if (["permission", "recording", "transcribing"].includes(current.current.phase)) return false;
     claim(); stop(); setError(null);
     const s = current.current; s.talk = conversation; setTalk(conversation);
     const epoch = s.epoch;
     if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia || !window.MediaRecorder || !window.AudioContext || !window.OfflineAudioContext) {
-      end(); setError("unsupported"); return;
+      end(); setError(window.isSecureContext ? "unsupported" : "insecure"); return false;
     }
     setPhase("permission");
     try {
@@ -88,8 +97,15 @@ export function useRobinVoice(onTranscript: (text: string) => void) {
       const context = new AudioContext(); s.context = context;
       void context.resume().catch(() => {});
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
-      if (!alive(epoch)) { stream.getTracks().forEach(track => track.stop()); return; }
+      if (!alive(epoch)) { stream.getTracks().forEach(track => track.stop()); return false; }
       s.stream = stream;
+      // iOS can suspend an already-unlocked context while presenting its permission UI.
+      if (context.state === "suspended") void context.resume().catch(() => {});
+      // Input metering only: never connect the microphone to the speakers.
+      if (context.createAnalyser && context.createMediaStreamSource) {
+        s.analyser = context.createAnalyser(); s.analyser.fftSize = 1024;
+        context.createMediaStreamSource(stream).connect(s.analyser);
+      }
       const mime = ["audio/webm;codecs=opus", "audio/mp4", "audio/ogg;codecs=opus"].find(value => MediaRecorder.isTypeSupported(value));
       const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
       s.recorder = recorder;
@@ -115,25 +131,29 @@ export function useRobinVoice(onTranscript: (text: string) => void) {
             const result = await request("/api/robin/voice?op=transcribe", { method: "POST", headers: { "Content-Type": "audio/wav" }, body: wav }, epoch) as { text: string };
             if (!alive(epoch)) return;
             if (typeof result.text !== "string" || !result.text.trim()) throw new Error("empty");
-            transcriptRef.current(result.text); setPhase("review");
+            const committed = s.committed;
+            // A committed transcript may synchronously dispatch a turn; don't overwrite its phase afterwards.
+            setPhase("review"); transcriptRef.current(result.text, committed);
           } catch (caught) {
             if (alive(epoch)) { setError(caught instanceof Error ? caught.message : "audio"); setPhase("idle"); }
           } finally {
             if (context.state !== "closed") void context.close().catch(() => {});
-            if (s.context === context) s.context = null;
+            if (s.context === context) { s.context = null; s.analyser = null; }
           }
         })();
       };
-      recorder.start(250); setPhase("recording");
-      // Leave a small margin for timer jitter; overlong audio is rejected, never clipped.
-      s.timer = setTimeout(() => finish(), (VOICE_SECONDS - 1) * 1000);
+      recorder.start(250); s.startedAt = Date.now(); setPhase("recording");
+      // The limit is NOT consent to send. Keep the transcript for explicit confirmation.
+      s.timer = setTimeout(() => finish(false), (VOICE_SECONDS - 1) * 1000);
+      return true;
     } catch {
       if (alive(epoch)) { end(); setError("permission"); }
+      return false;
     }
   }
-  function finish() {
+  function finish(committed = false) {
     const s = current.current;
-    if (s.recorder?.state === "recording") { setPhase("transcribing"); s.recorder.stop(); }
+    if (s.recorder?.state === "recording") { s.committed = committed; setPhase("transcribing"); s.recorder.stop(); }
   }
 
   async function speak(text: string, epoch: number) {
@@ -155,8 +175,7 @@ export function useRobinVoice(onTranscript: (text: string) => void) {
   }
 
   /** Snapshot consent at dispatch. Ending/changing the panel invalidates this receipt. */
-  function prepareReply() {
-    const enabled = current.current.talk;
+  function prepareReply(enabled = current.current.talk) {
     stop();
     const epoch = current.current.epoch;
     if (enabled) setPhase("waiting");
@@ -169,6 +188,8 @@ export function useRobinVoice(onTranscript: (text: string) => void) {
   }
   function readReply(text: string) { claim(); stop(); void speak(text, current.current.epoch); }
   return { phase, talk, error, audioUrl, audioRef, spokenText, start, finish, stop, end, prepareReply, readReply,
+    capture: current,
+    interrupt: () => { end(); setError("busy"); },
     playbackEnded: () => { if (current.current.url && audioRef.current?.ended) setPhase("idle"); },
     playbackPaused: () => { if (current.current.url && audioRef.current?.paused) setPhase("idle"); },
     playbackStarted: () => { if (current.current.url && !audioRef.current?.paused) setPhase("speaking"); } };

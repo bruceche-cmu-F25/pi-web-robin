@@ -4,7 +4,7 @@ import { hookHarness, deferred, settle } from '../../scripts/react-hook-harness.
 import { voiceExcerpt } from '../../extension/robin/voice.ts';
 function setup(t, { getUserMedia, fetchImpl } = {}) {
   const window = new EventTarget(), document = new EventTarget(); document.visibilityState = 'visible';
-  const tracks = [], recorders = [], contexts = [], calls = [], drafts = [], revoked = [];
+  const tracks = [], recorders = [], contexts = [], calls = [], drafts = [], revoked = [], receipts = [], limits = [];
   function stream() {
     const track = { readyState: 'live', stop() { this.readyState = 'ended'; }, onended: null }; tracks.push(track);
     return { getTracks: () => [track] };
@@ -25,14 +25,27 @@ function setup(t, { getUserMedia, fetchImpl } = {}) {
   }, {
     window, document, navigator: { mediaDevices: { getUserMedia: getUserMedia ?? (async () => stream()) } },
     MediaRecorder: Recorder, AudioContext: Context, Blob, CustomEvent,
+    setTimeout(fn, ms) { if (ms === 59_000) limits.push(fn); return setTimeout(fn, ms); },
     URL: { createObjectURL: () => 'blob:voice', revokeObjectURL: url => revoked.push(url) },
     fetch: async (url, options) => { calls.push({ url, options }); return fetchImpl ? fetchImpl(url, options) : url.includes('transcribe') ? Response.json({ text: '不要删除。' }) : new Response('audio'); },
   });
-  function render() { const voice = harness.render(() => harness.exports.useRobinVoice(text => drafts.push(text))); voice.audioRef.current = audio; return voice; }
+  function render() { const voice = harness.render(() => harness.exports.useRobinVoice((text, committed) => { drafts.push(text); receipts.push({ text, committed }); })); voice.audioRef.current = audio; return voice; }
   t.after(() => harness.unmount());
-  return { render, harness, stream, tracks, contexts, recorders, calls, drafts, audio, document, window, revoked };
+  return { render, harness, stream, tracks, contexts, recorders, calls, drafts, audio, document, window, revoked, receipts, limits };
 }
 
+test('one recording requests the microphone only once, including re-entrant starts', async t => {
+  const permission = deferred(); let requested = 0;
+  const s = setup(t, { getUserMedia: () => { requested++; return permission.promise; } });
+  const start = s.render().start(false);
+  assert.equal(await s.render().start(false), false);
+  assert.equal(requested, 1);
+  permission.resolve(s.stream()); await start;
+  assert.equal(await s.render().start(false), false);
+  assert.equal(requested, 1);
+  s.render().finish(true); await settle();
+  assert.ok(s.tracks.every(track => track.readyState === 'ended'), 'never keep the mic alive to suppress permission prompts');
+});
 test('ending during the permission prompt releases a late microphone and never uploads', async t => {
   const permission = deferred(); const s = setup(t, { getUserMedia: () => permission.promise });
   const pending = s.render().start(true);
@@ -50,6 +63,14 @@ test('dictation releases tracks before upload and only returns an editable draft
   s.render().prepareReply()('Done.'); await settle();
   assert.equal(s.calls.length, 1, 'dictation never enables automatic speech or assistant dispatch');
 });
+test('only explicit finish authorizes dispatch; time limit retains an uncommitted draft', async t => {
+  const s = setup(t); await s.render().start(false);
+  s.render().finish(true); s.render().finish(true); await settle();
+  assert.deepEqual(s.receipts, [{ text: '不要删除。', committed: true }]);
+  await s.render().start(false); s.limits.at(-1)(); await settle();
+  assert.deepEqual(s.receipts[1], { text: '不要删除。', committed: false });
+  assert.equal(s.calls.length, 2);
+});
 test('ending during recognition aborts the request and ignores late transcription', async t => {
   const pending = deferred(); const s = setup(t, { fetchImpl: () => pending.promise });
   await s.render().start(true); s.render().finish(); await settle();
@@ -64,6 +85,14 @@ test('reply consent is captured once at dispatch, speech uses only a short excer
   assert.deepEqual(JSON.parse(s.calls[1].options.body), { text: '第一句。第二句。第三句。' });
   assert.equal(s.audio.plays, 1); assert.equal(s.render().phase, 'speaking');
   s.render().stop(); assert.deepEqual(s.revoked, ['blob:voice']);
+});
+test('reply consent can be chosen during transcript review and is snapshotted at Send', async t => {
+  const s = setup(t); await s.render().start(false); s.render().finish(); await settle();
+  s.render().prepareReply(true)('用户在检查文字时开启了播报。'); await settle();
+  assert.equal(s.calls.filter(call => call.url.includes('op=speak')).length, 1);
+  await s.render().start(true); s.render().finish(); await settle();
+  s.render().prepareReply(false)('用户在发送前关闭了播报。'); await settle();
+  assert.equal(s.calls.filter(call => call.url.includes('op=speak')).length, 1, 'Turning it off before Send prevents synthesis');
 });
 test('ending while Robin works suppresses its later reply without sending a cancel-task request', async t => {
   const s = setup(t); await s.render().start(true); s.render().finish(); await settle();
@@ -83,6 +112,13 @@ test('page backgrounding ends capture and cancels all automatic voice consent', 
   s.document.visibilityState = 'hidden'; s.document.dispatchEvent(new Event('visibilitychange'));
   assert.ok(s.tracks.every(track => track.readyState === 'ended'));
   assert.equal(s.render().talk, false); assert.equal(s.calls.length, 0);
+});
+test('another running task interrupts capture without submitting its words', async t => {
+  const s = setup(t); await s.render().start(false);
+  s.render().interrupt(); await settle();
+  assert.equal(s.render().error, 'busy'); assert.equal(s.render().phase, 'idle');
+  assert.equal(s.calls.length, 0);
+  assert.ok(s.tracks.every(track => track.readyState === 'ended'));
 });
 test('sending while recording discards capture rather than submitting unseen recognition', async t => {
   const s = setup(t); await s.render().start(true); s.render().prepareReply(); await settle();
