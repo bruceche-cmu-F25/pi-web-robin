@@ -49,6 +49,7 @@ try {
     if (path === "projects") return reply({ projects: [project, archivedProject], activeId: "heat" });
     if (path === "objective") { const current = url.searchParams.get("project") === "archived" ? archivedProject : project; return reply({ objective: current.objective, note: current.note, revision: "test", captureState: { captures: [], vaults: [], vaultId: "" } }); }
     if (path === "papers") return reply(url.searchParams.has("id") ? { paper: [...papers, unfiled].find(p => p.id === url.searchParams.get("id")) } : { papers: url.searchParams.get("project") === "archived" ? [] : url.searchParams.get("project") === "heat" ? papers : [...papers, unfiled] });
+    if (path === "sessions") return reply({ sessions: [], run: null });
     if (path === "agent") {
       const projectId = url.searchParams.get("project") || "general", paperId = url.searchParams.get("paper") || undefined;
       const conversation = { id: paperId ? `paper:${projectId}:${paperId}` : `discussion:${projectId}`, projectId, paperId, title: "研究讨论", kind: paperId ? "paper" : "discussion", default: true, revision: 0, createdAt: now, updatedAt: now, messageCount: 1 };
@@ -66,11 +67,12 @@ try {
   // Clear filing: archived projects remain reachable, without appearing among active projects.
   await page.goto("/research");
   const filing = page.getByRole("navigation", { name: "研究课题" });
-  await filing.getByRole("button", { name: /已归档/ }).click();
-  await filing.getByRole("button", { name: "Earlier project", exact: true }).click();
+  await filing.locator('details > summary').click();
+  await filing.getByRole("button", { name: /^Earlier project/ }).click();
+  await filing.getByRole('region', { name: 'Earlier project', exact: true }).getByRole('link', { name: '工作台', exact: true }).click();
   await page.getByRole("heading", { name: "Earlier project", exact: true }).waitFor();
-  assert.equal(await filing.getByRole("tab", { name: "Earlier project" }).count(), 0);
-  await filing.getByRole("tab", { name: "研究首页", exact: true }).click();
+  assert.equal(await filing.locator('[class*="projectTree"]').getByRole('region', { name: 'Earlier project', exact: true }).count(), 0);
+  await filing.getByRole('region', { name: '研究首页', exact: true }).getByRole('link', { name: '工作台', exact: true }).click();
   await page.getByRole("button", { name: /1 篇论文待整理/ }).click();
   const library = page.locator("#research-home-papers");
   await library.getByRole("button", { name: /A paper to organise/ }).waitFor();
@@ -82,17 +84,35 @@ try {
   assert.equal(await library.locator('[class*="paperRow"]').count(), 1);
   await library.getByRole("button", { name: /Evidence-Grounded/ }).waitFor();
   for (const theme of ["light", "dark"]) {
+    await page.evaluate(theme => localStorage.setItem("pi-theme", theme), theme);
     await page.goto("/research");
     await page.getByRole("heading", { name: "研究工作台" }).waitFor();
-    await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
+    await page.waitForFunction(theme => document.documentElement.dataset.theme === theme && document.documentElement.classList.contains("dark") === (theme === "dark"), theme);
     await contrast(page.getByRole("heading", { name: "研究工作台" }), 3);
     await contrast(page.locator('[class*="projectOverviewFocus"] > span'));
     await contrast(page.locator('[class*="projectOverviewBrief"] > span').last());
     await page.screenshot({ path: `${shots}/${theme}-home.png` });
     await page.goto("/research?project=heat");
     await page.getByRole("heading", { name: "HEAT", exact: true }).waitFor();
-    await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
-    assert.equal(await page.locator('[class*="deskBrand"] svg').count(), 0, "no research logo");
+    await page.waitForFunction(theme => document.documentElement.dataset.theme === theme && document.documentElement.classList.contains("dark") === (theme === "dark"), theme);
+    assert.equal(await page.locator('[class*="switcher"] svg, [class*="workspaceNav"] svg, [class*="linkChip"] img').count(), 0, "text-only navigation and references, no decorative logos");
+    const grid = page.locator('.robin-page .pi-grid-surface');
+    const checkGrid = async () => assert.equal(await grid.evaluate(el => getComputedStyle(el).backgroundImage), await page.locator('html').evaluate(el => getComputedStyle(el).backgroundImage), "reuse the shared engineering-paper grid in every theme and viewport");
+    await checkGrid();
+    assert.match(await grid.evaluate(el => getComputedStyle(el).backgroundImage), /radial-gradient/);
+    for (const surface of await page.locator('[class*="workspacePanel"], #research-view-overview').all()) {
+      assert.ok(await surface.evaluate(el => {
+        const style = getComputedStyle(el);
+        const expected = document.createElement('span'); expected.style.backgroundColor = 'var(--bg-panel)'; el.append(expected);
+        const opaquePanel = style.backgroundColor === getComputedStyle(expected).backgroundColor; expected.remove();
+        return opaquePanel && style.backgroundImage === 'none';
+      }), "reading surfaces mask the grid without nested decorative cards");
+    }
+    const sessions = filing.getByRole("region", { name: "HEAT", exact: true });
+    await sessions.waitFor();
+    assert.equal(await page.locator("main").getByRole("region", { name: "HEAT", exact: true }).count(), 0, "conversation navigation belongs in the left rail");
+    const railBox = await sessions.boundingBox(), mainBox = await page.locator("main").boundingBox();
+    assert.ok(railBox.x + railBox.width <= mainBox.x, "sessions sit beside, not above, the conversation");
     await page.getByRole("link", { name: /Experiment sheet/ }).waitFor({ state: "visible" });
     const outline = page.getByRole("navigation", { name: "笔记目录", exact: true });
     await outline.getByRole("button", { name: "相关证据", exact: true }).waitFor();
@@ -109,6 +129,7 @@ try {
     assert.equal(await outline.getByRole("button", { name: "结果", exact: true }).nth(1).getAttribute("aria-current"), "location");
     await page.locator(".robin-page").evaluate(el => el.scrollTo(0, 0));
     await contrast(page.locator("#research-focus"));
+    for (const heading of [page.locator('#research-focus-label'), page.locator('#research-notebook-title'), page.locator('#research-queue-title')]) await contrast(heading);
     await contrast(page.locator('[class*="brief"]').first());
     await contrast(page.locator('[class*="focusState"]').first());
     await contrast(page.locator("#research-notebook .markdown-body p").first());
@@ -123,7 +144,17 @@ try {
     const queueBox = await queue.boundingBox();
     assert.ok(noteBox.y >= focusBox.y + focusBox.height, "notes follow the current goal");
     assert.equal(noteBox.x, focusBox.x, "goal and notebook share an aligned working column");
-    assert.ok(focusBox.width > queueBox.width, "the researcher's work is wider than the reading queue");
+    assert.ok(focusBox.width >= queueBox.width * 1.5, "the goal and notes dominate the desktop working area");
+    const type = await page.locator('main').evaluate(el => {
+      const size = selector => parseFloat(getComputedStyle(el.querySelector(selector)).fontSize);
+      return { goal: size('#research-focus-label'), note: size('#research-notebook-title'), queue: size('#research-queue-title'), field: size('#research-focus'), paper: size('[class*="queueList"] strong') };
+    });
+    assert.ok(type.goal >= type.queue * 1.3 && type.note >= type.queue * 1.3, 'primary sections have a clear type hierarchy over supporting reading');
+    assert.ok(type.field > type.paper, 'the weekly objective—not a queued paper—is the first reading emphasis');
+    for (const heading of ['#research-focus-label', '#research-notebook-title']) await contrast(page.locator(heading), 7);
+    await contrast(page.locator('#research-notebook > [class*="marginHint"]'));
+    const edit = page.locator('#research-notebook').getByRole('button', { name: '编辑', exact: true });
+    assert.equal(await edit.evaluate(el => getComputedStyle(el).borderTopStyle), 'solid', 'editing has a visible button affordance');
     assert.ok(queueBox.x >= focusBox.x + focusBox.width, "reading queue sits to the side");
     assert.match(await queue.locator("li").first().textContent(), /Evidence-Grounded/, "in-progress reading comes first");
     await contrast(queue.locator('[class*="readingStatus"]').first());
@@ -140,21 +171,26 @@ try {
     await contrast(page.locator('[class*="paperMeta"] > span:last-child').first());
     await contrast(page.getByRole("button", { name: "搜索", exact: true }));
     await page.screenshot({ path: `${shots}/${theme}-papers.png` });
-    await page.getByRole("button", { name: /Too Consistent/ }).click();
+    await page.locator('#research-view-papers').getByRole("button", { name: /Too Consistent/ }).click();
     await contrast(page.getByRole("dialog").locator(".markdown-body p").first());
     await contrast(page.getByRole("dialog").getByRole("button", { name: "返回论文列表", exact: true }));
     await page.screenshot({ path: `${shots}/${theme}-reader.png` });
     await page.getByRole("dialog").getByRole("button", { name: "返回论文列表", exact: true }).click();
     await view("研究助手");
     await contrast(page.locator('[class*="conversationColumn"] .markdown-body p').first());
+    await sessions.locator('a[aria-current="page"]').waitFor();
+    assert.ok((await sessions.locator('a[aria-current="page"]').boundingBox()).height <= 32, 'compact desktop session row');
     await page.screenshot({ path: `${shots}/${theme}-assistant.png` });
     for (const width of [320, 390, 812, 1440]) {
       await page.setViewportSize({ width, height: width === 812 ? 375 : 900 });
       await page.waitForTimeout(700);
+      await checkGrid();
       for (const name of ["工作台", "文献库", "研究助手"]) { await view(name); await noOverflow(); }
       if (width === 390) {
         await view("工作台");
         await page.screenshot({ path: `${shots}/${theme}-phone.png` });
+        await page.locator('#research-view-overview').evaluate(el => el.scrollIntoView({ block: 'start', behavior: 'instant' }));
+        await page.screenshot({ path: `${shots}/${theme}-phone-overview.png` });
         await page.locator("#research-notebook").evaluate(el => el.scrollIntoView({ block: "start", behavior: "instant" }));
         await page.screenshot({ path: `${shots}/${theme}-phone-tree.png` });
         await noOverflow();

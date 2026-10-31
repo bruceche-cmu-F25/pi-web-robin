@@ -6,6 +6,7 @@ function shelf() {
   return hookHarness(new URL("./ResearchShelf.tsx", import.meta.url), {
     "@/hooks/useI18n": { useI18n: () => ({ t: key => key }) },
     "./ResearchNotebook": { ResearchNotebook() {} },
+    "./SaveStatus": { SaveStatus() {} },
     "./research-client": {},
     "./ResearchDesk": { ResearchMark() {} },
     "./ResearchWorkspace.module.css": { default: new Proxy({}, { get: (_, key) => key }) },

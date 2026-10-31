@@ -15,6 +15,28 @@ function notesHarness() {
 const captureState = (captures = []) => ({ captures, vaults: [{ id: "local", name: "Vault", path: "/vault" }], vaultId: "local" });
 const respond = (request, body, status = 200) => request.resolve({ ok: status < 400, status, json: async () => ({ revision: "v1", ...body }) });
 
+test("pending debounce, in-flight request and unconfirmed failure have distinct save states", async () => {
+  const h = notesHarness();
+  try {
+    h.render(); respond(h.requests[0], { objective: "Focus", note: "Original" }); await settle();
+    assert.equal(h.render().saveState, "saved");
+    h.render().setNote("Draft");
+    assert.equal(h.render().saveState, "dirty");
+    assert.equal(h.requests.length, 1, "typing does not pretend a request already started");
+    const first = h.render().flush(); await settle();
+    assert.equal(h.render().saveState, "saving");
+    respond(h.requests.at(-1), { error: "Offline" }, 503);
+    await assert.rejects(first);
+    assert.equal(h.render().saveState, "error");
+    assert.equal(h.render().note, "Draft");
+    const retry = h.render().flush(); await settle();
+    respond(h.requests.at(-1), { revision: "v2" }); await retry;
+    assert.equal(h.render().saveState, "saved");
+    h.render().setNote("Edit again"); h.render().setNote("Draft");
+    assert.equal(h.render().saveState, "saved", "reverting an unsent edit is clean");
+  } finally { h.unmount(); }
+});
+
 test("Keep flushes pending edits, adopts partial-save state, and retries by message id", async () => {
   const h = notesHarness();
   try {

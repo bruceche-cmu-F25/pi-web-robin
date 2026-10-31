@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
 import { chromium } from "playwright";
+import { openResearchNavigation } from "./research-navigation.mjs";
 const baseURL = process.env.E2E_BASE_URL ?? "http://127.0.0.1:30141";
 const shots = "/tmp/research-sessions"; mkdirSync(shots, { recursive: true });
 const browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL ?? "chrome", headless: true });
@@ -14,7 +15,12 @@ const paper = (id) => ({ id, title: `Paper ${id}`, url: `https://example.org/${i
 const papers = [paper("A"), paper("B")];
 const session = (id, title, paperId, text) => ({ id, projectId: "heat", title, paperId, kind: paperId ? "paper" : "discussion", default: id.startsWith("paper:") || id === "discussion:heat",
   revision: 0, createdAt: now(), updatedAt: now(), messages: text ? [{ id: `${id}-q`, role: "user", text: `Question ${text}`, paperId, at: now() }, { id: `${id}-a`, role: "assistant", text, paperId, at: now() }] : [] });
-const sessions = [session("discussion:heat", "", undefined, "General answer"), session("paper:heat:A", "Paper A", "A", "A-only answer"), session("paper:heat:B", "Paper B", "B", "B-only answer")];
+const sessions = [session("discussion:heat", "", undefined, "General answer"), session("paper:heat:A", "Paper A", "A", "A-only answer"), session("paper:heat:B", "Paper B", "B", "B-only answer"),
+  ...Array.from({ length: 8 }, (_, i) => session(`extra-${i}`, `Extra topic ${i}`, undefined, "")),
+  { ...session('other-topic', 'Other project topic', undefined, 'Other project answer'), projectId: 'other' }];
+const otherProject = { ...project, id: 'other', name: 'Other project', papers: 0, messages: 1 };
+const listReads = [];
+let failOtherList = true;
 let run = null, finish = null, counter = 0;
 const calls = [];
 const summary = ({ messages, ...item }) => ({ ...item, messageCount: messages.length });
@@ -29,7 +35,7 @@ try {
     const path = url.pathname.replace("/api/research/", "");
     const body = method === "GET" ? {} : request.postDataJSON() ?? {};
     const reply = (json, status = 200) => route.fulfill({ status, json });
-    if (path === "projects") return reply({ projects: [project], activeId: "heat" });
+    if (path === "projects") return reply({ projects: [project, otherProject], activeId: "heat" });
     if (path === "objective") {
       if (method === "PUT") {
         if (body.revision !== JSON.stringify([project.objective, project.note])) return reply({ error: "Notes changed" }, 409);
@@ -53,14 +59,16 @@ try {
         Object.assign(found, body.patch, { revision: found.revision + 1, updatedAt: now() });
         return reply({ conversation: summary(found) });
       }
-      return reply({ sessions: sessions.map(summary), run });
+      listReads.push(url.searchParams.get('project'));
+      if (url.searchParams.get('project') === 'other' && failOtherList) { failOtherList = false; return reply({ error: 'Metadata temporarily unavailable' }, 503); }
+      return reply({ sessions: sessions.filter(s => s.projectId === url.searchParams.get('project')).map(summary), run });
     }
     if (path === "agent") {
       if (method === "GET") {
         const id = url.searchParams.get("conversation") || (url.searchParams.get("paper") ? `paper:heat:${url.searchParams.get("paper")}` : "discussion:heat");
         const current = sessions.find((s) => s.id === id);
         if (!current) return reply({ error: "Research conversation not found" }, 404);
-        return reply({ messages: current.messages, run, conversation: summary(current), sessions: sessions.map(summary), stopped: current.stopped });
+        return reply({ messages: current.messages, run, conversation: summary(current), sessions: sessions.filter(s => s.projectId === current.projectId).map(summary), stopped: current.stopped });
       }
       if (method === "DELETE") { if (run) { sessions.find((s) => s.id === run.conversationId).stopped = true; run = null; finish = null; } return reply({ stopped: true }); }
       if (run) return reply({ error: "Already running" }, 409);
@@ -75,23 +83,60 @@ try {
     }
     return reply({ error: `Unmocked research endpoint: ${method} ${path}` }, 500);
   });
-  const manager = () => page.getByRole("region", { name: "Conversation management" }).first();
+  const manager = () => page.getByRole("navigation", { name: "Research projects" }).getByRole("region", { name: "HEAT", exact: true });
+  async function actions() {
+    const button = manager().locator('a[aria-current="page"]').locator('..').getByRole('button');
+    if (await button.getAttribute('aria-expanded') !== 'true') await button.click();
+  }
   const composer = () => page.getByLabel("Ask the research agent");
   async function openList(container = manager()) {
-    const button = container.getByRole("button", { name: /^Conversations ·/ });
+    const button = container.getByRole("button", { name: /^Conversations ·|^Search conversations$/ });
     if (await button.getAttribute("aria-expanded") !== "true") await button.click();
   }
   async function choose(title, container = manager()) {
     await openList(container);
     await container.getByRole("searchbox", { name: "Search conversations" }).fill(title);
-    await container.getByRole("button", { name: new RegExp(`^${title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} `) }).click();
+    const role = await container.locator('[class*="treeSessions"]').count() ? "link" : "button";
+    await container.getByRole(role, { name: new RegExp(`^${title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} `) }).click();
   }
   await page.goto("/research?project=heat&conversation=paper:heat:A");
   await page.getByText("A-only answer", { exact: true }).waitFor();
+  assert.deepEqual(listReads, [], 'collapsed inactive projects do not fetch metadata');
+  assert.equal(await manager().locator('[class*="treeSessions"] > li').count(), 6, 'six initial rows, not an unbounded transcript list');
+  await manager().getByRole('button', { name: /^Show more/ }).click();
+  assert.equal(await manager().locator('[class*="treeSessions"] > li').count(), 11);
+  const groupToggle = manager().getByRole('button', { name: /^HEAT/ });
+  await groupToggle.focus(); await groupToggle.press('Enter');
+  assert.equal(await manager().locator('a[aria-current="page"]').isVisible(), false, 'keyboard collapse');
+  await groupToggle.press('Enter');
+  assert.equal(await manager().locator('[class*="treeSessions"] > li').count(), 6, 'reopening resets the window');
+  const other = page.getByRole('region', { name: 'Other project', exact: true });
+  const originalUrl = page.url();
+  await other.getByRole('button', { name: /^Other project$/ }).click();
+  await other.getByRole('alert').filter({ hasText: 'Metadata temporarily unavailable' }).waitFor();
+  await other.getByRole('button', { name: 'Retry', exact: true }).click();
+  await other.getByRole('link', { name: /^Other project topic/ }).waitFor();
+  assert.deepEqual(listReads, ['other', 'other']);
+  assert.equal(page.url(), originalUrl, 'expanding a group does not navigate or start a model');
+  await other.getByRole('button', { name: 'Actions for Other project topic', exact: true }).click();
+  await other.getByRole('button', { name: 'Rename', exact: true }).click();
+  await other.getByRole('textbox', { name: 'Rename', exact: true }).fill('Renamed elsewhere');
+  await other.getByRole('button', { name: 'Save', exact: true }).click();
+  await other.getByRole('link', { name: /^Renamed elsewhere/ }).waitFor();
+  assert.equal(sessions.find(s => s.id === 'paper:heat:A').title, 'Paper A', 'row actions target the row, not the selected conversation');
+  assert.equal(calls.length, 0);
+  await other.getByRole('link', { name: /^Renamed elsewhere/ }).click();
+  await page.getByText('Other project answer', { exact: true }).waitFor();
+  await manager().getByRole('link', { name: /^Paper A / }).click();
+  await page.getByText('A-only answer', { exact: true }).waitFor();
   assert.equal(await page.getByText("B-only answer", { exact: true }).count(), 0);
   assert.equal(await page.getByText("General answer", { exact: true }).count(), 0);
   await composer().fill("Draft A");
+  await page.getByRole("button", { name: "Overview", exact: true }).click();
+  assert.equal(await composer().isVisible(), false);
   await choose("Paper B");
+  await composer().waitFor({ state: "visible" });
+  assert.equal(await composer().isVisible(), true, "picking a sidebar conversation opens discussion from any surface");
   await page.getByText("B-only answer", { exact: true }).waitFor();
   assert.equal(await composer().inputValue(), "");
   await composer().fill("Draft B");
@@ -99,29 +144,31 @@ try {
   await page.getByText("A-only answer", { exact: true }).waitFor();
   assert.equal(await composer().inputValue(), "Draft A");
 
-  await openList();
+  await actions();
   await manager().getByRole("button", { name: "Rename", exact: true }).click();
   await manager().getByRole("textbox", { name: "Rename", exact: true }).fill("A methods");
   await manager().getByRole("button", { name: "Save", exact: true }).click();
-  await manager().getByRole("heading", { name: "A methods" }).waitFor();
-  await manager().getByRole("button", { name: "+ New conversation", exact: true }).click();
+  await manager().locator('a[aria-current="page"]').filter({ hasText: 'A methods' }).waitFor();
+  await manager().getByRole("button", { name: "New conversation in HEAT", exact: true }).click();
   await manager().getByRole("textbox", { name: "Conversation title" }).fill("A ablation study");
   await manager().getByRole("button", { name: "Save", exact: true }).click();
-  await manager().getByRole("heading", { name: "A ablation study" }).waitFor();
+  await manager().locator('a[aria-current="page"]').filter({ hasText: 'A ablation study' }).waitFor();
+  assert.equal(await manager().locator('[class*="treeSessions"] > li').count(), 7, 'selected topic outside the six-row window remains visible');
   assert.equal(await composer().inputValue(), "");
   assert.equal(await page.getByText("A-only answer", { exact: true }).count(), 0);
   const topic = sessions.find((s) => s.title === "A ablation study"); assert.equal(topic.paperId, "A");
   await composer().fill("Preserve topic draft");
-  await openList();
+  await actions();
   await manager().getByRole("button", { name: "Archive conversation", exact: true }).click();
   await manager().getByText(/This conversation is archived/).waitFor();
   assert.equal(await composer().isDisabled(), true);
   await choose("Paper B");
   await page.getByText("B-only answer", { exact: true }).waitFor();
   await openList();
-  await manager().getByRole("button", { name: "Archived", exact: true }).click();
+  await manager().getByRole("button", { name: /^Archived ·/ }).click();
   await manager().getByRole("searchbox").fill("A ablation");
-  await manager().getByRole("button", { name: /^A ablation study / }).click();
+  await manager().getByRole("link", { name: /^A ablation study / }).click();
+  await actions();
   await manager().getByRole("button", { name: "Restore conversation", exact: true }).click();
   await page.waitForFunction(() => !document.querySelector("#research-question")?.disabled);
   assert.equal(await composer().inputValue(), "Preserve topic draft");
@@ -132,7 +179,7 @@ try {
   assert.equal(calls.at(-1).history.length, 0);
   // Switch while work is running. Completion must not replace the visible B thread.
   await openList();
-  if (await manager().getByRole("button", { name: "Active conversations", exact: true }).count()) await manager().getByRole("button", { name: "Active conversations", exact: true }).click();
+  if (await manager().getByRole("button", { name: /^Active conversations ·/ }).count()) await manager().getByRole("button", { name: /^Active conversations ·/ }).click();
   await choose("Paper B");
   await page.getByText("B-only answer", { exact: true }).waitFor();
   await page.getByText(/Another conversation is running/).waitFor();
@@ -149,8 +196,12 @@ try {
 
   // Phone: same-paper topics are accessible in the reader; switching flushes notes but not another topic's draft.
   await page.setViewportSize({ width: 390, height: 844 });
+  await openResearchNavigation(page);
+  assert.ok((await manager().locator('a[aria-current="page"]').boundingBox()).height >= 44);
+  assert.equal(await manager().locator('a[aria-current="page"]').locator('..').getByRole('button').evaluate(el => getComputedStyle(el).opacity), '1', 'row actions stay visible on phones');
+  await actions();
   await manager().getByRole("button", { name: "Open paper →", exact: true }).click();
-  const sheet = page.getByRole("dialog");
+  const sheet = page.getByRole("dialog", { name: "Paper A", exact: true });
   await sheet.getByRole("heading", { name: "Paper A", exact: true }).waitFor();
   await sheet.getByText("My notes", { exact: true }).click();
   await sheet.getByRole("textbox", { name: "My notes" }).fill("Keep these paper notes");
@@ -172,6 +223,7 @@ try {
   assert.ok(page.url().includes(`conversation=${topic.id}`));
   await page.goto("/research?project=heat&conversation=missing");
   await page.getByText("Research conversation not found", { exact: true }).waitFor();
+  await openResearchNavigation(page);
   await manager().getByRole("link", { name: /Project discussion/ }).click();
   await page.getByRole("button", { name: "Assistant discussion", exact: true }).click();
   await page.getByText("General answer", { exact: true }).waitFor();

@@ -6,6 +6,9 @@ function desk() {
   return hookHarness(new URL("./ResearchDesk.tsx", import.meta.url), {
     "@/hooks/useI18n": { useI18n: () => ({ t: key => key }) },
     "./ResearchWorkspace.module.css": { default: new Proxy({}, { get: (_, key) => key }) },
+    "./WorkspaceRail.module.css": { default: new Proxy({}, { get: (_, key) => key }) },
+    "./WorkspaceRail": { WorkspaceRail() {} },
+    "@/lib/research-link-kind": { linkKind: () => ({ label: "Repository" }), linkTitle: title => title },
   });
 }
 

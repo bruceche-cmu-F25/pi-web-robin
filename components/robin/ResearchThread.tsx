@@ -32,17 +32,17 @@ export function ThreadMessage({ message, paperTitle, onOpenPaper, onNavigate, on
   const { t } = useI18n();
   const uploadRequest = message.role === "user" && !!message.paperId && !!paperTitle &&
     ["rw.home.readUploaded", "rw.paper.readUploadedNamed", "rw.paper.readUploaded"].some((key) => message.text === t(key, { title: paperTitle }));
-  return <article className={s.message} data-role={message.role}>
-    <header className={s.messageHead}>
-      <span className={s.speaker}>{t(message.role === "user" ? "rw.you" : "rw.chat.assistant")}</span>
+  return <article className={`${s.message}${message.role === "user" ? " chat-user-bubble" : ""}`} data-role={message.role} aria-label={t(message.role === "user" ? "rw.you" : "rw.chat.assistant")}>
+    <header className={`${s.messageHead} chat-message-label`}>
+      {message.role === "assistant" && <span>{t("rw.chat.assistant")}</span>}
       {message.paperId && paperTitle && (onOpenPaper
         ? <button type="button" className={s.paperRef} onClick={() => onOpenPaper(message.paperId!)} title={paperTitle}>{t("rw.about")} · {paperTitle}</button>
         : <span className={s.paperRef}>{paperTitle}</span>)}
     </header>
     {uploadRequest ? <>
-      <p className={s.prose}>{t("rw.chat.uploadRequest")}</p>
+      <p>{t("rw.chat.uploadRequest")}</p>
       <details className={s.requestDetails}><summary>{t("rw.chat.instructions")}</summary><MarkdownBody>{message.text}</MarkdownBody></details>
-    </> : <div className={s.prose}><MarkdownBody onNavigateLink={onNavigate}>{message.text}</MarkdownBody></div>}
+    </> : <MarkdownBody className={message.role === "user" ? "markdown-user-message" : undefined} keepLineBreaks={message.role === "user"} onNavigateLink={onNavigate}>{message.text}</MarkdownBody>}
     {message.role === "assistant" && onKeep && <div className={s.messageActions}>
       <button className={s.textButton} disabled={keepState === "kept" || keepState === "saving" || busyKeep} onClick={() => onKeep(message)}>{t(keepState === "kept" ? "rw.capture.saved" : keepState === "saving" ? "rw.saving" : keepState === "partial" ? "rw.capture.retry" : "rw.keep")}</button>
       {capture?.archive && <a className={s.textButton} href={capture.archive.url} title={`${capture.archive.vaultPath}/${capture.archive.relativePath}`}>{t("papers.openArchive")}</a>}
@@ -108,11 +108,10 @@ export function ResearchThread({ thread, projectId, projectName, projectNames, f
     setQuestion(prompt + typed);
     requestAnimationFrame(() => { const node = composer.current; if (node) { node.focus(); node.setSelectionRange(node.value.length, node.value.length); } });
   }
-  return <section className={s.thread} aria-label={t("rw.discussion")}>
+  return <section className={`${s.thread} chat-content`} aria-label={t("rw.discussion")}>
     {empty ? <div className={s.welcome}>
       <h2>{t(paperTitle ? "rw.chat.paperWelcome" : "rw.welcomeTitle")}</h2>
       <p>{t(paperTitle ? "rw.chat.paperWelcomeHint" : "rw.chat.welcomeHint")}</p>
-      {!paperTitle && <ol className={s.chatSteps}>{["source", "explain", "followup"].map((step, index) => <li key={step}><span aria-hidden="true">{index + 1}</span>{t(`rw.chat.step.${step}`)}</li>)}</ol>}
       {variant === "project" && !focus.trim() && onEditFocus && <button className={s.textButton} onClick={onEditFocus}>{t("rw.setFocus")} →</button>}
     </div> : <div className={s.transcript} ref={transcript} tabIndex={0} role="region" aria-label={t("rw.chat.messages")} onScroll={() => {
       const node = transcript.current; if (node) {
@@ -143,13 +142,18 @@ export function ResearchThread({ thread, projectId, projectName, projectNames, f
         <label htmlFor="research-question">{t("rw.askLabel")}</label>
         {session?.paperId && <button type="button" className={s.paperRef} onClick={() => onOpenPaper(session.paperId!)}>{paperTitle ?? t("rw.sessions.openPaper")} ↗</button>}
       </div>
-      <textarea id="research-question" ref={composer} className={s.question} value={question} maxLength={10_000} rows={empty ? 3 : 2}
+      <div className="chat-input-surface">
+      <textarea id="research-question" ref={composer} className="chat-input-textarea" value={question} maxLength={10_000} rows={2}
         disabled={!draftReady || !thread.ready || !!session?.archived} placeholder={t(variant === "home" ? "rw.home.placeholder" : "rw.placeholder")} onChange={(event) => setQuestion(event.target.value)}
         onKeyDown={(event) => { if (submitsOnEnter(event)) { event.preventDefault(); void ask(question); } }} />
-      <div className={s.composerFooter}>
-        {onUpload && <ResearchPdfUpload onUpload={onUpload} onOpen={onOpenPaper} onBusyChange={setUploading} />}
-        <button className={`${s.button} ${s.primary}`} disabled={disabled || !question.trim()}>{t("rw.send")}</button>
+      <div className="chat-input-actions">
+        <button className="ui-action ui-action--outline pi-chrome-label chat-send-button" data-state={question.trim() ? "accent" : "dim"} disabled={disabled || !question.trim()} aria-label={t("rw.send")} title={t("rw.send")}>
+          <svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 7h9m-3.5-4L12 7l-4.5 4" /></svg>
+          <span className="chat-send-label">{t("rw.send")}</span>
+        </button>
       </div>
+      </div>
+      {onUpload && <div className={s.composerFooter}><ResearchPdfUpload onUpload={onUpload} onOpen={onOpenPaper} onBusyChange={setUploading} /></div>}
       <p className={s.composerHint}>{t(uploading ? "rw.chat.uploadWait" : "rw.chat.uploadHelp")} <span>{t("rw.composerHint")}</span></p>
     </form>
     {/* Starters stay reachable after the first question: full cards on an empty thread, a chip row after. */}

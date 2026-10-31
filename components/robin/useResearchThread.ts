@@ -28,30 +28,47 @@ export function useResearchThread({ projectId, conversationId, paperId, locale, 
   const [pollError, setPollError] = useState("");
   const control = useRef<AbortController | null>(null);
   const signature = useRef("");
+  // Polls and explicit reloads share publication ownership, even within one topic.
+  const readSequence = useRef(0);
   const runningHere = !!state.run && state.run.projectId === projectId
     && (!state.run.conversationId || state.run.conversationId === state.conversation?.id);
   const busy = sending || runningHere;
   const elsewhere = !!state.run && !runningHere;
   const refresh = useCallback(async (signal?: AbortSignal) => {
+    // A departing send's finally must not invalidate the newly selected topic's read.
+    if (signal?.aborted || scope.current !== key) return;
+    const sequence = ++readSequence.current;
+    const ownsRead = () => sequence === readSequence.current && scope.current === key && !signal?.aborted;
     const params = new URLSearchParams({ project: projectId });
     if (conversationId) params.set("conversation", conversationId);
     if (paperId) params.set("paper", paperId);
-    const next = await researchRequest<ResearchConversation>(`/api/research/agent?${params}`, { signal });
-    if (signal?.aborted || scope.current !== key) return;
+    let next: ResearchConversation;
+    try {
+      next = await researchRequest<ResearchConversation>(`/api/research/agent?${params}`, { signal });
+    } catch (failure) {
+      if (!ownsRead()) return;
+      setPollError(failure instanceof Error ? failure.message : fallbackError);
+      throw failure;
+    }
+    if (!ownsRead()) return;
     setSnapshot({ key, state: next }); setReadyKey(key); setPollError("");
     const current = `${key}:${next.messages.at(-1)?.id ?? ""}:${next.run?.id ?? ""}:${next.run?.phase ?? ""}:${next.run?.detail ?? ""}:${next.conversation?.revision ?? ""}`;
     if (current !== signature.current) { signature.current = current; onChange(); }
-  }, [conversationId, key, onChange, paperId, projectId]);
+  }, [conversationId, fallbackError, key, onChange, paperId, projectId]);
   useEffect(() => {
+    scope.current = key;
     setReadyKey(""); setError(""); setPollError(""); setSending(false); setPending(null);
-    return () => control.current?.abort();
+    return () => {
+      scope.current = "";
+      readSequence.current += 1;
+      control.current?.abort();
+    };
   }, [key]);
   useEffect(() => {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
     async function poll() {
-      try { await refresh(controller.signal); }
-      catch (failure) { if (!controller.signal.aborted && scope.current === key) setPollError(failure instanceof Error ? failure.message : fallbackError); }
+      await refresh(controller.signal).catch(() => {}); // refresh owns read errors too.
       if (!controller.signal.aborted) timer = setTimeout(() => void poll(), busy || elsewhere ? 1200 : 6000);
     }
     void poll();
@@ -71,6 +88,7 @@ export function useResearchThread({ projectId, conversationId, paperId, locale, 
       }, controller.signal));
       controller.signal.throwIfAborted();
       if (scope.current !== key) return false;
+      readSequence.current += 1; // A pre-acceptance GET cannot erase this receipt.
       setSnapshot((current) => ({ key, state: { ...current.state, run: result.run, error: undefined, stopped: undefined } }));
       sent = true;
       if (result.run?.conversationId) onConversation?.(result.run.conversationId, result.run.paperId);

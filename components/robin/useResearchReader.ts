@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useI18n } from "@/hooks/useI18n";
 import type { Paper } from "@/extension/robin/papers-domain";
-import { GENERAL, importPaperPdf, paperSummary, researchHref, researchRequest, type PaperSummary } from "./research-client";
+import { GENERAL, importPaperPdf, paperSummary, researchHref, researchRequest, researchView, type PaperSummary, type ResearchView } from "./research-client";
+import { writeUrlState } from "@/lib/url-state";
 import { useResearchThread } from "./useResearchThread";
 
 const noFlush = async () => {};
@@ -19,6 +20,9 @@ export function useResearchReader({ projectId, beforeAsk = noFlush, onProjectsCh
   const router = useRouter();
   const params = useSearchParams();
   const selected = params.get("paper"), conversationId = params.get("conversation");
+  const view = researchView(params);
+  const latestView = useRef(view); latestView.current = view;
+  const setView = (next: ResearchView) => writeUrlState({ view: next });
   const [papers, setPapers] = useState<PaperSummary[]>([]);
   const [loadedPaper, setPaper] = useState<Paper | null>(null);
   const paper = loadedPaper?.id === selected ? loadedPaper : null;
@@ -31,7 +35,7 @@ export function useResearchReader({ projectId, beforeAsk = noFlush, onProjectsCh
   const refresh = useCallback(() => { setReload((n) => n + 1); void onProjectsChange(); }, [onProjectsChange]);
   const accepted = useCallback((id: string, paperId?: string) => {
     if (currentScope.current !== scope) return;
-    const href = researchHref(projectId, selected === paperId ? selected : null, id);
+    const href = researchHref(projectId, selected === paperId ? selected : null, id, latestView.current);
     if (id === conversationId || (!conversationId && id === (selected ? `paper:${projectId}:${selected}` : `discussion:${projectId}`))) router.replace(href, { scroll: false });
     else router.push(href, { scroll: false });
   }, [conversationId, projectId, router, scope, selected]);
@@ -39,10 +43,10 @@ export function useResearchReader({ projectId, beforeAsk = noFlush, onProjectsCh
   const latestThread = useRef(thread); latestThread.current = thread;
   const currentConversation = thread.state.conversation;
   const open = useCallback((id: string | null) => router.push(researchHref(projectId, id,
-    !id || id === currentConversation?.paperId ? currentConversation?.id ?? conversationId : undefined), { scroll: false }), [conversationId, currentConversation, projectId, router]);
+    !id || id === currentConversation?.paperId ? currentConversation?.id ?? conversationId : undefined, latestView.current), { scroll: false }), [conversationId, currentConversation, projectId, router]);
   const selectConversation = useCallback(async (id: string, inPaper = false) => {
     await beforeAsk();
-    if (currentScope.current === scope) router.push(researchHref(projectId, inPaper ? selected : null, id), { scroll: false });
+    if (currentScope.current === scope) router.push(researchHref(projectId, inPaper ? selected : null, id, inPaper ? latestView.current : "assistant"), { scroll: false });
   }, [beforeAsk, projectId, router, scope, selected]);
   const navigate = useCallback((href: string) => {
     const url = new URL(href, window.location.href);
@@ -54,7 +58,7 @@ export function useResearchReader({ projectId, beforeAsk = noFlush, onProjectsCh
           .catch((failure) => { if (currentScope.current === scope) setError(failure instanceof Error ? failure.message : t("rw.error")); });
       } else if (url.searchParams.has("conversation")) {
         void beforeAsk().then(() => {
-          if (currentScope.current === scope) router.push(researchHref(projectId, url.searchParams.get("paper"), url.searchParams.get("conversation")), { scroll: false });
+          if (currentScope.current === scope) router.push(researchHref(projectId, url.searchParams.get("paper"), url.searchParams.get("conversation"), researchView(url.searchParams)), { scroll: false });
         }).catch((failure) => { if (currentScope.current === scope) setError(failure instanceof Error ? failure.message : t("rw.error")); });
       } else open(url.searchParams.get("paper"));
     } else if (url.origin === window.location.origin) router.push(url.pathname + url.search);
@@ -107,5 +111,5 @@ export function useResearchReader({ projectId, beforeAsk = noFlush, onProjectsCh
     setPapers((current) => [paperSummary(saved), ...current.filter((item) => item.id !== saved.id)]);
     return { paper: saved, started: await uploaded(paperSummary(saved)) };
   }
-  return { selected, conversationId, papers, paper, titles, loading, error, thread, refresh, open, navigate, selectConversation, changed, uploaded, uploadPdf };
+  return { view, setView, selected, conversationId, papers, paper, titles, loading, error, thread, refresh, open, navigate, selectConversation, changed, uploaded, uploadPdf };
 }

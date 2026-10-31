@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { deferred, hookHarness, settle } from "../../scripts/react-hook-harness.mjs";
-import { paperSummary, researchHref } from "./research-client.ts";
+import { paperSummary, researchHref, researchView } from "./research-client.ts";
 
 function readerHarness(projectId) {
   const requests = [], navigation = [], switches = [], external = [], sends = [], imports = [];
@@ -14,7 +14,8 @@ function readerHarness(projectId) {
     "next/navigation": { useRouter: () => router, useSearchParams: () => params },
     "@/hooks/useI18n": { useI18n: () => ({ t, locale: "en" }) },
     "./useResearchThread": { useResearchThread: (next) => { turnOptions = next; return thread; } },
-    "./research-client": { GENERAL: "general", researchHref, paperSummary,
+    "@/lib/url-state": { writeUrlState: patch => { for (const [key, value] of Object.entries(patch)) params.set(key, value); } },
+    "./research-client": { GENERAL: "general", researchHref, researchView, paperSummary,
       importPaperPdf: (...args) => { const request = { ...deferred(), args }; imports.push(request); return request.promise; },
       researchRequest: (url, init) => { const request = { ...deferred(), url, ...init }; requests.push(request); return request.promise; } },
   }, { URL, Map, Error, window: { location: { origin: "http://localhost", href: "http://localhost/research" }, open: (...args) => external.push(args) } });
@@ -50,6 +51,26 @@ for (const projectId of ["general", "heat"]) {
       await reader.selectConversation("topic", true);
       assert.equal(h.flushes, 1); assert.equal(query(h.navigation.at(-1)).get("paper"), "A");
       assert.equal(query(h.navigation.at(-1)).get("project"), projectId === "general" ? null : projectId);
+    } finally { h.unmount(); }
+  });
+
+  test(`${projectId}: views survive paper navigation, accepted turns and back/forward without remounting`, async () => {
+    const h = readerHarness(projectId);
+    try {
+      h.at("view=papers&conversation=topic");
+      let reader = h.render();
+      assert.equal(reader.view, "papers");
+      const accepted = h.turnOptions.onConversation;
+      reader.open("A"); assert.equal(query(h.navigation.at(-1)).get("view"), "papers");
+      reader.setView("overview"); reader = h.render();
+      assert.equal(reader.view, "overview");
+      accepted("topic"); assert.equal(query(h.navigation.at(-1)).get("view"), "overview", "late acceptance keeps the latest view");
+      await reader.selectConversation("another"); assert.equal(query(h.navigation.at(-1)).get("view"), "assistant");
+      h.at("view=papers&paper=A&conversation=topic"); reader = h.render();
+      reader.open(null); assert.equal(query(h.navigation.at(-1)).get("view"), "papers");
+      await reader.selectConversation("reading", true); assert.equal(query(h.navigation.at(-1)).get("view"), "papers");
+      h.at("conversation=topic"); assert.equal(h.render().view, "assistant", "legacy discussion deep links");
+      h.at("view=overview&conversation=topic"); assert.equal(h.render().view, "overview", "explicit view wins on back/forward");
     } finally { h.unmount(); }
   });
 

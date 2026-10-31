@@ -2,12 +2,11 @@
 
 import { useRef, useState } from "react";
 import { ResearchNotebook } from "./ResearchNotebook";
+import { SaveStatus } from "./SaveStatus";
 import { useI18n } from "@/hooks/useI18n";
 import type { PaperSummary } from "./research-client";
-import type { ResearchReading } from "@/extension/robin/research";
-import { downloadMarkdown, researchJson, researchRequest, uploadPaperPdf } from "./research-client";
+import { downloadMarkdown, uploadPaperPdf } from "./research-client";
 import type { ProjectNotes } from "./useProjectNotes";
-import { ResearchMark } from "./ResearchDesk";
 import s from "./ResearchWorkspace.module.css";
 
 export function paperState(paper: PaperSummary): "needsPdf" | "ready" | "abstract" | "unread" {
@@ -79,14 +78,15 @@ export function Notebook({ notes, projectName, planning = false }: { notes: Proj
   const { t } = useI18n();
   const [editing, setEditing] = useState(false);
   return <section id="research-notebook" className={`${s.marginSection} ${planning ? s.notebookPanel : ""}`} aria-labelledby="research-notebook-title">
-    <h2 id="research-notebook-title" className={planning ? s.sectionTitle : s.marginTitle}>{planning && <ResearchMark kind="note" />}{t(planning ? "rw.plan.title" : "rw.notebook")}
-      <span aria-live="polite" data-state={notes.saveState}>{notes.saveState === "saved" ? "" : t(`rw.save.${notes.saveState}`)}</span></h2>
+    <h2 id="research-notebook-title" className={planning ? s.sectionTitle : s.marginTitle}>{t(planning ? "rw.plan.title" : "rw.notebook")}
+      </h2>
+    {notes.loaded && notes.saveState !== "loading" && <SaveStatus state={notes.saveState} onRetry={notes.saveSoon} />}
     {notes.saveState === "conflict" && <p role="alert" className={s.error}>
       {t("rw.notesConflict")} <button type="button" className={s.textButton} onClick={() => { if (window.confirm(t("rw.notesReload"))) window.location.reload(); }}>{t("papers.retry")}</button>
     </p>}
     {planning && <p className={s.marginHint}>{t("rw.plan.hint")}</p>}
     <div className={s.marginActions}>
-      <button type="button" className={s.textButton} disabled={!notes.loaded || notes.capturing} onClick={() => { if (editing) notes.saveSoon(); setEditing(!editing); }}>{t(editing ? "rw.done" : "rw.edit")}</button>
+      <button type="button" className="ui-action ui-action--primary" disabled={!notes.loaded || notes.capturing} onClick={() => { if (editing) notes.saveSoon(); setEditing(!editing); }}>{t(editing ? "rw.done" : "rw.edit")}</button>
       {planning && <button type="button" className={s.textButton} disabled={!notes.loaded || notes.capturing || notes.note.length + t("rw.plan.template").length + 2 > 100_000}
         onClick={() => { notes.setNote(`${t("rw.plan.template")}\n\n${notes.note}`); setEditing(true); }}>{t("rw.plan.addTemplate")}</button>}
       <button type="button" className={s.textButton} disabled={!notes.loaded || (!notes.note.trim() && !notes.objective.trim())}
@@ -107,55 +107,5 @@ export function Notebook({ notes, projectName, planning = false }: { notes: Proj
       <p className={s.marginHint}>{t(notes.captureState.vaults.length ? "rw.capture.hint" : "papers.noVault")}</p>
     </details>
     {notes.captureState.vaultError && <p role="alert" className={s.error}>{notes.captureState.vaultError}</p>}
-  </section>;
-}
-
-const normalizeUrl = (url: string) => { try { const u = new URL(url); u.search = ""; u.hash = ""; return u.href.replace(/\/$/, ""); } catch { return url; } };
-/**
- * A project's authored reading list (HEAT's takeover readings). A paper opens in the reading sheet — the
- * first click files it into the library under this project — so the agent can read and discuss it.
- * Non-paper links (a code repository) simply open.
- */
-export function ReferenceReadings({ projectId, lists, papers, onOpen }: {
-  projectId: string; lists: Array<{ title: string; readings: readonly ResearchReading[] }>; papers: PaperSummary[]; onOpen: (id: string) => void;
-}) {
-  const { t } = useI18n();
-  const [busy, setBusy] = useState("");
-  const [error, setError] = useState("");
-  const inLibrary = new Map(papers.map((paper) => [normalizeUrl(paper.url), paper]));
-  async function open(reading: ResearchReading) {
-    const known = inLibrary.get(normalizeUrl(reading.url));
-    if (known) { onOpen(known.id); return; }
-    setBusy(reading.id); setError("");
-    try {
-      const { paper } = await researchRequest<{ paper: { id: string } }>(`/api/research/papers?project=${encodeURIComponent(projectId)}`,
-        researchJson("POST", { title: reading.title, url: reading.url, authors: [], year: "", abstract: "", pdfUrl: "", provider: reading.source }));
-      onOpen(paper.id);
-    } catch (failure) { setError(failure instanceof Error ? failure.message : t("rw.error")); }
-    finally { setBusy(""); }
-  }
-  return <section className={s.marginSection} aria-labelledby="research-reference-readings">
-    <h2 id="research-reference-readings" className={s.marginTitle}>{t("rw.readings")} <span>{lists.reduce((sum, list) => sum + list.readings.length, 0)}</span></h2>
-    <p className={s.marginHint}>{t("rw.readingsHint")}</p>
-    {lists.map((list) => <details key={list.title} className={s.readingGroup} open>
-      <summary>{list.title} <span>{list.readings.length}</span></summary>
-      <ul className={s.paperList}>
-        {list.readings.map((reading) => {
-          const paper = inLibrary.get(normalizeUrl(reading.url));
-          const isPaper = reading.source !== "GitHub";
-          return <li key={reading.id}>
-            {isPaper ? <button type="button" className={s.paperRow} disabled={!!busy} onClick={() => void open(reading)}>
-              <span className={s.paperTitle}>{reading.title}</span>
-              <span className={s.paperMeta}><span className={s.stateDot} data-state={paper ? paperState(paper) : "unread"} aria-hidden="true" />
-                {busy === reading.id ? t("rw.loading") : paper ? t(`rw.state.${paperState(paper)}`) : t("rw.state.unread")} · {reading.source}</span>
-            </button> : <a className={s.paperRow} href={reading.url} target="_blank" rel="noopener noreferrer">
-              <span className={s.paperTitle}>{reading.title} ↗</span>
-              <span className={s.paperMeta}>{reading.source}</span>
-            </a>}
-          </li>;
-        })}
-      </ul>
-    </details>)}
-    {error && <p role="alert" className={s.error}>{error}</p>}
   </section>;
 }

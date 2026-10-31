@@ -27,6 +27,127 @@ function threadHarness() {
   };
 }
 
+test("same-conversation refreshes cannot publish an older answer after a newer one", async () => {
+  const h = threadHarness();
+  try {
+    h.render(); h.requests[0].resolve(empty()); await settle();
+    const thread = h.render();
+    const old = thread.reload();
+    const oldRequest = h.requests.at(-1);
+    const latest = thread.reload();
+    h.requests.at(-1).resolve({ ...empty(), messages: [{ id: "new", text: "New answer" }] });
+    await latest;
+    assert.equal(h.render().state.messages[0].id, "new");
+    const changes = h.changes;
+    oldRequest.resolve({ ...empty(), messages: [{ id: "old", text: "Old answer" }] });
+    await old;
+    assert.equal(h.render().state.messages[0].id, "new");
+    assert.equal(h.changes, changes, "stale reads must not refresh the library either");
+  } finally { h.unmount(); }
+});
+
+test("an older poll failure cannot replace a successful reload", async () => {
+  const h = threadHarness();
+  try {
+    h.render(); h.requests[0].resolve(empty()); await settle();
+    h.poll(); const stale = h.requests.at(-1);
+    const latest = h.render().reload();
+    h.requests.at(-1).resolve({ ...empty(), messages: [{ id: "new", text: "New answer" }] }); await latest;
+    stale.reject(new Error("Stale offline error")); await settle();
+    assert.equal(h.render().error, "");
+    assert.equal(h.render().state.messages[0].id, "new");
+  } finally { h.unmount(); }
+});
+
+test("an older success cannot hide the latest read failure; a fresh retry can recover", async () => {
+  const h = threadHarness();
+  try {
+    h.render(); h.requests[0].resolve(empty()); await settle();
+    h.poll(); const stale = h.requests.at(-1);
+    const latest = h.render().reload();
+    const rejected = assert.rejects(latest, /Latest read failed/);
+    h.requests.at(-1).reject(new Error("Latest read failed")); await rejected;
+    stale.resolve(empty()); await settle();
+    assert.equal(h.render().error, "Latest read failed");
+    const retry = h.render().reload(); h.requests.at(-1).resolve(empty()); await retry;
+    assert.equal(h.render().error, "");
+  } finally { h.unmount(); }
+});
+
+test("a manual reload from a previous visit cannot overwrite A after A to B to A", async () => {
+  const h = threadHarness();
+  try {
+    h.options.conversationId = "A"; h.render(); h.requests[0].resolve(empty()); await settle();
+    const old = h.render().reload(), stale = h.requests.at(-1);
+    h.options.conversationId = "B"; h.render();
+    h.options.conversationId = "A"; h.render();
+    h.requests.at(-1).resolve({ ...empty(), messages: [{ id: "new-a", text: "Current A" }] }); await settle();
+    stale.resolve({ ...empty(), messages: [{ id: "old-a", text: "Previous A" }] }); await old;
+    assert.equal(h.render().state.messages[0].id, "new-a");
+  } finally { h.unmount(); }
+});
+
+test("unmount invalidates manual reads and prevents late callers from starting more reads", async () => {
+  const h = threadHarness();
+  h.render(); h.requests[0].resolve(empty()); await settle();
+  const thread = h.render(), pending = thread.reload(), request = h.requests.at(-1);
+  const changes = h.changes, count = h.requests.length;
+  h.unmount();
+  request.resolve({ ...empty(), messages: [{ id: "late", text: "Late answer" }] }); await pending;
+  await thread.reload();
+  assert.equal(h.changes, changes);
+  assert.equal(h.requests.length, count);
+});
+
+test("acceptance survives an old idle poll even when the post-acceptance read fails", async () => {
+  const h = threadHarness();
+  try {
+    h.render(); h.requests[0].resolve(empty()); await settle();
+    h.poll(); const stale = h.requests.at(-1);
+    const sending = h.render().send("Read this"); await settle();
+    h.requests.find(request => request.method === "POST").resolve({ run }); await settle();
+    const confirmationRead = h.requests.at(-1);
+    stale.resolve(empty()); await settle();
+    confirmationRead.reject(new Error("Read offline"));
+    assert.equal(await sending, true);
+    assert.equal(h.render().state.run.id, run.id);
+    assert.equal(h.render().busy, true);
+    assert.equal(h.render().error, "Read offline");
+    assert.equal(await h.render().send("Duplicate"), false);
+  } finally { h.unmount(); }
+});
+
+test("a departing send's finally does not invalidate a new conversation's pending read", async () => {
+  const h = threadHarness();
+  try {
+    h.options.conversationId = "A"; h.render(); h.requests[0].resolve(empty()); await settle();
+    const sending = h.render().send("Question A"); await settle();
+    const post = h.requests.find(request => request.method === "POST");
+    h.options.conversationId = "B"; h.render();
+    const current = h.requests.at(-1), count = h.requests.length;
+    post.resolve({ run }); assert.equal(await sending, false);
+    assert.equal(h.requests.length, count, "do not launch an obsolete A refresh");
+    current.resolve({ ...empty(), messages: [{ id: "b", text: "Current B" }] }); await settle();
+    assert.equal(h.render().state.messages[0].id, "b");
+  } finally { h.unmount(); }
+});
+
+test("a pre-stop read cannot resurrect the stopped run", async () => {
+  const h = threadHarness();
+  try {
+    h.render(); h.requests[0].resolve({ ...empty(), run }); await settle();
+    h.render(); const stale = h.requests.at(-1);
+    const stopping = h.render().stop();
+    const deletion = h.requests.at(-1);
+    assert.equal(deletion.method, "DELETE"); assert.match(deletion.url, /run=r1/);
+    deletion.resolve({}); await settle();
+    h.requests.at(-1).resolve({ ...empty(), stopped: true }); await stopping;
+    stale.resolve({ ...empty(), run }); await settle();
+    assert.equal(h.render().state.run, null);
+    assert.equal(h.render().busy, false);
+  } finally { h.unmount(); }
+});
+
 test("a recovered poll clears Load failed and exposes the actual task error", async () => {
   const h = threadHarness();
   try {

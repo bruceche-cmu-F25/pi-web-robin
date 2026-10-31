@@ -51,9 +51,8 @@ export function ResearchPdfUpload({ onUpload, onOpen, onBusyChange }: {
       <span className={s.uploadLimit}>{t("rw.chat.pdfLimit")}</span>
     </div>
     <div aria-live="polite">
-      {busy && <div className={s.attachmentStatus}><span className={s.fileMark} aria-hidden="true">PDF</span><div><strong>{filename}</strong><span>{t("rw.chat.extracting")}</span></div></div>}
+      {busy && <div className={s.attachmentStatus}><div><strong>{filename}</strong><span>{t("rw.chat.extracting")}</span></div></div>}
       {saved && <div className={s.attachmentStatus} data-state={saved.started ? "sent" : "waiting"}>
-        <span className={s.fileMark} aria-hidden="true">PDF</span>
         <div><button type="button" className={s.textButton} onClick={() => { setSaved(null); onOpen(saved.paper.id); }}>{t("rw.upload.open", { title: saved.paper.title })} →</button>
           <span>{t(saved.started ? "rw.upload.started" : "rw.upload.saved")}</span>
         </div>

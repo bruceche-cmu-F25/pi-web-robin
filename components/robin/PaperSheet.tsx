@@ -218,7 +218,7 @@ export function PaperSheet({ paper, project, projects, thread, onChange, onClose
         </div>
       </article>
 
-      <aside className={s.askPane} aria-label={t("rw.paper.ask")}>
+      <aside className={`${s.askPane} chat-content`} aria-label={t("rw.paper.ask")}>
         <ResearchSessions projectId={project.id} paperId={paper.id} paperTitles={new Map([[paper.id, paper.title]])} thread={thread} onSelect={async (id) => { await flush(); await onSelectConversation(id); }} />
         <h3 className={s.marginTitle}>{t("rw.paper.askTitle")}</h3>
         <div className={s.askTranscript} ref={answers}>
@@ -230,9 +230,15 @@ export function PaperSheet({ paper, project, projects, thread, onChange, onClose
         {thread.error && <p role="alert" className={s.error}>{thread.error}</p>}
         <div className={s.quick}>{QUICK.filter((key) => !general || key !== "apply").map((key) => <button key={key} type="button" disabled={askDisabled} onClick={() => void ask(t(`rw.quick.${key}.prompt`, { project: project.name }))}>{t(`rw.quick.${key}`)}</button>)}</div>
         <form className={s.composer} onSubmit={(event) => { event.preventDefault(); void ask(question); }}>
-          <textarea className={s.question} rows={2} value={question} disabled={!thread.ready || !draftReady || !!thread.state.conversation?.archived} maxLength={10_000} aria-label={t("rw.paper.askTitle")} placeholder={t("rw.paper.askPlaceholder")}
+          <div className="chat-input-surface">
+          <textarea className="chat-input-textarea" rows={2} value={question} disabled={!thread.ready || !draftReady || !!thread.state.conversation?.archived} maxLength={10_000} aria-label={t("rw.paper.askTitle")} placeholder={t("rw.paper.askPlaceholder")}
             onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (submitsOnEnter(event)) { event.preventDefault(); void ask(question); } }} />
-          <div className={s.composerFooter}><span>{t("rw.composerHint")}</span><button className={`${s.button} ${s.primary}`} disabled={askDisabled || !question.trim()}>{t("rw.send")}</button></div>
+          <div className="chat-input-actions"><button className="ui-action ui-action--outline pi-chrome-label chat-send-button" data-state={question.trim() ? "accent" : "dim"} disabled={askDisabled || !question.trim()} aria-label={t("rw.send")} title={t("rw.send")}>
+            <svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 7h9m-3.5-4L12 7l-4.5 4" /></svg>
+            <span className="chat-send-label">{t("rw.send")}</span>
+          </button></div>
+          </div>
+          <p className={s.composerHint}>{t("rw.composerHint")}</p>
         </form>
       </aside>
     </div>

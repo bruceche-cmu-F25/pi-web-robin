@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ResearchCaptures } from "@/extension/robin/research-capture-domain";
 
-export type NotesSaveState = "loading" | "saving" | "saved" | "error" | "conflict";
+export type NotesSaveState = "loading" | "dirty" | "saving" | "saved" | "error" | "conflict";
 export interface ProjectNotes {
   loaded: boolean; saveState: NotesSaveState; objective: string; note: string; capturing: boolean;
   setObjective: (value: string) => void; setNote: (value: string) => void;
@@ -76,7 +76,7 @@ export function useProjectNotes(projectId: string, messages: { error: string; li
   }, [loaded, messages.error, url]);
   useEffect(() => {
     if (!loaded || conflicted.current || (objective === savedObjective.current && note === savedNote.current)) return;
-    setSaveState("saving");
+    // Pending debounce is a draft, not a network request in progress.
     const timer = window.setTimeout(() => void saveLatest(), 600);
     return () => window.clearTimeout(timer);
   }, [loaded, note, objective, saveLatest]);
@@ -109,7 +109,13 @@ export function useProjectNotes(projectId: string, messages: { error: string; li
     loaded, saveState, objective, note, capturing, flush, capture, captureState,
     setVaultId: (id: string) => setCaptureState((current) => ({ ...current, vaultId: id })),
     saveSoon: () => void saveLatest(),
-    setObjective: (value) => { objectiveRef.current = value; setObjectiveState(value); },
-    setNote: (value) => { noteRef.current = value; setNoteState(value); },
+    setObjective: (value) => {
+      objectiveRef.current = value; setObjectiveState(value);
+      if (!conflicted.current) setSaveState(saveInFlight.current ? "saving" : dirty() ? "dirty" : "saved");
+    },
+    setNote: (value) => {
+      noteRef.current = value; setNoteState(value);
+      if (!conflicted.current) setSaveState(saveInFlight.current ? "saving" : dirty() ? "dirty" : "saved");
+    },
   };
 }

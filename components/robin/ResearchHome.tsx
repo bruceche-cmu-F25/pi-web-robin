@@ -1,14 +1,14 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import { useI18n } from "@/hooks/useI18n";
 import { PaperSheet } from "./PaperSheet";
 import { NeedsPdf, paperState } from "./ResearchShelf";
 import { ResearchThread } from "./ResearchThread";
-import { ResearchSessions } from "./ResearchSessions";
+import { ResearchNavigationPanel, type ResearchNavigation } from "./ResearchSidebar";
 import { ResearchDiscovery } from "./ResearchDiscovery";
-import { ReadingQueue, ResearchMark } from "./ResearchDesk";
+import { ResearchResources } from "./ResearchDesk";
+import rail from "./WorkspaceRail.module.css";
 import { GENERAL, type ProjectSummary } from "./research-client";
 import { useResearchReader, type SwitchResearchProject } from "./useResearchReader";
 import s from "./ResearchWorkspace.module.css";
@@ -19,13 +19,11 @@ const noFlush = async () => {};
  * Research home leads with projects and their goals; library and general discussion stay available
  * as separate surfaces. Hidden surfaces remain mounted to retain drafts, uploads and search results.
  */
-export function HomeWorkspace({ projects, onProjectsChange, onSwitch, onNewProject }: {
-  projects: ProjectSummary[]; onProjectsChange: () => Promise<void>; onSwitch: SwitchResearchProject; onNewProject: () => void;
+export function HomeWorkspace({ projects, navigation, onProjectsChange, onSwitch, onNewProject }: {
+  navigation: ResearchNavigation; projects: ProjectSummary[]; onProjectsChange: () => Promise<void>; onSwitch: SwitchResearchProject; onNewProject: () => void;
 }) {
   const { t } = useI18n();
-  const params = useSearchParams();
-  const [view, setView] = useState<"projects" | "papers" | "assistant">(() => params.has("conversation") ? "assistant" : "projects");
-  const { selected, papers, paper, loading, error, thread, titles, refresh, open, navigate, selectConversation, changed, uploaded, uploadPdf } =
+  const { view, setView, selected, papers, paper, loading, error, thread, titles, refresh, open, navigate, selectConversation, changed, uploaded, uploadPdf } =
     useResearchReader({ projectId: GENERAL, onProjectsChange, onSwitch });
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<string>("all");
@@ -46,40 +44,44 @@ export function HomeWorkspace({ projects, onProjectsChange, onSwitch, onNewProje
   const shown = filtered.filter((item) => !item.needsPdf);
 
   return <>
+    <ResearchNavigationPanel name={t("rw.home")}>
+      {navigation({ thread, paperTitles: titles, onSelect: selectConversation, onOpenPaper: open, onOverview: () => setView("overview") })}
+    </ResearchNavigationPanel>
+    <main className={s.deskMain}>
     <header className={s.homeHead}>
-      <p className={s.deskEyebrow}><ResearchMark kind="desk" />{t("rw.desk.personal")}</p>
       <h1>{t("rw.home.title")}</h1>
       <p>{t("rw.home.lede")}</p>
     </header>
     {error && <p role="alert" className={s.error}>{error}</p>}
-    <nav className={s.workspaceNav} aria-label={t("rw.view.label")}>
-      {(["projects", "papers", "assistant"] as const).map((item) => <button key={item} type="button" aria-pressed={view === item} aria-controls={`research-home-${item}`} onClick={() => setView(item)}>
-        <ResearchMark kind={item === "projects" ? "desk" : item === "papers" ? "book" : "spark"} />{t(item === "projects" ? "rw.view.overview" : `rw.view.${item}`)}
+    <nav className={`robin-workspace-tabs robin-workspace-view-switch ${s.workspaceNav}`} aria-label={t("rw.view.label")}>
+      {(["overview", "papers", "assistant"] as const).map((item) => <button key={item} type="button" aria-pressed={view === item} aria-controls={`research-home-${item}`} onClick={() => setView(item)}>
+        {t(`rw.view.${item}`)}
         {item === "assistant" && thread.busy && <span>{t("rw.view.working")}</span>}
       </button>)}
     </nav>
     {!!needs.length && view !== "papers" && <button type="button" className={s.needsBanner} onClick={() => setView("papers")}>{t("rw.needsBanner", { count: needs.length })} →</button>}
-    <section id="research-home-projects" className={`${s.workspacePanel} ${s.homeDesk}`} hidden={view !== "projects"} aria-label={t("rw.projects")}>
+    <div className={`${rail.layout} ${s.deskLayout}`}>
+    <ResearchResources papers={papers} loading={loading} onOpen={open} onLibrary={() => setView("papers")} onAssistant={() => setView("assistant")}>
+      {unfiled > 0 && <button type="button" className={s.filingPrompt} onClick={() => { setFilter("none"); setReadingStatus("all"); setView("papers"); }}><span><strong>{t("rw.desk.unfiled", { count: unfiled })}</strong><small>{t("rw.desk.filePrompt")}</small></span><span aria-hidden="true">→</span></button>}
+      <button type="button" className={s.queueLibrary} onClick={onNewProject}>{t("rw.project.new")}<span aria-hidden="true">+</span></button>
+    </ResearchResources>
+    <div className={rail.content}>
+    <section id="research-home-overview" className={`${s.workspacePanel} ${s.homeDesk}`} hidden={view !== "overview"} aria-label={t("rw.projects")}>
       <div className={s.projectCollection}>
       <div className={s.sectionHeading}><h2>{t("rw.desk.activeProjects")}</h2><span className={s.collectionCount}>{named.length}</span></div>
       <ul className={s.projectOverviewList}>
         {named.map((item) => <li key={item.id}><button type="button" onClick={() => void onSwitch(item.id)}>
-          <span className={s.projectOverviewBrief}><span className={s.projectIdentity}><ResearchMark kind="folder" /><strong>{item.name}</strong><span aria-hidden="true">↗</span></span><span>{item.brief || t("rw.project.briefMissing")}</span></span>
+          <span className={s.projectOverviewBrief}><span className={s.projectIdentity}><strong>{item.name}</strong></span><span>{item.brief || t("rw.project.briefMissing")}</span></span>
           <span className={s.projectOverviewFocus}><small>{t("rw.focus")}</small><span>{item.objective || t("rw.view.noFocus")}</span></span>
-          <span className={s.projectOverviewMeta}><span><ResearchMark kind="book" />{t("rw.view.paperCount", { count: item.papers })}</span>{item.hasNotes && <span><ResearchMark kind="note" />{t("rw.desk.hasNotes")}</span>}<span className={s.projectOpen}>{t("rw.desk.openProject")} →</span></span>
+          <span className={s.projectOverviewMeta}><span>{t("rw.view.paperCount", { count: item.papers })}</span>{item.hasNotes && <span>{t("rw.desk.hasNotes")}</span>}<span className={s.projectOpen}>{t("rw.desk.openProject")} →</span></span>
         </button></li>)}
       </ul>
       {!named.length && <p className={s.marginHint}>{t("rw.setup.hint")}</p>}
       {!named.length && <button type="button" className={s.textButton} onClick={onNewProject}>{t("rw.project.new")}</button>}
       </div>
-      <aside className={s.homeAside}>
-        <ReadingQueue papers={papers} loading={loading} onOpen={open} onLibrary={() => setView("papers")} />
-        {unfiled > 0 && <button type="button" className={s.filingPrompt} onClick={() => { setFilter("none"); setReadingStatus("all"); setView("papers"); }}><ResearchMark kind="archive" /><span><strong>{t("rw.desk.unfiled", { count: unfiled })}</strong><small>{t("rw.desk.filePrompt")}</small></span><span aria-hidden="true">→</span></button>}
-      </aside>
     </section>
     <div id="research-home-assistant" className={s.workspacePanel} hidden={view !== "assistant"}>
       <div className={s.conversationColumn}>
-        <ResearchSessions projectId={GENERAL} thread={thread} paperTitles={titles} onSelect={selectConversation} onOpenPaper={open} />
         <ResearchThread onUpload={uploadPdf} variant="home" thread={thread} projectId={GENERAL} projectName={home.name} projectNames={new Map(projects.map((item) => [item.id, item.name]))} paperTitles={titles} onOpenPaper={open} onNavigate={navigate} />
       </div>
     </div>
@@ -118,6 +120,9 @@ export function HomeWorkspace({ projects, onProjectsChange, onSwitch, onNewProje
         <ResearchDiscovery projectId={GENERAL} general beforeSearch={noFlush} onAdded={refresh} onOpen={open} />
       </section>
     </div>
+    </div>
+    </div>
+    </main>
     {selected && paper?.id === selected && <PaperSheet key={paper.id} paper={paper} project={home} projects={projects} thread={thread}
       onSelectConversation={(id) => selectConversation(id, true)}
       onChange={changed}

@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
 import { chromium } from "playwright";
+import { openResearchProject } from "./research-navigation.mjs";
 const baseURL = process.env.E2E_BASE_URL ?? "http://127.0.0.1:30141";
 const screenshots = "/tmp/research-reading-room";
 mkdirSync(screenshots, { recursive: true });
@@ -72,6 +73,7 @@ async function mock(page, s) {
       vaults: [{ id: "local", name: "Test vault", path: "/test/vault" }], vaultId: "local",
     } } });
   });
+  await page.route("**/api/research/sessions?**", route => route.fulfill({ json: { sessions: [], run: s.run } }));
   await page.route("**/api/research/agent**", async (route) => {
     const req = route.request();
     if (req.method() === "GET") { const id = new URL(req.url()).searchParams.get("project"); return route.fulfill({ json: { messages: copy(s.threads[id] ?? []), run: s.run } }); }
@@ -183,7 +185,7 @@ try {
   s.aiCalls.length = 0; s.papers = s.papers.filter((item) => item.id !== "read");
 
   // A project opens on goals and notes, not a chat or an expanded reference library.
-  await page.getByRole("tab", { name: "HEAT" }).click();
+  await openResearchProject(page, "HEAT");
   await page.getByRole("heading", { name: "HEAT", level: 1 }).waitFor();
   await page.screenshot({ path: `${screenshots}/desktop.png` });
   assert.equal(await page.getByLabel("Ask the research agent").isVisible(), false);
@@ -273,7 +275,7 @@ try {
   await sheet.waitFor({ state: "detached" });
 
   // Switching projects swaps the thread, focus and papers.
-  await page.getByRole("tab", { name: "Protein design" }).click();
+  await openResearchProject(page, "Protein design");
   await page.getByRole("heading", { name: "Protein design", level: 1 }).waitFor();
   await page.getByRole("heading", { name: "Research notebook" }).waitFor();
   assert.equal(await page.getByRole("textbox", { name: "This week" }).inputValue(), "");
@@ -363,7 +365,9 @@ try {
   await page.goto("/research?paper=read");
   await sheet.getByRole("button", { name: "Back to papers", exact: true }).click();
   await sheet.waitFor({ state: "detached" });
-  assert.equal(new URL(page.url()).search, "");
+  assert.equal(new URL(page.url()).searchParams.get("project"), null);
+  assert.equal(new URL(page.url()).searchParams.get("paper"), null);
+  assert.equal(new URL(page.url()).searchParams.get("view"), "overview");
 
   // Two independent editors: Keep in A must survive B's stale autosave, and B keeps its draft.
   const editorA = await context.newPage(), editorB = await context.newPage();
@@ -382,7 +386,7 @@ try {
   await editorB.getByRole("alert").filter({ hasText: "Another page changed these notes" }).waitFor();
   assert.equal(heat.note, keptNote); assert.equal(heat.objective, oldFocus);
   assert.equal(await editorB.getByRole("textbox", { name: "This week" }).inputValue(), "Unsaved focus from stale tab");
-  await editorB.getByRole("tab", { name: "Protein design" }).click();
+  await openResearchProject(editorB, "Protein design");
   await editorB.getByText(/The project notes could not be saved/).first().waitFor();
   assert.equal(new URL(editorB.url()).searchParams.get("project"), "heat");
   editorB.once("dialog", (dialog) => dialog.dismiss());

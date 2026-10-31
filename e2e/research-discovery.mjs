@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
 import { chromium } from "playwright";
+import { openResearchProject } from "./research-navigation.mjs";
 const baseURL = process.env.E2E_BASE_URL ?? "http://127.0.0.1:30141";
 const shots = "/tmp/research-discovery"; mkdirSync(shots, { recursive: true });
 const browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL ?? "chrome", headless: true });
@@ -46,6 +47,7 @@ try {
       if (req.method() === "PATCH") { writes.push(body); const p = papers.find(p=>p.id === body.id); assert.ok(body.addToProject); p.projectIds.push(body.addToProject); return reply({ paper: p }); }
       return url.searchParams.has("id") ? reply({ paper: papers.find(p=>p.id === url.searchParams.get("id")) }) : reply({ papers });
     }
+    if (path === "sessions") return reply({ sessions: [], run: null });
     if (path === "agent") {
       assert.equal(req.method(), "GET", "discovery must not start a model turn");
       const projectId = url.searchParams.get("project") ?? "general", paperId = url.searchParams.get("paper") || undefined;
@@ -121,12 +123,12 @@ try {
   await input().fill("empty"); await search(); await panel().getByText(/No matches in this retrieved set/).waitFor();
   await input().fill("failed"); await search(); await panel().getByText(/selected catalogs are unavailable/).waitFor();
   await input().fill("slow"); await search();
-  await page.getByRole("tab", { name: "Other project", exact: true }).click();
+  await openResearchProject(page, "Other project");
   await page.getByRole("heading", { name: "Other project", exact: true }).waitFor();
   await openCatalogs();
   await page.waitForTimeout(1400);
   assert.equal(await input().inputValue(), ""); assert.equal(await panel().locator("article").count(), 0);
-  await page.getByRole("tab", { name: "Home", exact: true }).click();
+  await openResearchProject(page, "Home");
   await page.getByRole("heading", { name: "Your research", exact: true }).waitFor();
   await openCatalogs();
   assert.equal(await panel().getByRole("button", { name: "Search", exact: true }).isDisabled(), true);

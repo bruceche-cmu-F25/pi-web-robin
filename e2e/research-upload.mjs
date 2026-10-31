@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
 import { chromium } from "playwright";
+import { openResearchProject } from "./research-navigation.mjs";
 const baseURL = process.env.E2E_BASE_URL ?? "http://127.0.0.1:30141";
 const shots = "/tmp/research-upload"; mkdirSync(shots, { recursive: true });
 const browser = await chromium.launch({ headless: true, channel: process.env.PLAYWRIGHT_CHANNEL ?? "chrome" });
@@ -43,6 +44,7 @@ try {
       papers.push(paper); return reply({ paper });
     }
     if (path === "papers") return url.searchParams.has("id") ? reply({ paper: papers.find(p => p.id === url.searchParams.get("id")) }) : reply({ papers: papers.filter(p => !url.searchParams.has("project") || p.projectIds.includes(url.searchParams.get("project"))) });
+    if (path === "sessions") return reply({ sessions: [...conversations.values()].filter(c => c.projectId === url.searchParams.get('project')), run });
     if (path === "agent") {
       if (req.method() === "POST") {
         turns.push(body);
@@ -84,7 +86,7 @@ try {
   assert.equal(await page.getByRole("dialog").locator('a[href=""]').count(), 0);
   await page.getByRole("dialog").getByRole("button", { name: /Back/ }).click();
 
-  await page.getByRole("tab", { name: "HEAT", exact: true }).click();
+  await openResearchProject(page, "HEAT");
   await page.getByRole("textbox", { name: "This week", exact: true }).fill("New focus before uploading");
   await page.getByRole("button", { name: "Assistant discussion", exact: true }).click();
   await choose(); await uploader().getByText(/agent has started reading/).waitFor();
@@ -126,7 +128,7 @@ try {
   const beforeSwitch = turns.length;
   let release; slowUpload = new Promise(resolve => { release = resolve; });
   await choose(); await uploader().getByRole("button", { name: /Uploading and preparing/ }).waitFor();
-  await page.getByRole("tab", { name: "Home", exact: true }).click();
+  await openResearchProject(page, "Home");
   await page.waitForURL(url => !url.searchParams.has("project"));
   release(); slowUpload = null; await page.waitForTimeout(800);
   assert.equal(turns.length, beforeSwitch, "leaving the project during upload cannot start a late reading");

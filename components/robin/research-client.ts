@@ -40,10 +40,17 @@ export async function uploadPaperPdf(paper: { id: string }, file: File, signal?:
 }
 /** The research home's id: papers read and questions asked outside any project. */
 export const GENERAL = "general";
-export function researchHref(projectId: string, paperId?: string | null, conversationId?: string | null): string {
+export type ResearchView = "overview" | "papers" | "assistant";
+export function researchView(params: Pick<URLSearchParams, "get">): ResearchView {
+  const view = params.get("view");
+  return view === "overview" || view === "papers" || view === "assistant" ? view : params.get("conversation") ? "assistant" : "overview";
+}
+
+export function researchHref(projectId: string, paperId?: string | null, conversationId?: string | null, view?: ResearchView): string {
   const params = new URLSearchParams(projectId === GENERAL ? {} : { project: projectId });
   if (paperId) params.set("paper", paperId);
   if (conversationId) params.set("conversation", conversationId);
+  if (view) params.set("view", view);
   return params.size ? `/research?${params}` : "/research";
 }
 export function downloadMarkdown(name: string, text: string): void {
