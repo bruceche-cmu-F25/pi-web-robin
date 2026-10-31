@@ -54,11 +54,13 @@ function FileTree({ notes, selected, choose, prefix = "" }: {
 function NoteBody({ content, navigate }: { content: string; navigate: (href: string) => void }) {
   const { t } = useI18n();
   const preview = useMemo(() => vaultPreview(content), [content]);
-  return <div className="markdown-body"><ReactMarkdown remarkPlugins={[remarkGfm, remarkFrontmatter]} skipHtml components={{
+  return <div className={`markdown-body ${styles.prose}`}><ReactMarkdown remarkPlugins={[remarkGfm, remarkFrontmatter]} skipHtml components={{
     a: ({ href, children }) => href && /^https?:\/\//i.test(href)
       ? <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>
       : <button type="button" className={styles.inlineLink} onClick={() => href && navigate(href)}>{children}</button>,
     img: ({ alt }) => <span className={styles.muted}>[{alt || t("obsidian.attachment")}]</span>,
+    pre: ({ children }) => <pre tabIndex={0}>{children}</pre>,
+    table: ({ children }) => <div className={styles.tableScroll} tabIndex={0} role="region" aria-label={t("obsidian.table")}><table>{children}</table></div>,
   }}>{preview}</ReactMarkdown></div>;
 }
 
@@ -85,6 +87,25 @@ export function ObsidianWorkspace() {
   const [noteError, setNoteError] = useState("");
   const [notice, setNotice] = useState("");
   const reader = useRef<HTMLDivElement>(null);
+  const previewPane = useRef<HTMLElement>(null);
+  const previewHeading = useRef<HTMLHeadingElement>(null);
+  const readingSurface = useRef<HTMLElement>(null);
+  const workTab = useRef<HTMLButtonElement>(null);
+  const previewTrigger = useRef<HTMLElement | null>(null);
+  const pendingFocus = useRef<"preview" | "read" | "return" | null>(null);
+
+  // Move focus only for explicit navigation, never when async note data arrives.
+  useEffect(() => {
+    const destination = pendingFocus.current;
+    pendingFocus.current = null;
+    if (destination === "preview") previewHeading.current?.focus();
+    if (destination === "read") readingSurface.current?.focus();
+    if (destination === "return") {
+      const trigger = previewTrigger.current;
+      if (trigger?.isConnected && trigger.getClientRects().length) trigger.focus();
+      else workTab.current?.focus();
+    }
+  }, [pane, view, path]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -135,7 +156,7 @@ export function ObsidianWorkspace() {
   const filtered = useMemo(() => notes.filter((entry) => {
     const degree = neighbors.get(entry.path)?.size ?? 0;
     return (folder === null || folderOf(entry.path) === folder) && (filter === "all" || (filter === "connected" ? degree > 0 : degree === 0))
-      && entry.path.toLocaleLowerCase().includes(query.toLocaleLowerCase().trim());
+      && [entry.title, entry.path].some((value) => value.toLocaleLowerCase().includes(query.toLocaleLowerCase().trim()));
   }), [notes, neighbors, folder, filter, query]);
   const ordered = useMemo(() => [...filtered].sort((a, b) => {
     const primary = sort === "recent" ? b.modified.localeCompare(a.modified) : sort === "links" ? (neighbors.get(b.path)?.size ?? 0) - (neighbors.get(a.path)?.size ?? 0) : a.title.localeCompare(b.title);
@@ -149,8 +170,20 @@ export function ObsidianWorkspace() {
     const ids = neighborhood(neighbors, path, scope);
     return filtered.filter((entry) => ids.has(entry.path));
   }, [filtered, scope, path, neighbors]);
-  const choose = useCallback((next: string) => { setPath(next); setPane("preview"); setFocus(false); keepLocation(vaultId, next); }, [vaultId]);
-  const openNote = useCallback((next: string) => { setPath(next); setView("read"); setPane("work"); setFocus(false); keepLocation(vaultId, next, "read"); }, [vaultId]);
+  const choose = useCallback((next: string, trigger?: HTMLElement) => {
+    const active = trigger ?? document.activeElement;
+    if (active instanceof HTMLElement && !previewPane.current?.contains(active)) previewTrigger.current = active === document.body ? null : active;
+    if (!inline && pane !== "preview") pendingFocus.current = "preview";
+    setPath(next); setPane("preview"); setFocus(false); keepLocation(vaultId, next);
+  }, [vaultId, inline, pane]);
+  const openNote = useCallback((next: string) => {
+    if (view !== "read" || pane !== "work") pendingFocus.current = "read";
+    setPath(next); setView("read"); setPane("work"); setFocus(false); keepLocation(vaultId, next, "read");
+  }, [vaultId, view, pane]);
+  function closePreview() {
+    pendingFocus.current = "return";
+    setPath(""); setScope(0); setPane("work"); keepLocation(vaultId, "");
+  }
   function changeView(next: View) {
     setView(next); setPane("work"); setFocus(false);
     if (next === "graph") setGraphStarted(true);
@@ -184,7 +217,7 @@ export function ObsidianWorkspace() {
         </div>;
   const connected = notes.filter((entry) => neighbors.get(entry.path)?.size).length;
 
-  return <main className={`robin-dashboard ${styles.workspace}`}>
+  return <main className={`robin-dashboard robin-workspace-ground ${styles.workspace}`}>
     <header className={styles.header}>
       <div className={styles.brand}><h1>Obsidian</h1><span className={styles.badge}>{t("obsidian.readonly")}</span></div>
       <div className={styles.controls}>
@@ -209,9 +242,9 @@ export function ObsidianWorkspace() {
     {!!index?.skipped && <p className={styles.warning}>{t("obsidian.skipped", { count: index.skipped })}</p>}
     {vaultId && index && <>
       <nav className={styles.mobileTabs} aria-label={t("obsidian.connections")}>
-        {(["files", "work", "preview"] as const).map((id) => <button type="button" key={id} aria-pressed={pane === id} onClick={() => { setPane(id); if (id !== "work") setFocus(false); }}>{t(id === "work" ? `obsidian.${view}` : `obsidian.${id}`)}</button>)}
+        {(["files", "work", "preview"] as const).map((id) => <button ref={id === "work" ? workTab : undefined} type="button" key={id} aria-pressed={pane === id} onClick={() => { setPane(id); if (id !== "work") setFocus(false); }}>{t(id === "work" ? `obsidian.${view}` : `obsidian.${id}`)}</button>)}
       </nav>
-      <div className={styles.columns} data-focus={focus}>
+      <div className={styles.columns} data-focus={focus} data-view={view}>
         <aside className={styles.files} data-visible={pane === "files"}>
           <h2 className="pi-eyebrow">{t("obsidian.collections")}</h2>
           <div className={styles.filters}>
@@ -225,13 +258,13 @@ export function ObsidianWorkspace() {
           <details className={styles.directory}><summary>{t("obsidian.showFiles")}</summary><FileTree notes={filtered} selected={path} choose={openNote} /></details>
           <p className={styles.privacy}>{t("obsidian.local")}</p>
         </aside>
-        <section className={styles.work} data-visible={pane === "work"}>
+        <section className={`${styles.work}${view === "library" ? " robin-workspace-ground" : ""}`} data-visible={pane === "work"}>
           {view === "library" && <div className={styles.library}>
             <header className={styles.libraryHeader}><div><p className="pi-eyebrow">{folder === null ? t("obsidian.allNotes") : folder || t("obsidian.root")}</p><h2>{t("obsidian.libraryIntro")}</h2></div>
               <select aria-label={t("obsidian.sort")} value={sort} onChange={(event) => setSort(event.target.value)}><option value="recent">{t("obsidian.recent")}</option><option value="links">{t("obsidian.byLinks")}</option><option value="title">{t("obsidian.byTitle")}</option></select>
             </header>
             <div className={styles.resultLine}><span>{t("obsidian.filtered", { count: filtered.length })}</span>{(query || folder !== null || filter !== "all") && <button type="button" onClick={() => { setQuery(""); setFolder(null); setFilter("all"); }}>{t("obsidian.resetFilters")}</button>}</div>
-            <div className={styles.cards}>{ordered.map((entry) => <button type="button" key={entry.path} className={styles.card} aria-label={`${entry.title} · ${entry.path}`} aria-pressed={entry.path === path} onClick={() => choose(entry.path)} style={{ "--folder-color": `var(--todo-${folderTone(folderOf(entry.path))})` } as CSSProperties}>
+            <div className={styles.cards}>{ordered.map((entry) => <button type="button" key={entry.path} className={styles.card} aria-label={`${entry.title} · ${entry.path}`} aria-pressed={entry.path === path} onClick={(event) => choose(entry.path, event.currentTarget)} style={{ "--folder-color": `var(--todo-${folderTone(folderOf(entry.path))})` } as CSSProperties}>
               <span className={styles.cardFolder}><i />{folderOf(entry.path) || t("obsidian.root")}</span>
               <h3>{entry.title}</h3><p>{entry.excerpt || t("notes.editor.empty")}</p>
               <span className={styles.cardFooter}><time dateTime={entry.modified}>{new Date(entry.modified).toLocaleDateString(locale, { month: "short", day: "numeric" })}</time><span>{t("obsidian.degree", { count: neighbors.get(entry.path)?.size ?? 0 })}</span></span>
@@ -244,14 +277,14 @@ export function ObsidianWorkspace() {
             </select></label><span>{t("obsidian.filtered", { count: graphNotes.length })}</span></div>
             <Graph key={vaultId} notes={graphNotes} selected={path} choose={choose} open={openNote} active={view === "graph" && (inline || pane === "work")} />
           </div>}
-          {view === "read" && <article className={styles.reader}>
+          {view === "read" && <article ref={readingSurface} tabIndex={-1} aria-label={t("obsidian.read")} className={styles.reader}>
             {note && <div className={styles.noteMeta}><span>{note.path}</span><a className="ui-action" href={note.url}>{t("obsidian.open")}</a></div>}
             {noteContent}
             {note && <><details className={styles.source}><summary>{t("obsidian.source")}</summary><pre>{note.content}</pre></details><p className={styles.privacy}>{t("obsidian.previewHint")}</p></>}
           </article>}
         </section>
-        <aside className={styles.inspector} data-visible={pane === "preview"} aria-label={t("obsidian.preview")}>
-          <header className={styles.inspectorHeader}><h2 className="pi-eyebrow">{t(view === "read" ? "obsidian.connections" : "obsidian.preview")}</h2>{path && <button type="button" aria-label={t("obsidian.closePreview")} onClick={() => { setPath(""); setScope(0); setPane("work"); keepLocation(vaultId, ""); }}>×</button>}</header>
+        <aside ref={previewPane} className={styles.inspector} data-visible={pane === "preview"} aria-label={t("obsidian.preview")}>
+          <header className={styles.inspectorHeader}><h2 ref={previewHeading} tabIndex={-1} className="pi-eyebrow">{t(view === "read" ? "obsidian.connections" : "obsidian.preview")}</h2>{path && <button type="button" aria-label={t("obsidian.closePreview")} onClick={closePreview}>×</button>}</header>
           {path ? <>
             {view !== "read" && <><div className={styles.previewActions}><button type="button" className="ui-action pi-bracket" aria-label={t("obsidian.fullRead")} onClick={() => openNote(path)}>{t("obsidian.fullRead")}</button>{note && <a href={note.url} className="ui-action">{t("obsidian.open")}</a>}</div>
               <div className={styles.previewBody}>{noteContent}</div></>}

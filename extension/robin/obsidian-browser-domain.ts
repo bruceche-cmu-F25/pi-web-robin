@@ -90,18 +90,19 @@ export async function readVaultNote(vaultId: string, path: string): Promise<Vaul
   }
 }
 
-/** No persistent index or second copy of the vault. Explicit refresh rescans current Markdown. */
-export async function browseVault(vaultId: string): Promise<VaultIndex> {
+/** Browser and agent search share the same filesystem boundary and total read budget. */
+async function scanVault(vaultId: string, visit: (note: Awaited<ReturnType<typeof readAt>> & { path: string }) => void, signal?: AbortSignal) {
   const vault = resolveObsidianVault(vaultId);
   const pending = [""];
-  const entries: Array<VaultEntry & { targets: ReturnType<typeof vaultLinks> }> = [];
-  let visited = 0, bytes = 0, skipped = 0, limited = false;
+  let visited = 0, scanned = 0, bytes = 0, skipped = 0, limited = false;
   scan: while (pending.length) {
+    signal?.throwIfAborted();
     const directory = pending.shift()!;
     const full = directory ? await safePath(vault.path, directory) : vault.path;
     const handle = await opendir(full);
     for await (const item of handle) {
-      if (++visited > MAX_ENTRIES || entries.length >= MAX_NOTES || bytes >= MAX_TOTAL) { limited = true; break scan; }
+      signal?.throwIfAborted();
+      if (++visited > MAX_ENTRIES || scanned >= MAX_NOTES || bytes >= MAX_TOTAL) { limited = true; break scan; }
       if (item.name.startsWith(".") || /[\\:\p{Cc}]/u.test(item.name) || item.isSymbolicLink()) continue;
       const path = directory ? `${directory}/${item.name}` : item.name;
       if (item.isDirectory()) {
@@ -111,10 +112,8 @@ export async function browseVault(vaultId: string): Promise<VaultIndex> {
           const note = await readAt(vault.path, path);
           if (bytes + note.size > MAX_TOTAL) { limited = true; break scan; }
           bytes += note.size;
-          const targets = vaultLinks(note.content);
-          if (targets.length > 200) limited = true;
-          entries.push({ path, title: item.name.replace(/\.md$/i, ""), modified: note.modified,
-            links: [], unresolved: [], excerpt: noteExcerpt(note.content), targets: targets.slice(0, 200) });
+          scanned++;
+          visit({ ...note, path });
         } catch (error) {
           const code = (error as NodeJS.ErrnoException).code;
           if (error instanceof ObsidianError || ["ENOENT", "EACCES", "EPERM", "ELOOP"].includes(code ?? "")) skipped++;
@@ -123,6 +122,19 @@ export async function browseVault(vaultId: string): Promise<VaultIndex> {
       }
     }
   }
+  return { scanned, limited, skipped };
+}
+
+/** No persistent index or second copy of the vault. Explicit refresh rescans current Markdown. */
+export async function browseVault(vaultId: string): Promise<VaultIndex> {
+  const entries: Array<VaultEntry & { targets: ReturnType<typeof vaultLinks> }> = [];
+  let linksLimited = false;
+  const scan = await scanVault(vaultId, (note) => {
+    const targets = vaultLinks(note.content);
+    if (targets.length > 200) linksLimited = true;
+    entries.push({ path: note.path, title: note.path.split("/").at(-1)!.replace(/\.md$/i, ""), modified: note.modified,
+      links: [], unresolved: [], excerpt: noteExcerpt(note.content), targets: targets.slice(0, 200) });
+  });
   const resolveLink = vaultLinkResolver(entries.map((entry) => entry.path));
   const notes = entries.map(({ targets, ...entry }) => {
     for (const link of targets) {
@@ -136,5 +148,76 @@ export async function browseVault(vaultId: string): Promise<VaultIndex> {
     entry.unresolved = [...new Set(entry.unresolved)];
     return entry;
   }).sort((a, b) => a.path.localeCompare(b.path));
-  return { notes, limited, skipped };
+  return { notes, limited: scan.limited || linksLimited, skipped: scan.skipped };
+}
+
+function citationUrl(vaultId: string, path: string): string {
+  return `/obsidian?${new URLSearchParams({ vault: vaultId, note: path, view: "read" })}`;
+}
+
+interface SearchHit {
+  path: string;
+  title: string;
+  modified: string;
+  url: string;
+  snippets: Array<{ line: number; column: number; text: string; truncated: boolean }>;
+  score: number;
+}
+
+/** Literal, case-insensitive AND search. Only bounded matching passages leave the local scan. */
+export async function searchVaultNotes(input: { query?: string; vaultId?: string; limit?: number }, signal?: AbortSignal) {
+  const { query = "", vaultId, limit = 8 } = input;
+  if (typeof query !== "string" || query.length > 200 || !Number.isInteger(limit) || limit < 1 || limit > 20) {
+    throw new ObsidianError("Use a query up to 200 characters and a limit from 1 to 20");
+  }
+  const terms = [...new Set(query.trim().toLowerCase().split(/\s+/).filter(Boolean))];
+  if (terms.length > 8) throw new ObsidianError("Use at most 8 keywords, not a whole question");
+  const vaults = discoverVaults().map(({ id, name }) => ({ id, name }));
+  const selected = vaultId ?? (vaults.length === 1 ? vaults[0].id : undefined);
+  if (vaultId !== undefined && !vaults.some((vault) => vault.id === vaultId)) throw new ObsidianError("Choose a registered Obsidian vault", 404);
+  if (!terms.length || !selected) {
+    return { status: !vaults.length ? "no-vault" as const : !selected ? "choose-vault" as const : "ready" as const, vaults, results: [] };
+  }
+  const results: SearchHit[] = [];
+  let matched = 0;
+  // ponytail: scan up to the browser's 1,000-note/20 MiB ceiling; add an index only if measured latency warrants it.
+  const scan = await scanVault(selected, (note) => {
+    const path = note.path.toLowerCase();
+    const body = note.content.toLowerCase();
+    if (!terms.every((term) => path.includes(term) || body.includes(term))) return;
+    matched++;
+    const title = note.path.split("/").at(-1)!.replace(/\.md$/i, "");
+    const snippets: SearchHit["snippets"] = [];
+    for (const [index, line] of note.content.split("\n").entries()) {
+      const lower = line.toLowerCase();
+      const positions = terms.map((term) => lower.indexOf(term)).filter((position) => position >= 0);
+      if (!positions.length) continue;
+      const start = Math.max(0, Math.min(...positions) - 80);
+      snippets.push({ line: index + 1, column: start + 1, text: line.slice(start, start + 320), truncated: start > 0 || line.length > start + 320 });
+      if (snippets.length === 3) break;
+    }
+    results.push({ path: note.path, title, modified: note.modified, url: citationUrl(selected, note.path), snippets,
+      score: terms.reduce((score, term) => score + (title.toLowerCase().includes(term) ? 10 : path.includes(term) ? 5 : 1), 0) });
+    results.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path));
+    if (results.length > limit) results.pop();
+  }, signal);
+  return { status: "searched" as const, vaultId: selected, query: query.trim(), ...scan, matched,
+    moreResults: matched > results.length,
+    results: results.map(({ path, title, modified, url, snippets }) => ({ path, title, modified, url, snippets })) };
+}
+
+/** Bounded source evidence; offset/nextOffset refer to characters in the current file, not bytes. */
+export async function readVaultEvidence(input: { vaultId: string; path: string; offset?: number; limit?: number }) {
+  const { vaultId, path, offset = 0, limit = 12_000 } = input;
+  if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > 16_000) {
+    throw new ObsidianError("Use a nonnegative character offset and a limit from 1 to 16000");
+  }
+  const note = await readVaultNote(vaultId, path);
+  if (offset > note.content.length) throw new ObsidianError("Offset exceeds the current note length; read again from zero");
+  const content = note.content.slice(offset, offset + limit);
+  const end = offset + content.length;
+  return { vaultId, path, modified: note.modified, url: citationUrl(vaultId, path), content, offset,
+    totalChars: note.content.length, nextOffset: end < note.content.length ? end : null,
+    startLine: note.content.slice(0, offset).split("\n").length,
+    endLine: note.content.slice(0, end).split("\n").length };
 }

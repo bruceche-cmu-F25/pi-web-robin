@@ -79,6 +79,7 @@ try {
     return route.fulfill({ json: { revision: assetLibrary.revision } });
   });
   await page.goto("/notes");
+  await page.getByRole("button", { name: "Canvas", exact: true }).click();
   await page.getByRole("button", { name: "New canvas", exact: true }).click();
   await page.locator(".excalidraw canvas").first().waitFor({ timeout: 90_000 });
   const firstId = new URL(page.url()).searchParams.get("canvas");
@@ -86,6 +87,8 @@ try {
   const title = page.getByRole("textbox", { name: "Canvas title", exact: true });
   const agentToggle = page.locator('button[aria-controls="notes-agent"]');
   const canvasAgent = page.locator("#notes-agent");
+  assert.equal(await canvasAgent.isVisible(), false, "Canvas starts without the assistant column");
+  await agentToggle.click();
   await canvasAgent.locator("textarea").fill("Keep my canvas question");
   const canvasWidth = (await page.locator("main").boundingBox()).width;
   await agentToggle.click();

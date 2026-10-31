@@ -16,6 +16,7 @@ import { registerGmailTools } from "./gmail-tools.ts";
 import { registerJobTools } from "./job-tools.ts";
 import { registerLinkTools } from "./link-tools.ts";
 import { registerNotionTools } from "./notion-tools.ts";
+import { registerObsidianTools } from "./obsidian-tools.ts";
 import { registerPracticeTools } from "./practice-tools.ts";
 import { registerProductTools } from "./product-tools.ts";
 import { registerFsoTools } from "./fso-tools.ts";
@@ -30,6 +31,7 @@ const robin = (pi: ExtensionAPI) => {
   registerTodoTools(pi);
   registerLinkTools(pi);
   registerNotionTools(pi);
+  registerObsidianTools(pi);
   registerCalendarTools(pi);
   registerGmailTools(pi);
   registerProviderTools(pi);

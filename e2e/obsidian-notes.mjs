@@ -96,6 +96,10 @@ try {
     await page.setViewportSize({ width, height: 900 });
     await page.waitForTimeout(150);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, `No horizontal overflow at ${width}px`);
+    if (width < 960) {
+      assert.equal(await destination.isVisible(), false, "Phone filing stays folded until requested");
+      await page.locator('details[class*="filingDisclosure"] > summary').click();
+    }
     assert.equal(await destination.isVisible(), true);
     await page.screenshot({ path: `${screenshots}/${width}.png`, fullPage: true });
   }
@@ -110,7 +114,7 @@ try {
   await review.click();
   const callsBefore = archiveCalls;
   await page.getByRole("button", { name: "确认存入 Obsidian", exact: true }).click();
-  await page.getByRole("alert").filter({ hasText: "未能保存" }).waitFor();
+  await page.getByRole("alert").filter({ hasText: "保存未确认" }).waitFor();
   assert.equal(archiveCalls, callsBefore, "a failed draft flush cannot start an archive");
   await page.getByRole("button", { name: "返回编辑", exact: true }).click();
   assert.equal(await editor.inputValue(), "即使草稿保存失败，也不能删除这段内容。");

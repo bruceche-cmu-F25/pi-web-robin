@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type DragEvent, type KeyboardEvent } from "react";
 import { useSearchParams } from "next/navigation";
+import { SaveStatus } from "./SaveStatus";
 import { MarkdownBody } from "@/components/MarkdownBody";
 import { ModelSelector, type ModelSelectorOption } from "@/components/ModelSelector";
 import { useI18n } from "@/hooks/useI18n";
@@ -13,6 +14,8 @@ import type { ObsidianArchive, ObsidianVault } from "@/extension/robin/obsidian-
 import { compressImageFile } from "@/lib/image-compress";
 import type { ModelsData } from "@/lib/models-cache";
 import { writeUrlState } from "@/lib/url-state";
+import { useNoteDrafts, type DraftPatch } from "./useNoteDrafts";
+import { TextRecoveryNotice, TextRecoveryWarning } from "./TextRecoveryNotice";
 import { AgentPanel } from "./AgentPanel";
 import { CanvasLibrary } from "./CanvasLibrary";
 import { CanvasWorkspace, type CanvasWorkspaceHandle } from "./CanvasWorkspace";
@@ -22,16 +25,15 @@ import { currentHeading, noteMarginItems, noteOutline, type MarginItem, type Out
 import { requestRefresh } from "./refreshBus";
 import { continueMarkdownBlock, countWords, indentMarkdownList, type TextEdit } from "./markdown-editing";
 import { buildNotionTree, filterNotionTree, type NotionTreeNode, type NotionTreePage } from "./notion-tree";
+import { MindmapWorkspace } from "./MindmapWorkspace";
+import navigation from "./InformationInbox.module.css";
 import styles from "./NotesWorkspace.module.css";
 
 const LEGACY_DRAFT_KEY = "pi-robin-notes-draft-v1";
 const MODEL_KEY = "pi-robin-notes-model-v1";
 const ACTIVE_DRAFT_KEY = "pi-robin-notes-active-draft-v1";
 const DEFAULT_MODEL_ID = "gpt-5.6-sol";
-const SAVE_DELAY_MS = 400;
 const FINAL_POLL_MS = 2_500;
-/** Browsers refuse a keepalive request whose body is over 64 KiB; leave room for headers. */
-const KEEPALIVE_MAX_BYTES = 60_000;
 const DATED_TITLE = /^Notes \d{4}-\d{2}-\d{2}$/;
 /**
  * Hues for the top-level sections of the Notion tree, from the calendar's
@@ -40,13 +42,16 @@ const DATED_TITLE = /^Notes \d{4}-\d{2}-\d{2}$/;
  */
 const BRANCH_TONES = ["iris", "teal", "clay", "slate", "honey", "plum", "fern"] as const;
 
+type NotesView = "notes" | "canvas" | "mindmap";
+function notesView(search: { get: (key: string) => string | null }): NotesView {
+  const view = search.get("view");
+  return view === "mindmap" ? "mindmap" : view === "canvas" || search.get("canvas") ? "canvas" : "notes";
+}
 type MobilePane = "notion" | "note" | "agent";
-type SaveState = "idle" | "dirty" | "saving" | "saved" | "error";
 
 function notePane(value: string | null): MobilePane {
   return value === "notion" || value === "agent" ? value : "note";
 }
-type DraftPatch = Partial<Pick<NoteDraft, "title" | "text" | "notionParentId">>;
 interface ModelRef { provider: string; modelId: string }
 interface FinalPreview { title: string; content: string }
 
@@ -130,9 +135,16 @@ export function NotesWorkspace() {
   const searchParams = useSearchParams();
   const split = useIsSplitLayout();
   const [loaded, setLoaded] = useState(false);
-  const [drafts, setDrafts] = useState<NoteDraft[]>([]);
+  const notes = useNoteDrafts(t("notes.save.error"));
+  const { drafts, replaceDrafts, getDrafts, patchDraft, flushSaves, recoveryWriter } = notes;
   const [activeId, setActiveId] = useState(() => searchParams.get("draft") ?? "");
-  const [activeCanvasId, setActiveCanvasId] = useState(() => searchParams.get("canvas") ?? "");
+  const [view, setView] = useState<NotesView>(() => notesView(searchParams));
+  const [mapVisited, setMapVisited] = useState(() => notesView(searchParams) === "mindmap");
+  useEffect(() => { if (view === "mindmap") setMapVisited(true); }, [view]);
+  const [activeCanvasId, setActiveCanvasId] = useState(() => notesView(searchParams) === "canvas" ? searchParams.get("canvas") ?? "" : "");
+  const lastCanvasId = useRef(activeCanvasId);
+  const switchingView = useRef(false);
+  const [switching, setSwitching] = useState(false);
   const [latestCanvas, setLatestCanvas] = useState<CanvasSummary | null>(null);
   const canvasRef = useRef<CanvasWorkspaceHandle>(null);
   const flushCanvas = useCallback(async () => canvasRef.current?.flush(), []);
@@ -147,7 +159,7 @@ export function NotesWorkspace() {
   const [model, setModel] = useState<ModelRef | null>(null);
   const [modelError, setModelError] = useState<string | null>(null);
   const [libraryCollapsed, setLibraryCollapsed] = useState(false);
-  const [agentCollapsed, setAgentCollapsed] = useState(false);
+  const [agentCollapsed, setAgentCollapsed] = useState(() => searchParams.get("pane") !== "agent");
   const [includeConversation, setIncludeConversation] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const [archiveTarget, setArchiveTarget] = useState<"obsidian" | "notion">("obsidian");
@@ -166,18 +178,18 @@ export function NotesWorkspace() {
   // The files a note is written from; they are archived with it.
   const [noteFiles, setNoteFiles] = useState<Record<string, NoteAttachment[]>>({});
   const [uploading, setUploading] = useState(0);
-  const [filesNotice, setFilesNotice] = useState<string | null>(null);
+  const [filesNotices, setFilesNotices] = useState<Record<string, string | null>>({});
+  const filesNotice = filesNotices[activeId] ?? null;
+  const setFilesNotice = (id: string, notice: string | null) => setFilesNotices(current => ({ ...current, [id]: notice }));
+  const fileVersions = useRef(new Map<string, number>());
+  const fileRemovals = useRef(new Set<string>());
+  const [removingFiles, setRemovingFiles] = useState<ReadonlySet<string>>(new Set());
   const [dropping, setDropping] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [finalError, setFinalError] = useState<string | null>(null);
-  const [saveState, setSaveState] = useState<SaveState>("idle");
-  const saveTimers = useRef(new Map<string, number>());
-  const pendingSaves = useRef(new Map<string, NoteDraft>());
-  const saveQueue = useRef<Promise<void>>(Promise.resolve());
   const finalsVersion = useRef(0);
   const startingFinal = useRef(false);
   const initialized = useRef(false);
-  const draftsRef = useRef<NoteDraft[]>([]);
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const previewRef = useRef<HTMLElement>(null);
   const marginRef = useRef<HTMLElement>(null);
@@ -185,11 +197,7 @@ export function NotesWorkspace() {
   // To-dos already sent to Robin from this draft's margin, so their cards say so.
   const [addedTodos, setAddedTodos] = useState<ReadonlySet<string>>(new Set());
 
-  const replaceDrafts = useCallback((value: NoteDraft[] | ((current: NoteDraft[]) => NoteDraft[])) => {
-    const next = typeof value === "function" ? value(draftsRef.current) : value;
-    draftsRef.current = next;
-    setDrafts(next);
-  }, []);
+  const activeSave = notes.status(activeId);
 
   const activeDraft = useMemo(() => drafts.find((draft) => draft.id === activeId) ?? null, [activeId, drafts]);
   const selectedPage = useMemo(() => pages.find((page) => page.id === activeDraft?.notionParentId), [activeDraft?.notionParentId, pages]);
@@ -206,7 +214,7 @@ export function NotesWorkspace() {
   const activeFiles = activeId ? noteFiles[activeId] ?? [] : [];
   // `busy` blocks everything; `locked` only freezes the draft that is being
   // prepared or reviewed, so another draft can be opened in the meantime.
-  const busy = archiving || creatingDraft;
+  const busy = archiving || creatingDraft || notes.removing;
   const locked = busy || finalizing || finalPreview !== null;
 
   const createDraft = useCallback(async (seed?: { title?: string; text?: string; notionParentId?: string }) => {
@@ -264,11 +272,18 @@ export function NotesWorkspace() {
 
   useEffect(() => {
     setMobilePane(notePane(searchParams.get("pane")));
-    const requestedCanvas = searchParams.get("canvas") ?? "";
-    if (requestedCanvas !== activeCanvasId) {
+    const requestedView = notesView(searchParams);
+    const requestedCanvas = requestedView === "canvas" ? searchParams.get("canvas") ?? "" : "";
+    if (requestedCanvas !== activeCanvasId || requestedView !== view) {
       let cancelled = false;
-      void flushCanvas().then(() => { if (!cancelled) setActiveCanvasId(requestedCanvas); }).catch(() => {
-        if (!cancelled) writeUrlState({ canvas: activeCanvasId || null }, "replace");
+      void flushCanvas().then(() => {
+        if (!cancelled) {
+          if (activeCanvasId) lastCanvasId.current = activeCanvasId;
+          setActiveCanvasId(requestedCanvas);
+          setView(requestedView);
+        }
+      }).catch(() => {
+        if (!cancelled) writeUrlState({ canvas: activeCanvasId || null, view }, "replace");
       });
       return () => { cancelled = true; };
     }
@@ -279,87 +294,11 @@ export function NotesWorkspace() {
     setPreview(false);
     setFinalError(null);
     window.localStorage.setItem(ACTIVE_DRAFT_KEY, requested);
-  }, [activeId, activeCanvasId, drafts, flushCanvas, loaded, searchParams]);
-
-  /**
-   * Write a draft's pending edits. Writes run one after another so a slow
-   * older PATCH can never land after a newer one and roll the note back.
-   */
-  const writeDraft = useCallback((id: string, keepalive = false): Promise<void> => {
-    const timer = saveTimers.current.get(id);
-    if (timer) window.clearTimeout(timer);
-    saveTimers.current.delete(id);
-    const draft = pendingSaves.current.get(id);
-    if (!draft) return saveQueue.current;
-    pendingSaves.current.delete(id);
-    const body = JSON.stringify({ id, title: draft.title, text: draft.text, notionParentId: draft.notionParentId });
-    setSaveState("saving");
-    saveQueue.current = saveQueue.current.then(async () => {
-      try {
-        const response = await fetch("/api/robin/notes", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body,
-          keepalive: keepalive && new TextEncoder().encode(body).length <= KEEPALIVE_MAX_BYTES,
-        });
-        if (!response.ok) {
-          const result = await response.json().catch(() => null) as { error?: string } | null;
-          throw new Error(result?.error ?? `Could not save draft (${response.status})`);
-        }
-        if (pendingSaves.current.size === 0) setSaveState("saved");
-      } catch (caught) {
-        // Keep the edit queued so the next keystroke or flush retries it.
-        if (!pendingSaves.current.has(id)) pendingSaves.current.set(id, draft);
-        setSaveState("error");
-        setFinalError(caught instanceof Error ? caught.message : String(caught));
-      }
-    });
-    return saveQueue.current;
-  }, []);
-
-  const flushSaves = useCallback((keepalive = false): Promise<void> => {
-    for (const id of [...pendingSaves.current.keys()]) void writeDraft(id, keepalive);
-    return saveQueue.current;
-  }, [writeDraft]);
-
-  /** Drop unsent edits for a draft that is about to stop existing, then wait out any write in flight. */
-  const discardPending = useCallback((id: string): Promise<void> => {
-    const timer = saveTimers.current.get(id);
-    if (timer) window.clearTimeout(timer);
-    saveTimers.current.delete(id);
-    pendingSaves.current.delete(id);
-    return saveQueue.current;
-  }, []);
-
-  // Closing the tab, backgrounding it on a phone, or leaving for another
-  // workspace must not drop the last few keystrokes.
-  useEffect(() => {
-    const flush = () => { void flushSaves(true); };
-    const onVisibility = () => { if (document.visibilityState === "hidden") flush(); };
-    window.addEventListener("pagehide", flush);
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => {
-      window.removeEventListener("pagehide", flush);
-      document.removeEventListener("visibilitychange", onVisibility);
-      flush();
-    };
-  }, [flushSaves]);
-
-  const patchDraft = useCallback((id: string, patch: DraftPatch) => {
-    const currentDraft = draftsRef.current.find((draft) => draft.id === id);
-    if (!currentDraft) return;
-    const updated = { ...currentDraft, ...patch, updatedAt: new Date().toISOString() };
-    replaceDrafts((current) => current.map((draft) => draft.id === id ? updated : draft));
-    pendingSaves.current.set(id, updated);
-    setSaveState("dirty");
-    const previous = saveTimers.current.get(id);
-    if (previous) window.clearTimeout(previous);
-    saveTimers.current.set(id, window.setTimeout(() => { void writeDraft(id); }, SAVE_DELAY_MS));
-  }, [replaceDrafts, writeDraft]);
+  }, [activeId, activeCanvasId, drafts, flushCanvas, loaded, searchParams, view]);
 
   const updateActive = useCallback((patch: DraftPatch) => {
-    if (!activeId || locked) return;
-    patchDraft(activeId, patch);
+    if (!activeId || locked) return false;
+    return patchDraft(activeId, patch);
   }, [activeId, locked, patchDraft]);
 
   const loadModels = useCallback(async () => {
@@ -421,13 +360,16 @@ export function NotesWorkspace() {
   ), [fullTree]);
 
   const selectDraft = (id: string, pane?: MobilePane) => {
+    if (activeCanvasId) lastCanvasId.current = activeCanvasId;
     setActiveCanvasId("");
+    const nextView = view === "mindmap" ? "mindmap" : "notes";
+    setView(nextView);
     setActiveId(id);
     setPreview(false);
     setFinalError(null);
     if (pane) setMobilePane(pane);
     window.localStorage.setItem(ACTIVE_DRAFT_KEY, id);
-    writeUrlState({ draft: id, canvas: null, pane });
+    writeUrlState({ draft: id, canvas: null, view: nextView === "notes" ? null : nextView, pane });
   };
 
   const showMobilePane = (pane: MobilePane) => {
@@ -442,9 +384,30 @@ export function NotesWorkspace() {
   };
 
   const selectCanvas = (id: string) => {
+    lastCanvasId.current = id;
+    setView("canvas");
     setActiveCanvasId(id);
     setMobilePane("note");
-    writeUrlState({ canvas: id, draft: null, pane: "note" });
+    writeUrlState({ view: "canvas", canvas: id, draft: null, pane: "note" });
+  };
+
+  const switchView = async (next: NotesView) => {
+    if (switchingView.current || next === view) return;
+    switchingView.current = true;
+    setSwitching(true);
+    try {
+      await flushCanvas(); // A failed canvas save keeps its editor and retry action visible.
+      void flushSaves(); // Note drafts remain mounted and retain their local recovery copy.
+      if (activeCanvasId) lastCanvasId.current = activeCanvasId;
+      const canvas = next === "canvas" ? lastCanvasId.current : "";
+      setActiveCanvasId(canvas);
+      setView(next);
+      const pane = next === "canvas" && !canvas ? "notion" : "note";
+      setMobilePane(pane);
+      if (next === "canvas" && !canvas) setLibraryCollapsed(false);
+      writeUrlState({ view: next === "notes" ? null : next, canvas: canvas || null, draft: next === "canvas" ? null : activeId || null, pane });
+    } catch { /* CanvasEditor owns the actionable save error. */ }
+    finally { switchingView.current = false; setSwitching(false); }
   };
 
   const focusEditor = (atEnd = false) => {
@@ -466,7 +429,7 @@ export function NotesWorkspace() {
    * in use, since a run of lecture notes usually lands on one Notion page.
    */
   const openBlankDraft = async (notionParentId: string) => {
-    const current = draftsRef.current;
+    const current = getDrafts();
     const blank = current.find((draft) => draft.id === activeId && !draft.text.trim())
       ?? current.find((draft) => !draft.text.trim());
     if (blank) {
@@ -488,7 +451,7 @@ export function NotesWorkspace() {
   };
 
   const addToNote = (addition: string) => {
-    const current = draftsRef.current.find((draft) => draft.id === activeId);
+    const current = getDrafts().find((draft) => draft.id === activeId);
     if (!current || locked || !addition.trim()) return;
     const base = current.text.trimEnd();
     updateActive({ text: base ? `${base}\n\n${addition.trim()}\n` : `${addition.trim()}\n` });
@@ -518,26 +481,24 @@ export function NotesWorkspace() {
 
   const deleteDraft = async (draft: NoteDraft) => {
     if (busy || !window.confirm(t("notes.drafts.deleteConfirm", { title: draft.title || t("notes.drafts.untitled") }))) return;
-    await discardPending(draft.id);
-    const response = await fetch("/api/robin/notes", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: draft.id }) });
-    if (!response.ok) {
-      const body = await response.json().catch(() => null) as { error?: string } | null;
-      setFinalError(body?.error ?? `Request failed (${response.status})`);
-      return;
-    }
-    window.localStorage.removeItem(`pi-robin-agent-transcript:notes:${draft.id}`);
-    const remaining = draftsRef.current.filter((item) => item.id !== draft.id);
-    replaceDrafts(remaining);
-    if (activeId === draft.id) {
-      if (activeCanvasId) { setActiveId(remaining[0]?.id ?? ""); return; }
-      if (remaining[0]) void switchDraft(remaining[0].id);
-      else await startNewDraft();
+    setFinalError(null);
+    try {
+      if (!await notes.deleteDraft(draft.id)) return;
+      window.localStorage.removeItem(`pi-robin-agent-transcript:notes:${draft.id}`);
+      const remaining = getDrafts();
+      if (activeId === draft.id) {
+        if (activeCanvasId) { setActiveId(remaining[0]?.id ?? ""); return; }
+        if (remaining[0]) void switchDraft(remaining[0].id);
+        else await startNewDraft();
+      }
+    } catch (caught) {
+      setFinalError(caught instanceof Error ? caught.message : String(caught));
     }
   };
 
-  /** Local changes win over a poll that was already in flight when they happened. */
+  /** Both later reads and local commands invalidate earlier polling snapshots. */
   const loadFinals = useCallback(async () => {
-    const version = finalsVersion.current;
+    const version = ++finalsVersion.current;
     try {
       const response = await fetch("/api/robin/notes-agent");
       const body = await response.json().catch(() => null) as { finals?: Record<string, NoteFinal> } | null;
@@ -555,18 +516,27 @@ export function NotesWorkspace() {
     });
   };
 
-  useEffect(() => { void loadFinals(); }, [loadFinals]);
+  useEffect(() => {
+    void loadFinals();
+    return () => { finalsVersion.current += 1; };
+  }, [loadFinals]);
 
   useEffect(() => {
     if (!activeId) return;
-    setFilesNotice(null);
+    setFilesNotices(current => ({ ...current, [activeId]: null }));
+    const version = (fileVersions.current.get(activeId) ?? 0) + 1;
+    fileVersions.current.set(activeId, version);
+    let cancelled = false;
     void (async () => {
       try {
         const response = await fetch(`/api/robin/notes/attachments?draftId=${encodeURIComponent(activeId)}`);
         const body = await response.json().catch(() => null) as { attachments?: NoteAttachment[] } | null;
-        if (response.ok && body?.attachments) setNoteFiles((current) => ({ ...current, [activeId]: body.attachments! }));
-      } catch { /* The row simply shows no files. */ }
+        if (!cancelled && version === fileVersions.current.get(activeId) && response.ok && body?.attachments) {
+          setNoteFiles((current) => ({ ...current, [activeId]: body.attachments! }));
+        }
+      } catch { /* Keep the last known files on a failed read. */ }
     })();
+    return () => { cancelled = true; };
   }, [activeId]);
 
   const fileUrl = (draftId: string, id: string) =>
@@ -578,7 +548,7 @@ export function NotesWorkspace() {
     const draftId = activeDraft.id;
     const accepted = files.filter((file) => (file.type.startsWith("image/") && file.type !== "image/svg+xml") || file.type === "application/pdf" || /\.pdf$/i.test(file.name));
     if (accepted.length === 0) return;
-    setFilesNotice(null);
+    setFilesNotice(draftId, null);
     setUploading((count) => count + accepted.length);
     for (const file of accepted) {
       try {
@@ -593,10 +563,13 @@ export function NotesWorkspace() {
         const response = await fetch("/api/robin/notes/attachments", { method: "POST", body: form });
         const body = await response.json().catch(() => null) as { attachment?: NoteAttachment; error?: string } | null;
         if (!response.ok || !body?.attachment) throw new Error(body?.error ?? `Request failed (${response.status})`);
-        setNoteFiles((current) => ({ ...current, [draftId]: [...(current[draftId] ?? []), body.attachment!] }));
-        if (body.attachment.truncated) setFilesNotice(t("notes.files.truncated", { name: body.attachment.name }));
+        // Invalidate earlier lists, and deduplicate a receipt already seen by a newer GET.
+        fileVersions.current.set(draftId, (fileVersions.current.get(draftId) ?? 0) + 1);
+        const attachment = body.attachment;
+        setNoteFiles((current) => ({ ...current, [draftId]: [...(current[draftId] ?? []).filter(item => item.id !== attachment.id), attachment] }));
+        if (body.attachment.truncated) setFilesNotice(draftId, t("notes.files.truncated", { name: body.attachment.name }));
       } catch (caught) {
-        setFilesNotice(`${file.name}: ${caught instanceof Error ? caught.message : String(caught)}`);
+        setFilesNotice(draftId, `${file.name}: ${caught instanceof Error ? caught.message : String(caught)}`);
       } finally {
         setUploading((count) => count - 1);
       }
@@ -606,13 +579,27 @@ export function NotesWorkspace() {
   const detachFile = async (file: NoteAttachment) => {
     if (!activeDraft || locked) return;
     const draftId = activeDraft.id;
-    setNoteFiles((current) => ({ ...current, [draftId]: (current[draftId] ?? []).filter((item) => item.id !== file.id) }));
-    const response = await fetch("/api/robin/notes/attachments", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ draftId, id: file.id }),
-    }).catch(() => null);
-    if (!response?.ok) setFilesNotice(t("notes.files.removeFailed", { name: file.name }));
+    const key = `${draftId}:${file.id}`;
+    if (fileRemovals.current.has(key)) return;
+    fileRemovals.current.add(key);
+    setRemovingFiles(new Set(fileRemovals.current));
+    setFilesNotice(draftId, null);
+    try {
+      const response = await fetch("/api/robin/notes/attachments", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ draftId, id: file.id }),
+      });
+      if (!response.ok) throw new Error("Attachment removal not confirmed");
+      // Publish only the confirmed removal; an earlier GET cannot resurrect it.
+      fileVersions.current.set(draftId, (fileVersions.current.get(draftId) ?? 0) + 1);
+      setNoteFiles((current) => ({ ...current, [draftId]: (current[draftId] ?? []).filter((item) => item.id !== file.id) }));
+    } catch {
+      setFilesNotice(draftId, t("notes.files.removeFailed", { name: file.name }));
+    } finally {
+      fileRemovals.current.delete(key);
+      setRemovingFiles(new Set(fileRemovals.current));
+    }
   };
 
   const sheetDrop = {
@@ -652,11 +639,29 @@ export function NotesWorkspace() {
 
   useEffect(() => {
     if (!anyFinalRunning) return;
-    const poll = window.setInterval(() => { void loadFinals(); }, FINAL_POLL_MS);
-    const tick = window.setInterval(() => setClock(Date.now()), 1_000);
-    return () => {
+    let poll: number | undefined;
+    let tick: number | undefined;
+    const stop = () => {
       window.clearInterval(poll);
       window.clearInterval(tick);
+      poll = tick = undefined;
+    };
+    const start = () => {
+      if (poll !== undefined) return;
+      poll = window.setInterval(() => { void loadFinals(); }, FINAL_POLL_MS);
+      tick = window.setInterval(() => setClock(Date.now()), 1_000);
+    };
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") { stop(); return; }
+      setClock(Date.now());
+      void loadFinals();
+      start();
+    };
+    if (document.visibilityState === "visible") start();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [anyFinalRunning, loadFinals]);
 
@@ -723,27 +728,26 @@ export function NotesWorkspace() {
     setArchiving(true);
     setFinalError(null);
     try {
-      // Land the last edits first: if the archive fails, the server copy is current.
-      await writeDraft(activeDraft.id);
-      if (pendingSaves.current.has(activeDraft.id)) throw new Error(t("notes.save.error"));
       if (archiveTarget === "obsidian") {
-        const response = await fetch("/api/robin/obsidian", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            confirmed: true, vaultId, draftId: activeDraft.id,
-            title: finalPreview.title, content: finalPreview.content,
-            expectedDraft: { title: activeDraft.title, text: activeDraft.text },
-            attachmentIds: activeFiles.map((file) => file.id),
-          }),
+        const archive = await notes.archiveDraft(activeDraft.id, async () => {
+          const response = await fetch("/api/robin/obsidian", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              confirmed: true, vaultId, draftId: activeDraft.id,
+              title: finalPreview.title, content: finalPreview.content,
+              expectedDraft: { title: activeDraft.title, text: activeDraft.text },
+              attachmentIds: activeFiles.map((file) => file.id),
+            }),
+          });
+          const body = await response.json() as { archive?: ObsidianArchive; error?: string };
+          if (!response.ok || !body.archive) throw new Error(body.error ?? `Request failed (${response.status})`);
+          return body.archive;
         });
-        const body = await response.json() as { archive?: ObsidianArchive; error?: string };
-        if (!response.ok || !body.archive) throw new Error(body.error ?? `Request failed (${response.status})`);
-        await discardPending(activeDraft.id);
+        if (!archive) return;
         window.localStorage.removeItem(`pi-robin-agent-transcript:notes:${activeDraft.id}`);
-        replaceDrafts((current) => current.filter((draft) => draft.id !== activeDraft.id));
-        setArchives((current) => [body.archive!, ...current.filter((item) => item.draftId !== activeDraft.id)]);
-        setArchiveNotice(body.archive);
+        setArchives((current) => [archive, ...current.filter((item) => item.draftId !== activeDraft.id)]);
+        setArchiveNotice(archive);
         setRawReview(null);
         setFinal(activeDraft.id, null);
         setIncludeConversation(false);
@@ -752,24 +756,26 @@ export function NotesWorkspace() {
         return;
       }
       if (!selectedPage) return;
-      const response = await fetch("/api/robin/notion", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          parentPageId: selectedPage.id,
-          title: finalPreview.title,
-          content: finalPreview.content,
-          draftId: activeDraft.id,
-          confirmed: true,
-        }),
+      const page = await notes.archiveDraft(activeDraft.id, async () => {
+        const response = await fetch("/api/robin/notion", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            parentPageId: selectedPage.id,
+            title: finalPreview.title,
+            content: finalPreview.content,
+            draftId: activeDraft.id,
+            confirmed: true,
+          }),
+        });
+        const body = await response.json().catch(() => null) as { page?: NotionTreePage; error?: string } | null;
+        if (!response.ok || !body?.page) throw new Error(body?.error ?? `Request failed (${response.status})`);
+        return body.page;
       });
-      const body = await response.json().catch(() => null) as { page?: NotionTreePage; error?: string } | null;
-      if (!response.ok || !body?.page) throw new Error(body?.error ?? `Request failed (${response.status})`);
-      void discardPending(activeDraft.id);
+      if (!page) return;
       window.localStorage.removeItem(`pi-robin-agent-transcript:notes:${activeDraft.id}`);
-      replaceDrafts((current) => current.filter((draft) => draft.id !== activeDraft.id));
-      setPages((current) => [body.page!, ...current.filter((page) => page.id !== body.page!.id)]);
-      setHighlightedNotionId(body.page.id);
+      setPages((current) => [page, ...current.filter((item) => item.id !== page.id)]);
+      setHighlightedNotionId(page.id);
       setFinal(activeDraft.id, null);
       setIncludeConversation(false);
       setPreview(false);
@@ -784,7 +790,6 @@ export function NotesWorkspace() {
 
   const modelFooter = (
     <div className={styles.modelFooter}>
-      <span className="pi-eyebrow">{t("notes.model")}</span>
       <ModelSelector
         options={models}
         value={model}
@@ -793,11 +798,12 @@ export function NotesWorkspace() {
           setModel(next);
           window.localStorage.setItem(MODEL_KEY, JSON.stringify(next));
         }}
-        disabled={models.length === 0 || (!activeCanvasId && locked)}
+        disabled={models.length === 0 || (view === "notes" && locked)}
         emptyLabel={t("notes.model.loading")}
         ariaLabel={t("notes.model")}
-        variant="field"
+        variant="toolbar"
         placement="up"
+        portal
       />
       {modelError ? <p role="status">{modelError}</p> : null}
     </div>
@@ -862,14 +868,8 @@ export function NotesWorkspace() {
       setFinalError(caught instanceof Error ? caught.message : String(caught));
     }
   };
-  const saveLabel = saveState === "saving" ? t("notes.save.saving")
-    : saveState === "saved" ? t("notes.save.saved")
-      : saveState === "dirty" ? t("notes.save.unsaved")
-        : saveState === "error" ? t("notes.save.error")
-          : "";
 
-  // Where this note is filed, and the button that files it: in the masthead
-  // beside the page title on a desktop, under the sheet on a phone.
+  // Desktop keeps filing in the masthead; phones disclose it below the sheet.
   const filing = (
     <section className={styles.filing} data-place={split ? "header" : "sheet"} aria-label={t("notes.notion.destination")}>
       <label className={styles.archiveDestination}>
@@ -904,6 +904,9 @@ export function NotesWorkspace() {
     </section>
   );
 
+  const noteError = finalError ?? activeSave.error ?? finalFailure;
+  const errorNotice = noteError ? <p className={styles.error} role="alert">{noteError}</p> : null;
+
   const agent = activeDraft ? (
     <AgentPanel
       mode="notes"
@@ -931,10 +934,10 @@ export function NotesWorkspace() {
   ) : null;
 
   return (
-    <div className={`robin-page robin-dashboard ${styles.page}`}>
+    <div className={`${navigation.inbox} ${styles.page} ${styles.shell} robin-dashboard robin-workspace-ground`}>
       <header className={styles.header}>
-        <div>
-          {split ? (
+          {view !== "mindmap" && <h1 className="sr-only">{t(view === "canvas" ? "canvas.title" : "notes.title")}</h1>}
+          {split && view !== "mindmap" ? (
             <button
               type="button"
               className={styles.libraryToggle}
@@ -947,24 +950,26 @@ export function NotesWorkspace() {
               <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" /><path d="M9 4v16" /><path d={libraryCollapsed ? "m13 9 3 3-3 3" : "m16 9-3 3 3 3"} /></svg>
             </button>
           ) : null}
-          <span className="pi-eyebrow">Markdown · Obsidian</span><h1>{t("notes.title")}</h1>
-        </div>
-        <p title={t(activeCanvasId ? "canvas.hint" : "notes.subtitle")}>{t(activeCanvasId ? "canvas.hint" : "notes.subtitle")}</p>
-        {split && !activeCanvasId ? filing : null}
-        {split ? (
+        <nav className={`robin-workspace-tabs ${navigation.sources} ${styles.viewTabs}`} aria-label={t("notes.views")}>
+          {(["notes", "canvas", "mindmap"] as const).map((item) => <button key={item} type="button" aria-pressed={view === item} aria-controls="notes-workspace" disabled={switching} onClick={() => void switchView(item)}>
+            {item === "notes" ? "Notes" : item === "canvas" ? "Canvas" : t("notes.mindmap")}
+          </button>)}
+        </nav>
+        {split && view === "notes" ? filing : null}
+        {split && view !== "mindmap" ? (
           <button
             type="button"
-            className={styles.libraryToggle}
+            className={`ui-action ${styles.agentToggle}`}
             onClick={() => setAgentCollapsed((collapsed) => !collapsed)}
             aria-controls="notes-agent"
             aria-expanded={!agentCollapsed}
             aria-label={t(agentCollapsed ? "notes.agent.expand" : "notes.agent.collapse")}
             title={t(agentCollapsed ? "notes.agent.expand" : "notes.agent.collapse")}
           >
-            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" /><path d="M15 4v16" /><path d={agentCollapsed ? "m11 9-3 3 3 3" : "m8 9 3 3-3 3"} /></svg>
+            {t(agentCollapsed ? "notes.agent.expand" : "notes.agent.collapse")}
           </button>
         ) : null}
-        {!split ? (
+        {!split && view !== "mindmap" ? (
           <div className={styles.mobileTabs} role="tablist" aria-label={t("notes.views")}>
             {(["notion", "note", "agent"] as const).map((pane) => (
               <button key={pane} type="button" role="tab" aria-selected={mobilePane === pane} onClick={() => showMobilePane(pane)}>
@@ -974,10 +979,12 @@ export function NotesWorkspace() {
           </div>
         ) : null}
       </header>
-
+    <div id="notes-workspace" className={`robin-page robin-dashboard ${styles.page}`}>
+      {(view === "mindmap" || mapVisited) && <MindmapWorkspace active={view === "mindmap"} model={model} footer={modelFooter} sourceNote={activeDraft} />}
+      <div className={styles.page} hidden={view === "mindmap"}>
       <div className={`${styles.workspace}${split && libraryCollapsed ? ` ${styles.libraryIsCollapsed}` : ""}`} data-agent-collapsed={split && agentCollapsed}>
         <aside id="notes-library" className={styles.notionPane} hidden={split ? libraryCollapsed : mobilePane !== "notion"} aria-label={t("notes.library")}>
-          <section className={styles.obsidianLibrary}>
+          <section className={styles.obsidianLibrary} hidden={view !== "notes"}>
             <header><h2 className="pi-eyebrow">Obsidian</h2><button type="button" className="ui-action" disabled={locked} onClick={() => void loadObsidian()}>{t("notes.obsidian.refresh")}</button></header>
             <label>{t("notes.obsidian.vault")}<select value={vaultId} disabled={locked} onChange={(event) => {
               setVaultId(event.target.value);
@@ -988,7 +995,7 @@ export function NotesWorkspace() {
             <p>{t("notes.obsidian.localHint")}</p>
             {archives.length > 0 ? <><h3 className="pi-eyebrow">{t("notes.obsidian.archives")}</h3><ul>{archives.slice(0, 20).map((archive) => <li key={archive.draftId}><a href={archive.url} title={`${archive.vaultPath}/${archive.relativePath}`}>{archive.title}</a></li>)}</ul></> : null}
           </section>
-          <section className={styles.drafts}>
+          <section className={styles.drafts} hidden={view === "canvas"}>
             <header><h2 className="pi-eyebrow">{t("notes.drafts.title")}{loaded ? <span className={styles.count}>{drafts.length}</span> : null}</h2><button type="button" disabled={!loaded || busy} onClick={() => void startNewDraft()} aria-label={t("notes.new")} title={t("notes.new")}>＋</button></header>
             {!loaded ? <p>{t("robin.common.loading")}</p> : (
               <ul>{drafts.map((draft) => {
@@ -1011,14 +1018,15 @@ export function NotesWorkspace() {
             )}
           </section>
 
-          <CanvasLibrary selectedId={activeCanvasId} latest={latestCanvas} beforeChange={flushCanvas} onSelect={selectCanvas} onDeleted={(id) => {
+          <div hidden={view !== "canvas"}><CanvasLibrary selectedId={activeCanvasId} latest={latestCanvas} beforeChange={flushCanvas} onSelect={selectCanvas} onDeleted={(id) => {
+            if (lastCanvasId.current === id) lastCanvasId.current = "";
             if (id === activeCanvasId) {
               setActiveCanvasId("");
-              writeUrlState({ canvas: null, draft: activeId || null });
+              writeUrlState({ canvas: null, view: "canvas", draft: null });
             }
-          }} />
+          }} /></div>
 
-          {archiveTarget === "notion" ? <><div className={styles.notionHead}>
+          {view === "notes" && archiveTarget === "notion" ? <><div className={styles.notionHead}>
             <h2 className="pi-eyebrow">{t("notes.notion.library")}</h2>
             <div className={styles.notionHeadActions}>
               <button type="button" onClick={() => void loadNotion()} disabled={searching || locked} aria-label={t("notes.notion.refresh")} title={t("notes.notion.refresh")}>
@@ -1038,7 +1046,10 @@ export function NotesWorkspace() {
           {notionError && tree.length > 0 ? <p className={styles.error} role="alert">{notionError}</p> : null}</> : null}
         </aside>
 
-        {activeCanvasId ? (
+        {view === "canvas" && !activeCanvasId ? <div className={styles.canvasEmpty} hidden={!split && mobilePane === "notion"}>
+          <h2>Canvas</h2><p>{t("notes.canvas.choose")}</p>
+          <button type="button" className="ui-action" onClick={() => { setLibraryCollapsed(false); showMobilePane("notion"); }}>{t("canvas.library")}</button>
+        </div> : activeCanvasId ? (
           <CanvasWorkspace key={activeCanvasId} ref={canvasRef} id={activeCanvasId} split={split} mobilePane={mobilePane} model={model} footer={modelFooter} onSaved={setLatestCanvas} onShowCanvas={() => showMobilePane("note")} />
         ) : <div className={styles.rightColumn} hidden={!split && mobilePane === "notion"}>
           <main className={styles.notePane} hidden={!split && mobilePane !== "note"}>
@@ -1068,11 +1079,14 @@ export function NotesWorkspace() {
               </div>
             </div>
 
-            <div className={styles.sheet} data-dropping={dropping} {...sheetDrop}>
+            {activeId ? <TextRecoveryNotice key={activeId} scope="notes" id={activeId} writer={recoveryWriter} disabled={locked || !activeDraft}
+              onRestore={(fields) => { setPreview(false); return updateActive(fields); }} /> : null}
+            {activeSave.backupFailed ? <TextRecoveryWarning /> : null}
+            <div className={styles.sheet} data-reading={preview || Boolean(finalPreview)} data-dropping={dropping} {...sheetDrop}>
               <div className={styles.sheetHead}>
                 <div className={styles.titleMeta}>
                   <span className="pi-eyebrow">{finalPreview ? t("notes.final.title") : activeWords ? t("notes.drafts.words", { count: activeWords }) : t("notes.drafts.empty")}</span>
-                  {!finalPreview && saveLabel ? <span className={styles.saveState} data-state={saveState} role="status">{saveLabel}</span> : null}
+                  {!finalPreview && <SaveStatus state={activeSave.state} onRetry={() => void flushSaves(activeId)} />}
                 </div>
                 <input
                   className={styles.titleInput}
@@ -1114,7 +1128,7 @@ export function NotesWorkspace() {
                       <a href={activeDraft ? fileUrl(activeDraft.id, file.id) : undefined} target="_blank" rel="noopener noreferrer" title={file.name}>{file.name}</a>
                       {file.pages ? <small>{t("notes.files.pages", { count: file.pages })}</small> : null}
                       {!locked ? (
-                        <button type="button" onClick={() => void detachFile(file)} aria-label={t("notes.files.remove", { name: file.name })} title={t("notes.files.remove", { name: file.name })}>×</button>
+                        <button type="button" disabled={removingFiles.has(`${activeId}:${file.id}`)} aria-busy={removingFiles.has(`${activeId}:${file.id}`)} onClick={() => void detachFile(file)} aria-label={t("notes.files.remove", { name: file.name })} title={t("notes.files.remove", { name: file.name })}>×</button>
                       ) : null}
                     </span>
                   ))}
@@ -1137,8 +1151,9 @@ export function NotesWorkspace() {
                 <textarea ref={editorRef} className={styles.editor} value={activeDraft?.text ?? ""} disabled={!activeDraft || locked} onChange={(event) => updateActive({ text: event.target.value })} onKeyDown={onEditorKeyDown} onPaste={onEditorPaste} placeholder={t("notes.editor.placeholder")} aria-label={t("notes.editor.label")} spellCheck />
               )}
 
-              {finalError ?? finalFailure ? <p className={styles.error} role="alert">{finalError ?? finalFailure}</p> : null}
+              {split ? errorNotice : null}
             </div>
+            {!split ? errorNotice : null}
 
             {split ? (
               <>
@@ -1173,13 +1188,27 @@ export function NotesWorkspace() {
                   />
                 </aside>
               </>
-            ) : filing}
+            ) : (
+              <details
+                key={`${activeId}:${finalizing ? "working" : finalPreview ? "review" : "draft"}`}
+                className={styles.filingDisclosure}
+                open={finalizing || Boolean(finalPreview)}
+              >
+                <summary>
+                  <span>{finalizing ? t("notes.final.working", { time: `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, "0")}` }) : finalPreview ? t("notes.final.title") : t("notes.filing.options")}</span>
+                  <small>{archiveTarget === "obsidian" ? "Obsidian" : "Notion"}</small>
+                </summary>
+                {filing}
+              </details>
+            )}
             </div>
           </main>
 
           <section id="notes-agent" className={styles.agentPane} hidden={!split && mobilePane !== "agent"} aria-label={t("notes.agent.title")}>{agent}</section>
         </div>}
       </div>
+      </div>
+    </div>
     </div>
   );
 }

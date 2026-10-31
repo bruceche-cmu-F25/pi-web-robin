@@ -16,48 +16,31 @@
   overflow: hidden;
 }
 
+.page[hidden] { display: none; }
+
 /* ── masthead ─────────────────────────────────────────── */
 .header {
   display: flex;
-  min-height: 52px;
+  flex-wrap: wrap;
+  min-height: 64px;
   flex: 0 0 auto;
-  align-items: baseline;
-  gap: 16px;
-  padding: 13px 20px 11px;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px 20px;
   border-bottom: 1px solid var(--border);
 }
 
-.header > div:first-child {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-}
+/* Navigation and document actions share one toolbar; wrap only when needed. */
+.header .viewTabs { margin: 0; max-width: 100%; align-self: center; }
 
-.header > div:first-child > span { color: var(--ink-text); }
-
-.header h1 {
-  margin: 0;
-  color: var(--text);
-  font: italic 400 26px/1 var(--font-serif);
-}
-
-.header > p {
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  color: var(--text-muted);
-  font-size: 12.5px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* In the masthead the filing block is one line of chrome beside the title. */
+/* Filing remains beside navigation, without a second title/description row. */
 .header .filing {
   min-width: 0;
   min-height: 0;
   flex: 0 1 auto;
+  margin-inline-start: auto;
   align-self: center;
-  gap: 16px;
+  gap: 12px;
   padding: 0;
   border: 0;
   background: transparent;
@@ -80,7 +63,9 @@
 }
 
 .workspace.libraryIsCollapsed { grid-template-columns: minmax(0, 1fr); }
-.notionPane[hidden] { display: none; }
+.notionPane[hidden], .desk[hidden], .drafts[hidden], .obsidianLibrary[hidden], .canvasEmpty[hidden] { display: none; }
+.canvasEmpty { display: flex; flex: 1; min-width: 0; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 24px; text-align: center; color: var(--text-muted); }
+.canvasEmpty h2 { color: var(--text); font: italic 400 32px/1.2 var(--font-serif); }
 
 .libraryToggle {
   display: grid;
@@ -94,6 +79,8 @@
   color: var(--text-muted);
   cursor: pointer;
 }
+
+.agentToggle { flex: 0 0 auto; margin-inline-start: auto; min-height: 44px; padding: 6px 10px; font: 12px/1.5 var(--font-ui); }
 
 .libraryToggle:hover { background: var(--bg-hover); color: var(--ink-text); }
 .libraryToggle svg { width: 20px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
@@ -531,13 +518,6 @@
   gap: 10px;
 }
 
-.saveState {
-  color: var(--text-dim);
-  font: 10.5px/1 var(--font-mono);
-}
-
-.saveState[data-state="error"] { color: var(--danger); }
-
 /* A line of type, not a form field — `.page` lifts it over the dashboard's boxed-field rule. */
 .page .sheetHead .titleInput {
   width: 100%;
@@ -548,7 +528,8 @@
   border-radius: 0;
   background: transparent;
   color: var(--text);
-  font: italic 400 30px/1.2 var(--font-serif);
+  --field-font-size: max(30px, 1.875rem);
+  font: italic 400 var(--field-font-size)/1.2 var(--font-serif);
 }
 
 .page .sheetHead .titleInput:hover:not(:disabled) { border-bottom-color: var(--border-strong); }
@@ -582,7 +563,12 @@
 .noteFile a:hover { color: var(--ink-text); }
 .noteFile small { flex: 0 0 auto; color: var(--text-dim); font-size: 10.5px; }
 .noteFile button { display: grid; width: 22px; height: 22px; flex: 0 0 22px; place-items: center; border: 0; background: transparent; color: var(--text-muted); cursor: pointer; }
-.noteFile button:hover { color: var(--danger); }
+.noteFile button:hover:not(:disabled) { color: var(--danger); }
+.noteFile button:disabled { opacity: 0.45; cursor: wait; }
+.noteFile button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+@media (max-width: 640px), (any-pointer: coarse) {
+  .noteFile button { width: 44px; height: 44px; flex-basis: 44px; }
+}
 .noteFiles > :global(.pi-bracket) { font-size: 10.5px; }
 .noteFilesHint { color: var(--text-dim); font-size: 11.5px; }
 .noteFilesHint[data-notice="true"] { color: var(--warning); }
@@ -625,8 +611,35 @@
 .page .editor::placeholder, .empty { color: var(--text-dim); }
 .preview > :global(.markdown-body) { font-size: 16px; line-height: 1.7; }
 
-/* Where the note will be filed, and the button that files it. On a phone it is
-   the sheet's last line; on a desktop it rides in the masthead (below). */
+/* Filing stays in the desktop masthead; phones show a one-line disclosure. */
+.filingDisclosure {
+  flex: 0 1 auto;
+  min-height: 45px;
+  max-height: 45%;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+.filingDisclosure > summary {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  min-height: 44px;
+  padding: 12px 16px;
+  background: var(--bg-panel);
+  color: var(--text);
+  cursor: pointer;
+  font: 14px/20px var(--font-ui);
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.filingDisclosure > summary small { float: right; margin-left: 8px; color: var(--text-muted); font: inherit; }
+.filingDisclosure > summary:active { background: var(--bg-hover); }
+.filingDisclosure > summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.filingDisclosure .filing { border: 0; }
+
 .archiveDestination { display: flex; align-items: center; gap: 8px; }
 .archiveDestination select { max-width: 120px; min-height: 36px; }
 .obsidianLibrary { padding: 16px; border-bottom: 1px solid var(--border); }
@@ -739,13 +752,8 @@
   font: 11px/1.4 var(--font-mono);
 }
 
-.modelFooter {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: 7px 10px;
-}
-.modelFooter p { grid-column: 1 / -1; margin: 0; color: var(--danger); font-size: 10px; line-height: 1.35; }
+.modelFooter { min-width: 0; }
+.modelFooter p { margin: 0; color: var(--danger); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
 
 .mobileTabs { display: none; gap: 16px; margin-left: auto; }
 
@@ -766,11 +774,20 @@
 }
 
 @media (max-width: 959px) {
-  .header { min-height: 56px; align-items: center; padding: 7px 12px 7px 58px; }
-  .header > div:first-child > span, .header > p { display: none; }
-  .header h1 { font-size: 22px; }
+  /* Reuse the shell's 60px menu row instead of stacking another toolbar below it.
+     The inbox still owns the top safe area; the first tab clears the 44px menu. */
+  .shell { margin-top: -60px; }
+  .header { min-height: 56px; align-items: center; padding: 7px 12px; }
+  .header .viewTabs { margin-inline-start: 48px; max-width: calc(100% - 48px); }
   .mobileTabs { display: flex; }
-  .mobileTabs button { min-height: 42px; }
+  .viewToggle button, .mobileTabs button,
+  .toolbarEnd :global(.pi-bracket), .prepareActions button,
+  .primaryActions button, .stopButton {
+    min-height: 44px;
+    font: var(--type-action-size)/1.4 var(--font-ui);
+    letter-spacing: normal;
+    text-transform: none;
+  }
 
   .workspace { display: flex; flex-direction: column; }
   .notionPane, .rightColumn, .notePane, .agentPane { flex: 1; }
@@ -782,10 +799,14 @@
   .agentPane { border-left: 0; }
   .desk { width: 100%; }
   .noteToolbar { padding-inline: 16px; border-bottom: 1px solid var(--border); }
-  .sheet { border: 0; box-shadow: none; }
+  .sheet { overflow: auto; overscroll-behavior: contain; border: 0; box-shadow: none; }
+  /* Read the whole document, not a small scrollport below fixed attachments. */
+  .sheet[data-reading="true"] { display: block; }
+  .sheet[data-reading="true"] .preview { overflow: visible; }
+  /* Short screens/keyboards may scroll the sheet, but never crush the editor. */
+  .page .editor { flex-basis: 160px; flex-shrink: 0; }
   .sheetHead { padding: 18px 16px 0; }
-  /* globals.css pins phone fields to 16px against iOS focus zoom; anything larger is just as safe. */
-  .page .sheetHead .titleInput { min-height: 40px; font-size: 24px !important; }
+  .page .sheetHead .titleInput { min-height: 40px; --field-font-size: max(24px, 1.5rem); }
   .page .editor, .page .preview { padding: 14px 16px 72px; }
   .page .editor { background-position: 16px 14px; background-size: calc(100% - 32px) 26px; }
   .filing { padding-inline: 16px; border-inline: 0; }
@@ -795,12 +816,65 @@
 }
 
 @media (max-width: 560px) {
+  .header .viewTabs button { padding-inline: 8px; }
   .newNote { display: none; }
-  .filing { align-items: stretch; flex-direction: column; }
-  .primaryActions, .prepareActions { width: 100%; }
-  .prepareActions { align-items: stretch; flex-direction: column; gap: 6px; }
-  .primaryActions button, .prepareActions button { flex: 1; }
+  .filing { gap: 8px; padding-block: 8px; }
+  .primaryActions, .prepareActions { width: 100%; gap: 8px; }
+  .prepareActions label { flex-basis: 100%; min-height: 44px; }
+  .primaryActions button, .prepareActions button { flex: 1; white-space: normal; line-height: 1.4; }
   .cheat dl > div { grid-template-columns: 1fr; gap: 2px; }
+}
+
+/* Glass: structural ground comes from the shared Robin shell, with no local
+   wash. Only the document is raised; tabs/composer retain clear material. */
+:global(html[data-theme^="glass"]) .shell > .page,
+:global(html[data-theme^="glass"]) .notionPane,
+:global(html[data-theme^="glass"]) .agentPane { background: transparent; }
+:global(html[data-theme^="glass"]) .header,
+:global(html[data-theme^="glass"]) .notionPane,
+:global(html[data-theme^="glass"]) .agentPane { border-color: transparent; }
+:global(html[data-theme^="glass"]) .drafts,
+:global(html[data-theme^="glass"]) .obsidianLibrary { border-bottom-color: var(--glass-header-line); }
+:global(html[data-theme^="glass"]) .sheet {
+  background: var(--bg-panel);
+  border-color: var(--glass-header-line);
+  border-radius: var(--card-radius) var(--card-radius) 0 0;
+  box-shadow: var(--card-shadow);
+}
+:global(html[data-theme^="glass"]) .libraryToggle { border-radius: var(--control-radius); }
+:global(html[data-theme^="glass"]) .shell :is(.prepareActions, .primaryActions) button,
+:global(html[data-theme^="glass"]) .shell .stopButton {
+  border-color: var(--glass-header-line);
+  border-radius: var(--control-radius);
+  background: var(--glass-active-fill);
+  letter-spacing: 0;
+}
+:global(html[data-theme^="glass"]) .shell button[data-primary="true"] {
+  border-color: var(--accent-line);
+  background: var(--bg-selected);
+}
+:global(html[data-theme^="glass"]) .noteToolbar { border-bottom-color: transparent; }
+:global(html[data-theme^="glass"]) .viewToggle { gap: 4px; }
+:global(html[data-theme^="glass"]) .viewToggle button {
+  min-height: 32px;
+  margin-block: 7px;
+  padding-inline: 10px;
+  border-bottom-color: transparent;
+  border-radius: var(--control-radius);
+  letter-spacing: 0;
+}
+:global(html[data-theme^="glass"]) .viewToggle button[aria-pressed="true"] {
+  background: var(--bg-selected);
+  color: var(--text);
+}
+@media (max-width: 959px), (any-pointer: coarse) {
+  :global(html[data-theme^="glass"]) .viewToggle button { min-height: 44px; margin-block: 1px; }
+  :global(html[data-theme^="glass"]) .header :is(.prepareActions, .primaryActions) button { min-height: 44px; }
+}
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more), (forced-colors: active) {
+  :global(html[data-theme^="glass"]) :is(.sheet, .notionPane, .agentPane) { border-color: var(--border); }
+  :global(html[data-theme^="glass"]) .shell :is(.prepareActions, .primaryActions) button,
+  :global(html[data-theme^="glass"]) .shell .stopButton { background: var(--bg-panel); border-color: var(--border); }
 }
 
 @media (prefers-reduced-motion: reduce) {

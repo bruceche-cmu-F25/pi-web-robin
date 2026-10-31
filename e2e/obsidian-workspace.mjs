@@ -25,11 +25,11 @@ try {
     { path: "项目/Robin.md", title: "Robin", links: ["知识/React.md", "阅读/Local-first.md"], unresolved: [], excerpt: "让工具围绕人，而不是让人围绕工具。一个本地优先的个人工作台。" },
     { path: "阅读/Local-first.md", title: "Local-first", links: ["Home.md"], unresolved: [], excerpt: "你的数据，你的文件。断网也能使用的软件，以及围绕所有权做出的架构取舍。" },
     ...["状态管理", "设计边界", "信息架构", "React Hooks", "渐进增强", "知识连接", "离线优先", "学习方法", "系统设计", "注意力", "Markdown", "图论"].map((title, i) => ({ path: `${["知识", "项目", "阅读"][i % 3]}/${title}.md`, title, links: [i % 2 ? "项目/Robin.md" : "知识/React.md", "Home.md"], unresolved: [], excerpt: `关于${title}的阅读记录。从一个具体问题出发，把理解连接到正在做的项目中。` })),
-    { path: "收件箱/一个新想法.md", title: "一个新想法", links: [], unresolved: [], excerpt: "还没找到合适的连接。先留下这个问题，等下一次阅读时回来看。" },
+    { path: "收件箱/idea.md", title: "一个新想法", links: [], unresolved: [], excerpt: "还没找到合适的连接。先留下这个问题，等下一次阅读时回来看。" },
   ].map((entry) => ({ ...entry, modified }));
   const content = {
     "Home.md": "# 我的知识地图\n\n把读过的、想过的和正在做的事情连接起来。\n\n## 最近在学\n\n- [[知识/React|React]]：界面是状态的映射\n- [[知识/闭包|闭包]]：函数记住它诞生时的环境\n\n## 正在做\n\n[[项目/Robin|Robin]] — 一个本地优先的个人工作台。\n\n> 知识不是收集得越多越好，而是让旧想法遇见新问题。\n\n[[未创建的想法]]\n\n![private](https://tracking.invalid/image.png)",
-    "知识/React.md": "# React\n\n组件、状态与单向数据流。\n\n[[闭包]] · [[Home]]\n\n```js\nconst view = render(state);\n```",
+    "知识/React.md": `# React\n\n组件、状态与单向数据流。\n\n[[闭包]] · [[Home]]\n\n\`\`\`js\nconst view = render(state);\nconst longExample = "${"readable-code-".repeat(20)}";\n\`\`\`\n\n| Concept | State | Boundary | Responsibility | Example |\n| --- | --- | --- | --- | --- |\n| Component | Local state | Parent component | Render | **Readable text** |\n\n这段正文在表格后面，也必须保持完整可读。`,
     "知识/闭包.md": "# 闭包\n\n函数与它创建时的词法环境。\n\n[[React]]",
   };
   await page.route("**/api/robin/**", async (route) => {
@@ -56,16 +56,89 @@ try {
   const ready = () => page.waitForFunction(() => document.querySelector('[role="group"][data-ready]')?.getAttribute("data-ready") === "true");
   const center = async () => { const b = await canvas.boundingBox(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; };
   const locate = async (path) => { await page.getByRole("combobox", { name: "定位", exact: true }).selectOption(path); await page.waitForTimeout(100); };
+  // Title and path are independent fields; both are searchable, with whitespace/case normalization.
+  await page.goto("/obsidian");
+  const search = page.getByRole("searchbox");
+  const idea = page.getByRole("button", { name: "一个新想法 · 收件箱/idea.md", exact: true });
+  await idea.waitFor();
+  for (const query of [" 一个新想法 ", " IDEA.MD "]) {
+    await search.fill(query);
+    await idea.waitFor();
+    assert.equal(await page.getByRole("button", { name: "Home · Home.md", exact: true }).count(), 0);
+  }
+  await search.fill("nothing-matches-this");
+  await page.getByText("没有匹配的笔记。", { exact: true }).waitFor();
+  await search.fill("");
+  const home = page.getByRole("button", { name: "Home · Home.md", exact: true });
+  await home.focus(); await page.keyboard.press("Enter");
+  await inspector.getByRole("heading", { name: "我的知识地图" }).waitFor();
+  assert.equal(await home.evaluate(el => el === document.activeElement), true, "desktop preview never steals focus");
+  await inspector.getByRole("button", { name: "关闭预览" }).click();
+  for (const theme of ["glass", "glass-dark", "light", "dark"]) {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.waitForTimeout(120); // Allow the responsive matchMedia subscription to commit.
+    await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
+    await page.getByRole("navigation", { name: "关联" }).waitFor({ state: "visible" });
+    await home.focus(); await page.keyboard.press("Enter");
+    const heading = inspector.getByRole("heading", { name: "笔记预览", exact: true });
+    await page.waitForFunction(() => document.activeElement?.textContent === "笔记预览").catch(async error => {
+      console.log("Focus failure", theme, await page.evaluate(() => ({ active: document.activeElement?.outerHTML?.slice(0, 300), panes: [...document.querySelectorAll('[data-visible]')].map(e => e.dataset.visible), url: location.href })));
+      throw error;
+    });
+    assert.equal(await heading.evaluate(el => el === document.activeElement), true);
+    await inspector.getByRole("heading", { name: "我的知识地图" }).waitFor();
+    assert.equal(await heading.evaluate(el => el === document.activeElement), true, "async loading does not move focus");
+    await inspector.getByRole("button", { name: "关闭预览" }).click();
+    await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "Home · Home.md");
+    await page.keyboard.press("Enter");
+    await inspector.getByRole("button", { name: "完整阅读", exact: true }).click();
+    await page.waitForFunction(() => document.activeElement?.tagName === "ARTICLE");
+    await mode("笔记库").click();
+  }
+  await page.setViewportSize({ width: 1600, height: 1000 });
   await page.goto("/obsidian?session=retained");
   await page.getByRole("button", { name: "Home · Home.md", exact: true }).click();
   await inspector.getByRole("heading", { name: "我的知识地图" }).waitFor();
   assert.equal(await mode("笔记库").getAttribute("aria-pressed"), "true");
   assert.ok(page.url().includes("session=retained"));
   assert.equal(await page.getByRole("link", { name: "Obsidian", exact: true }).getAttribute("aria-current"), "page");
+  assert.equal(await page.getByRole("button", { name: "Home · Home.md", exact: true }).evaluate(el => getComputedStyle(el).borderTopLeftRadius), "16px");
+  assert.equal(await inspector.evaluate(el => getComputedStyle(el).borderTopLeftRadius), "16px");
+  const previewType = await inspector.locator(".markdown-body").evaluate(el => ({ font: parseFloat(getComputedStyle(el).fontSize), color: getComputedStyle(el).color, text: getComputedStyle(el).getPropertyValue("--text").trim(), maxHeight: getComputedStyle(el.parentElement.parentElement).maxHeight }));
+  assert.ok(previewType.font >= 15.9, "node preview is at least 16px");
+  assert.equal(previewType.maxHeight, "none", "one inspector scroll, not a clipped nested preview");
   await page.screenshot({ path: `${screenshots}/atlas-library.png` });
   await page.getByRole("button", { name: "完整阅读", exact: true }).click();
   await page.locator("article").getByRole("button", { name: "React", exact: true }).click();
   await page.locator("article").getByRole("heading", { name: "React", exact: true }).waitFor();
+  for (const theme of ["light", "dark"]) {
+    await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
+    for (const width of [1600, 1024, 812, 375, 320]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.waitForTimeout(120);
+      const prose = page.locator("article .markdown-body");
+      const typography = await prose.evaluate(el => {
+        const css = getComputedStyle(el), heading = getComputedStyle(el.querySelector("h1"));
+        const sample = document.createElement("span"); sample.style.color = "var(--text)"; el.append(sample);
+        const textColor = getComputedStyle(sample).color; sample.remove();
+        return { font: parseFloat(css.fontSize), line: parseFloat(css.lineHeight), color: css.color, textColor, headingStyle: heading.fontStyle, headingWeight: Number(heading.fontWeight) };
+      });
+      assert.ok(typography.font >= 17.9 && typography.line >= typography.font * 1.7);
+      assert.equal(typography.color, typography.textColor);
+      assert.equal(typography.headingStyle, "normal"); assert.ok(typography.headingWeight >= 600);
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${theme} reader overflow at ${width}`);
+      for (const block of [prose.locator("pre"), prose.getByRole("region", { name: "笔记表格（可横向滚动）" })]) {
+        assert.equal(await block.getAttribute("tabindex"), "0");
+        assert.equal(await block.evaluate(el => getComputedStyle(el).overflowX), "auto");
+        assert.equal(await block.evaluate(el => getComputedStyle(el).borderTopLeftRadius), "8px");
+        const dimensions = await block.evaluate(el => ({ tag: el.tagName, scroll: el.scrollWidth, client: el.clientWidth, connected: el.isConnected, visible: el.checkVisibility() }));
+        assert.ok(dimensions.scroll > dimensions.client, `wide content scrolls inside its own block: ${theme}/${width} ${JSON.stringify(dimensions)}`);
+      }
+      if (width === 1600 || width === 375) await page.screenshot({ path: `${screenshots}/reader-${theme}-${width}.png` });
+    }
+  }
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await page.evaluate(() => { document.documentElement.dataset.theme = "light"; });
   await page.locator("article").getByRole("button", { name: "闭包", exact: true }).click();
   await page.locator("article").getByRole("heading", { name: "闭包", exact: true }).waitFor();
   await mode("关系图").click(); await ready();
@@ -109,7 +182,7 @@ try {
   await canvas.press("Enter"); await page.locator("article").getByRole("heading", { name: "React", exact: true }).waitFor();
   await mode("笔记库").click();
   await page.getByRole("button", { name: "尚未连接 1", exact: true }).click();
-  await page.getByRole("button", { name: "一个新想法 · 收件箱/一个新想法.md", exact: true }).waitFor();
+  await page.getByRole("button", { name: "一个新想法 · 收件箱/idea.md", exact: true }).waitFor();
   assert.equal(await page.getByRole("button", { name: "Home · Home.md", exact: true }).count(), 0);
   await page.getByRole("button", { name: "清除筛选", exact: true }).click();
   await page.getByRole("searchbox").fill("Local-first");

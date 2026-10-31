@@ -1,6 +1,7 @@
 // Against an existing dev server; note APIs are mocked, so no real drafts are changed.
 // node --env-file-if-exists=.env.local e2e/notes-layout.mjs
 import assert from "node:assert/strict";
+import { mkdirSync } from "node:fs";
 import { chromium } from "playwright";
 
 const baseURL = process.env.E2E_BASE_URL ?? "http://127.0.0.1:30141";
@@ -43,18 +44,33 @@ try {
   await editor.waitFor();
   await page.waitForFunction(() => document.querySelector('main textarea')?.value.includes("A note"));
 
+  assert.equal(await agent.isVisible(), false, "The note owns the initial space");
+  assert.equal(await agentToggle.getAttribute("aria-expanded"), "false");
+  await agentToggle.click();
+  await agent.waitFor({ state: "visible" });
+
   const checkColumns = async () => {
     const n = await note.boundingBox();
     const a = await agent.boundingBox();
     assert.ok(n && a && a.x >= n.x + n.width - 1, "Agent must be beside, not below, the note");
     assert.ok(Math.abs(n.y - a.y) < 1 && Math.abs(n.height - a.height) < 1, "Both columns use full height");
-    assert.ok(n.width >= 400 && a.width >= 300, "Both columns retain usable widths");
+    // The default left navigation uses 64px: at 960px, the note has 396px
+    // beside the 200px library and 300px agent (top navigation had 460px).
+    assert.ok(n.width >= 360 && a.width >= 300, "Both columns retain usable widths");
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   };
   if (process.env.E2E_SCREENSHOT) await page.screenshot({ path: process.env.E2E_SCREENSHOT });
   for (const width of [1440, 960]) {
     await page.setViewportSize({ width, height: 900 });
     await checkColumns();
+    const nav = page.locator(".robin-workspace-tabs");
+    const header = nav.locator("..");
+    assert.equal(await header.locator('button[aria-controls="notes-agent"]').count(), 1, "View tabs and workspace actions share one header");
+    if (width === 1440) {
+      const tabsBox = await nav.boundingBox(), actionBox = await agentToggle.boundingBox();
+      assert.ok(Math.abs(tabsBox.y + tabsBox.height / 2 - actionBox.y - actionBox.height / 2) <= 1, "Desktop navigation and actions align on one row");
+      assert.ok((await header.boundingBox()).height <= 72, "No second masthead row on a wide screen");
+    }
     const expandedWidth = (await note.boundingBox()).width;
     await toggle.focus();
     await page.keyboard.press("Enter");
@@ -93,7 +109,7 @@ try {
   // Folding on desktop must not hide either panel's separate tab on a phone.
   await toggle.click();
   await agentToggle.click();
-  for (const width of [375, 844]) {
+  for (const width of [320, 375, 844]) {
     await page.setViewportSize({ width, height: 700 });
     const tabs = page.getByRole("tablist").getByRole("tab");
     await tabs.nth(0).click();
@@ -109,8 +125,49 @@ try {
     assert.equal(await editor.inputValue(), draft.text);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   }
+  mkdirSync("/tmp/notes-chrome", { recursive: true });
+  for (const theme of ["glass", "glass-dark"]) {
+    await page.evaluate(value => document.documentElement.setAttribute("data-theme", value), theme);
+    for (const width of [1440, 375, 320]) {
+      await page.setViewportSize({ width, height: 900 });
+      if (width === 1440) {
+        await agentToggle.waitFor();
+        if (await agentToggle.getAttribute("aria-expanded") === "false") await agentToggle.click();
+        if (await toggle.getAttribute("aria-expanded") === "false") await toggle.click();
+      } else {
+        await page.getByRole("tablist").getByRole("tab").nth(1).click();
+      }
+      const material = await page.evaluate(() => {
+        const shell = document.querySelector('[class*="NotesWorkspace"][class*="shell"]');
+        const body = document.querySelector("#notes-workspace");
+        const library = document.querySelector("#notes-library");
+        const agent = document.querySelector("#notes-agent");
+        const sheet = document.querySelector('[class*="sheetHead"]')?.parentElement;
+        return {
+          layers: [body, library, agent].map(el => getComputedStyle(el).backgroundColor),
+          edges: [library, agent].map(el => getComputedStyle(el).borderLeftColor),
+          blur: getComputedStyle(shell).backdropFilter,
+          radius: parseFloat(getComputedStyle(sheet).borderTopLeftRadius),
+        };
+      });
+      assert.ok(material.layers.every(color => color === "rgba(0, 0, 0, 0)"), `${theme}: no stacked pane fills`);
+      assert.ok(material.edges.every(color => color === "rgba(0, 0, 0, 0)"), `${theme}: no abrupt vertical rules under the toolbar`);
+      assert.equal(material.blur, "none", "Do not blur the entire reading area");
+      assert.ok(material.radius >= 16, "Paper owns the raised surface, with a soft upper edge");
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+      await page.screenshot({ path: `/tmp/notes-chrome/${theme}-${width}.png` });
+    }
+  }
+  await page.emulateMedia({ contrast: "more" });
+  const contrast = await page.locator('#notes-workspace').evaluate(el => ({
+    ground: getComputedStyle(el.closest('.robin-shell')).backgroundColor,
+    edge: getComputedStyle(document.querySelector('#notes-library')).borderRightColor,
+  }));
+  assert.match(contrast.ground, /^rgb\(/, "High contrast uses solid ground, not a color-mix alpha wash");
+  assert.notEqual(contrast.edge, "rgba(0, 0, 0, 0)", "High contrast restores explicit boundaries");
+  await page.emulateMedia({ contrast: "no-preference" });
   assert.deepEqual(errors, []);
-  console.log("PASS: Notes columns, keyboard library/agent toggles, draft and in-flight reply preservation, and mobile tabs");
+  console.log("PASS: Notes single toolbar, columns, draft/in-flight preservation, mobile tabs and continuous Glass ground");
 } finally {
   await browser.close();
 }

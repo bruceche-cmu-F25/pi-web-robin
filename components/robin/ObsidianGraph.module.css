@@ -4,6 +4,10 @@
 .locate select { max-width: 220px; min-width: 0; height: 36px; border: 1px solid var(--border); background: var(--bg); padding: 6px; font: 12px var(--font-mono); }
 .actions { display: flex; align-items: center; gap: 4px; }
 .actions button { min-width: 36px; height: 36px; padding: 6px 9px; font: 12px var(--font-mono); }
+.locate select, .actions button, .loading { border-radius: var(--control-radius); }
+.hover { border-radius: var(--card-radius); }
+.legend span { border-radius: var(--detail-radius); }
+.actions button:active { background: var(--bg-hover); }
 .actions button:hover { background: var(--bg-hover); color: var(--accent); }
 .actions output { min-width: 46px; text-align: center; font: 11px var(--font-mono); color: var(--text-muted); }
 .surface { position: relative; flex: 1; min-height: 340px; background: var(--bg); overflow: hidden; }

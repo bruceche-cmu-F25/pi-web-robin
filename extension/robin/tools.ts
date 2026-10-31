@@ -5,7 +5,8 @@
  * agent sessions with the coding builtins (bash, read, edit, write, …)
  * available; naming only these here means `setActiveToolsByName` leaves every
  * one of those inactive, so a prompt typed into the dashboard cannot run a
- * shell command or touch the filesystem.
+ * shell command or access arbitrary filesystem paths. Obsidian reads are
+ * bounded by the registered-vault domain, not the general file tools.
  *
  * The assistant route requests exact tool activation, so tools from other
  * installed extensions are not added to this list implicitly.
@@ -24,6 +25,9 @@ export const ROBIN_TOOL_NAMES = [
   "notion_read",
   "notion_append",
   "notion_create_page",
+  // User-directed knowledge retrieval only; background reviews retain their narrower scopes.
+  "obsidian_search",
+  "obsidian_read",
   "gmail_list",
   "gmail_get",
   "provider_usage",

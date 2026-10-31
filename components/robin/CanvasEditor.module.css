@@ -1,6 +1,6 @@
 .pane { container-type: normal; }
 .toolbar { display: flex; min-height: 48px; flex: 0 0 auto; align-items: center; gap: 12px; padding: 6px 16px; border-bottom: 1px solid var(--border); }
-.pane .toolbar input { min-width: 0; width: 100%; flex: 1; border: 0; border-bottom: 1px solid transparent; padding: 4px 0; background: transparent; color: var(--text); font: italic 400 22px/1.2 var(--font-serif); }
+.pane .toolbar input:not([type="checkbox"]) { min-width: 0; width: 100%; flex: 1; border: 0; border-bottom: 1px solid transparent; padding: 4px 0; background: transparent; color: var(--text); --field-font-size: max(22px, 1.375rem); font: italic 400 var(--field-font-size)/1.2 var(--font-serif); }
 .pane .toolbar input:focus-visible { border-bottom-color: var(--ink); outline: 0; }
 .toolbar > span { flex: 0 0 auto; color: var(--text-dim); font: 10.5px/1.3 var(--font-mono); }
 .toolbar > span[data-state="error"] { color: var(--danger); }
@@ -56,7 +56,7 @@
 
 @media (max-width: 959px) {
   .toolbar { gap: 8px; padding-inline: 12px; }
-  .pane .toolbar input { font-size: 20px; }
-  .toolbar button { min-height: 44px; }
+  .pane .toolbar input { --field-font-size: max(20px, 1.25rem); }
+  .toolbar button { min-height: 44px; font: var(--type-action-size)/1.4 var(--font-ui); }
   .hint { font-size: 10px; padding-inline: 12px; }
 }
