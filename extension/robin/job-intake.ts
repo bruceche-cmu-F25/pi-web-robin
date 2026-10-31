@@ -252,7 +252,7 @@ function autoDropUnactedJobs(jobs: Job[], now: number = Date.now()): number {
   const cutoff = new Date(now - AUTO_DROP_DAYS * 86_400_000).toISOString();
   let dropped = 0;
   for (const job of jobs) {
-    if (job.status !== "new" || !job.discoveredAt || job.discoveredAt > cutoff) continue;
+    if (job.application || job.status !== "new" || !job.discoveredAt || job.discoveredAt > cutoff) continue;
     job.status = "dropped";
     job.flags = [...new Set([...(job.flags ?? []), "inactive-14d"])];
     dropped += 1;
@@ -264,7 +264,7 @@ function autoDropUnactedJobs(jobs: Job[], now: number = Date.now()): number {
 function pruneJobs(jobs: Job[], now: number = Date.now()): Job[] {
   const cutoff = new Date(now - RETENTION_DAYS * 86_400_000).toISOString();
   return jobs.filter((job) =>
-    job.status === "shortlist" || job.status === "applied" || (job.discoveredAt ?? "") >= cutoff);
+    job.application || job.status === "shortlist" || job.status === "applied" || (job.discoveredAt ?? "") >= cutoff);
 }
 
 /**

@@ -22,6 +22,7 @@ export {
   hasDegreeExperienceAlternatives,
 } from "./job-requirements.ts";
 import { cleanPostingDescription } from "./job-requirements.ts";
+import type { JobApplication } from "./job-applications.ts";
 
 /** One tracked employer. `url` is a careers page or an ATS board URL. */
 export interface TrackedCompany {
@@ -188,6 +189,8 @@ export interface Job {
    * answer.
    */
   appliedAt?: string;
+  /** Preparation/review evidence, independent of the user's pipeline status. */
+  application?: JobApplication;
   /** Your own note — why you applied, who referred you, what you said. */
   note?: string;
   /** UTC instant of the push that carried it; absent means never pushed. */

@@ -2,6 +2,9 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
+import { useSearchParams } from "next/navigation";
+import { jobsView, JOB_PAGE_SIZE as PAGE_SIZE } from "./board-navigation";
+import { useBoardNavigation } from "./useBoardNavigation";
 import {
   DEFAULT_JOB_PROFILE,
   JOB_STATUSES,
@@ -15,10 +18,11 @@ import { JobLinks } from "./JobLinks";
 import { JobRow } from "./JobRow";
 import rowStyles from "./JobRow.module.css";
 import styles from "./JobsBoard.module.css";
-import { groupJobRoles, jobBand, orderJobGroups, searchJobGroups, type JobOrder } from "./jobs-view";
+import { groupJobRoles, jobBand, orderJobGroups, searchJobGroups } from "./jobs-view";
 import type { JobsResponse } from "./JobsPanel";
 import { RoundsSection } from "./RoundsSection";
-import { mutate, usePolledResource } from "./usePolledResource";
+import { JobApplications } from "./JobApplications";
+import { mutate, mutateResponse, usePolledResource } from "./usePolledResource";
 import sheet from "./Worksheet.module.css";
 
 interface SweepState {
@@ -53,9 +57,6 @@ interface ProfileResponse extends FilterCatalogue {
 }
 
 type Filter = JobStatus | "all";
-
-/** Rows rendered per step. "New" alone runs to hundreds, and all of them at once is a slow page. */
-const PAGE_SIZE = 50;
 
 function Section({ title, children, actions }: { title: string; children: React.ReactNode; actions?: React.ReactNode }) {
   return (
@@ -149,14 +150,11 @@ export function JobsBoard() {
   const [busyJob, setBusyJob] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<Filter>("new");
-  const [query, setQuery] = useState("");
-  const [order, setOrder] = useState<JobOrder>("priority");
-  const [shown, setShown] = useState(PAGE_SIZE);
+  const searchParams = useSearchParams();
+  const { filter, query, order, shown, showBelow } = jobsView(searchParams);
+  const { scrollRef, updateView } = useBoardNavigation("/dashboard/jobs", searchParams.toString(), !!data);
   const [preview, setPreview] = useState<string | null>(null);
   const [sweeping, setSweeping] = useState(false);
-  /** In "New", rows below the push floor stay folded until asked for. */
-  const [showBelow, setShowBelow] = useState(false);
   /**
    * The last reversible action, offered back for ten seconds. `commit` is the
    * half that has not happened yet — a delete waits here rather than running,
@@ -169,15 +167,16 @@ export function JobsBoard() {
   const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set());
   /** Keyboard cursor over the visible cards; null until a key is used, so nothing is highlighted by default. */
   const [cursor, setCursor] = useState<number | null>(null);
+  useEffect(() => { setCursor(null); }, [filter, query, order, showBelow]);
 
   // Polled fast only while a sweep is live — it is a progress bar, and at rest
   // it is one stale line nobody is watching.
-  const sweep = usePolledResource<{ sweep: SweepState | null }>("/api/robin/jobs/sweep", 4000);
+  const sweep = usePolledResource<{ sweep: SweepState | null }>("/api/robin/jobs/sweep", (data) => data?.sweep?.running ? 4000 : 60_000);
   const sweepState = sweep.data?.sweep ?? null;
 
   const scoring = usePolledResource<{ scoring: ScoringState | null; pending: number; model: string | null }>(
     "/api/robin/jobs/score",
-    4000,
+    (data) => data?.scoring?.running ? 4000 : 60_000,
   );
   const scoringState = scoring.data?.scoring ?? null;
   const pendingCount = scoring.data?.pending ?? 0;
@@ -221,7 +220,7 @@ export function JobsBoard() {
     setActionError(null);
     setNotice(null);
     try {
-      const response = await fetch("/api/robin/jobs/scan", { method: "POST" });
+      const response = await mutateResponse("/api/robin/jobs/scan", "POST", {});
       const body = await response.json().catch(() => null) as
         {
           scan?: {
@@ -292,7 +291,7 @@ export function JobsBoard() {
     setActionError(null);
     setNotice(null);
     try {
-      const response = await fetch("/api/robin/jobs/score", { method: "POST" });
+      const response = await mutateResponse("/api/robin/jobs/score", "POST", {});
       const body = await response.json().catch(() => null) as
         { started?: boolean; reason?: string; error?: string } | null;
       if (!response.ok) throw new Error(body?.error ?? `Scoring failed (${response.status})`);
@@ -469,7 +468,7 @@ export function JobsBoard() {
     try {
       await setStatuses(ids, "dropped");
       await refresh();
-      setShowBelow(false);
+      updateView({ below: null }, "replace");
       offerUndo({
         message: t("robin.jobs.bulkDropped", { count: String(below.length) }),
         run: async () => { await setStatuses(ids, "new"); await refresh(); },
@@ -530,7 +529,7 @@ export function JobsBoard() {
       </span>
       {!query.trim() && <button
         type="button"
-        onClick={() => { setShowBelow((current) => !current); setCursor(null); }}
+        onClick={() => { updateView({ below: showBelow ? null : "1" }); setCursor(null); }}
         className="ui-action pi-eyebrow"
         aria-expanded={showBelow}
       >
@@ -550,12 +549,12 @@ export function JobsBoard() {
   const enabledCompanies = profile?.companies.filter((company) => company.enabled).length ?? 0;
 
   return (
-    <div className="robin-page robin-dashboard flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
+    <div ref={scrollRef} className="robin-page robin-dashboard flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
       {/* Stated in pixels: the root font size is 13px, so max-w-5xl is 832px. */}
       <main className="mx-auto flex w-full max-w-[1240px] flex-col gap-4 p-4 desktop:p-6">
         <header className="flex flex-wrap items-baseline justify-between gap-4">
           <div className="flex flex-col gap-1">
-            <h1 className="text-3xl" style={{ fontStyle: "italic", fontWeight: 400, color: "var(--text)" }}>
+            <h1 className="pi-page-title">
               {t("robin.jobs.title")}
             </h1>
             <p className="pi-eyebrow">{t("robin.jobs.subtitle")}</p>
@@ -761,6 +760,7 @@ export function JobsBoard() {
           {/* ── What you owe, then what is on offer ─────────────────────── */}
           <div className={`${sheet.list} ${styles.results} flex flex-col gap-4`}>
             {/* Above the discoveries: an OA has a deadline and a posting does not. */}
+            <JobApplications />
             <RoundsSection />
 
             <Section
@@ -780,7 +780,7 @@ export function JobsBoard() {
                   <button
                     key={option}
                     type="button"
-                    onClick={() => { setFilter(option); setShown(PAGE_SIZE); setShowBelow(false); setCursor(null); }}
+                    onClick={() => { updateView({ status: option === "new" ? null : option, shown: null, below: null }); setCursor(null); }}
                     className={styles.stage}
                     aria-pressed={filter === option}
                   >
@@ -797,13 +797,13 @@ export function JobsBoard() {
                     type="search"
                     value={query}
                     placeholder={t("robin.jobs.searchPlaceholder")}
-                    onChange={(event) => { setQuery(event.target.value); setShown(PAGE_SIZE); setCursor(null); }}
+                    onChange={(event) => { updateView({ q: event.target.value || null, shown: null }, "replace"); setCursor(null); }}
                   />
                 </label>
                 {filter !== "applied" && <label>
                   <span>{t("robin.jobs.sort")}</span>
                   <select value={order} onChange={(event) => {
-                    setOrder(event.target.value as JobOrder); setShown(PAGE_SIZE); setCursor(null);
+                    updateView({ sort: event.target.value === "priority" ? null : event.target.value, shown: null }); setCursor(null);
                   }}>
                     <option value="priority">{t("robin.jobs.sort.priority")}</option>
                     <option value="recent">{t("robin.jobs.sort.recent")}</option>
@@ -838,7 +838,7 @@ export function JobsBoard() {
               {visible.length === 0
                 ? !loading && <div className="py-2 text-sm" style={{ color: "var(--text-dim)" }}>
                     <p>{t(query.trim() ? "robin.jobs.noMatches" : "robin.jobs.emptyList")}</p>
-                    {query.trim() && <button type="button" className="ui-action pi-eyebrow" onClick={() => { setQuery(""); setShown(PAGE_SIZE); setCursor(null); }}>
+                    {query.trim() && <button type="button" className="ui-action pi-eyebrow" onClick={() => { updateView({ q: null, shown: null }); setCursor(null); }}>
                       {t("robin.jobs.clearSearch")}
                     </button>}
                   </div>
@@ -874,7 +874,7 @@ export function JobsBoard() {
                     {groups.length > shown && (
                       <button
                         type="button"
-                        onClick={() => setShown((current) => current + PAGE_SIZE)}
+                        onClick={() => updateView({ shown: String(shown + PAGE_SIZE) }, "replace")}
                         className="ui-action pi-chrome-label pi-bracket self-start text-xs"
                       >
                         {t("robin.jobs.showMore", {

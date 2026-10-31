@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { iconFallback, type Link as SavedLink } from "@/extension/robin/links";
-import { mutate, usePolledResource } from "./usePolledResource";
+import { mutateResponse, usePolledResource } from "./usePolledResource";
 
 /**
  * The sites you actually open, seeded on request.
@@ -28,7 +28,8 @@ const SEEDS = [
  */
 export function JobLinks({ group }: { group: string }) {
   const { t } = useI18n();
-  const { data, error, refresh } = usePolledResource<{ links: SavedLink[] }>("/api/robin/links", 60000);
+  const { data, error, refresh, updateData } = usePolledResource<{ links: SavedLink[] }>("/api/robin/links", 60000);
+  const writing = useRef(false);
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -37,23 +38,32 @@ export function JobLinks({ group }: { group: string }) {
   const links = (data?.links ?? []).filter((link) => (link.group?.trim() || "") === group);
 
   const run = async (action: () => Promise<void>) => {
+    if (writing.current) return;
+    writing.current = true;
     setBusy(true);
     setActionError(null);
     try {
       await action();
-      await refresh();
+      void refresh();
     } catch (caught) {
       setActionError(caught instanceof Error ? caught.message : String(caught));
     } finally {
+      writing.current = false;
       setBusy(false);
     }
+  };
+
+  const saveLink = async (entry: { url: string; title?: string }) => {
+    const response = await mutateResponse("/api/robin/links", "POST", { ...entry, group });
+    const { link } = await response.json() as { link: SavedLink };
+    updateData(current => ({ ...current, links: [...(current?.links ?? []).filter(item => item.id !== link.id), link] }));
   };
 
   const add = (event: React.FormEvent) => {
     event.preventDefault();
     if (!url.trim()) return;
     void run(async () => {
-      await mutate("/api/robin/links", "POST", { url, group });
+      await saveLink({ url });
       setUrl("");
       setAdding(false);
     });
@@ -66,7 +76,7 @@ export function JobLinks({ group }: { group: string }) {
       // outbound requests would race the same file write.
       for (const entry of SEEDS) {
         if (known.has(entry.url)) continue;
-        await mutate("/api/robin/links", "POST", { ...entry, group });
+        await saveLink(entry);
       }
     });
   };
@@ -89,6 +99,7 @@ export function JobLinks({ group }: { group: string }) {
           <button
             type="button"
             onClick={() => setAdding((current) => !current)}
+            disabled={busy}
             className="ui-action pi-chrome-label pi-bracket text-xs"
           >
             {adding ? t("robin.common.cancel") : t("robin.common.add")}
@@ -103,6 +114,7 @@ export function JobLinks({ group }: { group: string }) {
       {adding && (
         <form onSubmit={add} className="flex gap-2">
           <input
+            disabled={busy}
             value={url}
             onChange={(event) => setUrl(event.target.value)}
             placeholder={t("robin.links.urlPlaceholder")}
