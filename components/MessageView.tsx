@@ -422,21 +422,12 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
     >
       <div style={{ display: "flex", alignItems: "flex-end", gap: 6, maxWidth: "85%" }}>
         <div
+          className="chat-user-bubble"
           style={{
             flex: 1,
-            minWidth: 0,
-            background: isEditing ? "color-mix(in srgb, var(--accent) 14%, var(--user-bg))" : "var(--user-bg)",
-            border: isEditing ? "1px solid color-mix(in srgb, var(--accent) 62%, var(--user-bg))" : "1px solid color-mix(in srgb, var(--accent) 20%, transparent)",
+            background: isEditing ? "color-mix(in srgb, var(--accent) 14%, var(--user-bg))" : undefined,
+            border: isEditing ? "1px solid color-mix(in srgb, var(--accent) 62%, var(--user-bg))" : undefined,
             boxShadow: isEditing ? "0 0 0 2px color-mix(in srgb, var(--accent) 16%, transparent)" : undefined,
-            borderRadius: 0,
-            padding: "8px 12px",
-            // The reader's own words are prose too, so they take the serif that
-            // the reply below them is set in.
-            fontFamily: "var(--font-serif)",
-            fontSize: "calc(15px + var(--chat-font-size-offset, 0px))",
-            lineHeight: 1.65,
-            color: "var(--text)",
-            wordBreak: "break-word",
             maxHeight: USER_BUBBLE_MAX_HEIGHT,
             overflowY: "auto",
           }}
@@ -817,17 +808,8 @@ function AssistantMessageView({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      {/* Model label */}
-      <div
-        style={{
-          fontSize: 11,
-          color: "var(--text-dim)",
-          marginBottom: 4,
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-        }}
-      >
+      {/* Same quiet label used by the scoped workspace agents. */}
+      <div className="chat-message-label">
         {message.provider && (
           <span>{getModelDisplayName(message.provider, message.model, modelNames)}</span>
         )}
@@ -1099,7 +1081,7 @@ export function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex 
     <div style={{
       display: "flex", alignItems: "flex-start", gap: 6, minWidth: 0,
       border: "1px solid var(--border)",
-      borderRadius: 0,
+      borderRadius: "var(--control-radius)",
       padding: "6px 10px",
       background: "var(--bg)",
       fontFamily: "var(--font-mono)",
@@ -1223,7 +1205,7 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent, sessionId }: {
   return (
     <div
       style={{
-        borderRadius: 0,
+        borderRadius: "var(--control-radius)",
         overflow: "hidden",
         fontSize: 12,
         border: isError ? "1px solid color-mix(in srgb, var(--danger) 45%, transparent)" : "1px solid color-mix(in srgb, var(--success) 25%, transparent)",

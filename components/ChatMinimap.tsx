@@ -24,7 +24,6 @@ interface Props {
   turnsBefore: number;
 }
 
-const MINIMAP_WIDTH = 36;
 const MAX_NODE_GAP = 50;
 const MINIMAP_PADDING = 12;
 // The lock button sits at the bottom of the rail (6px inset + 30px): nodes stop
@@ -259,6 +258,7 @@ export const ChatMinimap = memo(function ChatMinimap({
   const [allNodes, setAllNodes] = useState<NodeInfo[]>([]);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [minimapHeight, setMinimapHeight] = useState(600);
+  const [previewWidth, setPreviewWidth] = useState(320);
   const [minimapHovered, setMinimapHovered] = useState(false);
   const [locked, setLocked] = useState(loadMinimapPreviewLocked);
   const [mouseYRatio, setMouseYRatio] = useState<number | null>(null);
@@ -384,6 +384,7 @@ export const ChatMinimap = memo(function ChatMinimap({
 
       const nextNodes = createTurnNodes(turns);
       setMinimapHeight(minimapEl.clientHeight);
+      setPreviewWidth(Math.max(0, Math.min(340, scrollEl.clientWidth - 12)));
       allNodesRef.current = nextNodes;
       setAllNodes(nextNodes);
       setVisible(scrollEl.scrollHeight - scrollEl.clientHeight > 20);
@@ -575,7 +576,17 @@ export const ChatMinimap = memo(function ChatMinimap({
     }
   }, [cancelPreviewHide, locked]);
 
+  const closePreview = useCallback(() => {
+    cancelPreviewHide();
+    if (previewBoxRef.current?.parentElement?.contains(document.activeElement)) {
+      containerRef.current?.focus({ preventScroll: true });
+    }
+    setMinimapHovered(false);
+    setMouseYRatio(null);
+  }, [cancelPreviewHide]);
+
   const schedulePreviewHide = useCallback(() => {
+    if (containerRef.current?.contains(document.activeElement)) return;
     cancelPreviewHide();
     previewHideTimerRef.current = setTimeout(() => {
       previewHideTimerRef.current = null;
@@ -587,7 +598,7 @@ export const ChatMinimap = memo(function ChatMinimap({
   useEffect(() => () => cancelPreviewHide(), [cancelPreviewHide]);
 
   const handleMouseDown = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
-    if (!visible) return;
+    if (!visible || event.button !== 0) return;
 
     draggingRef.current = true;
     showPreview();
@@ -620,14 +631,15 @@ export const ChatMinimap = memo(function ChatMinimap({
   const nearestNodeIndex = nearestNode?.index ?? null;
 
   useEffect(() => {
-    if (!minimapHovered || nearestNodeIndex === null) return;
+    const index = nearestNodeIndex ?? activeIndex;
+    if (!minimapHovered || index === null) return;
     const previewBox = previewBoxRef.current;
-    const previewItem = previewItemRefs.current.get(nearestNodeIndex);
-    if (!previewBox || !previewItem) return;
+    const previewItem = previewItemRefs.current.get(index);
+    if (!previewBox || !previewItem || previewBox.contains(document.activeElement)) return;
     const targetTop = previewItem.offsetTop
       - (previewBox.clientHeight - previewItem.offsetHeight) / 2;
     previewBox.scrollTop = Math.max(0, targetTop);
-  }, [allNodes, minimapHovered, nearestNodeIndex]);
+  }, [allNodes, minimapHovered, nearestNodeIndex, activeIndex]);
 
   if (!visible) return null;
 
@@ -639,22 +651,46 @@ export const ChatMinimap = memo(function ChatMinimap({
   return (
     <div
       ref={containerRef}
+      className={styles.rail}
+      data-minimap-rail=""
+      role="navigation"
+      aria-label={t("chatMinimap.title")}
+      tabIndex={0}
+      onFocus={(event) => {
+        cancelPreviewHide();
+        if (event.target === event.currentTarget) showPreview();
+      }}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) schedulePreviewHide();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && minimapHovered) {
+          event.stopPropagation();
+          closePreview();
+        }
+        if (event.target !== event.currentTarget) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          if (minimapHovered) closePreview();
+          else showPreview();
+        }
+        const index = event.key === "Home" ? 0
+          : event.key === "End" ? allNodes.length - 1
+          : event.key === "ArrowDown" ? Math.min(allNodes.length - 1, (activeIndex ?? -1) + 1)
+          : event.key === "ArrowUp" ? Math.max(0, (activeIndex ?? 1) - 1)
+          : null;
+        if (index !== null && allNodes[index]) {
+          event.preventDefault();
+          setMouseYRatio(null);
+          scrollToNode(allNodes[index], "auto");
+        }
+      }}
       onMouseDown={handleMouseDown}
       onMouseEnter={showPreview}
       onMouseLeave={schedulePreviewHide}
       onMouseMove={(event) => {
         const rect = event.currentTarget.getBoundingClientRect();
         setMouseYRatio((event.clientY - rect.top) / rect.height);
-      }}
-      style={{
-        width: MINIMAP_WIDTH,
-        flexShrink: 0,
-        position: "relative",
-        cursor: "pointer",
-        userSelect: "none",
-        borderLeft: "1px solid var(--border)",
-        background: "var(--bg-panel)",
-        overflow: "visible",
       }}
     >
       {turnsBefore > 0 && (
@@ -694,6 +730,8 @@ export const ChatMinimap = memo(function ChatMinimap({
             key={node.index}
             data-minimap-node-index={node.index}
             data-minimap-node-active={isActive ? "" : undefined}
+            data-nearest={isNearest ? "true" : undefined}
+            className={styles.node}
             style={{
               position: "absolute",
               top: `${node.topRatio * 100}%`,
@@ -708,18 +746,7 @@ export const ChatMinimap = memo(function ChatMinimap({
               zIndex: 2,
             }}
           >
-            <div
-              style={{
-                width: 8,
-                height: 8,
-                borderRadius: 0,
-                background: isActive ? "rgba(128,128,128,0.42)" : "rgba(128,128,128,0.16)",
-                border: `1.5px solid ${isActive ? "rgba(128,128,128,0.95)" : "rgba(128,128,128,0.58)"}`,
-                boxShadow: isActive ? "0 0 0 2px var(--bg-panel)" : "none",
-                transition: "transform 0.1s, background 0.1s",
-                transform: isNearest ? "scale(1.25)" : "scale(1)",
-              }}
-            />
+            <span className={styles.tick} />
           </div>
         );
       })}
@@ -759,13 +786,28 @@ export const ChatMinimap = memo(function ChatMinimap({
 
       {minimapHovered && allNodes.length > 0 && (
         <div
-          ref={previewBoxRef}
           className={styles.preview}
+          style={{ width: previewWidth }}
           data-minimap-preview-box=""
           onMouseEnter={showPreview}
           onMouseDown={(event) => event.stopPropagation()}
           onMouseMove={(event) => event.stopPropagation()}
         >
+          <div className={styles.header}>
+            <span className={styles.title}>{t("chatMinimap.title")}</span>
+            <span className={styles.position}>
+              {t("chatMinimap.position", {
+                current: activeIndex === null ? "–" : turnsBefore + activeIndex + 1,
+                total: turnsBefore + allNodes.length,
+              })}
+            </span>
+            <button type="button" className={styles.close} onClick={closePreview} aria-label={t("chat.close")}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+                <path d="m6 6 12 12M18 6 6 18" />
+              </svg>
+            </button>
+          </div>
+          <div ref={previewBoxRef} className={styles.list} data-minimap-preview-list="">
           {turnsBefore > 0 && (
             <button
               type="button"
@@ -789,6 +831,7 @@ export const ChatMinimap = memo(function ChatMinimap({
                 className={styles.turn}
                 data-minimap-preview-index={node.index}
                 data-located={isLocated ? "true" : undefined}
+                data-active={activeIndex === node.index ? "true" : undefined}
               >
                 <span className={styles.number}>
                   <span aria-hidden="true">
@@ -801,6 +844,9 @@ export const ChatMinimap = memo(function ChatMinimap({
                       title={t("chatMinimap.toolCalls", { count: node.targetTurn.toolCount })}
                       aria-label={t("chatMinimap.toolCalls", { count: node.targetTurn.toolCount })}
                     >
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="m8 8-4 4 4 4m8-8 4 4-4 4m-3-11-2 22" />
+                      </svg>
                       {node.targetTurn.toolCount > 99 ? "99+" : node.targetTurn.toolCount}
                     </span>
                   )}
@@ -810,6 +856,8 @@ export const ChatMinimap = memo(function ChatMinimap({
                     type="button"
                     className={styles.user}
                     data-minimap-preview-user={node.index}
+                    aria-current={activeIndex === node.index ? "step" : undefined}
+                    title={getUserPreview(node.targetTurn.userMessage)}
                     onClick={() => {
                       scrollToNode(node, "smooth");
                     }}
@@ -832,7 +880,9 @@ export const ChatMinimap = memo(function ChatMinimap({
                         aria-label={t("chatMinimap.locateAssistant")}
                         title={t("chatMinimap.locateAssistant")}
                       >
-                        A
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M6 4v10h12m-4-4 4 4-4 4" />
+                        </svg>
                       </button>
                       <AssistantOutline
                         markdown={assistant.markdown}
@@ -847,6 +897,7 @@ export const ChatMinimap = memo(function ChatMinimap({
               </div>
             );
           })}
+          </div>
         </div>
       )}
     </div>

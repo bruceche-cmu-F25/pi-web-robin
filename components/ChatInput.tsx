@@ -55,6 +55,8 @@ interface Props {
   isStreaming: boolean;
   /** Text-only composer without the session controls or outer spacing. */
   compact?: boolean;
+  /** Hide shell/command hints when the caller submits literal questions instead. */
+  commandHints?: boolean;
   model?: { provider: string; modelId: string } | null;
   isAutoModelSelection?: boolean;
   modelNames?: Record<string, string>;
@@ -625,6 +627,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   cwd,
   onAttachFiles,
   compact = false,
+  commandHints = true,
 }: Props, ref) {
   const { t } = useI18n();
   const { fontSize } = useChatAppearance();
@@ -641,7 +644,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const [pdfRendering, setPdfRendering] = useState(false);
   const [attachmentNotice, setAttachmentNotice] = useState<{ tone: "warning" | "error"; text: string } | null>(null);
   const trimmedValue = value.trimStart();
-  const bashMode = attachedImages.length === 0 && trimmedValue.startsWith("!");
+  const bashMode = commandHints && attachedImages.length === 0 && trimmedValue.startsWith("!");
   const bashExcluded = bashMode && trimmedValue.startsWith("!!");
   const [slashMenuOpen, setSlashMenuOpen] = useState(false);
   const [slashActiveIndex, setSlashActiveIndex] = useState(0);
@@ -668,6 +671,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const voiceRef = useRef<VoiceHandle>(null);
+  const [voiceCapturing, setVoiceCapturing] = useState(false);
   const [voiceTrigger, setVoiceTrigger] = useState<HTMLSpanElement | null>(null);
   const toolDropdownRef = useRef<HTMLDivElement>(null);
   const thinkingDropdownRef = useRef<HTMLDivElement>(null);
@@ -1068,7 +1072,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
 
   const runBuiltinCommand = useCallback(async (msg: string): Promise<boolean> => {
     if (attachedImages.length || !msg.startsWith("/") || !onBuiltinCommand) return false;
-    if (builtinCommandPendingRef.current) return true;
+    if (builtinCommandPendingRef.current || voiceRef.current?.isCapturing()) return true;
     voiceRef.current?.end();
     builtinCommandPendingRef.current = true;
     setBuiltinCommandPending(true);
@@ -1084,6 +1088,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   }, [attachedImages.length, clearInput, onBuiltinCommand]);
 
   const handleSend = useCallback(async () => {
+    if (voiceRef.current?.isCapturing()) return;
     const msg = value.trim();
     if (!msg && !attachedImages.length) return;
     voiceRef.current?.end();
@@ -1128,7 +1133,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     ? t(slashQuery ? "chat.match" : "chat.command")
     : t(slashQuery ? "chat.matches" : "chat.commands", { count: filteredSlashCommands.length });
   const hasInputText = Boolean(value.trim());
-  const canQueueStreamingMessage = hasInputText || attachedImages.length > 0;
+  const canQueueStreamingMessage = !voiceCapturing && (hasInputText || attachedImages.length > 0);
   // Warn when images are attached but the selected model is known not to accept
   // image input (#584), including a resolved default. Unknown models stay silent.
   const showImageUnsupportedWarning = (
@@ -1309,6 +1314,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   }, []);
 
   const sendQueued = useCallback((mode: "steer" | "followup") => {
+    if (voiceRef.current?.isCapturing()) return;
     const msg = value.trim();
     if (!msg && !attachedImages.length) return;
     onAudioUnlock?.();
@@ -1943,7 +1949,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                 zIndex: 120,
                 background: "var(--bg)",
                 border: "1px solid var(--border)",
-                borderRadius: 0,
+                borderRadius: "var(--card-radius)",
                 boxShadow: "0 -6px 20px rgba(0,0,0,0.12)",
                 overflow: "hidden",
                 maxHeight: "min(44vh, 360px)",
@@ -2030,7 +2036,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                 zIndex: 120,
                 background: "var(--bg)",
                 border: "1px solid var(--border)",
-                borderRadius: 0,
+                borderRadius: "var(--card-radius)",
                 boxShadow: "0 -6px 20px rgba(0,0,0,0.12)",
                 overflow: "hidden",
                 boxSizing: "border-box",
@@ -2189,7 +2195,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                   zIndex: 120,
                   background: "var(--bg)",
                   border: "1px solid var(--border)",
-                  borderRadius: 0,
+                  borderRadius: "var(--card-radius)",
                   boxShadow: "0 -6px 20px rgba(0,0,0,0.12)",
                   overflow: "hidden",
                   boxSizing: "border-box",
@@ -2274,28 +2280,19 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
               </div>
             );
           })()}
-          {!compact && <div style={{ maxHeight: "min(35vh, 260px)", overflowY: "auto" }}>
-            <VoiceControls key={JSON.stringify([draftKey, cwd])} ref={voiceRef}
-              triggerTarget={voiceTrigger} dictationOnly inputKind="message"
-              onTranscript={text => {
-                if (!isComposingRef.current && !builtinCommandPendingRef.current) insertText(text);
-              }}
-              onSend={() => {}} canSend={false} busy={builtinCommandPending} />
-          </div>}
+          {!compact && <VoiceControls key={JSON.stringify([draftKey, cwd])} ref={voiceRef} onCaptureChange={setVoiceCapturing}
+            triggerTarget={voiceTrigger} dictationOnly inline inputKind="message"
+            onTranscript={text => {
+              if (!isComposingRef.current && !builtinCommandPendingRef.current) insertText(text);
+            }}
+            onSend={() => {}} canSend={false} busy={builtinCommandPending} />}
           <div
+            className={`chat-input-surface${compact ? " is-compact" : ""}`}
+            data-streaming={isStreaming || undefined}
             style={{
-              minWidth: 0,
-              display: "flex",
-              flexDirection: compact ? "column" : "row",
-              gap: 8,
-              alignItems: compact ? "stretch" : "center",
-              background: "var(--bg)",
-              border: compact ? "none" : `1px solid ${bashMode ? "var(--tool-bg)" : isStreaming && (onSteer || onFollowUp)
-                ? "color-mix(in srgb, var(--warning) 40%, transparent)"
-                : "color-mix(in srgb, var(--border) 70%, transparent)"}`,
-              borderRadius: 0,
-              padding: compact ? 0 : isMobile ? "6px 6px 6px 12px" : "10px 10px 10px 14px",
-              boxShadow: compact ? "none" : "0 1px 2px var(--bg-subtle), 0 8px 24px -12px var(--bg-selected)",
+              border: compact ? "none" : bashMode ? "1px solid var(--tool-bg)" : isStreaming && (onSteer || onFollowUp)
+                ? "1px solid color-mix(in srgb, var(--warning) 40%, transparent)" : undefined,
+              boxShadow: compact ? "none" : undefined,
               transition: "border-color 0.15s, background 0.15s, box-shadow 0.15s",
             } as React.CSSProperties}
           >
@@ -2331,31 +2328,20 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
               isStreaming && (onSteer || onFollowUp)
                 ? t("chat.steerPlaceholder")
                 : isStreaming ? t("chat.agentPlaceholder")
+                : !commandHints ? t("chat.quoteQuestion")
                 : t("chat.messagePlaceholder")
             }
             rows={1}
             style={{
-              flex: compact ? "none" : 1,
-              minWidth: 0,
-              width: "100%",
-              background: "none",
-              border: "none",
-              outline: "none",
-              resize: "none",
-              color: "var(--text)",
-              fontSize: "var(--chat-content-font-size, 14px)",
-              lineHeight: 1.6,
-              fontFamily: "inherit",
               minHeight: compact ? 96 : 24,
-              maxHeight: 200,
-              overflow: "auto",
             }}
           />
 
           {/* Keep the microphone beside the input, not in the toolbar hidden by mobile keyboards. */}
-          {!compact && <span ref={setVoiceTrigger} style={{ display: "flex", flexShrink: 0, alignSelf: "flex-end" }} />}
+          <div className="chat-input-actions">
+          {!compact && <span ref={setVoiceTrigger} style={{ display: "flex", flexShrink: 0 }} />}
           {isStreaming ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, alignSelf: "flex-end" }}>
+            <>
               {onSteer && (
                 <button
                   onClick={() => sendQueued("steer")}
@@ -2366,7 +2352,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                     padding: "7px 12px",
                     background: canQueueStreamingMessage ? "color-mix(in srgb, var(--warning) 12%, transparent)" : "none",
                     border: "1px solid color-mix(in srgb, var(--warning) 35%, transparent)",
-                    borderRadius: 0,
+                    borderRadius: "var(--input-action-radius, var(--control-radius))",
                     color: canQueueStreamingMessage ? "var(--warning)" : "var(--text-dim)",
                     cursor: canQueueStreamingMessage ? "pointer" : "not-allowed",
                     fontSize: 13, fontWeight: 600, letterSpacing: "-0.01em",
@@ -2390,7 +2376,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                     padding: "7px 12px",
                     background: canQueueStreamingMessage ? "color-mix(in srgb, var(--accent) 12%, transparent)" : "none",
                     border: "1px solid color-mix(in srgb, var(--accent) 35%, transparent)",
-                    borderRadius: 0,
+                    borderRadius: "var(--input-action-radius, var(--control-radius))",
                     color: canQueueStreamingMessage ? "var(--accent)" : "var(--text-dim)",
                     cursor: canQueueStreamingMessage ? "pointer" : "not-allowed",
                     fontSize: 13, fontWeight: 600, letterSpacing: "-0.01em",
@@ -2404,25 +2390,24 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                   {t("chat.followUp")}
                 </button>
               )}
-            </div>
+            </>
           ) : (
             <button
               onClick={handleSend}
-              disabled={!value.trim() && !attachedImages.length}
+              disabled={voiceCapturing || (!value.trim() && !attachedImages.length)}
               // pi's primary action is a bracketed mono label on a hairline, not
               // a filled block; the accent lives in the brackets.
               title={t("chat.send")}
               aria-label={t("chat.send")}
-              className="ui-action ui-action--outline pi-chrome-label"
-              data-state={(value.trim() || attachedImages.length) ? "accent" : "dim"}
-              data-inert={(value.trim() || attachedImages.length) ? undefined : "true"}
+              className="ui-action ui-action--outline pi-chrome-label chat-send-button"
+              data-state={!voiceCapturing && (value.trim() || attachedImages.length) ? "accent" : "dim"}
+              data-inert={!voiceCapturing && (value.trim() || attachedImages.length) ? undefined : "true"}
               style={{
                 flexShrink: 0,
-                alignSelf: "flex-end",
-                display: "flex", alignItems: "center", gap: 6,
-                ...(isMobile ? { width: 36, height: 36, padding: 0, justifyContent: "center" as const } : { padding: "7px 14px" }),
-                borderRadius: 0,
-                cursor: (value.trim() || attachedImages.length) ? "pointer" : "not-allowed",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                padding: isMobile ? 0 : "7px 14px",
+                borderRadius: "var(--input-action-radius, var(--control-radius))",
+                cursor: !voiceCapturing && (value.trim() || attachedImages.length) ? "pointer" : "not-allowed",
                 fontSize: 11,
               }}
             >
@@ -2433,6 +2418,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
               {!isMobile && t("chat.send")}
             </button>
           )}
+          </div>
           </div>
         </div>
 
@@ -2463,7 +2449,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                 flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
                 width: 32, height: 32, padding: 0,
                 border: "none",
-                borderRadius: "var(--panel-radius)",
+                borderRadius: "var(--control-radius)",
               }}
               className="ui-action ui-action--surface"
               data-state={attachedImages.length ? "accent" : undefined}
@@ -2485,7 +2471,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                 flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
                 width: 32, height: 32, padding: 0,
                 border: "none",
-                borderRadius: "var(--panel-radius)",
+                borderRadius: "var(--control-radius)",
                 cursor: pdfRendering ? "wait" : "pointer",
               }}
               className="ui-action ui-action--surface"
@@ -2549,7 +2535,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                   height: 32,
                   padding: "8px 10px",
                   border: "none",
-                  borderRadius: "var(--panel-radius)",
+                  borderRadius: "var(--control-radius)",
                   cursor: controlsMenuOpen ? "default" : "pointer",
                   fontSize: 12,
                   fontWeight: 500,
@@ -2577,7 +2563,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                 flexWrap: "nowrap",
                 justifyContent: "flex-end",
                 border: "1px solid color-mix(in srgb, var(--border) 72%, transparent)",
-                borderRadius: 0,
+                borderRadius: "var(--control-radius)",
                 background: "color-mix(in srgb, var(--bg-panel) 92%, var(--bg))",
                 boxShadow: "0 8px 24px rgba(0,0,0,0.14)",
                 backdropFilter: "blur(10px)",
@@ -2597,7 +2583,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                     width: isMobile ? "auto" : undefined,
                     height: 32,
                     border: "none",
-                    borderRadius: "var(--panel-radius)",
+                    borderRadius: "var(--control-radius)",
                     cursor: "pointer",
                     fontSize: 12,
                   }}
@@ -2682,7 +2668,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                     width: isMobile ? "auto" : undefined,
                     height: 32,
                     border: "none",
-                    borderRadius: "var(--panel-radius)",
+                    borderRadius: "var(--control-radius)",
                     cursor: isStreaming ? "not-allowed" : "pointer",
                     fontSize: 12,
                     opacity: isStreaming ? 0.5 : 1,
@@ -2754,7 +2740,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                     width: isMobile ? "auto" : undefined,
                     height: 32,
                     border: "none",
-                    borderRadius: "var(--panel-radius)",
+                    borderRadius: "var(--control-radius)",
                     cursor: "pointer",
                     fontSize: 12,
                   }}
@@ -2787,7 +2773,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                   height: 32,
                   borderWidth: 1,
                   borderStyle: "solid",
-                  borderRadius: "var(--panel-radius)",
+                  borderRadius: "var(--control-radius)",
                   fontSize: 12, fontWeight: 600,
                   whiteSpace: "nowrap", letterSpacing: "-0.01em",
                 }}
@@ -2813,7 +2799,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                   height: 32,
                   padding: 0,
                   border: "none",
-                  borderRadius: "var(--panel-radius)",
+                  borderRadius: "var(--control-radius)",
                 }}
                 className="ui-action ui-action--surface"
                 data-state={soundEnabled ? undefined : "dim"}
@@ -2855,7 +2841,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                   marginLeft: 0,
                   border: "none",
                   borderLeft: "1px solid color-mix(in srgb, var(--border) 72%, transparent)",
-                  borderRadius: "0 var(--panel-radius) var(--panel-radius) 0",
+                  borderRadius: "0 var(--control-radius) var(--control-radius) 0",
                 }}
                 className="ui-action ui-action--filled"
                 data-state="active"

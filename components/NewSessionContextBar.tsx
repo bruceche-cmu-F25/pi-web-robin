@@ -18,7 +18,7 @@ interface Props {
   onInitialFocusDone: () => void;
   /** Start the fresh composer over in `target`; the shell ignores a move to where it already is. */
   onPick: (target: NewSessionTarget, from: NewSessionContextControl) => void;
-  /** "Use default directory": today's folder, which goes to `onPick`. */
+  /** "General chats": the stable general workspace, which goes to `onPick`. */
   onUseDefaultDirectory: () => void;
   /** "Open another project…": the folder picker, which hands its folder to `onPick`. */
   onOpenFolder: (opener: HTMLElement | null) => void;

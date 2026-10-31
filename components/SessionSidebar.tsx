@@ -508,6 +508,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionSe
   const [error, setError] = useState<string | null>(null);
   const [selectedCwd, setSelectedCwd] = useState<string | null>(null);
   const [homeDir, setHomeDir] = useState<string>("");
+  const [generalProject, setGeneralProject] = useState<ProjectChoice | null>(null);
+  const [openingGeneral, setOpeningGeneral] = useState(false);
+  const openingGeneralRef = useRef(false);
   // Open for the files tab's project list, or for the composer's bar ("new-session").
   const [customPathOpen, setCustomPathOpen] = useState<false | "files" | "new-session">(false);
   const [customPathValue, setCustomPathValue] = useState(loadLastCustomCwd);
@@ -1028,8 +1031,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionSe
   }, [explorerRefreshKey]);
 
   useEffect(() => {
-    fetch("/api/home").then((r) => r.json()).then((d: { home?: string }) => {
+    fetch("/api/home").then((r) => r.json()).then((d: { home?: string; generalProject?: ProjectChoice }) => {
       if (d.home) setHomeDir(d.home);
+      if (d.generalProject) setGeneralProject(d.generalProject);
     }).catch(() => {});
   }, []);
 
@@ -1180,7 +1184,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionSe
   const currentWorktreePath = currentWorktree?.path ?? null;
 
   // `purpose`: who asked, the folder picker's opener by default ("Use default directory" names its own).
-  const commitCustomPath = useCallback(async (candidate?: string, { remember = true, purpose = customPathOpen } = {}) => {
+  const commitCustomPath = useCallback(async (candidate?: string, { remember = true, purpose = customPathOpen }: { remember?: boolean; purpose?: false | "files" | "new-session" | "general-session" } = {}) => {
     const path = (candidate ?? customPathValue).trim();
     if (!path || customPathValidating) return;
 
@@ -1199,7 +1203,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionSe
         error?: string;
       };
       if (!res.ok || data.error || !data.cwd || !data.projectRoot || !data.projectKey) {
-        setCustomPathError(data.error ?? `HTTP ${res.status}`);
+        const error = data.error ?? `HTTP ${res.status}`;
+        setCustomPathError(error);
+        if (purpose === "general-session") showToast(error);
         return;
       }
       if (remember) {
@@ -1207,6 +1213,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionSe
         setCustomPathValue(data.cwd);
       }
       setCustomPathOpen(false);
+      if (purpose === "general-session") {
+        setGeneralProject({ root: data.projectRoot, key: data.projectKey });
+        startNewSessionInRef.current({ cwd: data.cwd, projectKey: data.projectKey, projectRoot: data.projectRoot });
+        setArchiveView(false);
+        return;
+      }
       if (purpose === "new-session") {
         // The composer's bar asked: the shell decides whether its fresh
         // composer moves there, and the sidebar's cwd moves only with it.
@@ -1226,28 +1238,37 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionSe
       });
       setSelectedCwd(data.cwd);
     } catch (e) {
-      setCustomPathError(e instanceof Error ? e.message : String(e));
+      const error = e instanceof Error ? e.message : String(e);
+      setCustomPathError(error);
+      if (purpose === "general-session") showToast(error);
     } finally {
       setCustomPathValidating(false);
     }
-  }, [customPathOpen, customPathValue, customPathValidating, focusAfterCommit]);
+  }, [customPathOpen, customPathValue, customPathValidating, focusAfterCommit, setArchiveView, showToast]);
 
   const handleCustomPathClick = useCallback(() => {
     setCustomPathOpen("files");
     setCustomPathError(null);
   }, []);
-  const handleDefaultCwd = useCallback(async (purpose: "files" | "new-session" = "files") => {
+  const handleDefaultCwd = useCallback(async (purpose: "files" | "new-session" | "general-session" = "files") => {
+    if (openingGeneralRef.current || customPathValidating) return;
+    openingGeneralRef.current = true;
+    setOpeningGeneral(true);
     try {
       const res = await fetch("/api/default-cwd", { method: "POST" });
       const data = await res.json() as { cwd?: string; error?: string };
+      if (!res.ok || data.error || !data.cwd) throw new Error(data.error ?? `HTTP ${res.status}`);
       // Select it like any other directory, so validation, project identity and
       // the file allow-list all go through /api/cwd/validate. It is not a path
       // the user typed, so the custom-path picker does not remember it.
-      if (data.cwd) await commitCustomPath(data.cwd, { remember: false, purpose });
-    } catch {
-      // ignore
+      await commitCustomPath(data.cwd, { remember: false, purpose });
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : String(error));
+    } finally {
+      openingGeneralRef.current = false;
+      setOpeningGeneral(false);
     }
-  }, [commitCustomPath]);
+  }, [commitCustomPath, customPathValidating, showToast]);
   // The composer's bar asks through the handle, which is made once.
   const handleDefaultCwdRef = useRef(handleDefaultCwd);
   handleDefaultCwdRef.current = handleDefaultCwd;
@@ -1430,9 +1451,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionSe
     () => effectiveGroupExpansion(groupExpansion, keptOpenGroups),
     [groupExpansion, keptOpenGroups],
   );
+  const projectLabels = useMemo(() => generalProject
+    ? { [generalProject.key]: t("sidebar.generalChats") }
+    : {}, [generalProject, t]);
   const model = useMemo(() => buildSessionTree({
     sessions: allSessions,
     uiState,
+    projectLabels,
     runningIds: runningSessionIds,
     awaitingIds: awaitingInputSessionIds,
     unreadIds: unreadSessionIds,
@@ -1441,7 +1466,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionSe
     groupExpansion: shownGroupExpansion,
     moreShown,
     pinnedCollapsed,
-  }), [allSessions, uiState, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId, currentProject, shownGroupExpansion, moreShown, pinnedCollapsed]);
+  }), [allSessions, uiState, projectLabels, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId, currentProject, shownGroupExpansion, moreShown, pinnedCollapsed]);
   // Built while the archive view is rendered, its way out included: it
   // leaves as it was, not empty.
   const archiveMounted = archiveMotion.archiveMounted;
@@ -1449,13 +1474,14 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionSe
   const archiveRows = useMemo(() => (archiveMounted ? buildArchiveRows({
     sessions: allSessions,
     uiState,
+    projectLabels,
     runningIds: runningSessionIds,
     awaitingIds: awaitingInputSessionIds,
     unreadIds: unreadSessionIds,
     selectedSessionId,
     currentProject,
     collapsed: archiveCollapsedSet,
-  }) : []), [archiveMounted, allSessions, uiState, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId, currentProject, archiveCollapsedSet]);
+  }) : []), [archiveMounted, allSessions, uiState, projectLabels, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId, currentProject, archiveCollapsedSet]);
   // The archive's projects, top to bottom, folded or not.
   const archiveGroups = useMemo(
     () => archiveRows.flatMap((row) => (row.kind === "archive-group" ? [row] : [])),
@@ -1495,7 +1521,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionSe
   // group (all of them archived, or pinned while the project is not): the
   // project menus of the files tab and of the bar above a fresh composer,
   // with the names the user gave them.
-  const projectNames = uiState.projectNames;
+  const projectNames = useMemo(() => ({ ...projectLabels, ...uiState.projectNames }), [projectLabels, uiState.projectNames]);
   const projectChoiceList = useMemo(
     () => mergeProjectChoices(model.projects, recentProjects, projectNames),
     [model.projects, recentProjects, projectNames],
@@ -2909,6 +2935,19 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionSe
         className="sidebar-panel sidebar-sessions-panel"
         onScrollCapture={rememberScroll}
       >
+        <button
+          type="button"
+          className={`sidebar-general-chat${isMobile ? " is-mobile" : ""}`}
+          title={t("sidebar.newGeneralChat")}
+          aria-label={t("sidebar.newGeneralChat")}
+          disabled={openingGeneral || customPathValidating}
+          aria-busy={openingGeneral}
+          onClick={() => { void handleDefaultCwd("general-session"); }}
+        >
+          <MessageIcon size={14} />
+          <span>{t("sidebar.generalChats")}</span>
+          <PlusIcon size={12} />
+        </button>
         {sessionSearchOpen && (
           <div className="sidebar-search">
             <input

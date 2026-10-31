@@ -34,8 +34,8 @@ test("a document reader keeps local links in the page without an href", () => {
   const external = renderMarkdown("[web](https://example.com) [mail](mailto:hello@example.com) [bad](javascript:alert%281%29)", { onOpenFile: undefined, onNavigateLink() {} });
   assert.equal((external.match(/target="_blank" rel="noopener noreferrer"/g) ?? []).length, 3);
   assert.doesNotMatch(external, /role="link"|javascript:|alert%28/);
-  // Chat keeps its links as they were.
-  assert.match(renderMarkdown("[relative](references/setup.md)", { onOpenFile: undefined }), /<a href="references\/setup.md" target="_blank"/);
+  // Without a file reader, relative URLs use ordinary same-tab navigation.
+  assert.match(renderMarkdown("[relative](references/setup.md)", { onOpenFile: undefined }), /<a href="references\/setup.md">/);
 });
 
 test("a document reader keeps HTML anchor destinations and link labels", () => {
@@ -104,6 +104,16 @@ test("opens desktop app links like other external links (#1108)", () => {
       html,
       /<a (?=[^>]*href="obsidian:\/\/open\?vault=notes")(?=[^>]*target="_blank")(?=[^>]*rel="noopener noreferrer")[^>]*>note<\/a>/,
     );
+  }
+});
+
+test("site pages and query/hash links use native same-tab navigation", () => {
+  for (const props of [{}, { onOpenFile: undefined }]) {
+    for (const href of ["/dashboard/settings#voice", "/learn/fso", "/?session=fixture", "?session=fixture", "#section"]) {
+      const html = renderMarkdown(`[page](${href})`, props);
+      assert.ok(html.includes(`href="${href}"`));
+      assert.doesNotMatch(html, /target=|role="link"/);
+    }
   }
 });
 

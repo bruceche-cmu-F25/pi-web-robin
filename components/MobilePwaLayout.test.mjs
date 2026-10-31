@@ -60,11 +60,14 @@ test("contains chat content and inputs within the mobile viewport", () => {
   assert.match(cssSource, /\.markdown-code-block \{[\s\S]*?min-width: 0;[\s\S]*?max-width: 100%;/);
   assert.match(chatWindowSource, /overflow-x-hidden overflow-y-auto/);
   assert.match(chatWindowSource, /maxHeight: "min\(760px, 100%\)"/);
-  assert.match(chatInputSource, /flex: compact \? "none" : 1,\s*minWidth: 0,\s*width: "100%",/);
+  assert.match(chatInputSource, /className="chat-input-textarea"/);
+  assert.match(cssSource, /\.chat-input-surface > textarea\.chat-input-textarea \{\s*flex: 1 1 120px;\s*min-width: 0;\s*width: 100%;/);
+  assert.match(cssSource, /\.chat-input-surface\.is-compact > \.chat-input-textarea \{ flex: none; \}/);
 });
 
 test("prevents iOS focus zoom from widening the layout", () => {
-  assert.match(cssSource, /@media \(max-width: 640px\)[\s\S]*?textarea,[\s\S]*?input,[\s\S]*?select \{\s*font-size: 16px !important;/);
+  assert.match(cssSource, /@media \(max-width: 640px\), \(any-pointer: coarse\) \{\s*textarea,\s*input,\s*select \{[\s\S]*?font-size: max\(16px, var\(--field-font-size, 16px\)\) !important;/);
+  assert.match(cssSource, /\.chat-input-textarea \{\s*font-size: max\(16px, var\(--chat-content-font-size, 14px\)\) !important;/);
 });
 
 test("keeps modal dialogs clear of the iOS status bar in standalone mode", () => {

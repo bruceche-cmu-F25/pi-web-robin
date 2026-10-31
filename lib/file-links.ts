@@ -1,3 +1,24 @@
+// Root-relative app pages are URLs, not absolute filesystem paths. Keep this
+// list aligned with app/**/page.tsx (the route-coverage test checks it). Explicit
+// file: URLs still open an actual file even when its name matches a route.
+const APP_PAGES = new Set([
+  "/", "/login", "/dashboard", "/dashboard/settings", "/dashboard/kanban",
+  "/dashboard/jobs", "/dashboard/jobs/resume", "/dashboard/events", "/dashboard/gmail", "/dashboard/ai-weekly",
+  "/learn", "/learn/roadmap", "/learn/fullstack", "/learn/watch", "/learn/gpt2", "/learn/fso",
+  "/tools", "/tools/mac", "/recordings", "/product", "/product/jarvis", "/product/validation",
+  "/podcasts", "/notes", "/coding", "/obsidian", "/research", "/outreach", "/outreach/research", "/outreach/batch",
+]);
+
+export function isAppPageHref(href: string): boolean {
+  if (!href.startsWith("/") || href.startsWith("//") || href.includes("\\")) return false;
+  try {
+    const pathname = decodeURIComponent(new URL(href, "https://app.invalid").pathname).replace(/\/+$/, "") || "/";
+    return APP_PAGES.has(pathname) || /^\/dashboard\/events\/[^/]+$/.test(pathname);
+  } catch {
+    return false;
+  }
+}
+
 interface LocalFileClickEvent {
   defaultPrevented: boolean;
   button: number;
@@ -109,7 +130,7 @@ export function resolveLocalFileHref(
   const normalizedHref = normalizeFilePathSlashes(decodedHref);
   const lowerHref = normalizedHref.toLowerCase();
 
-  if (lowerHref.startsWith("/api/") || lowerHref.startsWith("/_next/")) return null;
+  if (isAppPageHref(cleanHref) || lowerHref.startsWith("/api/") || lowerHref.startsWith("/_next/")) return null;
   if (!isBackslashUncPath && normalizedHref.startsWith("//")) return null;
   if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/i.test(normalizedHref) && !lowerHref.startsWith("file:") && !/^[a-zA-Z]:\//.test(normalizedHref)) {
     return null;

@@ -5,6 +5,12 @@ import test from "node:test";
 const source = await readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8");
 const globals = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
 
+test("disconnected history has a persistent alert separate from expiring notices", () => {
+  assert.match(source, /sessionData\?\.context\.integrityWarning && \(\s*<div role="alert"[^>]*>\s*\{sessionData\.context\.integrityWarning\}/);
+  assert.match(source, /className="chat-inline-header">\s*\{sessionData\?\.context\.integrityWarning/);
+  assert.ok(source.indexOf("sessionData?.context.integrityWarning") < source.indexOf('className="chat-transcript-frame'));
+});
+
 test("centres a one-line notice in the card the entrance animation pins", () => {
   const minHeight = Number(source.match(/const NOTICE_MIN_HEIGHT_PX = (\d+);/)[1]);
   const lineBox = Number(source.match(/const NOTICE_LINE_BOX_PX = (\d+);/)[1]);

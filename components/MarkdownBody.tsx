@@ -7,6 +7,7 @@ import { encodeFilePathForApi } from "@/lib/file-paths";
 import { isExternalMarkdownHref, markdownAppUrlTransform, markdownDocumentRehypePlugins, markdownRehypePlugins, markdownRemarkPlugins, markdownUrlTransform, markdownUserRemarkPlugins, normalizeDisplayMath } from "@/lib/markdown";
 import { splitMarkdownBlocks } from "@/lib/markdown-blocks";
 import { ImagePreview } from "./ImagePreview";
+import { MarkdownWebLink } from "./MarkdownWebLink";
 import { MermaidBlock, CodeBlock } from "./MermaidBlock";
 
 const MarkdownLinkContext = createContext(false);
@@ -127,9 +128,9 @@ export const MarkdownBody = memo(function MarkdownBody({ children, className, is
       if (!filePath || !openFile) {
         return (
           <MarkdownLinkContext.Provider value={true}>
-            <a href={href} {...props} target="_blank" rel="noopener noreferrer">
+            <MarkdownWebLink href={href} {...props}>
               {children}
-            </a>
+            </MarkdownWebLink>
           </MarkdownLinkContext.Provider>
         );
       }

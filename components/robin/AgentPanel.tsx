@@ -56,7 +56,7 @@ interface Props {
   onClose?: () => void;
   /** Preserve the transcript/draft but do not dispatch against unconfirmed workspace context. */
   disabled?: boolean;
-  /** Optional controls below the composer, such as a mode-specific model selector. */
+  /** Optional controls in the composer's action row, such as a model selector. */
   footer?: ReactNode;
   /** Keeps each data-driven conversation's visible transcript separate in this browser. */
   transcriptKey?: string;
@@ -114,6 +114,7 @@ export function AgentPanel({
   const [turns, setTurns] = useState<Turn[]>([]);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [voiceTrigger, setVoiceTrigger] = useState<HTMLSpanElement | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [attached, setAttached] = useState<AgentAttachment[]>([]);
   const [attaching, setAttaching] = useState(0);
@@ -335,21 +336,20 @@ export function AgentPanel({
 
   return (
     <section
-      className="flex flex-1 flex-col"
+      className="workspace-agent chat-content flex flex-1 flex-col"
+      aria-label={t(titleKey)}
       style={{ minHeight: 0, outline: dragging ? "2px dashed var(--accent)" : undefined, outlineOffset: -4 }}
       {...dropProps}
     >
       {!collapsed ? <header
-        className="flex items-baseline gap-3 border-b px-3 py-2"
-        style={{ borderColor: "var(--border)" }}
+        className="workspace-agent-header flex items-center gap-2 px-4 py-2"
       >
-        <h2 className="pi-label">{t(titleKey)}</h2>
+        <h2>{t(titleKey)}</h2>
         {onCollapsedChange ? (
           <button
             type="button"
             onClick={() => onCollapsedChange(true)}
-            className="ui-action pi-chrome-label pi-bracket ml-auto"
-            style={{ fontSize: 10 }}
+            className="ui-action ml-auto"
             aria-label="Collapse agent"
             title="Collapse agent"
           >
@@ -360,8 +360,7 @@ export function AgentPanel({
           <button
             type="button"
             onClick={() => { voiceRef.current?.end(); onClose(); }}
-            className="ui-action pi-chrome-label pi-bracket ml-auto"
-            style={{ fontSize: 10 }}
+            className="ui-action ml-auto"
           >
             {t("product.agent.close")}
           </button>
@@ -370,18 +369,17 @@ export function AgentPanel({
           type="button"
           onClick={() => void restart()}
           disabled={busy || disabled}
-          className={`ui-action pi-chrome-label pi-bracket${onClose || onCollapsedChange ? "" : " ml-auto"}`}
-          style={{ fontSize: 10 }}
+          className={`ui-action${onClose || onCollapsedChange ? "" : " ml-auto"}`}
           title={t(restartHintKey)}
         >
           {t("coding.agent.restart")}
         </button>
       </header> : null}
 
-      {!collapsed ? <div ref={transcriptRef} className="flex-1 overflow-y-auto p-3" style={{ minHeight: 0 }}>
-        <div className="flex flex-col gap-3">
+      {!collapsed ? <div ref={transcriptRef} className="workspace-agent-transcript flex-1 overflow-y-auto p-4" style={{ minHeight: 0 }} tabIndex={0} role="region" aria-label={t(titleKey)}>
+        <div>
           {turns.length === 0 && emptyHintKey && (
-            <p className="text-sm leading-relaxed" style={{ color: "var(--text-muted)" }}>{t(emptyHintKey)}</p>
+            <p className="workspace-agent-empty">{t(emptyHintKey)}</p>
           )}
           {turns.map((turn, index) => turn.role === "reset" ? (
             <p key={index} role="note" className="border-t pt-2 text-xs" style={{ borderColor: "var(--border)", color: "var(--text-dim)" }}>
@@ -390,46 +388,34 @@ export function AgentPanel({
           ) : (
             <article
               key={index}
-              className={`flex flex-col gap-1${turn.role === "you" ? " border-l-2 px-3 py-2" : ""}`}
-              style={turn.role === "you" ? {
-                borderColor: "var(--accent)",
-                background: "var(--accent-soft)",
-              } : undefined}
+              className={`workspace-agent-message${turn.role === "you" ? " chat-user-bubble" : ""}`}
+              data-message-role={turn.role === "you" ? "user" : "assistant"}
+              aria-label={turn.role === "you" ? t("coding.agent.you") : t(titleKey)}
             >
-              <span
-                className="pi-eyebrow"
-                style={{ fontSize: 10, color: turn.role === "you" ? "var(--accent)" : undefined }}
-              >
-                {turn.role === "you" ? t("coding.agent.you") : t(titleKey)}
-              </span>
+              {turn.role === "agent" && <div className="chat-message-label">{t(titleKey)}</div>}
               {turn.role === "you" ? (
                 <>
                   {turn.text ? (
-                    <p style={{ fontSize: 16, lineHeight: 1.55, fontWeight: 500, whiteSpace: "pre-wrap", color: "var(--text)" }}>
-                      {turn.text}
-                    </p>
+                    <MarkdownBody className="markdown-user-message" keepLineBreaks>{turn.text}</MarkdownBody>
                   ) : null}
                   {turn.attachments?.length ? (
-                    <span className="pi-eyebrow" style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "none", letterSpacing: 0 }}>
-                      {turn.attachments.map((name) => `📎 ${name}`).join("   ")}
-                    </span>
+                    <div className="workspace-agent-meta">{turn.attachments.join(" · ")}</div>
                   ) : null}
                 </>
               ) : (
-                <MarkdownBody className="pi-prose" >{turn.text}</MarkdownBody>
+                <MarkdownBody>{turn.text}</MarkdownBody>
               )}
               {turn.tools && turn.tools.length > 0 ? (
-                <span className="pi-eyebrow" style={{ fontSize: 9, color: "var(--text-dim)" }}>
-                  {[...new Set(turn.tools)]
-                    .map((name) => (toolKeys[name] ? t(toolKeys[name]) : name))
-                    .join(" · ")}
-                </span>
+                <details className="workspace-agent-tools">
+                  <summary>{t("tools.label")} · {new Set(turn.tools).size}</summary>
+                  <ul>{[...new Set(turn.tools)].map((name) => <li key={name}>{toolKeys[name] ? t(toolKeys[name]) : name}</li>)}</ul>
+                </details>
               ) : null}
               {replyAction && turn.role === "agent" && turn.text.trim() ? (
                 <button
                   type="button"
-                  className="ui-action pi-chrome-label pi-bracket self-start"
-                  style={{ fontSize: 9 }}
+                  className="ui-action workspace-agent-meta"
+                  style={{ minHeight: 44 }}
                   onClick={() => replyAction.onReply(turn.text)}
                 >
                   {t(replyAction.labelKey)}
@@ -439,16 +425,16 @@ export function AgentPanel({
           ))}
         </div>
         {busy ? (
-          <p className="pi-eyebrow mt-3" style={{ fontSize: 10 }}>{t("robin.assistant.working")}</p>
+          <p className="chat-message-label mt-3" role="status">{t("robin.assistant.working")}</p>
         ) : null}
         {error ? (
-          <p className="mt-3" style={{ fontSize: 12, color: "var(--danger)" }}>{error}</p>
+          <p role="alert" className="mt-3" style={{ fontSize: 12, color: "var(--danger)" }}>{error}</p>
         ) : null}
       </div> : null}
 
       <div
-        className={`border-t p-3${collapsed ? " flex items-center gap-2" : ""}`}
-        style={{ borderColor: "var(--border)" }}
+        className="workspace-agent-composer"
+        data-collapsed={collapsed || undefined}
       >
         {attachments ? (
           <input
@@ -499,11 +485,17 @@ export function AgentPanel({
             ))}
           </ul>
         ) : null}
+        {!collapsed && <VoiceControls ref={voiceRef} key={`${endpoint}:${mode}:${transcriptKey ?? ""}:${JSON.stringify(requestBody)}`}
+          triggerTarget={voiceTrigger} inputKind="message"
+          onTranscript={text => setMessage(previous => [previous.trim(), text].filter(Boolean).join("\n"))}
+          onSend={() => void send(message)} canSend={!!message.trim() || attached.length > 0}
+          busy={busy || disabled || attaching > 0} replyText={turns.filter(turn => turn.role === "agent").at(-1)?.text} />}
+        <div className="chat-input-surface">
         {collapsed ? (
           <button
             type="button"
             onClick={() => onCollapsedChange?.(false)}
-            className="ui-action pi-label shrink-0"
+            className="ui-action shrink-0"
             aria-label="Expand agent"
             title="Expand agent"
           >
@@ -544,7 +536,7 @@ export function AgentPanel({
             event.preventDefault();
             void send(message);
           }}
-          rows={collapsed ? 1 : 3}
+          rows={collapsed ? 1 : 2}
           // Never disabled, even while the agent is thinking — a turn can take
           // half a minute, and yanking `disabled` onto a focused textarea
           // mid-word tears down an in-flight IME composition, which is how
@@ -552,54 +544,32 @@ export function AgentPanel({
           // refuses to fire while busy, so nothing is lost by staying typable.
           aria-label={t(placeholderKey)}
           placeholder={t(placeholderKey)}
-          className="pi-panel w-full resize-none p-2"
-          style={{ fontSize: 13, background: "var(--bg-deep)", color: "var(--text)" }}
+          className="chat-input-textarea"
         />
-        {!collapsed && attachments ? (
-          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={disabled || attaching > 0}
-              className="ui-action pi-chrome-label pi-bracket"
-              style={{ fontSize: 10 }}
-              title={t("robin.agent.attachHint")}
-            >
-              {attaching > 0 ? t("robin.agent.attaching") : t("robin.agent.attach")}
-            </button>
+        <div className="workspace-agent-controls">
+        {!collapsed && footer ? <div className="workspace-agent-options">{footer}</div> : null}
+        <div className="chat-input-actions">
+          {attachments && <button type="button" className="ui-action" onClick={() => fileInputRef.current?.click()}
+            disabled={disabled || attaching > 0} aria-label={t("robin.agent.attach")} title={t("robin.agent.attachHint")}>
+            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="m21 11-9 9a6 6 0 0 1-8.5-8.5l10-10a4 4 0 0 1 5.7 5.7L9.1 17.3a2 2 0 0 1-2.8-2.8L16 4.8" /></svg>
+          </button>}
+          {!collapsed && <span ref={setVoiceTrigger} />}
+          <button type="button" onClick={() => void send(message)}
+            disabled={busy || disabled || attaching > 0 || (!message.trim() && attached.length === 0)}
+            className="ui-action ui-action--primary chat-send-button"
+            aria-label={t("chat.send")} title={t("chat.send")}>
+            <svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 7h9m-3.5-4L12 7l-4.5 4" /></svg>
+          </button>
+        </div>
+        </div>
+        </div>
+        {!collapsed && attachments && (attaching > 0 || attachNotice) ? (
+          <div className="workspace-agent-footer">
+            {attaching > 0 && <span role="status">{t("robin.agent.attaching")}</span>}
             <span style={{ fontSize: 11, color: attachNotice ? "var(--warning)" : "var(--text-dim)" }} role={attachNotice ? "status" : undefined}>
-              {attachNotice ?? t("robin.agent.attachHint")}
+              {attachNotice}
             </span>
           </div>
-        ) : null}
-        {!collapsed && <VoiceControls ref={voiceRef} key={`${endpoint}:${mode}:${transcriptKey ?? ""}:${JSON.stringify(requestBody)}`}
-          onTranscript={text => setMessage(previous => [previous.trim(), text].filter(Boolean).join("\n"))}
-          onSend={() => void send(message)} canSend={!!message.trim() || attached.length > 0}
-          busy={busy || disabled || attaching > 0} replyText={turns.filter(turn => turn.role === "agent").at(-1)?.text} />}
-        {!collapsed && footer ? <div className="mt-2">{footer}</div> : null}
-        {collapsed && attachments ? (
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={disabled || attaching > 0}
-            className="ui-action pi-chrome-label pi-bracket shrink-0"
-            style={{ fontSize: 10 }}
-            aria-label={t("robin.agent.attach")}
-            title={t("robin.agent.attachHint")}
-          >
-            {t("robin.agent.attach")}
-          </button>
-        ) : null}
-        {collapsed ? (
-          <button
-            type="button"
-            onClick={() => onCollapsedChange?.(false)}
-            className="ui-action pi-chrome-label pi-bracket shrink-0"
-            aria-label="Expand agent"
-            title="Expand agent"
-          >
-            ↑
-          </button>
         ) : null}
       </div>
     </section>

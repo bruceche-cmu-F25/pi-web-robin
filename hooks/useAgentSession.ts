@@ -74,6 +74,7 @@ export interface SessionData {
   /** "summary" when `tree` carries the body-free navigation format. */
   treeFormat?: "summary";
   context: {
+    integrityWarning?: string;
     messages: AgentMessage[];
     entryIds: string[];
     oldestEntryId: string | null;
@@ -205,6 +206,10 @@ export interface UseAgentSessionOptions {
   /** Opens Settings on a section; a bare `/mcp` the built-in MCP extension owns opens Settings › MCP. */
   onOpenSettings?: (section: SettingsSection) => void;
   setToolPreset?: (preset: ToolPreset) => void;
+  /** A fresh embedded composer's explicit loadout; does not change the browser preference. */
+  initialToolPreset?: ToolPreset;
+  /** Persist the dedicated, project-free explanation policy on creation. */
+  sideChat?: boolean;
   deferInitialScroll?: boolean;
   /** A fresh composer's model and reasoning picks to start with: the composer it replaces had them. */
   initialNewSessionChoices?: NewSessionChoices | null;
@@ -384,7 +389,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [modelThinkingLevelMaps, setModelThinkingLevelMaps] = useState<Record<string, Record<string, string | null>>>({});
   const [newSessionModel, setNewSessionModel] = useState<SelectedModel | null>(() => initialChoices?.model ?? null);
   const [newSessionDefaultModel, setNewSessionDefaultModel] = useState<SelectedModel | null>(null);
-  const [toolPreset, setToolPreset] = useState<ToolPreset>(CONFIGURED_TOOL_PRESET);
+  const [toolPreset, setToolPreset] = useState<ToolPreset>(opts.initialToolPreset ?? CONFIGURED_TOOL_PRESET);
   const [newSessionThinkingLevel, setNewSessionThinkingLevel] = useState<ConcreteThinkingLevel | null>(() => initialChoices?.thinkingLevel ?? null);
   const [newSessionDefaultThinkingLevel, setNewSessionDefaultThinkingLevel] = useState<ConcreteThinkingLevel | null>(null);
   const [savedDefaultThinkingLevel, setSavedDefaultThinkingLevel] = useState<ConcreteThinkingLevel | null>(null);
@@ -534,8 +539,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   useLayoutEffect(() => {
     if (!existingSessionId && (!isNew || sessionIdRef.current)) return;
-    setToolPresetState(getPreferredToolPreset());
-  }, [existingSessionId, isNew, setToolPresetState]);
+    setToolPresetState(opts.initialToolPreset ?? getPreferredToolPreset());
+  }, [existingSessionId, isNew, opts.initialToolPreset, setToolPresetState]);
 
   const onNewSessionChoicesChange = opts.onNewSessionChoicesChange;
   useEffect(() => {
@@ -933,6 +938,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         body: JSON.stringify({
           cwd: newSessionCwd,
           type: "ensure_session",
+          ...(opts.sideChat ? { sideChat: true } : {}),
           ...(toolNames !== undefined ? { toolNames } : {}),
           ...(selectedModel ? { provider: selectedModel.provider, modelId: selectedModel.modelId } : {}),
           ...(selectedThinkingLevel
@@ -975,7 +981,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       ensuringNewSessionRef.current = null;
     }
-  }, [isNew, newSessionCwd, toolPreset]);
+  }, [isNew, newSessionCwd, toolPreset, opts.sideChat]);
 
   // Opening the System or Tools panel may initialize an otherwise dormant
   // session. This is deliberately a non-prompt command: it creates no message
@@ -2466,7 +2472,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [cancelEventStreamGrace, clearSlashCommands, closeEvents, loadTools, maintainEventsConnected, setToolPresetState, syncLiveModel]);
 
-  const scrollToMessage = useCallback((element: HTMLElement, viewportOffset = 16) => {
+  const scrollToMessage = useCallback((element: HTMLElement, viewportOffset?: number) => {
     const container = scrollContainerRef.current;
     if (!container) return;
     if (liveFollowFrameRef.current !== null) {
@@ -2481,7 +2487,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       top: element.getBoundingClientRect().top
         - container.getBoundingClientRect().top
         + container.scrollTop
-        - viewportOffset,
+        - (viewportOffset ?? (parseFloat(getComputedStyle(container).scrollPaddingTop) || 16)),
       behavior: "instant",
     });
     previousScrollTopRef.current = container.scrollTop;
@@ -2493,7 +2499,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (!container || !el) return;
     const elAbsTop = el.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop;
     const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
-    const targetTop = Math.min(Math.max(0, elAbsTop - 16), maxScrollTop);
+    const topInset = parseFloat(getComputedStyle(container).scrollPaddingTop) || 16;
+    const targetTop = Math.min(Math.max(0, elAbsTop - topInset), maxScrollTop);
 
     if (liveFollowFrameRef.current !== null) {
       cancelAnimationFrame(liveFollowFrameRef.current);

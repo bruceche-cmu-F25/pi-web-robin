@@ -9,7 +9,7 @@ export interface Tab {
   id: string;
   label: string;
   filePath: string;
-  kind?: "file" | "terminal" | "agent";
+  kind?: "file" | "terminal" | "agent" | "chat";
   sourceSessionId?: string | null;
   /** A terminal tab waiting for its PTY to close or restart. */
   closing?: boolean;
@@ -38,8 +38,12 @@ interface Props {
   onCloseTab: (id: string) => void;
 }
 
+function ChatIcon() {
+  return <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 15a3 3 0 0 1-3 3H9l-6 4V6a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3z" /></svg>;
+}
+
 function TabIcon({ tab }: { tab: Tab }) {
-  return tab.kind === "terminal" ? <TerminalIcon /> : getFileIcon(tab.label, 13);
+  return tab.kind === "terminal" ? <TerminalIcon /> : tab.kind === "chat" ? <ChatIcon /> : getFileIcon(tab.label, 13);
 }
 
 function CloseIcon() {
@@ -83,7 +87,7 @@ export function TabBar({ tabs, activeTabId, mobile = false, onSelectTab, onClose
 
   if (mobile) {
     return (
-      <div ref={mobilePickerRef} style={{ position: "relative", height: 44, background: "var(--bg-panel)" }}>
+      <div ref={mobilePickerRef} className="workspace-tabs" style={{ position: "relative", height: 44, background: "var(--bg-panel)" }}>
         <button
           ref={mobileTriggerRef}
           type="button"
@@ -170,6 +174,7 @@ export function TabBar({ tabs, activeTabId, mobile = false, onSelectTab, onClose
   return (
     <div
       role="tablist"
+      className="workspace-tabs"
       style={{
         // The tabs fill the scrollport, not a fixed 36px: once they overflow,
         // the app's scrollbar (globals.css) takes its height out of the bar,
@@ -244,7 +249,7 @@ export function TabBar({ tabs, activeTabId, mobile = false, onSelectTab, onClose
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <rect x="5" y="7" width="14" height="11" rx="2" /><path d="M9 11h.01M15 11h.01M9 15h6M12 7V4M10 4h4" />
                 </svg>
-              ) : getFileIcon(tab.label, 13)}
+              ) : tab.kind === "chat" ? <ChatIcon /> : getFileIcon(tab.label, 13)}
             </span>
             <span
               style={{

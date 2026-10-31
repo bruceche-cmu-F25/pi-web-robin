@@ -13,6 +13,8 @@ import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-fi
 import { getFinalAnswerViews, keepWrittenFiles, type FinalAnswerViews } from "@/lib/turn-views";
 import { formatTurnDuration, getTurnDurationMs } from "@/lib/turn-duration";
 import { buildQuotedSelection } from "@/lib/quoted-selection";
+import { sideChatContext, sideChatContextFits, type SideChatRequest } from "@/lib/side-chat";
+import { preserveSelectionReadingPosition } from "@/lib/selection-reading-anchor";
 import { dropMentionText, splitDroppedItems, uploadFiles, type DroppedItem } from "@/lib/file-upload-client";
 import { MessageView } from "./MessageView";
 import { MarkdownBody } from "./MarkdownBody";
@@ -28,6 +30,7 @@ import type { StreamingStore } from "@/lib/streaming-message";
 import { useDragDrop } from "@/hooks/useDragDrop";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useScrollbarVisibility } from "@/hooks/useScrollbarVisibility";
+import { useChatChromeInsets } from "@/hooks/useChatChromeInsets";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import type { AppUpdateResponse } from "@/lib/api-types";
 import type { ToolEntry } from "@/lib/tool-presets";
@@ -89,6 +92,7 @@ interface Props {
   onOpenSubagent?: (sessionId: string, label: string) => void;
   onAskInNewChat?: (prompt: string, sourceSessionId: string, sourceEntryId: string) => Promise<void>;
   quoteSelectionEnabled?: boolean;
+  onExplainSelection?: (request: SideChatRequest) => void;
   initialPrompt?: string;
   onInitialPromptConsumed?: () => void;
   /** Completion sound state + controls, owned by AppShell so tasks finishing in
@@ -287,8 +291,8 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, durationMs, cacheMis
   );
 }
 
-export function ChatWindow({ session, sessionSearchOpen = false, sessionSearchTarget, onSessionSearchOpenChange, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, newSessionContextBar, initialNewSessionChoices, onNewSessionChoicesChange, onAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onOpenSettings, onContextUsageChange, onOpenFile, onFilesUploaded, onOpenSubagent, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio, holdAudio }: Props) {
-  const { t } = useI18n();
+export function ChatWindow({ session, sessionSearchOpen = false, sessionSearchTarget, onSessionSearchOpenChange, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, newSessionContextBar, initialNewSessionChoices, onNewSessionChoicesChange, onAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onOpenSettings, onContextUsageChange, onOpenFile, onFilesUploaded, onOpenSubagent, onAskInNewChat, quoteSelectionEnabled = false, onExplainSelection, initialPrompt, onInitialPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio, holdAudio }: Props) {
+  const { t, locale } = useI18n();
   const isMobile = useIsMobile();
   const completionNotificationsEnabled = session?.relation?.kind !== "subagent";
 
@@ -317,7 +321,7 @@ export function ChatWindow({ session, sessionSearchOpen = false, sessionSearchTa
   const [restoreAnchorReady, setRestoreAnchorReady] = useState(false);
 
   const {
-    loading, error, messages, activeToolResults, entryIds, messageKeys, historyCursor, hasEarlierMessages, earlierTurnCount, streamingStore,
+    data: sessionData, loading, error, messages, activeToolResults, entryIds, messageKeys, historyCursor, hasEarlierMessages, earlierTurnCount, streamingStore,
     agentRunning, bashRunning, pendingBash, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, modelSwitching, sessionStats,
@@ -363,7 +367,12 @@ export function ChatWindow({ session, sessionSearchOpen = false, sessionSearchTa
     top: number;
     left: number;
     sourceEntryId?: string;
+    sideChatEntryId?: string;
+    range: Range;
   } | null>(null);
+  const readingAnchorCleanupRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => readingAnchorCleanupRef.current?.(), []);
+  const selectionActionsEnabled = quoteSelectionEnabled || Boolean(onExplainSelection);
   const [quoteInputOpen, setQuoteInputOpen] = useState(false);
   const [quoteSubmitting, setQuoteSubmitting] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
@@ -376,11 +385,11 @@ export function ChatWindow({ session, sessionSearchOpen = false, sessionSearchTa
   }, []);
 
   useEffect(() => {
-    if (!quoteSelectionEnabled) closeQuotedSelection();
-  }, [quoteSelectionEnabled, closeQuotedSelection]);
+    if (!selectionActionsEnabled) closeQuotedSelection();
+  }, [selectionActionsEnabled, closeQuotedSelection]);
 
   const captureQuotedSelection = useCallback(() => {
-    if (!quoteSelectionEnabled || quoteInputOpen) return;
+    if (!selectionActionsEnabled || quoteInputOpen) return;
     const selection = window.getSelection();
     const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
     const root = messageContentRef.current;
@@ -406,13 +415,37 @@ export function ChatWindow({ session, sessionSearchOpen = false, sessionSearchTa
     const sourceEntryId = [ancestor, start, end]
       .map((element) => element?.closest<HTMLElement>("[data-message-role=\"assistant\"]")?.dataset.entryId)
       .find((entryId): entryId is string => Boolean(entryId));
+    const startAnswer = start?.closest<HTMLElement>('[data-message-role="assistant"]');
+    const endAnswer = end?.closest<HTMLElement>('[data-message-role="assistant"]');
+    // A side explanation is tied to one finished answer's text, never a tool,
+    // thinking block, composer, or a selection spanning different messages.
+    const sideChatEntryId = startAnswer === endAnswer && start?.closest("[data-message-text]") && end?.closest("[data-message-text]")
+      ? startAnswer?.dataset.entryId : undefined;
+    if (!quoteSelectionEnabled && !sideChatEntryId) { setQuotedSelection(null); return; }
     setQuotedSelection({
       text,
       top: Math.min(window.innerHeight - 44, rect.bottom + 8),
       left: Math.max(64, Math.min(window.innerWidth - 64, rect.left + rect.width / 2)),
       sourceEntryId,
+      sideChatEntryId,
+      range: range.cloneRange(),
     });
-  }, [quoteSelectionEnabled, quoteInputOpen]);
+  }, [selectionActionsEnabled, quoteSelectionEnabled, quoteInputOpen]);
+
+  // Keyboard selection and mobile selection handles do not always emit pointerup.
+  useEffect(() => {
+    if (!selectionActionsEnabled) return;
+    let timer: ReturnType<typeof setTimeout>;
+    const changed = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (quotePopoverRef.current?.contains(document.activeElement)) return;
+        captureQuotedSelection();
+      }, 150);
+    };
+    document.addEventListener("selectionchange", changed);
+    return () => { clearTimeout(timer); document.removeEventListener("selectionchange", changed); };
+  }, [selectionActionsEnabled, captureQuotedSelection]);
 
   useEffect(() => {
     if (!quoteInputOpen || !quotedSelection) return;
@@ -498,6 +531,28 @@ export function ChatWindow({ session, sessionSearchOpen = false, sessionSearchTa
       setQuoteSubmitting(false);
     }
   }, [onAskInNewChat, quotedSelection, quoteSubmitting, session?.id, sessionIdRef, closeQuotedSelection, unlockAudio]);
+
+  const explainSelection = useCallback(() => {
+    const sourceSessionId = sessionIdRef.current ?? session?.id;
+    const cwd = session?.cwd ?? newSessionCwd;
+    const entryId = quotedSelection?.sideChatEntryId;
+    if (!onExplainSelection || !quotedSelection || !entryId || !sourceSessionId || !cwd) return;
+    const context = sideChatContext(messages, entryIds, entryId, quotedSelection.text);
+    if (!context) return;
+    if (!sideChatContextFits(context)) { setQuoteError(t("sideChat.tooLong")); return; }
+    const container = scrollContainerRef.current;
+    const node = quotedSelection.range.startContainer;
+    const element = node.nodeType === Node.ELEMENT_NODE ? node as HTMLElement : node.parentElement;
+    if (container && element) {
+      // Detach main-chat auto-follow without moving the reading position.
+      scrollToMessage(element, element.getBoundingClientRect().top - container.getBoundingClientRect().top);
+      readingAnchorCleanupRef.current?.();
+      readingAnchorCleanupRef.current = preserveSelectionReadingPosition(container, quotedSelection.range);
+    }
+    onExplainSelection({ context, sourceSessionId, sourceEntryId: entryId, cwd, model: displayModelValue, language: locale });
+    window.getSelection()?.removeAllRanges();
+    closeQuotedSelection();
+  }, [onExplainSelection, quotedSelection, sessionIdRef, session, newSessionCwd, messages, entryIds, scrollContainerRef, scrollToMessage, displayModelValue, locale, closeQuotedSelection, t]);
 
   const initialPromptSentRef = useRef(false);
   useEffect(() => {
@@ -987,6 +1042,8 @@ export function ChatWindow({ session, sessionSearchOpen = false, sessionSearchTa
   }, [sessionSearchMatches.length]);
 
   const isEmptyNew = isNew && messages.length === 0 && !isStreaming && !sessionBusy;
+  const chatContentRef = useRef<HTMLDivElement>(null);
+  useChatChromeInsets(chatContentRef, !loading && !error && !isEmptyNew);
   const tailView = chatTailView({ isStreaming, streamingContentLength: hasStreamingContent ? 1 : 0, agentRunning, hasPhase: Boolean(agentPhase || isCompacting) });
   useScrollbarVisibility(scrollContainerRef, Boolean(session?.id) || !isEmptyNew);
   const messageCwd = session?.cwd ?? newSessionCwd ?? undefined;
@@ -1025,14 +1082,15 @@ export function ChatWindow({ session, sessionSearchOpen = false, sessionSearchTa
       const userMessageTop = userMessage.getBoundingClientRect().top
         - containerTop
         + container.scrollTop;
-      const targetTop = Math.max(0, userMessageTop - 16);
+      const scrollStyle = getComputedStyle(container);
+      const targetTop = Math.max(0, userMessageTop - (parseFloat(scrollStyle.scrollPaddingTop) || 16));
       const contentEnd = spacer.getBoundingClientRect().top
         - containerTop
         + container.scrollTop;
       const nextPromptAnchorSpacerHeight = getPromptAnchorSpacerHeight(
         targetTop,
         contentEnd,
-        container.clientHeight,
+        container.clientHeight - (parseFloat(scrollStyle.paddingBottom) || 0),
       );
 
       const isInitialMeasurement = !promptAnchorAdjustmentDoneRef.current;
@@ -1167,6 +1225,7 @@ export function ChatWindow({ session, sessionSearchOpen = false, sessionSearchTa
 
   return (
     <div
+      ref={chatContentRef}
       className="chat-content relative flex h-full min-w-0 flex-col overflow-hidden"
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       onDragEnter={handleDragEnter}
@@ -1230,7 +1289,7 @@ export function ChatWindow({ session, sessionSearchOpen = false, sessionSearchTa
       <div
         style={{
           position: "absolute",
-          top: 12,
+          top: "calc(var(--chat-visible-top, 0px) + 12px)",
           left: 0,
           right: isMobile ? 0 : CHAT_MINIMAP_WIDTH,
           zIndex: 40,
@@ -1244,6 +1303,12 @@ export function ChatWindow({ session, sessionSearchOpen = false, sessionSearchTa
         <NoticeShelf notices={notices} floating onPauseChange={setNoticePaused} />
       </div>
 
+      <div className="chat-inline-header">
+      {sessionData?.context.integrityWarning && (
+        <div role="alert" className="shrink-0 border-b border-border px-4 py-3 text-sm text-text-muted break-words">
+          {sessionData.context.integrityWarning}
+        </div>
+      )}
       {sessionSearchOpen && (
         <div
           role="search"
@@ -1337,7 +1402,8 @@ export function ChatWindow({ session, sessionSearchOpen = false, sessionSearchTa
         </div>
       )}
 
-      <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+      </div>
+      <div className="chat-transcript-frame relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
         {extensionDialog && (
           <ExtensionDialog key={extensionDialog.id} request={extensionDialog} waitingCount={waitingExtensionDialogCount} onRespond={respondToExtensionUi} />
         )}
@@ -1351,7 +1417,7 @@ export function ChatWindow({ session, sessionSearchOpen = false, sessionSearchTa
           // so it shows its scrollbar instead of hiding it behind the minimap (#788).
           // A stable gutter keeps the centred column from shifting when a short
           // session grows past one screen.
-          className="scrollbar-subtle min-w-0 flex-1 overflow-x-hidden overflow-y-auto pt-4 [scrollbar-gutter:stable]"
+          className="chat-transcript-scroll scrollbar-subtle min-w-0 flex-1 overflow-x-hidden overflow-y-auto pt-4 [scrollbar-gutter:stable]"
           style={{ visibility: pendingScrollRestore ? "hidden" : undefined }}
         >
           <div style={{ minWidth: 0, padding: `0 ${CHAT_COLUMN_PADDING}px` }}>
@@ -1638,7 +1704,7 @@ export function ChatWindow({ session, sessionSearchOpen = false, sessionSearchTa
         </>}
       </div>
 
-      {quoteSelectionEnabled && quotedSelection && createPortal(
+      {selectionActionsEnabled && quotedSelection && createPortal(
         <div
           ref={quotePopoverRef}
           role={quoteInputOpen ? "dialog" : "toolbar"}
@@ -1684,7 +1750,16 @@ export function ChatWindow({ session, sessionSearchOpen = false, sessionSearchTa
               {quoteError && <div role="alert" style={{ color: "#dc2626", fontSize: 12, overflowWrap: "anywhere" }}>{quoteError}</div>}
             </fieldset>
           ) : <>
-          <button
+          {onExplainSelection && quotedSelection.sideChatEntryId && (
+            <button
+              type="button"
+              className="file-viewer-icon-button"
+              onPointerDown={(event) => event.preventDefault()}
+              onClick={explainSelection}
+              style={{ width: "auto", minHeight: 44, flex: "0 0 auto", whiteSpace: "nowrap", padding: "0 12px", border: "none", color: "var(--accent)", fontSize: 12 }}
+            >{t("sideChat.explain")}</button>
+          )}
+          {quoteSelectionEnabled && <button
             type="button"
             className="file-viewer-icon-button"
             title={t("chat.askInCurrent")}
@@ -1695,8 +1770,8 @@ export function ChatWindow({ session, sessionSearchOpen = false, sessionSearchTa
           >
             <span aria-hidden="true" style={{ fontSize: 15 }}>@</span>
             <span>{t("chat.askInCurrent")}</span>
-          </button>
-          {onAskInNewChat && quotedSelection.sourceEntryId && !bashRunning && (
+          </button>}
+          {quoteSelectionEnabled && onAskInNewChat && quotedSelection.sourceEntryId && !bashRunning && (
             <button
               type="button"
               className="file-viewer-icon-button"
@@ -1712,12 +1787,13 @@ export function ChatWindow({ session, sessionSearchOpen = false, sessionSearchTa
               <span>{t("chat.askInNewChat")}</span>
             </button>
           )}
+          {quoteError && <div role="alert" style={{ padding: 8, color: "var(--danger)", fontSize: 12 }}>{quoteError}</div>}
           </>}
         </div>,
         document.body,
       )}
 
-      <div className="relative shrink-0">
+      <div className="chat-composer relative shrink-0">
         {!isEmptyNew && (
           <div
             style={{

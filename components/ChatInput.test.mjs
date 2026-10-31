@@ -265,6 +265,22 @@ test("cycleListIndex wraps in both directions", () => {
   assert.equal(cycleListIndex(-1, 4, 1), 0);
 });
 
+test("streaming actions use the same control radius as Send", () => {
+  for (const compact of [false, true]) {
+    const html = renderToStaticMarkup(
+      React.createElement(I18nProvider, null, React.createElement(ChatInput, {
+        onSend() {}, onAbort() {}, onSteer() {}, onFollowUp() {}, isStreaming: true, compact,
+      })),
+    );
+    for (const label of ["Steer", "Follow-up"]) {
+      const button = [...html.matchAll(/<button\b[^>]*>[\s\S]*?<\/button>/g)]
+        .map(match => match[0]).find(markup => markup.endsWith(`${label}</button>`));
+      assert.ok(button, `${label} renders (compact=${compact})`);
+      assert.match(button, /border-radius:var\(--input-action-radius, var\(--control-radius\)\)/);
+    }
+  }
+});
+
 test("shows the follow-up shortcut in the button tooltip", () => {
   const html = renderToStaticMarkup(
     React.createElement(I18nProvider, null, React.createElement(ChatInput, {
@@ -639,13 +655,13 @@ test("locks built-in command submission until it settles", async () => {
     onBuiltinCommand: async () => new Promise((resolve) => { callback.resolve = resolve; }),
     setBuiltinCommandPending(value) { callback.pendingStates.push(value); },
     valueRef: { current: "/reload" },
-    voiceRef: { current: { end() { callback.voiceEnded = true; } } },
+    voiceRef: { current: { isCapturing: () => false, end() { callback.voiceEnded = true; } } },
   });
   callback.pendingStates = [];
 
   const first = callback("/reload");
   assert.deepEqual(callback.pendingStates, [true]);
-  assert.equal(callback.voiceEnded, true, "command submission ends pending dictation");
+  assert.equal(callback.voiceEnded, true, "command submission dismisses an idle voice panel");
   assert.equal(await callback("/reload"), true);
   assert.deepEqual(callback.pendingStates, [true]);
   callback.resolve({ handled: true });
@@ -701,7 +717,7 @@ function chatInputCallback(name, context) {
   }
   return new Script(ts.transpileModule(findCallback(source).getText(source), {
     compilerOptions: { target: ts.ScriptTarget.ES2020 },
-  }).outputText).runInNewContext(context);
+  }).outputText).runInNewContext({ voiceRef: { current: null }, ...context });
 }
 
 test("while a run streams, a bare /mcp opens Settings or is queued as before", async () => {
@@ -746,7 +762,7 @@ test("handleSend lets a handled /mcp through while streaming and sends an unowne
       onAudioUnlock() {},
       isStreaming,
       offersBuiltinSlashCommandWhileStreaming,
-      voiceRef: { current: { end() {} } },
+      voiceRef: { current: { isCapturing: () => false, end() {} } },
       runBuiltinCommand: async (message) => { calls.builtin.push(message); return handled; },
       clearInput() {},
       onSend: (message) => calls.sent.push(message),
@@ -761,16 +777,35 @@ test("handleSend lets a handled /mcp through while streaming and sends an unowne
   assert.deepEqual(await run("/mcp login", { isStreaming: true, handled: false }), { builtin: [], sent: [] });
 });
 
-test("sending ends pending dictation before dispatch, even before a built-in lookup resolves", async () => {
+test("sending dismisses idle voice UI before dispatch, even before a built-in lookup resolves", async () => {
   const calls = [];
   const send = chatInputCallback("handleSend", {
     value: "existing draft", attachedImages: [], isStreaming: false,
-    voiceRef: { current: { end() { calls.push("end-voice"); } } },
+    voiceRef: { current: { isCapturing: () => false, end() { calls.push("end-voice"); } } },
     onAudioUnlock() {}, runBuiltinCommand: async () => { calls.push("lookup"); return false; },
     clearInput() {}, onSend() { calls.push("send"); },
   });
   await send();
   assert.deepEqual(calls, ["end-voice", "lookup", "send"]);
+});
+
+test("capture blocks send, queued actions and built-ins synchronously without clearing or ending audio", async () => {
+  for (const name of ['handleSend', 'sendQueued', 'runBuiltinCommand']) {
+    const calls = [];
+    const callback = chatInputCallback(name, {
+      value: '/mcp', attachedImages: [], isStreaming: false,
+      builtinCommandPendingRef: { current: false },
+      voiceRef: { current: { isCapturing: () => true, end() { calls.push('end'); } } },
+      onBuiltinCommand() { calls.push('builtin'); },
+      runBuiltinCommand() { calls.push('lookup'); },
+      onAudioUnlock() { calls.push('audio'); },
+      clearInput() { calls.push('clear'); }, onSend() { calls.push('send'); },
+      onSteer() { calls.push('steer'); }, onFollowUp() { calls.push('followup'); },
+    });
+    await callback(name === 'sendQueued' ? 'steer' : '/mcp');
+    assert.deepEqual(calls, [], name);
+    if (name === 'sendQueued') { await callback('followup'); assert.deepEqual(calls, []); }
+  }
 });
 
 test("dictation shares the native selection insert rather than replacing the draft", () => {

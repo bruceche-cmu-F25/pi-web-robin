@@ -69,6 +69,8 @@ export interface SessionTreeInput {
   /** The full catalog (allSessions), subagents included. */
   sessions: readonly SessionInfo[];
   uiState: SessionUiState;
+  /** Built-in display labels; user renames still win. Never persisted as custom names. */
+  projectLabels?: Readonly<Record<string, string>>;
   runningIds: ReadonlySet<string>;
   /** Members parked on an extension's blocking dialog, a subset of runningIds (/api/agent/running). */
   awaitingIds?: ReadonlySet<string>;
@@ -261,6 +263,7 @@ function familyProjectRoot(family: SessionFamily): string {
 function createProjectResolver(
   uiState: SessionUiState,
   currentProject: { key: string; root: string } | null,
+  projectLabels: Readonly<Record<string, string>> = {},
 ) {
   const roots = new Map<string, string>();
   const projects = new Map<string, SidebarProject>();
@@ -283,7 +286,7 @@ function createProjectResolver(
       const project: SidebarProject = {
         key,
         root,
-        name: customName ?? projectNameOf(root),
+        name: customName ?? (Object.hasOwn(projectLabels, key) ? projectLabels[key] : projectNameOf(root)),
         customName,
         pinned: pinnedEntry !== undefined,
         current,
@@ -404,7 +407,7 @@ function moreRowState(total: number, visible: number, revealed: number): { hidde
 export function buildSessionTree(input: SessionTreeInput): SessionTreeModel {
   const { uiState, runningIds, currentProject } = input;
   const families = listSessionFamilies(input.sessions);
-  const resolver = createProjectResolver(uiState, currentProject);
+  const resolver = createProjectResolver(uiState, currentProject, input.projectLabels);
 
   let archivedCount = 0;
   const pinnedFamilies: SessionFamily[] = [];
@@ -563,12 +566,12 @@ export function nextProjectKeysToRecord(toRecord: readonly string[], sent: Reado
  * own choice, lib/sidebar-prefs.ts); folded, only its header shows.
  */
 export function buildArchiveRows(
-  input: Pick<SessionTreeInput, "sessions" | "uiState" | "runningIds" | "awaitingIds" | "unreadIds" | "selectedSessionId" | "currentProject">
+  input: Pick<SessionTreeInput, "sessions" | "uiState" | "runningIds" | "awaitingIds" | "unreadIds" | "selectedSessionId" | "currentProject" | "projectLabels">
     & { collapsed?: ReadonlySet<string> },
 ): SidebarRow[] {
   const { uiState, runningIds } = input;
   const flags: FamilyFlagsInput = input;
-  const resolver = createProjectResolver(uiState, input.currentProject);
+  const resolver = createProjectResolver(uiState, input.currentProject, input.projectLabels);
   const groups = new Map<string, { newest: number; families: { family: SessionFamily; archivedAt: number }[] }>();
 
   for (const family of listSessionFamilies(input.sessions)) {

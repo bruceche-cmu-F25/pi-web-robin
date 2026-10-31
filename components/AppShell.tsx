@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useReducer, useRef, useEffect, useLayoutEffect, useMemo } from "react";
 import dynamic from "next/dynamic";
+import { createPortal } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useWorkspaceShortcuts } from "@/hooks/useWorkspaceShortcuts";
@@ -16,13 +17,17 @@ import { SettingsPanel, SettingsSectionIcon } from "./SettingsPanel";
 import { ProjectTrustDialog, type ProjectTrustFailure } from "./ProjectTrustDialog";
 import { newTerminalTab, restoreTerminalTabs, TERMINAL_TABS_KEY, type TerminalTab } from "./terminal-tab-state";
 import { AssistantPalette } from "./robin/AssistantPalette";
+import { LiquidGlassEffects } from "./LiquidGlassEffects";
 import { RobinMargin } from "./robin/RobinMargin";
 import { BranchNavigator, hasSessionBranches } from "./BranchNavigator";
 import { SystemPromptPanel } from "./SystemPromptPanel";
 import { ToolDefinitionsPanel } from "./ToolDefinitionsPanel";
 import { AgentSessionPanel } from "./AgentSessionPanel";
 import { SubagentViewer } from "./SubagentViewer";
+import { SideChat } from "./SideChat";
+import type { SideChatRequest, SideChatTab } from "@/lib/side-chat";
 import { useFontPreferences } from "@/hooks/useFontPreferences";
+import { useNavigationPlacement } from "@/hooks/useNavigationPlacement";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile, useIsNarrowMobile } from "@/hooks/useIsMobile";
 import { useViewportHeight } from "@/hooks/useViewportHeight";
@@ -127,6 +132,7 @@ export function AppShell() {
   // Restore fonts even when Settings and the chat composer have not been opened.
   useFontPreferences();
   const { locale, t: translate } = useI18n();
+  const navigationPlacement = useNavigationPlacement();
   const isMobile = useIsMobile();
   const isNarrowMobile = useIsNarrowMobile();
   // Read inside the reducer, which must see the breakpoint as of dispatch.
@@ -489,6 +495,14 @@ export function AppShell() {
     dispatchPanel({ type: "focus_sidebar_for_search" });
   }, []);
 
+  const handleSessionSearchOpenChange = useCallback((open: boolean) => {
+    setSessionSearchOpen(open);
+    if (open) {
+      dispatchPanel({ type: "close_top_panel" });
+      dispatchPanel({ type: "close_mobile_more" });
+    }
+  }, []);
+
   const handleMobileToolbarMoreToggle = useCallback(() => {
     dispatchPanel({ type: "toggle_mobile_more" });
   }, []);
@@ -563,6 +577,27 @@ export function AppShell() {
   // Subagent work tabs are session-scoped and transient: no persistence, and
   // they are dropped when the project changes (they belong to its sessions).
   const [agentTabs, setAgentTabs] = useState<{ sessionId: string; label: string }[]>([]);
+  // Keep side chats mounted when hidden: a visibility change must not send
+  // their initial question again, lose a draft, or disconnect a live response.
+  const [sideChats, setSideChats] = useState<SideChatTab[]>([]);
+  const handleExplainSelection = useCallback((request: SideChatRequest) => {
+    const id = `side-chat:${typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`}`;
+    const excerpt = Array.from(request.context.selection.replace(/\s+/g, " ")).slice(0, 40).join("");
+    setSideChats((tabs) => [...tabs, { ...request, id, label: `${translate("sideChat.title")}: ${excerpt}` }]);
+    setActiveFileTabId(id);
+    setRightPanelExpanded(false);
+    dispatchPanel({ type: "open_right_panel" });
+  }, [translate]);
+  const returnSideChatFocus = useCallback((tab: SideChatTab) => {
+    if (selectedSessionRef.current?.id !== tab.sourceSessionId) return;
+    const source = document.querySelector<HTMLElement>(`[data-message-role="assistant"][data-entry-id="${CSS.escape(tab.sourceEntryId)}"]`);
+    requestAnimationFrame(() => {
+      if (source?.isConnected && selectedSessionRef.current?.id === tab.sourceSessionId) {
+        source.tabIndex = -1;
+        source.focus({ preventScroll: true });
+      }
+    });
+  }, []);
   const panelTabs: Tab[] = [
     ...fileTabs,
     ...terminalTabs.map((tab) => ({
@@ -578,6 +613,7 @@ export function AppShell() {
       filePath: tab.label,
       kind: "agent" as const,
     })),
+    ...sideChats.map((tab) => ({ id: tab.id, label: tab.label, filePath: tab.context.selection, kind: "chat" as const })),
   ];
 
   useEffect(() => {
@@ -629,8 +665,9 @@ export function AppShell() {
     setFileTabs(next.tabs);
     // Subagent tabs belong to the previous project's sessions: dropped, not parked.
     setAgentTabs([]);
+    setSideChats([]);
     // Terminal tabs span workspaces and keep control of the panel while active.
-    if (!activeFileTabId || activeFileId || activeFileTabId.startsWith("agent:")) {
+    if (!activeFileTabId || activeFileId || activeFileTabId.startsWith("agent:") || activeFileTabId.startsWith("side-chat:")) {
       setActiveFileTabId(next.activeTabId);
       dispatchPanel({ type: next.open ? "open_right_panel" : "close_right_panel" });
     }
@@ -1283,8 +1320,8 @@ export function AppShell() {
     const replacement = tab.closing === "restart" ? newTerminalTab(tab.cwd) : null;
     const remaining = terminalTabs.filter((item) => item.id !== tab.id);
     setTerminalTabs((tabs) => tabs.flatMap((item) => item.id !== tab.id ? [item] : replacement ? [replacement] : []));
-    setActiveFileTabId((current) => current !== tab.id ? current : replacement?.id ?? remaining.at(-1)?.id ?? fileTabs.at(-1)?.id ?? lastAgentTabId(agentTabs));
-    if (!replacement && !remaining.length && !fileTabs.length && !agentTabs.length) dispatchPanel({ type: "close_right_panel" });
+    setActiveFileTabId((current) => current !== tab.id ? current : replacement?.id ?? remaining.at(-1)?.id ?? fileTabs.at(-1)?.id ?? lastAgentTabId(agentTabs) ?? sideChats.at(-1)?.id ?? null);
+    if (!replacement && !remaining.length && !fileTabs.length && !agentTabs.length && !sideChats.length) dispatchPanel({ type: "close_right_panel" });
   };
 
   const handleCloseFileTab = useCallback((tabId: string) => {
@@ -1292,27 +1329,36 @@ export function AppShell() {
       setTerminalTabs((tabs) => tabs.map((tab) => tab.id === tabId && !tab.closing ? { ...tab, closing: "close" } : tab));
       return;
     }
+    if (tabId.startsWith("side-chat:")) {
+      const tab = sideChats.find((item) => item.id === tabId);
+      const remaining = sideChats.filter((item) => item.id !== tabId);
+      setSideChats(remaining);
+      setActiveFileTabId((current) => current !== tabId ? current : remaining.at(-1)?.id ?? fileTabs.at(-1)?.id ?? terminalTabs.at(-1)?.id ?? lastAgentTabId(agentTabs));
+      if (!remaining.length && !fileTabs.length && !terminalTabs.length && !agentTabs.length) dispatchPanel({ type: "close_right_panel" });
+      if (tab && activeFileTabId === tabId) returnSideChatFocus(tab);
+      return;
+    }
     if (tabId.startsWith("agent:")) {
       const remainingAgents = agentTabs.filter((tab) => `agent:${tab.sessionId}` !== tabId);
       setAgentTabs(remainingAgents);
       setActiveFileTabId((cur) => {
         if (cur !== tabId) return cur;
-        return fileTabs.at(-1)?.id ?? terminalTabs.at(-1)?.id ?? lastAgentTabId(remainingAgents);
+        return fileTabs.at(-1)?.id ?? terminalTabs.at(-1)?.id ?? lastAgentTabId(remainingAgents) ?? sideChats.at(-1)?.id ?? null;
       });
-      if (fileTabs.length === 0 && terminalTabs.length === 0 && remainingAgents.length === 0) dispatchPanel({ type: "close_right_panel" });
+      if (fileTabs.length === 0 && terminalTabs.length === 0 && remainingAgents.length === 0 && sideChats.length === 0) dispatchPanel({ type: "close_right_panel" });
       return;
     }
     setFileTabs((prev) => {
       const next = prev.filter((t) => t.id !== tabId);
-      if (next.length === 0 && terminalTabs.length === 0 && agentTabs.length === 0) dispatchPanel({ type: "close_right_panel" });
+      if (next.length === 0 && terminalTabs.length === 0 && agentTabs.length === 0 && sideChats.length === 0) dispatchPanel({ type: "close_right_panel" });
       return next;
     });
     setActiveFileTabId((cur) => {
       if (cur !== tabId) return cur;
       const remaining = fileTabs.filter((t) => t.id !== tabId);
-      return remaining.at(-1)?.id ?? terminalTabs.at(-1)?.id ?? lastAgentTabId(agentTabs);
+      return remaining.at(-1)?.id ?? terminalTabs.at(-1)?.id ?? lastAgentTabId(agentTabs) ?? sideChats.at(-1)?.id ?? null;
     });
-  }, [fileTabs, terminalTabs, agentTabs]);
+  }, [fileTabs, terminalTabs, agentTabs, sideChats, activeFileTabId, returnSideChatFocus]);
 
   const handleViewFullHistory = useCallback(() => {
     if (!selectedSession) return;
@@ -1485,7 +1531,7 @@ export function AppShell() {
         onRunningSessionIdsChange={handleRunningSessionIdsChange}
         onSessionsChange={handleSessionsChange}
       />
-      <div style={{ padding: "8px", flexShrink: 0, display: "flex", justifyContent: "space-between", gap: 4 }}>
+      <div className="sidebar-settings-shortcuts" style={{ padding: "8px", flexShrink: 0, display: "flex", flexWrap: "wrap", justifyContent: "space-between", gap: 4 }}>
         {([
           ["models", translate("common.models")],
           ["skills", translate("common.skills")],
@@ -1594,8 +1640,7 @@ export function AppShell() {
           type="button"
           onClick={() => {
             setSessionSearchTarget(null);
-            setSessionSearchOpen((open) => !open);
-            if (mobile) dispatchPanel({ type: "open_mobile_more" });
+            handleSessionSearchOpenChange(!sessionSearchOpen);
           }}
           disabled={!showChat}
           title={translate("sessionSearch.current")}
@@ -2227,9 +2272,8 @@ export function AppShell() {
         }
       }
     `}</style>
-    <div className="chat-shell" style={{
+    <div className="chat-shell" data-navigation-placement={navigationPlacement} style={{
       display: "flex",
-      flexDirection: "column",
       width: "100%",
       height: "var(--app-viewport-height, 100dvh)",
       paddingLeft: "env(safe-area-inset-left)",
@@ -2253,6 +2297,7 @@ export function AppShell() {
       display: "flex",
       flex: 1,
       width: "100%",
+      minWidth: 0,
       minHeight: 0,
       overflow: "hidden",
       // Transparent so the ruled paper painted on <html> reads through the
@@ -2308,7 +2353,7 @@ export function AppShell() {
       )}
 
       {/* Center: chat */}
-      <div inert={rightPanelFullWidth} style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
+      <div className="chat-main" inert={rightPanelFullWidth} style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
         {/* Top bar with sidebar toggle. A tier below the Robin masthead: the
             page's own ground rather than the masthead's wash, so the masthead
             is the one bar that reads as chrome. */}
@@ -2434,13 +2479,15 @@ export function AppShell() {
             />
           )}
           {/* Top panel dropdown — shared, only one active at a time */}
-          {activeTopPanel && topPanelPos && (
+          {/* A filtered toolbar establishes a fixed containing block. Keep
+              viewport-positioned panels outside it, above the transcript. */}
+          {activeTopPanel && activeTopPanel !== "branches" && topPanelPos && createPortal(
             <div className="pi-topbar-panel" style={{
               position: "fixed",
               top: topPanelPos.top,
               left: topPanelPos.left,
               width: topPanelPos.width,
-              maxHeight: `calc(100dvh - ${topPanelPos.top}px)`,
+              maxHeight: `calc(var(--app-viewport-height, 100dvh) - ${topPanelPos.top}px - 8px)`,
               overflowY: "auto",
               zIndex: 500,
             }}>
@@ -2651,7 +2698,7 @@ export function AppShell() {
                   )}
                 </div>
               )}
-            </div>
+            </div>, document.body
           )}
 
         </div>
@@ -2659,7 +2706,7 @@ export function AppShell() {
         </div>
 
         {/* Chat content */}
-        <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
+        <div className="chat-main-body" style={{ flex: 1, overflow: "hidden", position: "relative" }}>
           {showChat ? (
             <ChatWindow
               key={sessionKey}
@@ -2671,7 +2718,7 @@ export function AppShell() {
               onSearchTargetHandled={() => setChatSearchTarget(null)}
               sessionSearchOpen={sessionSearchOpen}
               sessionSearchTarget={sessionSearchTarget}
-              onSessionSearchOpenChange={setSessionSearchOpen}
+              onSessionSearchOpenChange={handleSessionSearchOpenChange}
               newSessionCwd={effectiveNewSessionCwd}
               newSessionDraftKey={newSessionDraftKey}
               newSessionContextBar={newSessionContextBar}
@@ -2697,6 +2744,7 @@ export function AppShell() {
               onOpenSubagent={handleOpenSubagentTab}
               onAskInNewChat={handleAskInNewChat}
               quoteSelectionEnabled={quoteSelectionEnabled}
+              onExplainSelection={handleExplainSelection}
               initialPrompt={pendingQuotePrompt?.sessionId === selectedSession?.id ? pendingQuotePrompt?.text : undefined}
               onInitialPromptConsumed={() => setPendingQuotePrompt(null)}
               soundEnabled={soundEnabled}
@@ -2770,6 +2818,15 @@ export function AppShell() {
       <div
         ref={rightPanelResizer.panelRef}
         id="file-panel"
+        onKeyDown={(event) => {
+          const tab = sideChats.find((item) => item.id === activeFileTabId);
+          if (!rightPanelOpen || !tab || event.key !== "Escape" || event.defaultPrevented || event.nativeEvent.isComposing) return;
+          // The side chat's tab/header must not route Escape to the main run either.
+          event.preventDefault();
+          event.stopPropagation();
+          dispatchPanel({ type: "close_right_panel" });
+          returnSideChatFocus(tab);
+        }}
         className={`right-panel-container${rightPanelOpen ? " right-panel-open" : " right-panel-closed"}${rightPanelFullWidth ? " right-panel-full-width" : ""}${rightPanelResizer.isResizing ? " right-panel-resizing" : ""}`}
         style={{
           "--right-panel-width": `${rightPanelResizer.width}px`,
@@ -2780,7 +2837,7 @@ export function AppShell() {
         } as React.CSSProperties}
       >
         {/* Right panel tab bar */}
-        <div style={{
+        <div className="workspace-panel-header" style={{
           display: "flex",
           alignItems: "center",
           flexShrink: 0,
@@ -2863,7 +2920,7 @@ export function AppShell() {
                 { sourceSessionId: activeFileTab.sourceSessionId, page },
               )}
             />
-          ) : !terminalTabs.some((tab) => tab.id === activeFileTabId) && !activeAgentTab ? (
+          ) : !terminalTabs.some((tab) => tab.id === activeFileTabId) && !activeAgentTab && !sideChats.some((tab) => tab.id === activeFileTabId) ? (
             <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 12 }}>
                {translate("files.noneOpen")}
             </div>
@@ -2877,6 +2934,14 @@ export function AppShell() {
                 onClosed={() => handleTerminalClosed(tab)}
                 onCloseError={() => setTerminalTabs((tabs) => tabs.map((item) => item.id === tab.id ? { ...item, closing: undefined } : item))}
               />
+            </div>
+          ))}
+          {sideChats.map((tab) => (
+            <div key={tab.id} hidden={tab.id !== activeFileTabId} inert={!rightPanelOpen || tab.id !== activeFileTabId} style={{ height: "100%" }}>
+              <SideChat tab={tab} active={rightPanelOpen && tab.id === activeFileTabId} onClose={() => {
+                dispatchPanel({ type: "close_right_panel" });
+                returnSideChatFocus(tab);
+              }} />
             </div>
           ))}
           {activeAgentTab && (
@@ -2930,6 +2995,7 @@ export function AppShell() {
       sessionId={selectedSession?.id ?? null}
       cwd={selectedSession?.cwd ?? newSessionCwd ?? activeCwd}
     />
+    <LiquidGlassEffects />
     </>
   );
 }

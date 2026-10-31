@@ -7,7 +7,7 @@ import { createJiti } from "jiti";
 
 registerHooks({
   load(url, context, nextLoad) {
-    if (!url.endsWith(".module.css")) return nextLoad(url, context);
+    if (!url.endsWith(".css")) return nextLoad(url, context);
     return {
       format: "module",
       shortCircuit: true,

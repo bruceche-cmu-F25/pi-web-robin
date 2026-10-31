@@ -7,6 +7,8 @@
 // both sides apply, so the client can apply a change optimistically exactly as
 // the server will. Client-safe: no Node imports.
 
+import type { SessionReview } from "./session-reviews";
+
 export const SESSION_UI_STATE_VERSION = 1;
 /** The session ids pi writes (UUIDs); same as `lib/session-reader.ts`. */
 export const SESSION_ID_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/;
@@ -52,6 +54,8 @@ export interface SessionUiState {
    * they are. Absent while empty.
    */
   projectNames?: Record<string, string>;
+  /** Latest completed reply per chat; acceptance is shared across browsers. */
+  reviews?: Record<string, SessionReview>;
 }
 /** Where a moved project goes, next to its anchor. */
 export type ProjectMovePosition = "before" | "after";
@@ -242,6 +246,14 @@ export function normalizeSessionUiState(value: unknown): SessionUiState | null {
       bytes += size;
     }
     if (count > 0) state.projectNames = names;
+  }
+  if (isPlainObject(value.reviews)) {
+    const reviews: Record<string, SessionReview> = {};
+    for (const [id, review] of Object.entries(value.reviews)) {
+      if (!isSessionId(id) || !isPlainObject(review) || !isSessionId(review.entryId) || !isTimestamp(review.completedAt)) continue;
+      reviews[id] = { entryId: review.entryId as string, completedAt: review.completedAt as number, ...(review.reviewed === true ? { reviewed: true } : {}) };
+    }
+    if (Object.keys(reviews).length) state.reviews = reviews;
   }
   return state;
 }

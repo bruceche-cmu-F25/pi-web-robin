@@ -400,6 +400,8 @@ export interface SessionInfo {
 }
 
 export interface SessionContext {
+  /** Read-only diagnostic; never a message sent to the model. */
+  integrityWarning?: string;
   messages: AgentMessage[];
   entryIds: string[]; // parallel to messages — the session entry id for each message
   oldestEntryId: string | null;

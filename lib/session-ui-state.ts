@@ -23,7 +23,7 @@ import {
 
 const MAX_BYTES = 4 * 1024 * 1024;
 // `__proto__` is never copied: assigning it would set the object's prototype instead.
-const KNOWN_KEYS = new Set(["version", "revision", "sessions", "projects", "projectOrder", "projectNames", "__proto__"]);
+const KNOWN_KEYS = new Set(["version", "revision", "sessions", "projects", "projectOrder", "projectNames", "reviews", "__proto__"]);
 
 // Route handlers are bundled separately and hot reload re-evaluates modules; globalThis keeps one queue per process.
 const QUEUE_KEY: symbol = Symbol.for("pi-web:session-ui-state-write-queue");
@@ -226,6 +226,7 @@ function editState(
         projects: next.projects,
         ...(next.projectOrder?.length ? { projectOrder: next.projectOrder } : {}),
         ...(next.projectNames && Object.keys(next.projectNames).length > 0 ? { projectNames: next.projectNames } : {}),
+        ...(next.reviews && Object.keys(next.reviews).length > 0 ? { reviews: next.reviews } : {}),
         ...extras,
       };
       writePrivateFileAtomicSync(path, JSON.stringify(document, null, 2) + "\n");
@@ -257,20 +258,51 @@ export function updateSessionUiState(request: SessionUiStateRequest, path?: stri
   return editState(target, (state) => applySessionUiStateRequest(state, request, Date.now()));
 }
 
+/** Strict read: a storage failure must not look like an empty review queue. */
+export function readSessionReviews(path?: string) {
+  return structuredClone(loadState(path ?? getSessionUiStatePath()).reviews ?? {});
+}
+
+/** Called only by the settled, non-suppressed completion path. */
+export async function recordSessionReview(id: string, entryId: string, path?: string): Promise<void> {
+  await editState(path ?? getSessionUiStatePath(), (state) => {
+    // Replayed completion/metadata-only commands cannot resurrect an accepted reply.
+    if (state.reviews?.[id]?.entryId === entryId) return { state, changed: false };
+    return { state: { ...state, reviews: { ...state.reviews, [id]: { entryId, completedAt: Date.now() } } }, changed: true };
+  });
+}
+
+/** Compare the displayed reply, not just the chat id: a newer reply stays pending. */
+export async function acceptSessionReview(id: string, entryId: string, path?: string): Promise<boolean> {
+  let accepted = false;
+  await editState(path ?? getSessionUiStatePath(), (state) => {
+    const review = state.reviews?.[id];
+    if (!review || review.entryId !== entryId) return { state, changed: false };
+    accepted = true;
+    if (review.reviewed) return { state, changed: false };
+    return { state: { ...state, reviews: { ...state.reviews, [id]: { ...review, reviewed: true } } }, changed: true };
+  });
+  return accepted;
+}
+
 /** Removes those session entries; no-op (no write) if none present. */
 export async function forgetSessionUiState(ids: Iterable<string>, path?: string): Promise<void> {
   const target = path ?? getSessionUiStatePath();
   const wanted = [...new Set(ids)];
   if (wanted.length === 0) return;
-  const has = (state: SessionUiState) => wanted.some((id) => Object.prototype.hasOwnProperty.call(state.sessions, id));
+  const has = (state: SessionUiState) => wanted.some((id) => Object.prototype.hasOwnProperty.call(state.sessions, id) || Object.prototype.hasOwnProperty.call(state.reviews ?? {}, id));
   // Deleting a session must not lock or create anything when it had no pin or archive time.
   // A file that cannot be read throws here: the locked read could not do better.
   if (!has(loadState(target))) return;
   await editState(target, (state) => {
     if (!has(state)) return { state, changed: false };
     const sessions = { ...state.sessions };
-    for (const id of wanted) delete sessions[id];
-    return { state: { ...state, sessions }, changed: true };
+    const reviews = { ...state.reviews };
+    for (const id of wanted) { delete sessions[id]; delete reviews[id]; }
+    const next = { ...state, sessions };
+    if (Object.keys(reviews).length) next.reviews = reviews;
+    else delete next.reviews;
+    return { state: next, changed: true };
   });
 }
 

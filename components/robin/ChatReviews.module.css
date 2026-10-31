@@ -1,0 +1,37 @@
+.section { min-width: 0; margin-bottom: 20px; color: var(--text); font: 400 max(14px, .875rem)/1.5 var(--font-ui-default); }
+.section header { display: flex; align-items: baseline; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; padding: 0 4px 8px; }
+.section header :global(.pi-section-title) { font: 400 max(16px, 1rem)/1.4 var(--font-ui-default); letter-spacing: -.01em; }
+.hint { margin: 4px 4px 8px; color: var(--text-muted); font-size: max(12px, .75rem); }
+.list { list-style: none; margin: 0; padding: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 1.5rem; background: var(--bg-panel); }
+.swipeRow { display: flex; align-items: stretch; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scrollbar-width: none; }
+.swipeRow::-webkit-scrollbar { display: none; }
+.list li + li { border-top: 1px solid var(--workspace-line, var(--border)); }
+.list a { display: flex; flex: 0 0 100%; min-width: 0; min-height: 64px; align-items: center; gap: 12px; padding: 10px 16px; color: var(--text); font: inherit; scroll-snap-align: start; }
+.list :focus-visible { outline-offset: -3px; }
+.copy { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 4px; }
+.title { overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; font: 400 max(15px, .9375rem)/1.4 var(--font-ui-default); letter-spacing: -.01em; }
+.meta { display: flex; flex-wrap: wrap; gap: 0 8px; color: var(--text-muted); font: 400 max(12px, .75rem)/1.5 var(--font-ui-default); }
+.copy .meta { flex-wrap: nowrap; align-items: baseline; }
+.project { flex: 1; min-width: 0; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.section .meta time { flex-shrink: 0; font: inherit; color: inherit; font-variant-numeric: tabular-nums; }
+.list button { flex-shrink: 0; color: var(--accent); font: 400 max(13px, .8125rem)/1.4 var(--font-ui-default); }
+.section button, .section summary { min-width: 44px; min-height: 44px; padding: 8px; border-radius: var(--control-radius); }
+.section summary { cursor: pointer; color: var(--text-muted); }
+.section :is(a, button, summary) { touch-action: manipulation; }
+.section :is(a, button, summary):active { background: var(--bg-selected); }
+.section :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.list .notedButton { flex: 0 0 max(76px, 4.75rem); min-height: 44px; margin-block: 6px; border-radius: 16px; background: var(--success); color: var(--bg-panel); scroll-snap-align: end; }
+.readyDot { flex: 0 0 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--success); }
+.section button:disabled { opacity: .5; }
+@media (forced-colors: active) { .readyDot { background: CanvasText; forced-color-adjust: none; } }
+@media (prefers-reduced-motion: reduce) { .swipeRow { scroll-behavior: auto; } }
+.error { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; color: var(--danger); margin: 4px; }
+:global(html[data-theme^="glass"]) .list { --glass-material: frost; background: var(--glass-frost-fill); border-color: var(--glass-edge); -webkit-backdrop-filter: var(--glass-frost-filter); backdrop-filter: var(--glass-frost-filter); }
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more), (forced-colors: active) {
+  :global(html[data-theme^="glass"]) .list { background: var(--bg-panel); border-color: var(--border); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+.list .notedButton:active { box-shadow: inset 0 0 0 2px var(--glass-edge, var(--border)); }
+@media (hover: hover) and (pointer: fine) {
+  .section :is(a, button, summary):hover { background: var(--bg-hover); }
+  .list .notedButton:hover { background: var(--success); box-shadow: inset 0 0 0 2px var(--glass-edge, var(--border)); }
+}

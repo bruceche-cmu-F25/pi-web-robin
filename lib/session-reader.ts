@@ -7,6 +7,7 @@ import { readdir } from "fs/promises";
 import { isAbsolute, join, normalize as normalizePath, relative, resolve as resolvePath, sep } from "path";
 import type { AgentMessage, ImageContent, SessionEntry, SessionHeader, SessionInfo, SessionContext } from "./types";
 import { normalizeToolCalls } from "./normalize";
+import { sessionBranchWarning } from "./session-storage-guard";
 import { withoutMessageSignatures } from "./message-signatures";
 import { getThinkingPreview, isMessageGroupAnchor } from "./message-display";
 import { projectIdentityKey } from "./project-identity";
@@ -734,7 +735,11 @@ export function buildSessionContext(
   const sliced = leafId === null ? [] : sliceActiveBranch(
     entries, leafId ?? null, tail && tail > 0 ? tail : entries.length, excludeLeaf,
   );
-  const hasMore = Boolean(tail && tail > 0 && sliced[0]?.parentId);
+  const warning = sessionBranchWarning(entries, leafId === undefined ? entries.at(-1)?.id ?? null : leafId);
+  const oldestParent = sliced[0]?.parentId;
+  const hasMore = Boolean(tail && tail > 0 && oldestParent
+    && entries.some((entry) => entry.id === oldestParent)
+    && !sliced.some((entry) => entry.id === oldestParent));
   const turnsBefore = hasMore ? countTurnsBefore(entries, sliced[0]) : 0;
 
   // Convert messages and their IDs together to keep fork/navigation targets aligned.
@@ -754,6 +759,7 @@ export function buildSessionContext(
     oldestEntryId: sliced[0]?.id ?? null,
     hasMore,
     turnsBefore,
+    ...(warning ? { integrityWarning: warning } : {}),
     ...getSessionSettings(entries, leafId),
   };
 }
@@ -787,7 +793,9 @@ function countTurnsBefore(entries: SessionEntry[], oldest: SessionEntry): number
   for (const e of entries) byId.set(e.id, e);
   let turns = 0;
   let current = oldest.parentId ? byId.get(oldest.parentId) : undefined;
-  while (current) {
+  const seen = new Set<string>();
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id);
     const shape = turnAnchorShape(current);
     if (shape && isMessageGroupAnchor(shape)) turns++;
     current = current.parentId ? byId.get(current.parentId) : undefined;
@@ -844,7 +852,9 @@ export function sliceActiveBranch(
   let current: SessionEntry | undefined = leaf;
   let visible = 0;
   const rawCap = rawWindowCap(tail);
-  while (current) {
+  const seen = new Set<string>();
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id);
     chain.push(current);
     if (countsTowardTail(current)) visible++;
     if (visible >= tail || chain.length >= rawCap) break;

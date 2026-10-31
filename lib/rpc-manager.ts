@@ -5,6 +5,7 @@ import { randomUUID } from "crypto";
 import { existsSync, realpathSync, writeFileSync } from "fs";
 import { resolve } from "path";
 import { validateAgentImages } from "./image-attachments";
+import { assertSessionWritable, onSessionStorageFailure, sessionStorageFailure } from "./session-storage-guard";
 import { invalidateModelsCache } from "./models-cache";
 import { invalidateModelRuntimeWithExtensions } from "./model-runtime";
 import { resolveVisibleModels, selectInitialModelScope } from "./model-scope";
@@ -18,6 +19,8 @@ import {
 import { cacheSessionPath, catalogFirstMessage, getLatestModelChange, invalidateSessionListCache, readLatestSessionEntryId, resolveSessionPath } from "./session-reader";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
 import { notifySessionComplete } from "./web-push";
+import { completedReplyId } from "./session-reviews";
+import { recordSessionReview } from "./session-ui-state";
 import { hasActiveSessionLivenessProvider } from "./session-liveness";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./pi-types";
@@ -47,6 +50,7 @@ import { createSubagentController } from "./subagent-runtime";
 import { isBuiltInSubagentsEnabled } from "./subagent-settings";
 import { resolveShellTools } from "./powershell-settings";
 import { CHAT_ONLY_RESOURCE_LOADER_OPTIONS, contextFilesSystemPrompt } from "./chat-only";
+import { isSideChatSession, SIDE_CHAT_RESOURCE_LOADER_OPTIONS, SIDE_CHAT_SESSION_ENTRY, SIDE_CHAT_SYSTEM_PROMPT } from "./side-chat-session";
 import { createExactSystemPromptExtension } from "./exact-system-prompt";
 import { createPiWebBuiltinExtensions, createSubagentCodemodeExtension, createSubagentMcpExtensions } from "./builtin-extensions";
 import type { McpHost } from "./mcp-host";
@@ -219,6 +223,8 @@ const COMMANDS_ALLOWED_DURING_SESSION_REPLACEMENT = new Set([
 
 export interface RpcSessionStartOptions {
   toolNames?: string[];
+  /** New independent explanation session; persisted so reopen keeps its isolation. */
+  sideChat?: boolean;
   /** Keep the active set exact instead of automatically including extension tools. */
   exactTools?: boolean;
   initialModel?: { provider: string; modelId: string };
@@ -326,7 +332,7 @@ export class AgentSessionWrapper {
   private readonly exactSystemPrompt?: () => string;
   private readonly chatOnly: boolean;
   private readonly onAgentRunComplete?: AgentRunCompleteListener;
-  private readonly suppressCompletionNotifications: boolean;
+  private suppressCompletionNotifications: boolean;
   private readonly mcpHost?: Pick<McpHost, "prepareForPrompt" | "dispose">;
   private readonly chatOnlyExtensionModel?: { provider: string; id: string };
   private mcpHostDisposed = false;
@@ -357,6 +363,17 @@ export class AgentSessionWrapper {
     this.suppressCompletionNotifications = options.suppressCompletionNotifications ?? false;
     this.mcpHost = options.mcpHost;
     this.chatOnlyExtensionModel = options.chatOnlyExtensionModel;
+    if (inner.sessionManager instanceof SessionManager) {
+      onSessionStorageFailure(inner.sessionManager, (error) => {
+        this.suppressCompletionNotifications = true;
+        this.emit({ type: "prompt_error", errorMessage: error.message });
+        // Request cancellation immediately; do not await the run from inside its
+        // synchronous persistence callback. A stuck tool still obeys Stop's idle deadline.
+        this.forceShutdownOnIdle = true;
+        this.resetIdleTimer();
+        void this.inner.abort().catch(() => undefined);
+      });
+    }
   }
 
   get sessionId(): string {
@@ -428,6 +445,11 @@ export class AgentSessionWrapper {
 
   hasSuppressedCompletionNotifications(): boolean {
     return this.suppressCompletionNotifications;
+  }
+
+  /** Background owners deliver their own results; silence this wrapper, not the user's other sessions. */
+  silenceCompletionNotifications(): void {
+    this.suppressCompletionNotifications = true;
   }
 
   start(): void {
@@ -812,6 +834,10 @@ export class AgentSessionWrapper {
   async send(command: Record<string, unknown>): Promise<unknown> {
     const type = command.type as string;
     const allowedDuringReplacement = COMMANDS_ALLOWED_DURING_SESSION_REPLACEMENT.has(type);
+    const storageFailure = sessionStorageFailure(this.inner.sessionManager);
+    if (storageFailure && !allowedDuringReplacement && !type.startsWith("abort") && type !== "reload") {
+      throw storageFailure;
+    }
     if (this.sessionReplacement && !allowedDuringReplacement) {
       throw new Error("Session is being copied to a new session");
     }
@@ -1271,6 +1297,9 @@ export class AgentSessionWrapper {
       }
 
       case "set_tools": {
+        if (isSideChatSession(this.inner.sessionManager.getEntries() as unknown as SessionEntry[])) {
+          throw new Error("Side chat tool selection is fixed: no tools");
+        }
         const toolNames = command.toolNames as string[];
         // `exact: true` keeps the allow-list literal instead of unioning in every
         // extension tool. The scoring turn is the one turn that reads
@@ -2256,6 +2285,9 @@ export async function setRpcSessionTools(
       return setRpcSessionTools(sessionId, sessionFile, requestedToolNames);
     }
     const manager = SessionManager.open(sessionFile, undefined);
+    if (isSideChatSession(manager.getEntries() as unknown as SessionEntry[])) {
+      throw new Error("Side chat tool selection is fixed: no tools");
+    }
     if (readSubagentSessionResources(manager.getEntries() as unknown as SessionEntry[])) {
       throw new Error("Subagent tool selection is fixed by its profile");
     }
@@ -2267,6 +2299,9 @@ export async function setRpcSessionTools(
   }
 
   if (existing.isRunning()) throw new Error("Cannot change tools while the session is running");
+  if (isSideChatSession(existing.inner.sessionManager.getEntries() as unknown as SessionEntry[])) {
+    throw new Error("Side chat tool selection is fixed: no tools");
+  }
   if (readSubagentSessionResources(existing.inner.sessionManager.getEntries() as unknown as SessionEntry[])) {
     throw new Error("Subagent tool selection is fixed by its profile");
   }
@@ -2449,7 +2484,7 @@ export async function startRpcSession(
   options: RpcSessionStartOptions = {},
 ): Promise<{ session: AgentSessionWrapper; realSessionId: string }> {
   const { initialModel, allowInitialModelFallback, thinkingLevel, exactTools } = options;
-  const requestedToolNames = options.toolNames === undefined
+  const requestedToolNames = options.sideChat ? [] : options.toolNames === undefined
     ? undefined
     : exactTools
       ? [...new Set(options.toolNames)]
@@ -2481,19 +2516,24 @@ export async function startRpcSession(
     if (!cwd) throw new Error("cwd is required for a new session");
     sessionManager = SessionManager.create(cwd, undefined);
   }
+  // Refuse a damaged active branch before SDK startup can append model/system entries.
+  assertSessionWritable(sessionManager);
   const sessionCwd = sessionManager.getCwd();
   const sessionEntries = sessionManager.getEntries() as unknown as SessionEntry[];
+  const sideChat = isSideChatSession(sessionEntries) || (!sessionFile && options.sideChat === true);
+  if (sideChat && !sessionFile) sessionManager.appendCustomEntry(SIDE_CHAT_SESSION_ENTRY, { version: 1 });
   const hasPersistedSubagentSnapshot = sessionFile && hasSubagentResourceSnapshot(sessionEntries);
   const subagentResources = sessionFile
     ? readSubagentSessionResources(sessionEntries)
     : null;
+  if (sideChat && subagentResources) throw new Error("Side chats cannot use a subagent resource snapshot");
   if (hasPersistedSubagentSnapshot && !subagentResources) {
     throw new Error("Invalid subagent resource snapshot");
   }
   const persistedToolNames = subagentResources || exactTools
     ? undefined
     : readSessionToolSelection(sessionEntries);
-  const selectedToolNames = subagentResources?.tools ?? persistedToolNames ?? requestedToolNames;
+  const selectedToolNames = sideChat ? [] : subagentResources?.tools ?? persistedToolNames ?? requestedToolNames;
   if (!subagentResources && !exactTools && persistedToolNames === undefined && requestedToolNames !== undefined) {
     appendSessionToolSelection(sessionManager, requestedToolNames);
   }
@@ -2595,6 +2635,8 @@ export async function startRpcSession(
               : {}),
             appendSystemPrompt: subagentResources.appendSystemPrompt,
           }
+        : sideChat
+          ? SIDE_CHAT_RESOURCE_LOADER_OPTIONS
         : chatOnly
           ? { ...CHAT_ONLY_RESOURCE_LOADER_OPTIONS, extensionFactories: [exactSystemPromptExtension] }
         : {
@@ -2727,6 +2769,8 @@ export async function startRpcSession(
     skillsBinding?.setActiveToolsGetter(() => inner.getActiveToolNames());
     const exactSystemPrompt = subagentResources
       ? skillsBinding!.getExactSystemPrompt
+      : sideChat
+        ? () => SIDE_CHAT_SYSTEM_PROMPT
       : chatOnly
         ? () => contextFilesSystemPrompt(inner.resourceLoader.getAgentsFiles().agentsFiles)
         : undefined;
@@ -2736,6 +2780,13 @@ export async function startRpcSession(
       exactSystemPrompt,
       chatOnly,
       onAgentRunComplete: (completedSessionId, sessionName) => {
+        // Dedicated workspace/side agents are not the user's main Chats queue.
+        if (!exactTools && !sideChat) {
+          const replyId = completedReplyId(inner.sessionManager.getBranch() as unknown as SessionEntry[]);
+          if (replyId) void recordSessionReview(completedSessionId, replyId).catch((error) => {
+            console.error("[pi-web] failed to save chat review:", error instanceof Error ? error.message : error);
+          });
+        }
         void notifySessionComplete(completedSessionId, sessionName).catch((error) => {
           console.error("[pi-web] failed to send completion push:", error instanceof Error ? error.message : error);
         });

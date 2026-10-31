@@ -113,7 +113,7 @@ test("fresh sessions use the preference while persisted and live sessions restor
 
   assert.match(
     preferenceSource,
-    /const existingSessionId = session\?\.id;[\s\S]*?useLayoutEffect\(\(\) => \{\s*if \(!existingSessionId && \(!isNew \|\| sessionIdRef\.current\)\) return;\s*setToolPresetState\(getPreferredToolPreset\(\)\)/,
+    /const existingSessionId = session\?\.id;[\s\S]*?useLayoutEffect\(\(\) => \{\s*if \(!existingSessionId && \(!isNew \|\| sessionIdRef\.current\)\) return;\s*setToolPresetState\(opts\.initialToolPreset \?\? getPreferredToolPreset\(\)\)/,
   );
   assert.match(source, /if \(agentState\?\.running\) \{\s*loadTools\(session\.id\)/);
   assert.match(source, /d\.toolNames !== undefined \? getPresetFromToolNames\(d\.toolNames\) : CONFIGURED_TOOL_PRESET/);
@@ -538,8 +538,8 @@ test("keeps live following cancellable when the user scrolls away from the tail"
 
 test("restores an in-page session viewport without the default tail jump", () => {
   assert.match(source, /const initialScrollDoneRef = useRef\(Boolean\(opts\.deferInitialScroll\)\)/);
-  assert.match(source, /const scrollToMessage = useCallback\(\(element: HTMLElement, viewportOffset = 16\)/);
-  assert.match(source, /container\.scrollTop\s+- viewportOffset/);
+  assert.match(source, /const scrollToMessage = useCallback\(\(element: HTMLElement, viewportOffset\?: number\)/);
+  assert.match(source, /viewportOffset \?\? \(parseFloat\(getComputedStyle\(container\)\.scrollPaddingTop\) \|\| 16\)/);
   assert.match(chatWindowSource, /deferInitialScroll: Boolean\(pendingScrollRestore\)/);
   assert.match(chatWindowSource, /isScrollAtTail\(container\.scrollTop, container\.clientHeight, container\.scrollHeight\)/);
   assert.match(chatWindowSource, /findChatScrollAnchor\(/);
@@ -567,7 +567,8 @@ test("keeps a newly sent user message at the top while its response starts", () 
   assert.match(streamUpdateSource, /!pendingScrollToUserRef\.current && isNearBottomRef\.current/);
   assert.match(source, /const \[promptAnchorActive, setPromptAnchorActive\] = useState\(false\)/);
   assert.match(source, /pendingScrollToUserRef\.current = true;\s*setPromptAnchorActive\(true\)/);
-  assert.match(userScrollSource, /const targetTop = Math\.min\(Math\.max\(0, elAbsTop - 16\), maxScrollTop\)/);
+  assert.match(userScrollSource, /const topInset = parseFloat\(getComputedStyle\(container\)\.scrollPaddingTop\) \|\| 16/);
+  assert.match(userScrollSource, /const targetTop = Math\.min\(Math\.max\(0, elAbsTop - topInset\), maxScrollTop\)/);
   assert.match(userScrollSource, /cancelAnimationFrame\(liveFollowFrameRef\.current\)/);
   assert.match(userScrollSource, /isNearBottomRef\.current = true/);
   assert.match(userScrollSource, /previousScrollTopRef\.current = targetTop/);

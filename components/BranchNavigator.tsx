@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import type { BranchPreview, SessionEntry, SessionTreeNode } from "@/lib/types";
 import { useI18n } from "@/hooks/useI18n";
 
@@ -346,12 +347,14 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
           {branchIcon}
            {!compact && <span>{t("i18n.branches")}</span>}
         </button>
-        {open && dropdownPos && (
-          <div style={{
+        {open && dropdownPos && createPortal(
+          <div className="pi-topbar-panel" style={{
             position: "fixed",
             top: dropdownPos.top,
             left: dropdownPos.left,
             width: dropdownPos.width,
+            maxHeight: `calc(var(--app-viewport-height, 100dvh) - ${dropdownPos.top}px - 8px)`,
+            overflowY: "auto",
             background: "var(--bg-panel)",
             borderBottom: "1px solid var(--border)",
             zIndex: 500,
@@ -376,7 +379,7 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
                 {noBranchReason}
               </div>
             )}
-          </div>
+          </div>, document.body
         )}
       </div>
     );

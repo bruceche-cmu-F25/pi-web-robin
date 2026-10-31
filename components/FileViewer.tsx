@@ -20,8 +20,9 @@ import {
 } from "@/lib/file-types";
 import { encodeFilePathForApi, getFileDirectory, getFileName, getRelativeFilePath } from "@/lib/file-paths";
 import { parsePdfPageFragment, resolveLocalFileHref, shouldOpenLocalFileInApp } from "@/lib/file-links";
+import { MarkdownWebLink } from "./MarkdownWebLink";
 import { parseFrontmatter } from "@/lib/frontmatter";
-import { isExternalMarkdownHref, markdownAppUrlTransform, markdownPreviewRehypePlugins, markdownPreviewRemarkPlugins, markdownUrlTransform, normalizeDisplayMath } from "@/lib/markdown";
+import { markdownAppUrlTransform, markdownPreviewRehypePlugins, markdownPreviewRemarkPlugins, markdownUrlTransform, normalizeDisplayMath } from "@/lib/markdown";
 import { CodeBlock, MermaidBlock } from "./MermaidBlock";
 import { DelimitedTable } from "./DelimitedTable";
 import { isDelimitedTablePath } from "@/lib/delimited-table";
@@ -1837,10 +1838,7 @@ function TextFileViewer({
                     ? resolveLocalFileHref(href, markdownDirectory, cwd ?? markdownDirectory)
                     : null;
                   if (!linkedFile || !onOpenFile) {
-                    // Like chat links: a web or app link must not replace Pi Web.
-                    return isExternalMarkdownHref(href)
-                      ? <a href={href} {...props} target="_blank" rel="noopener noreferrer">{children}</a>
-                      : <a href={href} {...props}>{children}</a>;
+                    return <MarkdownWebLink href={href} {...props}>{children}</MarkdownWebLink>;
                   }
 
                   const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
