@@ -22,6 +22,7 @@ try {
     "/api/robin/events": { events: [], today, google: { connected: false } },
     "/api/robin/tech-events": { events: [], today, scan: null, scanning: false },
     "/api/robin/jobs": { jobs: [], scan: null, minScore: 4, digestSize: 10, configured: false },
+    "/api/robin/jobs/applications": { rows: [], counts: {}, settings: { configured: false, enabled: false, at: "09:00", timeZone: "UTC", dailyLimit: 0 }, today: 0, day: today, running: false },
     "/api/robin/gmail": { review: null, connected: false, today },
     "/api/robin/practice": { records: [], today },
     "/api/robin/rounds": { rounds: [] },
@@ -71,7 +72,7 @@ try {
   await page.locator(".robin-nav").evaluate((element) => { element.navigationMarker = true; });
   await visit("/dashboard/gmail");
   assert.equal(await page.locator(".robin-nav").evaluate((element) => element.navigationMarker), true, "Dashboard children retain the navigation shell");
-  for (const path of ["/dashboard/events", "/dashboard/jobs", "/learn", "/podcasts", "/dashboard"]) await visit(path);
+  for (const path of ["/dashboard/jobs", "/learn", "/dashboard"]) await visit(path);
   await visit("/learn", true);
   const beforeHistory = await documentId();
   await page.goBack();
@@ -116,7 +117,7 @@ try {
   // An expired session must redirect an uncached RSC navigation, not leave a dead link.
   if (process.env.PI_WEB_PASSWORD) {
     await context.clearCookies();
-    await nav("/dashboard/events").click();
+    await nav("/dashboard/jobs").click();
     await page.waitForURL((url) => url.pathname === "/login");
     await page.locator('input[type="password"]').waitFor();
   }

@@ -22,9 +22,13 @@ assistant answers when you are away from the machine.
 
 ![The Robin dashboard: agenda, todos, job hunt, and saved links on one page](./docs/robin-dashboard.png)
 
-The assistant box at the top is the whole surface: type a sentence, the agent acts, and the
-panels below refresh. The line under each reply ("added a todo") comes from the tool calls that
-actually executed, not from the model's prose.
+Robin helps maintain your daily life so you can spend less attention maintaining the system.
+The assistant is one entrance: describe an arrangement or task, let it help keep the records,
+and ask for planning help when useful. It does not choose your day just because you open it.
+Phones use Daily / Calendar / Tasks / More; desktop keeps calendar and tasks side by side.
+Both operate on the same records. See [the daily workspace](./docs/dashboard-workspace.md).
+The line under each reply ("added a todo") comes from the tool calls that actually executed,
+not from the model's prose.
 
 ![The week grid: an all-day band, a deadlines row, and overlapping events sharing the day's width](./docs/robin-week.png)
 

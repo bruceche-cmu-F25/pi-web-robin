@@ -2,6 +2,14 @@
 
 Pi Web hosts coding-agent sessions for user-selected projects while keeping the web server's runtime concerns separate from project work.
 
+## Robin's purpose
+
+Robin is a personal daily workspace maintained with an agent's help. Natural-language
+capture is a maintenance entrance, not the product's purpose. The user keeps direction;
+the agent keeps daily information usable and can suggest arrangements when asked.
+Opening the workspace does not commit the user to a task queue or an agent-chosen plan.
+Phone and desktop share records, not necessarily layout. See `docs/dashboard-workspace.md`.
+
 ## Language
 
 **Host Runtime Environment**:
@@ -26,6 +34,22 @@ A personal task stored by Robin, including its title, due date, completion state
 **Incoming Information**:
 The shared Email and AI weekly entrance at `/dashboard/gmail`. Email triage and weekly reading are separate views of one destination, not separate global navigation tabs.
 _Avoid_: A second inbox, news feed
+
+**Shadow Brief**:
+A versioned, deterministic preview owned by the Brief domain. The default consumes existing records; explicit acquisition can add read-only Gmail observations. Neither is editorially ranked public research or the production daily notification. It cannot create tasks or deliver messages. See `docs/brief-pipeline.md`.
+_Avoid_: Published daily news, replacement inbox, completed pipeline
+
+**Brief Source Result**:
+One run's durably saved observation of a source, with coverage and provenance. Reusing it resumes that run; a new request intentionally collects newer observations. It is not an upstream incremental cursor or a simultaneous snapshot across external systems.
+_Avoid_: Gmail sync token, verified truth, live data
+
+**Brief Acquisition Checkpoint**:
+An account/policy-scoped provider cursor plus pending page work, shared across new runs. Its progress and the corresponding evidence or tombstone commit together under the current run's owner fence. It is separate from a run's frozen Brief Source Result; a retry never resets spent request reservations.
+_Avoid_: Last seen timestamp, completed edition, blanket inbox coverage
+
+**Brief Evidence**:
+An immutable version of a normalized source observation, with source/record identity, preserved text, metadata, observation time and content digest. Reference/passage checks establish provenance, not independent truth or permission to act.
+_Avoid_: Verified fact, model authority, executable instruction
 
 **Weekly Edition**:
 An immutable AI briefing covering the previous calendar week, with seven dated Reading Slots: four practical developer events and three wider-world events. Missing reliable evidence leaves a slot empty rather than adding filler. See `docs/ai-weekly.md`.
@@ -74,6 +98,10 @@ _Avoid_: Agent session, model execution
 The human-edited notes shared by a Research Project's conversations. Explicit Keep appends a stored answer; replacement edits compare the reader's content revision under the same lock, so another page cannot silently overwrite newly kept content.
 _Avoid_: Conversation transcript, generated summary
 
+**Mind Map**:
+An independent, revisioned tree in Notes' Mind map tab. Nodes retain stable IDs through manual and conversational edits; a validated operation batch commits with undo history. Copying from Notes imports a snapshot, never synchronizes or rewrites the original note. A model proposal is not a saved edit until the domain's revision check succeeds. See `docs/obsidian-notes.md#notes--canvas--mind-map`.
+_Avoid_: Markdown preview, Obsidian graph, Canvas drawing, chat session
+
 **Practice Problem**:
 A problem in the local NeetCode catalog, identified by its LeetCode slug. Read-only reference data, generated from published sources; the user's history on it is an Attempt, not part of the problem.
 _Avoid_: Question, exercise, card
@@ -107,13 +135,21 @@ One of the two daily lines of learning the Learning Hub and dashboard put side b
 _Avoid_: Tab, section, path
 
 **Learning Hub**:
-The page at `/learn`: today's two Tracks, the other ways in (Full Stack Open, the capability map, the GPT-2 walkthrough, the watch list), and the Learning Shelf. A front door, not a second dashboard — calendar, todos, and jobs stay on the dashboard.
+The page at `/learn`: the personal Learning Roadmap, today's two Tracks, the other ways in (Full Stack Open, the capability map, the GPT-2 walkthrough, the watch list), and the Learning Shelf. A front door, not a second dashboard — calendar, todos, and jobs stay on the dashboard.
 _Avoid_: Home, landing page, portal
 
 **Learning Shelf**:
 The fixed reading links on the Learning Hub, in the groups the list was collected in; every link opens in its own tab. Nothing on it is marked read. Distinct from a Saved Link, which is a bookmark for the rest of the day.
 _Avoid_: Links panel, bookmarks, resource list
 
+**Learning Roadmap**:
+The workspace at `/learn/roadmap`: the user's saved roadmap layout, read from Obsidian `.roadmap.md` documents, with one-click inline explanations. Original node identities, positions and connections remain; missing teaching content is explicitly marked. The earlier authored course remains at `?view=course` and the source reader at `?view=notes`; their lesson/note deep links and independent records are preserved. Browsing the map writes no progress and does not edit Obsidian. See `docs/learning-roadmap.md`.
+_Avoid_: Automatic tutor, imported curriculum, second vault
+
+**Roadmap Self-assessment**:
+The user's explicit understanding status and evidence for one authored lesson or source chapter, stored separately in Robin under independent identities. “Understood” is a human self-assessment, not an AI score or certification; content changes flag old evidence for review. A weak spot is a current lesson/chapter the user marked as needing practice. A multiple-choice check gives local feedback only and never saves this status.
+_Avoid_: Completion tick, verified mastery, automatic diagnosis
+
 **Metrics**:
-Counting, scoring, or scheduling someone's work: statuses, progress totals, review dates. They belong to the practice side, where a review schedule depends on them. Course Steps and Lectures carry only the ticks the user set; nothing scores or schedules them.
+Counting, scoring, or scheduling someone's work: progress totals, review dates. They belong to the practice side, where a review schedule depends on them. Course Steps and Lectures carry only the ticks the user set; nothing scores or schedules them. Roadmap Self-assessments are human judgements, not automatic scores or schedules.
 _Avoid_: Stats, tracking, gamification
