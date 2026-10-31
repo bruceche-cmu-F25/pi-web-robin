@@ -164,10 +164,15 @@ function SkillDetail({
   const instructionsRef = useRef<HTMLDivElement>(null);
   // The heading to bring into view once its document shows; "" is the top.
   const pendingAnchor = useRef<string | null>(null);
+  const readingPositions = useRef(new Map<string, number>());
+  const pendingScroll = useRef<number | null>(null);
   const [anchorRequest, setAnchorRequest] = useState(0);
 
   const openLink = useCallback((href: string) => {
     const link = resolveSkillLink(href, documentPath);
+    const scroller = instructionsRef.current?.closest(".config-detail");
+    if (scroller && link.document !== documentPath) readingPositions.current.set(documentPath, scroller.scrollTop);
+    pendingScroll.current = null;
     pendingAnchor.current = link.anchor;
     if (link.document === documentPath) setAnchorRequest((request) => request + 1);
     else setDocuments((open) => [...open, link.document]);
@@ -176,7 +181,17 @@ function SkillDetail({
   useLayoutEffect(() => {
     const anchor = pendingAnchor.current;
     const root = instructionsRef.current;
-    if (anchor === null || (instructions === null && !instructionsError) || !root) return;
+    if ((instructions === null && !instructionsError) || !root) return;
+    if (pendingScroll.current !== null) {
+      const scroller = root.closest(".config-detail");
+      scroller?.scrollTo({ top: pendingScroll.current, behavior: "instant" });
+      pendingScroll.current = null;
+      pendingAnchor.current = null;
+      root.tabIndex = -1;
+      root.focus({ preventScroll: true });
+      return;
+    }
+    if (anchor === null) return;
     pendingAnchor.current = null;
     const heading = anchor ? root.querySelector(`[data-heading-anchor="${CSS.escape(anchor)}"]`) : null;
     (heading ?? root).scrollIntoView({ block: "start" });
@@ -229,7 +244,7 @@ function SkillDetail({
         </ConfigDetailHeader>
         <div className="skill-detail-status-row">
           {!enabled && (
-            <span style={{ fontSize: 11, color: "var(--text-dim)" }}>
+            <span style={{ fontSize: "var(--config-caption)", color: "var(--text-muted)" }}>
               {t("i18n.hiddenButInvocable")}
             </span>
           )}
@@ -330,7 +345,11 @@ function SkillDetail({
         {documents.length > 0 && (
           <ConfigDetailHeader>
             <ConfigDetailHeaderInfo>
-              <ConfigButton size="small" onClick={() => { pendingAnchor.current = ""; setDocuments((open) => open.slice(0, -1)); }}>
+              <ConfigButton size="small" onClick={() => {
+                pendingScroll.current = readingPositions.current.get(documents.at(-2) ?? rootDocument) ?? 0;
+                pendingAnchor.current = null;
+                setDocuments((open) => open.slice(0, -1));
+              }}>
                 {t("skills.documentBack")}
               </ConfigButton>
               <span className="config-detail-path" title={documentPath}>{documentPath}</span>
@@ -561,7 +580,7 @@ function AddSkillPanel({
                     <span
                       style={{
                         fontFamily: "var(--font-mono)",
-                        fontSize: 11,
+                        fontSize: "var(--config-caption)",
                         color: "var(--text-dim)",
                       }}
                     >

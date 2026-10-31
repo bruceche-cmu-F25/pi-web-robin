@@ -1,8 +1,11 @@
-// Settings shows these as swatches: System, the light row, the dark row, then a row of four:
-// the high-contrast pair, Zenburn and Matrix.
+// System follows the default Glass pair. Explicit legacy palette choices stay unchanged.
+// Settings puts that pair first, then the hue-aligned palette rows and high-contrast options.
+export const SYSTEM_THEMES = { light: "glass", dark: "glass-dark" } as const;
 // The rows line up by hue: each light theme sits above its dark counterpart; Rose and Slate have none.
 export const THEME_OPTIONS = [
   { id: "auto", label: "settings.themeSystem", scheme: null },
+  { id: "glass", label: "settings.themeGlass", scheme: "light" },
+  { id: "glass-dark", label: "settings.themeGlassDark", scheme: "dark" },
   { id: "light", label: "settings.themeLight", scheme: "light" },
   { id: "mist", label: "settings.themeMist", scheme: "light" },
   { id: "lilac", label: "settings.themeLilac", scheme: "light" },
@@ -34,4 +37,4 @@ export function isDarkTheme(theme: ResolvedTheme): boolean {
 }
 
 // Apply the saved palette before first paint, including when storage is blocked.
-export const THEME_INIT_SCRIPT = `(function(){var t="auto";try{var s=localStorage.getItem("pi-theme");if(${JSON.stringify(THEME_OPTIONS.map((option) => option.id))}.includes(s))t=s}catch(e){}if(t==="auto")t=window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";var r=document.documentElement;r.dataset.theme=t;r.classList.toggle("dark",${JSON.stringify(DARK_THEMES)}.includes(t))})();`;
+export const THEME_INIT_SCRIPT = `(function(){var t="auto";try{var s=localStorage.getItem("pi-theme");if(${JSON.stringify(THEME_OPTIONS.map((option) => option.id))}.includes(s))t=s}catch(e){}if(t==="auto")t=window.matchMedia("(prefers-color-scheme: dark)").matches?${JSON.stringify(SYSTEM_THEMES.dark)}:${JSON.stringify(SYSTEM_THEMES.light)};var r=document.documentElement;r.dataset.theme=t;r.classList.toggle("dark",${JSON.stringify(DARK_THEMES)}.includes(t))})();`;

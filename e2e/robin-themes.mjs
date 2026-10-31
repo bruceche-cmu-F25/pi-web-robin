@@ -25,6 +25,8 @@ try {
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/");
+  await page.waitForFunction(() => document.documentElement.dataset.theme === "glass");
+  assert.equal(await page.evaluate(() => localStorage.getItem("pi-theme")), null, "Fresh browsers follow the default Glass pair without writing a preference");
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.locator('input[name="theme"]').first().waitFor({ state: "attached" });
 
@@ -41,6 +43,10 @@ try {
     };
     const result = {
       nav: nav.backgroundImage, sidebar: sidebar.backgroundImage,
+      navColor: nav.backgroundColor, sidebarColor: sidebar.backgroundColor,
+      navFilter: nav.backdropFilter, sidebarFilter: sidebar.backdropFilter,
+      glass: paint("var(--glass-frost-fill)"),
+      glassClear: paint("var(--glass-clear-fill)"),
       themedChrome: paint("linear-gradient(180deg, var(--bg-panel), var(--bg))"),
       lightChrome: paint("linear-gradient(180deg, #f3f2f0, #ebe7e4), linear-gradient(90deg, rgb(234 205 124 / 0.13), rgb(139 81 60 / 0.07))"),
       darkChrome: paint("linear-gradient(180deg, #212730, #0d1116), linear-gradient(90deg, rgb(75 96 124 / 0.14), rgb(47 95 138 / 0.08))"),
@@ -57,8 +63,14 @@ try {
     await page.waitForFunction((theme) => document.documentElement.dataset.theme === theme, id);
     const colors = await paints();
     const expected = id === "light" ? colors.lightChrome : id === "dark" ? colors.darkChrome : colors.themedChrome;
-    assert.equal(colors.nav, expected, `${id}: Robin navigation must use the selected palette`);
-    assert.equal(colors.sidebar, expected, `${id}: session sidebar must use the selected palette`);
+    if (id === "glass" || id === "glass-dark") {
+      assert.equal(colors.nav, "none"); assert.equal(colors.sidebar, "none", "No extra white sheen washes out the new material");
+      assert.equal(colors.navColor, colors.glass); assert.equal(colors.sidebarColor, colors.glass);
+      assert.match(colors.navFilter, /(?:blur|url)\(/); assert.match(colors.sidebarFilter, /(?:blur|url)\(/);
+    } else {
+      assert.equal(colors.nav, expected, `${id}: Robin navigation must use the selected palette`);
+      assert.equal(colors.sidebar, expected, `${id}: session sidebar must use the selected palette`);
+    }
     if (id !== "light" && id !== "dark") {
       assert.equal(colors.surface, colors.themedSurface, `${id}: Robin accent surfaces must not retain the old blue/clay`);
       assert.equal(colors.copy, colors.muted, `${id}: Robin body copy follows palette contrast`);
@@ -86,10 +98,10 @@ try {
   await page.locator('input[name="theme"][value="auto"]').locator("..").click();
   for (const colorScheme of ["dark", "light"]) {
     await page.emulateMedia({ colorScheme });
-    await page.waitForFunction((theme) => document.documentElement.dataset.theme === theme, colorScheme);
+    await page.waitForFunction((theme) => document.documentElement.dataset.theme === theme, colorScheme === "dark" ? "glass-dark" : "glass");
     const colors = await paints();
-    assert.equal(colors.nav, colors[`${colorScheme}Chrome`]);
-    assert.equal(colors.sidebar, colors[`${colorScheme}Chrome`]);
+    assert.equal(colors.navColor, colors.glassClear);
+    assert.equal(colors.sidebarColor, colors.glass);
   }
   assert.deepEqual(errors, []);
   console.log("PASS reload, mobile sidebar, system preference and browser errors");

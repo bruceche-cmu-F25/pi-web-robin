@@ -2,9 +2,11 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { Fragment, useEffect, useRef, useState, type ComponentType, type SVGProps } from "react";
+import { useEffect, useRef, useState, type ComponentType, type SVGProps } from "react";
+import { createPortal } from "react-dom";
 import { useI18n } from "@/hooks/useI18n";
-import { FocusTimer } from "./FocusTimer";
+import { useIsSplitLayout } from "@/hooks/useIsMobile";
+import { setNavigationPlacement, useNavigationPlacement } from "@/hooks/useNavigationPlacement";
 import { getInitialNavigation } from "@/lib/initial-navigation";
 import { hermesHrefForHost } from "@/lib/hermes-navigation";
 import { triageOf, type MailReview } from "@/extension/robin/mail";
@@ -14,6 +16,7 @@ import { pressingAssessments, type Round } from "@/extension/robin/rounds";
 import type { TechEvent } from "@/extension/robin/tech-events";
 import type { Todo } from "@/extension/robin/todo-domain";
 import { usePolledResource } from "./usePolledResource";
+import styles from "./RobinMargin.module.css";
 
 interface TodosResponse {
   todos: Todo[];
@@ -124,6 +127,7 @@ function NavEntry({ item, pathname, onNavigate }: {
       onClick={onNavigate}
       className={`robin-nav-entry${current ? " is-current" : ""}`}
       aria-current={current ? "page" : undefined}
+      data-nav-label={item.label}
     >
       <span className="robin-nav-icon" style={{ color: `var(--todo-${item.tone})` }}>
         <IconComponent aria-hidden="true" />
@@ -151,6 +155,43 @@ export function RobinMargin({ drawer, onClose, onNavigate, chatContext }: {
 }) {
   const { t } = useI18n();
   const pathname = usePathname() ?? "";
+  const placement = useNavigationPlacement();
+  const wide = useIsSplitLayout();
+  const rail = !drawer && wide && (placement === "left" || placement === "left-labels");
+  const expanded = rail && placement === "left-labels";
+  const topIcons = !drawer && wide && placement === "top-icons";
+  const iconOnly = (rail && !expanded) || topIcons;
+  const [hint, setHint] = useState<{ label: string; top: number; left: number } | null>(null);
+  const showHint = (target: EventTarget) => {
+    if (!iconOnly || !(target instanceof Element)) return;
+    const entry = target.closest<HTMLElement>("[data-nav-label]");
+    if (!entry) return;
+    const rect = entry.getBoundingClientRect();
+    setHint({
+      label: entry.dataset.navLabel!,
+      top: rail ? Math.max(8, Math.min(rect.top, window.innerHeight - 48)) : rect.bottom + 8,
+      left: rail ? rect.right + 8 : Math.max(8, Math.min(rect.left, window.innerWidth - 288)),
+    });
+  };
+  useEffect(() => {
+    if (!hint) return;
+    const dismiss = () => setHint(null);
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        dismiss();
+      }
+    };
+    window.addEventListener("resize", dismiss);
+    window.addEventListener("scroll", dismiss, true);
+    document.addEventListener("keydown", escape, true);
+    return () => {
+      window.removeEventListener("resize", dismiss);
+      window.removeEventListener("scroll", dismiss, true);
+      document.removeEventListener("keydown", escape, true);
+    };
+  }, [hint]);
   const searchParams = useSearchParams();
   const fromUrl = getInitialNavigation(searchParams);
   const sessionId = chatContext ? chatContext.sessionId : fromUrl.sessionId;
@@ -186,12 +227,8 @@ export function RobinMargin({ drawer, onClose, onNavigate, chatContext }: {
   const jobsNew = jobItems.some((job) => job.status === "new");
   // OAs due within two days or already overdue — the ones to do something about now.
   const roundActions = pressingAssessments(rounds?.rounds ?? []);
-  // The badge counts what you decided to go to, not what exists: a city feed
-  // always has something on, so a count of "upcoming" would sit at a
-  // permanent 40 and stop meaning anything.
-  const eventItems = (techEvents?.events ?? []).filter((event) => !event.hidden);
-  const savedEvents = eventItems.filter((event) => event.saved).length;
-  const upcomingEvents = eventItems.length;
+  const upcomingEvents = (techEvents?.events ?? []).some((event) => !event.hidden);
+  const inJobHunt = pathname === "/dashboard/jobs" || pathname.startsWith("/dashboard/jobs/") || pathname === "/dashboard/events" || pathname.startsWith("/dashboard/events/");
   const notesReady = Object.values(noteFinals?.finals ?? {}).filter((final) => final.status === "ready").length;
   const learningActions = (practice?.records ?? []).filter(
     (record) => record.status === "solved"
@@ -208,12 +245,13 @@ export function RobinMargin({ drawer, onClose, onNavigate, chatContext }: {
       tone: "clay",
       status: { count: dashboardActions },
       exact: true,
-      covers: ["/recordings", "/tools"],
+      covers: ["/recordings", "/tools", "/dashboard/kanban"],
     },
     {
       href: withChatContext("/dashboard/gmail"),
       path: "/dashboard/gmail",
       label: t("robin.nav.gmail"),
+      covers: ["/dashboard/ai-weekly", "/podcasts"],
       icon: GmailIcon,
       tone: "sage",
       status: { count: gmailActions, hasNew: mailItems.length > 0 && pathname !== "/dashboard/gmail" },
@@ -224,21 +262,9 @@ export function RobinMargin({ drawer, onClose, onNavigate, chatContext }: {
       label: t("robin.nav.jobs"),
       icon: JobsIcon,
       tone: "teal",
-      // Shortlisted postings plus pressing OAs: the jobs page holds both, and
-      // the badge counts what is waiting on you there either way.
-      status: { count: jobsActions + roundActions, hasNew: jobsNew && pathname !== "/dashboard/jobs" },
-    },
-    {
-      href: withChatContext("/dashboard/events"),
-      path: "/dashboard/events",
-      label: t("robin.nav.events"),
-      icon: EventsIcon,
-      // Reuses the chat entry's hue rather than adding a seventh. The six
-      // tones are the calendar's hue families (see eventColors.ts), and a
-      // stray colour outside that set reads as a different kind of thing.
-      // Chat is in the utility row, so the two never sit side by side.
-      tone: "plum",
-      status: { count: savedEvents, hasNew: upcomingEvents > 0 && pathname !== "/dashboard/events" },
+      covers: ["/dashboard/events"],
+      // Counts remain actionable jobs/OAs; event discoveries only contribute a dot.
+      status: { count: jobsActions + roundActions, hasNew: (jobsNew || upcomingEvents) && !inJobHunt },
     },
     {
       href: withChatContext("/learn"),
@@ -270,8 +296,7 @@ export function RobinMargin({ drawer, onClose, onNavigate, chatContext }: {
       path: "/research",
       label: t("robin.nav.research"),
       icon: ResearchIcon,
-      // Honey also belongs to settings, which lives in the utility row, so
-      // the two never sit side by side — the same trade events makes with chat.
+      // Honey also belongs to settings, which lives in the utility row.
       tone: "honey",
     },
     {
@@ -280,13 +305,7 @@ export function RobinMargin({ drawer, onClose, onNavigate, chatContext }: {
       label: t("robin.nav.product"),
       icon: ProductIcon,
       tone: "fern",
-    },
-    {
-      href: withChatContext("/podcasts"),
-      path: "/podcasts",
-      label: t("robin.nav.podcasts"),
-      icon: PodcastIcon,
-      tone: "rose",
+      covers: ["/outreach"],
     },
   ];
 
@@ -309,9 +328,25 @@ export function RobinMargin({ drawer, onClose, onNavigate, chatContext }: {
   ];
 
   return (
-    <div className={`robin-nav${drawer ? " is-drawer" : " is-horizontal"}`}>
+    <div className={`robin-nav${drawer ? " is-drawer" : " is-horizontal"}${rail ? " is-rail" : ""}${expanded ? " is-expanded" : ""}${topIcons ? " is-top-icons" : ""}`}
+      onPointerOver={(event) => showHint(event.target)}
+      onFocusCapture={(event) => {
+        // Native focus can leave a partially visible link outside the narrow
+        // horizontal strip. Reveal the whole entry before positioning its hint.
+        event.target.closest<HTMLElement>("[data-nav-label]")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+        showHint(event.target);
+      }}
+      onPointerLeave={() => setHint(null)}
+      onBlurCapture={() => setHint(null)}
+      onClickCapture={() => setHint(null)}
+    >
+      {iconOnly && hint && createPortal(
+        <div className="robin-nav-tooltip" role="tooltip" style={{ top: hint.top, left: hint.left }}>{hint.label}</div>,
+        document.body,
+      )}
       {drawer && (
         <div className="robin-nav-header">
+          <span className="robin-nav-grab" data-drawer-handle>{t("sidebar.mainNavigation")}<span aria-hidden="true">↔</span></span>
           <button
             type="button"
             className="robin-nav-close"
@@ -324,6 +359,24 @@ export function RobinMargin({ drawer, onClose, onNavigate, chatContext }: {
         </div>
       )}
 
+      {rail && <button type="button" className="robin-nav-entry robin-nav-expand"
+        aria-expanded={expanded} aria-label={t(expanded ? "settings.navigationCollapse" : "settings.navigationExpand")}
+        data-nav-label={t(expanded ? "settings.navigationCollapse" : "settings.navigationExpand")}
+        onClick={() => setNavigationPlacement(expanded ? "left" : "left-labels")}>
+        <span className="robin-nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /><path d={expanded ? "m16 9-3 3 3 3" : "m13 9 3 3-3 3"} /></svg></span>
+        <span className="robin-nav-label">{t("sidebar.mainNavigation")}</span>
+      </button>}
+
+      {chatContext && !wide && !drawer ? <nav className={`robin-nav-compact ${styles.compact}`} aria-label={t("sidebar.mainNavigation")}>
+        <NavEntry item={{ ...mainItems[0], label: t("daily.view.daily"), icon: HomeIcon }} pathname={pathname} onNavigate={onNavigate} />
+        <NavEntry item={utilityItems[0]} pathname={pathname} onNavigate={onNavigate} />
+        {["/notes", "/learn", "/dashboard/gmail", "/dashboard/jobs", "/research"].map(path => (
+          <NavEntry key={path} item={mainItems.find(item => item.path === path)!} pathname={pathname} onNavigate={onNavigate} />
+        ))}
+        <NavEntry item={{ href: `${withChatContext("/dashboard")}${sessionId || cwd ? "&" : "?"}view=more`,
+          path: "/dashboard", exact: true, label: t("daily.view.more"), icon: DashboardIcon, tone: "iris",
+        }} pathname={pathname} onNavigate={onNavigate} />
+      </nav> : <>
       <nav className="robin-nav-main" aria-label={t("sidebar.mainNavigation")}>
         {mainItems.map((item) => (
           <NavEntry key={item.path} item={item} pathname={pathname} onNavigate={onNavigate} />
@@ -331,15 +384,11 @@ export function RobinMargin({ drawer, onClose, onNavigate, chatContext }: {
       </nav>
 
       <nav className="robin-nav-utility" aria-label={t("robin.nav.utilityNavigation")}>
-        {utilityItems.map((item, index) => (
-          <Fragment key={item.path}>
-            {/* The focus timer lives between chat and settings, not after them. */}
-            {index === 1 && <FocusTimer />}
-            <NavEntry item={item} pathname={pathname} onNavigate={onNavigate} />
-          </Fragment>
+        {utilityItems.map((item) => (
+          <NavEntry key={item.path} item={item} pathname={pathname} onNavigate={onNavigate} />
         ))}
         {hermesHref && (
-          <a href={hermesHref} rel="noreferrer" className="robin-nav-entry" onClick={onNavigate}>
+          <a href={hermesHref} rel="noreferrer" className="robin-nav-entry" onClick={onNavigate} data-nav-label="Hermes">
             <span className="robin-nav-icon" style={{ color: "var(--todo-slate)" }}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
                 <path d="M14 3h7v7M21 3l-9 9M10 5H3v16h16v-7" />
@@ -349,8 +398,13 @@ export function RobinMargin({ drawer, onClose, onNavigate, chatContext }: {
           </a>
         )}
       </nav>
+      </>}
     </div>
   );
+}
+
+function HomeIcon(props: SVGProps<SVGSVGElement>) {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" {...props}><path d="m3 10 9-7 9 7M5 9v12h5v-7h4v7h5V9" /></svg>;
 }
 
 function DashboardIcon(props: SVGProps<SVGSVGElement>) {
@@ -365,16 +419,8 @@ function JobsIcon(props: SVGProps<SVGSVGElement>) {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" {...props}><rect x="3" y="7" width="18" height="13" /><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12h18M10 12v2h4v-2" /></svg>;
 }
 
-function EventsIcon(props: SVGProps<SVGSVGElement>) {
-  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" {...props}><rect x="3" y="5" width="18" height="16" /><path d="M3 10h18M8 3v4M16 3v4" /><circle cx="12" cy="15" r="1.6" /></svg>;
-}
-
 function LearningIcon(props: SVGProps<SVGSVGElement>) {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" {...props}><path d="M4 4.5h6a3 3 0 0 1 3 3V21a3 3 0 0 0-3-3H4z" /><path d="M20 4.5h-4a3 3 0 0 0-3 3V21a3 3 0 0 1 3-3h4z" /></svg>;
-}
-
-function PodcastIcon(props: SVGProps<SVGSVGElement>) {
-  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}><rect x="8" y="3" width="8" height="12" rx="4" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6" /></svg>;
 }
 
 function NotesIcon(props: SVGProps<SVGSVGElement>) {

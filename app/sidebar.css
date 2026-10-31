@@ -1325,6 +1325,46 @@ a.session-tree-main {
   outline: 2px solid var(--accent);
 }
 
+/* A permanent entry outside the project list, including on a first run. */
+.sidebar-general-chat {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  min-height: 32px;
+  margin: 4px 6px;
+  padding: 0 5px;
+  border-radius: 7px;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: left;
+}
+
+.sidebar-general-chat span {
+  flex: 1;
+}
+
+.sidebar-general-chat:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.sidebar-general-chat:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.sidebar-general-chat:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.sidebar-general-chat.is-mobile {
+  min-height: 44px;
+  font-size: 13px;
+}
+
 /* The tree and the archive view under the search, in one cell: the archive
    slides in over the tree, which stays mounted under it (hidden once the
    archive is in), and away again. SessionTree fills each. */

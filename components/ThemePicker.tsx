@@ -13,13 +13,14 @@ export function ThemePicker() {
       {THEME_OPTIONS.map((option) => (
         <label key={option.id} className="settings-theme-option"
           data-system={option.id === "auto" || undefined}
+          data-material={option.id === "glass" || option.id === "glass-dark" || undefined}
           data-wide={option.id === "contrast-light" || option.id === "contrast-dark" || option.id === "zenburn" || option.id === "matrix" || undefined}>
           <input type="radio" name="theme" value={option.id} checked={preference === option.id}
             onChange={() => setThemePreference(option.id)} className="sr-only" />
           {option.id === "auto" ? (
             <span className="settings-theme-swatch settings-theme-system" aria-hidden="true">
-              <span data-theme="light" className="settings-theme-chip" />
-              <span data-theme="dark" className="settings-theme-chip" />
+              <span data-theme="glass" className="settings-theme-chip" />
+              <span data-theme="glass-dark" className="settings-theme-chip" />
               <span className="settings-theme-system-name">{t(option.label)}</span>
             </span>
           ) : (

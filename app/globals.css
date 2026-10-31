@@ -77,23 +77,23 @@
 
   /* Semantic names rather than t-shirt sizes, so these do not silently
      redefine Tailwind's own --radius-sm/md/lg. */
+  --radius-detail: var(--detail-radius);
   --radius-control: var(--control-radius);
   --radius-card: var(--card-radius);
   --radius-panel: var(--panel-radius);
   --radius-pill: var(--pill-radius);
 
-  /* pi's surfaces are square. Tailwind's own scale is flattened to match, so a
-     stray `rounded-lg` cannot reintroduce a corner the tokens just removed.
-     `rounded-full` is left alone — round things stay round. */
-  --radius: 0px;
-  --radius-xs: 0px;
-  --radius-sm: 0px;
-  --radius-md: 0px;
-  --radius-lg: 0px;
-  --radius-xl: 0px;
-  --radius-2xl: 0px;
-  --radius-3xl: 0px;
-  --radius-4xl: 0px;
+  /* Legacy utilities follow the same four tiers as semantic surfaces.
+     rounded-none and rounded-full keep their explicit geometric meaning. */
+  --radius: var(--detail-radius);
+  --radius-xs: var(--detail-radius);
+  --radius-sm: var(--detail-radius);
+  --radius-md: var(--control-radius);
+  --radius-lg: var(--control-radius);
+  --radius-xl: var(--card-radius);
+  --radius-2xl: var(--card-radius);
+  --radius-3xl: var(--panel-radius);
+  --radius-4xl: var(--panel-radius);
 
   --shadow-popover: var(--popover-shadow);
   --shadow-drawer: var(--drawer-shadow);
@@ -126,7 +126,7 @@
 
    The values below are lifted from https://pi.dev/style.css so this UI reads
    as the same product as the site and the CLI it fronts: a navy "paper" ground
-   with grid ruling, translucent square-cornered panels hairlined in slate, one
+   with grid ruling, translucent panels hairlined in slate, one
    cool blue accent, and warm off-white text. Light mode is pi's parchment
    theme (warm paper, evening-blue ink, tidal-blue accent) rather than plain
    white — inverting the dark theme instead would lose the warmth the site
@@ -362,11 +362,12 @@
   /* Active edge rules use one solid accent hue. */
   --active-stripe-vertical: var(--accent);
 
-  /* pi's surfaces are square. Only genuinely round things (avatars, count
-     badges) keep a radius, so --pill-radius survives and the rest go to 0. */
-  --control-radius: 0px;
-  --card-radius: 0px;
-  --panel-radius: 0px;
+  /* Shape hierarchy, shared by every palette. Round standalone surfaces,
+     not full-bleed panes, table cells or time-grid geometry. */
+  --detail-radius: 4px;
+  --control-radius: 8px;
+  --card-radius: 16px;
+  --panel-radius: 24px;
   --pill-radius: 999px;
 
   --popover-shadow: 0 10px 28px rgb(92 87 82 / 0.18);
@@ -871,6 +872,24 @@ html, body {
   text-rendering: optimizeLegibility;
 }
 
+/* Controls respond on press without the browser's tap flash or label selection.
+   Keep prose and ordinary links selectable, including native link callouts.
+   Low specificity lets gesture surfaces retain their own touch-action. */
+:where(button, [role="button"], summary, .robin-nav-entry) {
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+:where(.ui-action, .robin-nav-entry, .robin-nav-close, .robin-mobile-nav-trigger) {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 /* The paper. pi rules its background as an engineering pad: a 4px minor grid,
    a 20px major grid, and a cross tick at each major intersection. The ticks
    come from the radial layer, which paints the paper colour over everything
@@ -884,10 +903,11 @@ html, body {
    intentionally ruled work areas where an intervening panel hides the page. */
 html,
 .pi-grid-surface,
-.robin-dashboard .pi-grid-surface {
+.robin-dashboard .pi-grid-surface,
+html[data-theme^="glass"] :is(.chat-shell, .robin-shell) {
   --grid-gap: 4px;
   background-color: var(--bg);
-  background-image:
+  --page-grid-image:
     linear-gradient(var(--page-grid-minor) 0 1px, transparent 1px var(--grid-gap)),
     linear-gradient(to right, var(--page-grid-minor) 0 1px, transparent 1px var(--grid-gap)),
     linear-gradient(var(--page-grid-major) 0 1px, transparent 1px calc(var(--grid-gap) * 5)),
@@ -895,7 +915,7 @@ html,
     radial-gradient(circle at center, transparent calc(var(--grid-gap) / 2), var(--bg) calc(var(--grid-gap) / 2) 100%),
     linear-gradient(var(--page-grid-cross) 0 1px, transparent 1px calc(var(--grid-gap) * 5)),
     linear-gradient(to right, var(--page-grid-cross) 0 1px, transparent 1px calc(var(--grid-gap) * 5));
-  background-size:
+  --page-grid-size:
     var(--grid-gap) var(--grid-gap),
     var(--grid-gap) var(--grid-gap),
     calc(var(--grid-gap) * 5) calc(var(--grid-gap) * 5),
@@ -903,10 +923,13 @@ html,
     calc(var(--grid-gap) * 5) calc(var(--grid-gap) * 5),
     calc(var(--grid-gap) * 5) calc(var(--grid-gap) * 5),
     calc(var(--grid-gap) * 5) calc(var(--grid-gap) * 5);
-  background-position:
+  --page-grid-position:
     0 0, 0 0, 0 0, 0 0,
     calc(var(--grid-gap) * -2.5) calc(var(--grid-gap) * -2.5),
     0 0, 0 0;
+  background-image: var(--page-grid-image);
+  background-size: var(--page-grid-size);
+  background-position: var(--page-grid-position);
 }
 
 html { background-attachment: fixed; }
@@ -947,12 +970,31 @@ body {
   text-transform: uppercase;
 }
 
+/* Role sizes, not a blanket h1 reset. See docs/typography.md. Keep the 13px
+   root: changing it would also resize spacing, code and existing controls. */
+:root {
+  --type-page-size: max(32px, 2rem);
+  --type-section-size: max(22px, 1.375rem);
+  --type-action-size: max(13px, 1rem);
+}
+@media (max-width: 959px) {
+  :root {
+    --type-page-size: max(24px, 1.5rem);
+    --type-section-size: max(20px, 1.25rem);
+  }
+}
+.pi-page-title {
+  color: var(--text);
+  font: italic 400 var(--type-page-size)/1.25 var(--font-serif);
+  overflow-wrap: anywhere;
+}
+
 /* Content-section headings share the page title's serif italic voice.
    Keep data, group labels and controls upright; do not italicize whole cards. */
 .pi-section-title {
   margin: 0;
   color: var(--text);
-  font: italic 400 22px/1.25 var(--font-serif);
+  font: italic 400 var(--type-section-size)/1.25 var(--font-serif);
   letter-spacing: normal;
   text-transform: none;
 }
@@ -1723,7 +1765,7 @@ button.extension-widget-trigger:focus-visible {
 
    This is the one screen in the app that is read as a document rather than as
    a dense coding surface, so it follows pi.dev's page idiom directly: serif
-   copy over the ruled ground, square hairlined panels, a boxed uppercase mono
+   copy over the ruled ground, softly rounded panels, a boxed uppercase mono
    label at the head of each panel, and bracket buttons for the actions. Form
    controls are stated once here instead of per panel — every field in the
    dashboard is the same field.
@@ -1740,6 +1782,98 @@ button.extension-widget-trigger:focus-visible {
   background: var(--dashboard-ground);
 }
 
+/* Inset input actions follow the surface's curve, including Glass's larger rim.
+   Keep this local: ordinary fields and toolbar cells are not nested surfaces. */
+.chat-input-surface,
+.robin-assistant-bar {
+  --input-surface-radius: var(--card-radius);
+  --input-action-inset: 8px;
+  --input-action-radius: max(var(--control-radius), calc(var(--input-surface-radius) - var(--input-action-inset) - 1px));
+}
+.chat-input-surface {
+  min-width: 0;
+  background: var(--bg);
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  box-shadow: 0 1px 2px var(--bg-subtle), 0 8px 24px -12px var(--bg-selected);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: var(--input-action-inset);
+  padding-inline-start: max(14px, var(--input-surface-radius));
+  border-radius: var(--input-surface-radius);
+}
+/* Main Chat and scoped workspace composers share these field styles. */
+.chat-input-surface > textarea.chat-input-textarea {
+  flex: 1 1 120px;
+  min-width: 0;
+  width: 100%;
+  min-height: 24px;
+  max-height: 200px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  outline: none;
+  box-shadow: none;
+  background: transparent;
+  resize: none;
+  overflow: auto;
+  color: var(--text);
+  font: var(--chat-content-font-size, 14px)/1.6 var(--font-mono);
+}
+.chat-input-surface:focus-within { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.chat-input-surface > textarea.chat-input-textarea:focus-visible { outline: none; }
+.chat-send-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 14px;
+  font-size: 11px;
+}
+.chat-send-button:disabled { cursor: not-allowed; }
+@media (max-width: 640px) {
+  .chat-send-button { padding: 0; }
+  .chat-send-label { display: none; }
+}
+.chat-input-surface[data-streaming] > .chat-input-textarea { flex-basis: 180px; }
+.chat-input-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  align-self: flex-end;
+  margin-inline-start: auto;
+  gap: 6px;
+}
+.chat-input-actions > button,
+.chat-input-actions > span > button {
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+  flex-shrink: 0;
+  border-radius: var(--input-action-radius);
+}
+.chat-input-surface.is-compact {
+  --input-action-radius: var(--control-radius);
+  flex-direction: column;
+  align-items: stretch;
+  padding: 0;
+  border-radius: 0;
+}
+.chat-input-surface.is-compact > .chat-input-textarea { flex: none; }
+/* Queue actions get their own line on phones; flex wrapping also protects
+   the editable space beside a desktop file/side-chat panel, without containment
+   that would change the model picker's fixed positioning. */
+@media (max-width: 640px) {
+  .chat-input-surface[data-streaming] > .chat-input-textarea { flex-basis: 100%; }
+  /* The text clears the large curve, but its separate action row needs the
+     full inner width (voice + Steer + Follow-up on a 320px Glass surface). */
+  .chat-input-surface[data-streaming]:not(.is-compact) { padding-inline-start: var(--input-action-inset); }
+  .chat-input-surface[data-streaming]:not(.is-compact) > .chat-input-textarea {
+    padding-inline-start: max(6px, calc(var(--input-surface-radius) - var(--input-action-inset)));
+  }
+}
+
 /* Search stays available while scrolling without competing with content cards. */
 .robin-dashboard .robin-dashboard-header .robin-assistant-bar {
   padding: 0;
@@ -1751,41 +1885,77 @@ button.extension-widget-trigger:focus-visible {
   border-color: var(--accent-line-strong);
 }
 
-/* Search and Act, set like the calendar's Agenda / Week / Month switch: serif
-   words, the current one marked by the vertical stripe. The stripe is held to
-   the text's height because the buttons stay 44px tall on touch screens. */
-.robin-assistant-row { min-height: 44px; }
-.robin-assistant-mobile-mode,
-.robin-assistant-submit-icon { display: none; }
-.robin-assistant-bar[data-mode="execute"] .robin-assistant-row {
-  box-shadow: inset 2px 0 0 var(--accent);
+/* A mode is a control, not a ruled list row. Keep its selected surface inset
+   from the outer curve, without bending a side stripe around that curve. */
+.robin-assistant-row { min-height: 44px; padding: var(--input-action-inset); border-radius: inherit; }
+.robin-assistant-row .ui-action,
+.robin-assistant-row .robin-assistant-mobile-mode {
+  min-height: 44px;
+  border-radius: var(--input-action-radius);
 }
+.robin-assistant-mobile-mode { display: none; }
 .robin-assistant-modes {
-  padding: 0 10px 0 8px;
-  border-right: 1px solid var(--border);
+  position: relative;
+  display: inline-grid;
+  grid-template-columns: repeat(2, 1fr);
+  align-self: center;
+  padding: 3px;
+  border-radius: var(--pill-radius);
+  background: color-mix(in srgb, var(--bg-hover) 65%, transparent);
+}
+/* One persistent selection surface. Only its transform moves; interrupted
+   clicks retarget from its current position, never restart a keyframe. */
+.robin-assistant-mode-thumb {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: calc((100% - 6px) / 2);
+  border-radius: var(--pill-radius);
+  background: var(--glass-active-fill, var(--bg-panel));
+  box-shadow: inset 0 0 0 1px var(--border), var(--card-shadow);
+  pointer-events: none;
+  transform: translateX(0);
+}
+.robin-assistant-bar[data-mode="execute"] .robin-assistant-mode-thumb { transform: translateX(100%); }
+@media (prefers-reduced-motion: no-preference) {
+  .robin-assistant-modes[data-animate="true"] .robin-assistant-mode-thumb {
+    transition: transform 220ms cubic-bezier(0.23, 1, 0.32, 1);
+  }
 }
 .robin-assistant-modes .ui-action {
-  font-family: var(--font-serif);
-  font-size: 13px;
-  line-height: 1;
-}
-.robin-assistant-modes .pi-active-stripe::before {
-  top: 50%;
-  bottom: auto;
-  height: 18px;
-  translate: 0 -50%;
-}
-.robin-assistant-form { padding: 0 8px 0 14px; }
-.robin-assistant-glyph {
-  display: flex;
-  flex: 0 0 14px;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
   justify-content: center;
-  color: var(--text-dim);
-  font-family: var(--font-mono);
-  font-size: 15px;
+  gap: 7px;
+  min-width: 80px;
+  padding-inline: 14px;
+  border-radius: var(--pill-radius);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 500;
   line-height: 1;
+  white-space: nowrap;
 }
-.robin-assistant-bar[data-mode="execute"] .robin-assistant-glyph { color: var(--accent); }
+.robin-assistant-modes .ui-action svg { flex-shrink: 0; }
+.robin-assistant-modes .ui-action[data-active="true"] {
+  background: transparent;
+  color: var(--text);
+}
+.robin-assistant-form { padding: 0 0 0 14px; }
+.robin-assistant-enter-hint {
+  flex-shrink: 0;
+  padding-inline: 4px;
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: 16px;
+}
+@media (forced-colors: active) {
+  .robin-assistant-mode-thumb { border: 1px solid Highlight; }
+}
 .robin-assistant-bar input:not([type="checkbox"]),
 .robin-dashboard .robin-assistant-bar input:not([type="checkbox"]) {
   padding-inline: 0;
@@ -1805,6 +1975,50 @@ button.extension-widget-trigger:focus-visible {
   margin: 0 12px 10px;
 }
 
+/* Results are inset targets on one surface, not individually bordered cards.
+   Never combine a rounded interactive row with a touching bottom border. */
+.robin-search-results {
+  min-height: 0;
+  max-height: min(360px, 42dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px;
+  border-radius: var(--card-radius);
+  background: var(--bg);
+  font-family: var(--font-ui);
+}
+.robin-search-heading {
+  margin: 0;
+  padding: 8px 10px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.robin-search-list { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.robin-search-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 60px;
+  padding: 10px;
+  border: 0;
+  border-radius: var(--control-radius);
+  text-decoration: none;
+}
+.robin-search-copy { display: grid; gap: 3px; min-width: 0; flex: 1; }
+.robin-search-title { font-size: 15px; font-weight: 500; line-height: 1.4; overflow-wrap: anywhere; }
+.robin-search-detail { color: var(--text-muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.robin-search-category { flex-shrink: 0; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+.robin-search-results:focus-visible,
+.robin-search-row:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+.robin-search-row:focus-visible { background: var(--accent-faint); }
+.robin-assistant-bar .robin-assistant-command { background: var(--bg-hover); font-family: var(--font-ui); }
+.robin-assistant-bar > [role="status"] { font-family: var(--font-ui); font-size: 12px; line-height: 1.5; }
+
 .robin-assistant-result-toolbar {
   position: sticky;
   top: 0;
@@ -1815,14 +2029,23 @@ button.extension-widget-trigger:focus-visible {
   gap: 8px;
   background: var(--bg-panel);
 }
-.robin-assistant-result-toolbar a { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; color: var(--accent); font-size: 13px; }
+/* A remembered execution is a quiet footer link, not another reading panel.
+   Keep active/error controls sticky; idle history has nothing to cover. */
+.robin-assistant-bar > .robin-assistant-result-toolbar[data-idle] {
+  position: static;
+  background: transparent;
+  margin: 0 max(12px, calc(var(--input-surface-radius) - 8px)) 4px;
+}
+.robin-assistant-result-toolbar a { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; color: var(--accent); font: 13px/1.4 var(--font-ui); }
 .robin-assistant-result-toolbar button { flex-shrink: 0; min-width: 44px; min-height: 44px; font-size: 20px; }
 .robin-assistant-reply { max-height: min(320px, 35dvh); overflow-y: auto; overscroll-behavior: contain; }
 
 .robin-command-dialog {
   width: min(720px, calc(100% - 24px));
   max-width: none;
-  margin: max(10vh, env(safe-area-inset-top)) auto auto;
+  --command-top: max(24px, 8dvh, env(safe-area-inset-top));
+  margin: var(--command-top) auto auto;
+  max-height: calc(100dvh - var(--command-top) - max(24px, env(safe-area-inset-bottom)));
   padding: 0;
   border: 0;
   background: transparent;
@@ -1835,21 +2058,31 @@ button.extension-widget-trigger:focus-visible {
 }
 .robin-command-dialog__content {
   position: relative;
+  display: flex;
+  flex-direction: column;
+  max-height: inherit;
   border: 1px solid var(--border);
+  border-radius: var(--panel-radius);
   background: var(--bg-panel);
   box-shadow: var(--overlay-shadow);
 }
 .robin-command-dialog .robin-command-dialog__content .robin-assistant-bar {
-  /* The mode switch brings its own inset, which lines its stripe up with the
-     command hint below. */
-  padding: 16px 56px 10px 8px;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px 0 0;
   border: 0;
+  border-radius: calc(var(--panel-radius) - 1px) calc(var(--panel-radius) - 1px) 0 0;
   box-shadow: none;
 }
+.robin-command-dialog .robin-assistant-row { padding: 8px 60px 12px 16px; }
+.robin-command-dialog .robin-assistant-bar > :not(.robin-assistant-row) { margin-inline: 16px; }
 .robin-command-dialog__close {
+  border-radius: var(--control-radius);
   position: absolute;
-  top: 4px;
-  right: 4px;
+  top: 16px;
+  right: 12px;
   z-index: 1;
   width: 44px;
   height: 44px;
@@ -1860,10 +2093,13 @@ button.extension-widget-trigger:focus-visible {
 }
 .robin-command-dialog__hint {
   margin: 0;
-  padding: 0 16px 12px;
-  color: var(--text-dim);
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
   font-family: var(--font-mono);
   font-size: 11px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 
 /* Opaque and lifted, unlike the chat shell's panels. The chat surface is one
@@ -1871,7 +2107,7 @@ button.extension-widget-trigger:focus-visible {
    sheets, and without a real step against the ground they dissolve into it. */
 .robin-dashboard .pi-card {
   border: 1px solid var(--border);
-  border-radius: 0;
+  border-radius: var(--card-radius);
   background: var(--bg-panel);
   box-shadow: var(--card-shadow);
 }
@@ -1880,7 +2116,7 @@ button.extension-widget-trigger:focus-visible {
 .robin-dashboard select,
 .robin-dashboard textarea {
   border: 1px solid var(--border);
-  border-radius: 0;
+  border-radius: var(--control-radius);
   padding: 7px 10px;
   background: var(--control-bg);
   color: var(--text);
@@ -1918,17 +2154,22 @@ button.extension-widget-trigger:focus-visible {
 .robin-dashboard .text-xs,
 .robin-typography .text-xs {
   font-size: 13px;
-  line-height: 1.125rem;
 }
 .robin-dashboard .text-sm,
 .robin-typography .text-sm {
   font-size: 15px;
-  line-height: 1.375rem;
 }
 .robin-dashboard .text-lg,
 .robin-typography .text-lg {
   font-size: 22px;
-  line-height: 1.75rem;
+}
+/* Size overrides need proportional leading. Zero specificity lets local
+   reading/control styles win; Tailwind leading-* uses --tw-leading. */
+:where(.robin-dashboard, .robin-typography) :where(.text-xs, .text-sm) {
+  line-height: var(--tw-leading, 1.6);
+}
+:where(.robin-dashboard, .robin-typography) :where(.text-lg) {
+  line-height: var(--tw-leading, 1.4);
 }
 
 .robin-dashboard [class~="text-[10px]"] {
@@ -2088,10 +2329,9 @@ button.extension-widget-trigger:focus-visible {
 /* ---------------------------------------------------------------------------
    Robin navigation.
 
-   Six destinations do not need a desktop sidebar. Wide screens use a compact
-   document masthead; narrow screens reflow the same text navigation into an
-   off-canvas drawer. The chrome stays typographic so it does not compete with
-   the ruled page beneath it.
+   Desktop navigation can be a narrow left rail or the original masthead.
+   Both reuse the same entries and theme tokens. Narrow screens keep their
+   existing navigation (Robin drawer, compact chat masthead).
 --------------------------------------------------------------------------- */
 .robin-shell {
   display: flex;
@@ -2164,6 +2404,62 @@ pre, code {
   --chat-font-size-offset: calc(var(--chat-content-font-size, 14px) - 14px);
 }
 
+/* One conversation vocabulary: main Chat, workspace agents and research. */
+.chat-user-bubble {
+  min-width: 0;
+  background: var(--user-bg);
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
+  border-radius: var(--card-radius);
+  padding: 8px 12px;
+  font-family: var(--font-serif);
+  font-size: calc(15px + var(--chat-font-size-offset, 0px));
+  line-height: 1.65;
+  color: var(--text);
+  word-break: break-word;
+}
+.chat-message-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  color: var(--text-dim);
+  font: 11px/1.6 var(--font-mono);
+}
+.workspace-agent { min-width: 0; color: var(--text); font-family: var(--font-mono); }
+.workspace-agent-header { flex-wrap: wrap; flex-shrink: 0; }
+.workspace-agent-header h2 { font: 600 13px/1.6 var(--font-ui); color: var(--text); }
+.workspace-agent-empty { margin: 0; max-width: 38ch; color: var(--text-muted); font: 13px/1.7 var(--font-ui); }
+.workspace-agent-header button { min-height: 32px; padding: 4px 8px; font: 11px/1.5 var(--font-mono); }
+.workspace-agent-transcript { overscroll-behavior: contain; }
+.workspace-agent-message { min-width: 0; margin-bottom: 16px; }
+.workspace-agent-message.chat-user-bubble { width: fit-content; max-width: 85%; margin-inline-start: auto; }
+.workspace-agent-message > p { white-space: pre-wrap; }
+.workspace-agent-meta { margin-top: 6px; color: var(--text-dim); font: 11px/1.6 var(--font-mono); overflow-wrap: anywhere; }
+.workspace-agent-tools { margin-top: 8px; color: var(--text-muted); font: 12px/1.6 var(--font-mono); }
+.workspace-agent-tools summary { cursor: pointer; padding-block: 6px; }
+.workspace-agent-tools ul { margin: 4px 0; padding-inline-start: 20px; overflow-wrap: anywhere; }
+.workspace-agent-composer { flex-shrink: 0; padding: 12px; }
+.workspace-agent-composer[data-collapsed] { margin-top: auto; }
+.workspace-agent-composer > .chat-input-surface { font-family: var(--font-mono); padding-inline-start: var(--input-action-inset); }
+/* Text gets the full first row; secondary controls share one unboxed row below.
+   No containment/transform here: the model menu positions against the viewport. */
+.workspace-agent-composer .chat-input-surface > textarea.chat-input-textarea {
+  flex-basis: 100%;
+  padding: 6px max(6px, calc(var(--input-surface-radius) - var(--input-action-inset)));
+}
+.workspace-agent-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; width: 100%; min-width: 0; }
+.workspace-agent-options { flex: 1 1 72px; min-width: 0; }
+.workspace-agent-options .model-selector > button { width: 100%; min-height: 44px; }
+.workspace-agent .chat-send-button { width: 44px; padding: 0; }
+.workspace-agent .chat-input-actions > button:active:not(:disabled) { background-color: var(--bg-selected); }
+.workspace-agent-composer[data-collapsed] .chat-input-surface > textarea.chat-input-textarea { flex-basis: 120px; }
+.workspace-agent-composer[data-collapsed] .workspace-agent-controls { width: auto; margin-inline-start: auto; }
+.workspace-agent-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; font: 11px/1.6 var(--font-mono); color: var(--text-muted); }
+.workspace-agent-footer > * { min-width: 0; max-width: 100%; }
+@media (max-width: 640px), (pointer: coarse) {
+  .workspace-agent-header button, .workspace-agent-footer button, .workspace-agent-tools summary { min-height: 44px; }
+}
+
 /* Prose is the one place pi drops the monospace: agent replies, docs and
    dashboard copy are set in the serif at a reading size, with code and other
    chrome inside them staying mono. */
@@ -2232,7 +2528,7 @@ pre, code {
 }
 .markdown-body .markdown-inline-code {
   background: var(--bg-subtle);
-  border-radius: 0;
+  border-radius: var(--detail-radius);
   padding: 1px 5px;
   color: var(--text);
   font-family: var(--font-mono);
@@ -2438,7 +2734,7 @@ pre, code {
   max-width: 100%;
   margin: 6px 0;
   border: 1px solid var(--border);
-  border-radius: 0;
+  border-radius: var(--control-radius);
   overflow: hidden;
   background: var(--bg);
   box-shadow: 0 1px 0 color-mix(in srgb, var(--border) 42%, transparent);
@@ -2471,7 +2767,7 @@ pre, code {
 }
 .markdown-code-action {
   border: 1px solid var(--border);
-  border-radius: 0;
+  border-radius: var(--detail-radius);
   padding: 2px 7px;
   background: var(--control-bg);
   color: var(--text-muted);
@@ -2568,7 +2864,7 @@ pre, code {
   padding: 0;
   overflow: hidden;
   border: 1px solid var(--border-strong);
-  border-radius: 0;
+  border-radius: var(--panel-radius);
   background: var(--bg-panel);
   color: var(--text);
   box-shadow: var(--overlay-shadow);
@@ -2659,6 +2955,7 @@ pre, code {
                  visually disabled but still focusable/clickable.
 --------------------------------------------------------------------------- */
 .ui-action {
+  border-radius: var(--control-radius);
   background: none;
   color: var(--text-muted);
   cursor: pointer;
@@ -2670,132 +2967,40 @@ pre, code {
   color: var(--text);
 }
 
-/* Stripe-selected navigation has no neutral fill: the blue stripe is the
-   complete selected treatment. */
-.ui-action.pi-active-stripe[data-active="true"],
-.ui-action.pi-active-stripe[data-active="true"]:hover {
-  background: transparent;
-  color: var(--text);
-}
-
-/* Declared after data-active so a control that is both pressed and carrying an
-   explicit resting colour (a selected row that reads as accent) keeps that
-   colour; data-active alone still supplies plain text. Equal specificity, so
-   the order is what decides it. */
+/* Stripe-selected navigation has no neutral fill. State colours remain
+   independent of surfaces, including on selected and open controls. */
+.ui-action.pi-active-stripe[data-active="true"] { background: transparent; color: var(--text); }
 .ui-action[data-state="active"]  { color: var(--text); }
 .ui-action[data-state="dim"]     { color: var(--text-dim); }
 .ui-action[data-state="accent"]  { color: var(--accent); }
 .ui-action[data-state="danger"]  { color: var(--danger); }
 .ui-action[data-state="success"] { color: var(--success); }
-
-/* An open dropdown trigger holds the hover surface rather than the deeper
-   pressed one, so hovering it does not read as a state change. */
 .ui-action[data-open="true"] { background: var(--bg-hover); }
-
-/* A toggle that is currently off: dimmed until pointed at. */
 .ui-action[data-faded="true"] { opacity: 0.55; }
-.ui-action[data-faded="true"]:hover:not(:disabled):not([data-inert="true"]) { opacity: 1; }
 
-.ui-action:hover:not(:disabled):not([data-inert="true"]) {
-  color: var(--text);
-}
-
-/* Spatial roadmap nodes keep their bounds fixed; the outer ring is the hover
-   response, so tracing the route never makes neighbouring nodes or lines jump. */
-.study-roadmap-node:hover:not(:disabled) {
-  box-shadow: 0 0 0 2px var(--accent-line), var(--card-shadow);
-}
-
-/* Semantic states keep their hue on hover; only the surface responds. */
-.ui-action[data-state="danger"]:hover:not(:disabled):not([data-inert="true"])  { color: var(--danger); }
-.ui-action[data-state="accent"]:hover:not(:disabled):not([data-inert="true"])  { color: var(--accent); }
-.ui-action[data-state="success"]:hover:not(:disabled):not([data-inert="true"]) { color: var(--success); }
-
-/* An explicit hover destination wins over the resting state's own hue, so it
-   is declared after them. */
-.ui-action[data-hover="muted"]:hover:not(:disabled):not([data-inert="true"])  { color: var(--text-muted); }
-.ui-action[data-hover="accent"]:hover:not(:disabled):not([data-inert="true"]) { color: var(--accent); }
-.ui-action[data-hover="danger"]:hover:not(:disabled):not([data-inert="true"]) { color: var(--danger); }
-
-/* A destructive control tints its surface rather than reaching for bg-hover. */
-.ui-action.ui-action--surface[data-hover="danger"]:hover:not(:disabled):not([data-inert="true"]) {
-  background: color-mix(in srgb, var(--danger) 8%, transparent);
-}
-
-/* Opt in to a surface on hover. Kept above the pressed background so hovering
-   a pressed control still reads as hovered. */
-.ui-action.ui-action--surface:hover:not(:disabled):not([data-inert="true"]) {
-  background: var(--bg-hover);
-}
-
-/* Bordered variant: the border tracks the accent alongside the label. The
-   resting border lives here rather than inline, because an inline `border`
-   shorthand also sets border-color and would outrank the hover rule below —
-   call sites that want a different line style override borderStyle only. */
-.ui-action.ui-action--outline { border: 1px solid var(--border); }
-
-.ui-action.ui-action--outline:hover:not(:disabled):not([data-inert="true"]) {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-/* Filled: rests on the hover surface and deepens on hover, keeping its colour. */
-.ui-action.ui-action--filled { background: var(--bg-hover); }
-
-.ui-action.ui-action--filled:hover:not(:disabled):not([data-inert="true"]) {
-  background: var(--bg-selected);
-}
-
-/* Softer outline for controls whose label stays put while the border warms. */
+/* Resting surfaces apply to every input type. Keep borders here rather than
+   inline: an inline border shorthand would outrank hover's border colour. */
+.ui-action.ui-action--outline,
 .ui-action.ui-action--outline-soft { border: 1px solid var(--border); }
-
-.ui-action.ui-action--outline-soft:hover:not(:disabled):not([data-inert="true"]) {
-  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+.ui-action.ui-action--filled { background: var(--bg-hover); }
+/* Opt in only for the single commit action in a task region. */
+.ui-action.ui-action--primary {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--accent-contrast);
+  padding: 0.65em 1em;
+  font-family: var(--font-ui);
+  font-weight: 600;
 }
-
-/* Chip: rests on a filled surface with a border rather than on nothing, and
-   lifts to the accent instead of to plain text. */
-.ui-action.ui-action--chip {
-  background: var(--bg-hover);
-  border: 1px solid var(--border);
+.ui-action.ui-action--primary:disabled { opacity: 0.5; }
+.ui-action.ui-action--primary:active:not(:disabled):not([aria-disabled="true"]):not([data-inert="true"]) {
+  background-color: color-mix(in srgb, var(--accent) 84%, var(--text)) !important;
+  color: var(--accent-contrast);
 }
-
-.ui-action.ui-action--chip:hover:not(:disabled):not([data-inert="true"]) {
-  background: var(--bg-selected);
-  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
-  color: var(--accent);
-}
-
-.ui-action.ui-action--chip[data-hover="danger"]:hover:not(:disabled):not([data-inert="true"]) {
-  background: color-mix(in srgb, var(--danger) 8%, transparent);
-  border-color: color-mix(in srgb, var(--danger) 35%, transparent);
-  color: var(--danger);
-}
-
-/* Panel: rests on the panel surface instead of on nothing, and lifts to the
-   hover surface. Card adds a border that warms to the accent on top of that;
-   the labels inside either keep whatever colours they set for themselves. */
+.ui-action.ui-action--chip { background: var(--bg-hover); border: 1px solid var(--border); }
 .ui-action.ui-action--panel,
-.ui-action.ui-action--card {
-  background: var(--bg-panel);
-}
-
-.ui-action.ui-action--panel:hover:not(:disabled):not([data-inert="true"]),
-.ui-action.ui-action--card:hover:not(:disabled):not([data-inert="true"]) {
-  background: var(--bg-hover);
-}
-
-.ui-action.ui-action--card { border: 1px solid var(--border); }
-
-.ui-action.ui-action--card:hover:not(:disabled):not([data-inert="true"]) {
-  border-color: var(--accent);
-}
-
-/* Tints the surface to match a semantic state, for controls that flash a
-   result (a refresh that just succeeded) rather than sitting in that state.
-   These were rgba() literals frozen at their light-mode values; color-mix
-   against the token follows the theme. Declared after the variants above so a
-   chip's own border does not outrank the state tint at equal specificity. */
+.ui-action.ui-action--card { background: var(--bg-panel); }
+.ui-action.ui-action--card { border: 1px solid var(--border); border-radius: var(--card-radius); }
 .ui-action[data-surface="success"] {
   background: color-mix(in srgb, var(--success) 18%, transparent);
   border-color: color-mix(in srgb, var(--success) 40%, transparent);
@@ -2805,8 +3010,50 @@ pre, code {
   border-color: color-mix(in srgb, var(--danger) 30%, transparent);
 }
 
-.ui-action[data-surface="danger"]:hover:not(:disabled):not([data-inert="true"]) {
-  background: color-mix(in srgb, var(--danger) 16%, transparent);
+/* Gate hover at its source. Resetting it under (hover: none) loses to the
+   more specific variant selectors and leaves tapped controls highlighted. */
+@media (hover: hover) and (pointer: fine) {
+  .ui-action.pi-active-stripe[data-active="true"]:hover { background: transparent; color: var(--text); }
+  .ui-action[data-faded="true"]:hover:not(:disabled):not([data-inert="true"]) { opacity: 1; }
+  .ui-action:hover:not(:disabled):not([data-inert="true"]) { color: var(--text); }
+  /* Roadmap nodes keep their bounds fixed; only the outer ring responds. */
+  .study-roadmap-node:hover:not(:disabled) { box-shadow: 0 0 0 2px var(--accent-line), var(--card-shadow); }
+  .ui-action[data-state="danger"]:hover:not(:disabled):not([data-inert="true"])  { color: var(--danger); }
+  .ui-action[data-state="accent"]:hover:not(:disabled):not([data-inert="true"])  { color: var(--accent); }
+  .ui-action[data-state="success"]:hover:not(:disabled):not([data-inert="true"]) { color: var(--success); }
+  /* Explicit hover colours win over semantic resting colours. */
+  .ui-action[data-hover="muted"]:hover:not(:disabled):not([data-inert="true"])  { color: var(--text-muted); }
+  .ui-action[data-hover="accent"]:hover:not(:disabled):not([data-inert="true"]) { color: var(--accent); }
+  .ui-action[data-hover="danger"]:hover:not(:disabled):not([data-inert="true"]) { color: var(--danger); }
+  .ui-action.ui-action--surface[data-hover="danger"]:hover:not(:disabled):not([data-inert="true"]) {
+    background: color-mix(in srgb, var(--danger) 8%, transparent);
+  }
+  .ui-action.ui-action--surface:hover:not(:disabled):not([data-inert="true"]) { background: var(--bg-hover); }
+  .ui-action.ui-action--outline:hover:not(:disabled):not([data-inert="true"]) { border-color: var(--accent); color: var(--accent); }
+  .ui-action.ui-action--filled:hover:not(:disabled):not([data-inert="true"]) { background: var(--bg-selected); }
+  .ui-action.ui-action--primary:hover:not(:disabled):not([data-inert="true"]) {
+    background: color-mix(in srgb, var(--accent) 90%, var(--text));
+    color: var(--accent-contrast);
+  }
+  .ui-action.ui-action--outline-soft:hover:not(:disabled):not([data-inert="true"]) {
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  }
+  .ui-action.ui-action--chip:hover:not(:disabled):not([data-inert="true"]) {
+    background: var(--bg-selected);
+    border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+    color: var(--accent);
+  }
+  .ui-action.ui-action--chip[data-hover="danger"]:hover:not(:disabled):not([data-inert="true"]) {
+    background: color-mix(in srgb, var(--danger) 8%, transparent);
+    border-color: color-mix(in srgb, var(--danger) 35%, transparent);
+    color: var(--danger);
+  }
+  .ui-action.ui-action--panel:hover:not(:disabled):not([data-inert="true"]),
+  .ui-action.ui-action--card:hover:not(:disabled):not([data-inert="true"]) { background: var(--bg-hover); }
+  .ui-action.ui-action--card:hover:not(:disabled):not([data-inert="true"]) { border-color: var(--accent); }
+  .ui-action[data-surface="danger"]:hover:not(:disabled):not([data-inert="true"]) {
+    background: color-mix(in srgb, var(--danger) 16%, transparent);
+  }
 }
 
 .ui-action:focus-visible {
@@ -2826,29 +3073,12 @@ pre, code {
   cursor: default;
 }
 
-/* Touch devices fire mouseenter without a matching leave, and :hover latches
-   after a tap. Neither should leave a control looking permanently hovered. */
-@media (hover: none) {
-  .ui-action.ui-action--surface:hover        { background: none; }
-  .ui-action.ui-action--filled:hover         { background: var(--bg-hover); }
-  .ui-action.ui-action--outline-soft:hover   { border-color: var(--border); }
-  .ui-action.ui-action--chip:hover           { background: var(--bg-hover); border-color: var(--border); }
-  .ui-action.ui-action--panel:hover          { background: var(--bg-panel); }
-  .ui-action.ui-action--card:hover           { background: var(--bg-panel); border-color: var(--border); }
-  .ui-action[data-faded="true"]:hover        { opacity: 0.55; }
-  .ui-action[data-open="true"]:hover         { background: var(--bg-hover); }
-  .ui-action[data-surface="success"]:hover   { background: color-mix(in srgb, var(--success) 18%, transparent);
-                                               border-color: color-mix(in srgb, var(--success) 40%, transparent); }
-  .ui-action[data-surface="danger"]:hover    { background: color-mix(in srgb, var(--danger) 8%, transparent);
-                                               border-color: color-mix(in srgb, var(--danger) 30%, transparent); }
-  .ui-action[data-active="true"]:hover       { background: var(--bg-selected); color: var(--text); }
-  .ui-action[data-state="active"]:hover      { color: var(--text); }
-  .ui-action[data-state="dim"]:hover         { color: var(--text-dim); }
-  .ui-action[data-state="accent"]:hover      { color: var(--accent); }
-  .ui-action[data-state="danger"]:hover      { color: var(--danger); }
-  .ui-action[data-state="success"]:hover     { color: var(--success); }
-  .ui-action:not([data-state]):not([data-active="true"]):hover { color: var(--text-muted); }
-  .ui-action.ui-action--outline:hover        { border-color: var(--border); }
+/* Immediate press feedback, including touch. The pressed surface wins over
+   every variant's more specific hover tint; text colours and focus rings stay.
+   Do not scale whole rows or animate layout/shadows. */
+.ui-action:active:not(:disabled):not([aria-disabled="true"]):not([data-inert="true"]) {
+  background-color: var(--bg-selected) !important;
+  transition-duration: 0s;
 }
 
 .mermaid-zoom-dialog {
@@ -3261,17 +3491,15 @@ pre, code {
     font-size: var(--dashboard-body-size);
     line-height: 1.5;
   }
-  .robin-dashboard :is(.pi-label, .pi-eyebrow, .pi-meta, time, .text-xs),
+  .robin-dashboard :is(.pi-label, .pi-eyebrow, .pi-meta, time),
   .robin-dashboard .robin-assistant-modes .ui-action,
   .robin-dashboard .robin-agenda-time {
     font-size: var(--dashboard-meta-size);
     line-height: 1.4;
     letter-spacing: 0;
   }
-  .robin-dashboard .text-sm { font-size: var(--dashboard-body-size); line-height: 1.5; }
-  .robin-dashboard .text-lg { font-size: 18px; line-height: 1.4; }
-  .robin-dashboard h1 { font-size: 26px; }
-  .robin-dashboard .pi-section-title { font-size: 20px; }
+  .robin-dashboard .text-sm { font-size: var(--dashboard-body-size); }
+  .robin-dashboard .text-lg { font-size: 18px; }
   .robin-dashboard main { padding: 12px; }
   .robin-dashboard .pi-card { min-width: 0; padding: 12px; }
   .robin-dashboard-header {
@@ -3280,19 +3508,14 @@ pre, code {
   .robin-dashboard main section[id] { scroll-margin-top: calc(96px + env(safe-area-inset-top)); }
   /* One masthead row: mode, input and a full-sized submit target, beside the drawer button. */
   .robin-dashboard .robin-assistant-row { flex-direction: row; }
-  .robin-dashboard .robin-assistant-modes { position: relative; width: 72px; flex-basis: 72px; padding: 0; border-right: 1px solid var(--border); }
+  .robin-dashboard .robin-assistant-modes { display: flex; width: 64px; flex-basis: 64px; padding: 0; }
+  .robin-dashboard .robin-assistant-mode-thumb { display: none; }
   .robin-dashboard .robin-assistant-modes::after { content: ""; position: absolute; right: 7px; top: 18px; width: 5px; height: 5px; border-right: 1px solid var(--text-muted); border-bottom: 1px solid var(--text-muted); transform: rotate(45deg); pointer-events: none; }
   .robin-dashboard .robin-assistant-modes > button { display: none; }
   .robin-dashboard .robin-assistant-modes .robin-assistant-mobile-mode {
-    display: block; width: 100%; min-height: 44px; padding: 0 18px 0 8px; border: 0; background: transparent; font-family: var(--font-serif); appearance: none; -webkit-appearance: none;
+    display: block; width: 100%; min-height: 44px; padding: 0 18px 0 8px; border: 0; background: transparent; font-family: var(--font-ui); appearance: none; -webkit-appearance: none;
   }
-  .robin-dashboard .robin-assistant-form { padding: 0 4px; gap: 0; }
-  .robin-dashboard .robin-assistant-glyph,
-  .robin-dashboard .robin-assistant-submit-label,
-  .robin-dashboard .robin-assistant-submit::before,
-  .robin-dashboard .robin-assistant-submit::after { display: none; }
-  .robin-dashboard .robin-assistant-submit { display: inline-flex; align-items: center; justify-content: center; width: 44px; min-height: 44px; padding: 0; }
-  .robin-dashboard .robin-assistant-submit-icon { display: inline-flex; }
+  .robin-dashboard .robin-assistant-form { padding: 0 0 0 4px; gap: 0; }
   /* A long reply must not make the sticky header taller than the screen. */
   .robin-dashboard .robin-assistant-bar { max-height: 50dvh; overflow-y: auto; }
   .robin-dashboard .robin-assistant-row { flex-shrink: 0; }
@@ -3329,13 +3552,14 @@ pre, code {
   #dashboard-links .robin-link-fields { flex-direction: column; }
   #dashboard-links .robin-link-fields input { width: 100%; }
   #dashboard-links .robin-saved-link {
+    display: flex;
+    align-items: center;
     min-height: 44px;
     white-space: normal;
     overflow: visible;
     overflow-wrap: anywhere;
   }
-  #dashboard-links h3,
-  .robin-dashboard .robin-assistant-bar [role="region"] .truncate {
+  #dashboard-links h3 {
     white-space: normal;
     overflow-wrap: anywhere;
   }
@@ -3355,6 +3579,27 @@ pre, code {
   .new-session-brand-name {
     font-size: 20px;
   }
+}
+
+/* With voice + submit targets, an ultra-narrow masthead needs two rows.
+   Keep the input usable rather than hiding an action or shrinking tap targets. */
+@media (max-width: 374px) {
+  .robin-dashboard .robin-assistant-row { flex-wrap: wrap; }
+  .robin-dashboard .robin-assistant-modes {
+    flex-basis: 100%; width: 100%;
+  }
+  .robin-dashboard main section[id] { scroll-margin-top: calc(141px + env(safe-area-inset-top)); }
+}
+
+/* The palette has less usable width than the page. Give the mode and close
+   controls a header of their own on phones; the input retains both actions. */
+@media (max-width: 640px) {
+  .robin-command-dialog .robin-assistant-row { flex-wrap: wrap; gap: 8px; padding: 8px 12px 12px; }
+  .robin-command-dialog .robin-assistant-modes { flex-basis: 64px; width: 64px; margin-right: 48px; }
+  .robin-command-dialog .robin-assistant-form { flex-basis: 100%; padding: 0; }
+  .robin-command-dialog .robin-assistant-bar > :not(.robin-assistant-row) { margin-inline: 12px; }
+  .robin-command-dialog__hint { padding: 10px 16px; }
+  .robin-search-category { align-self: flex-start; padding-top: 2px; }
 }
 
 /* Square, accent-tinted scrollbars, as on pi.dev. */
@@ -3978,12 +4223,16 @@ span.token.table {
   }
 }
 
-/* Square hairlined surface over the grid. pi keeps panels translucent so the
-   ruling stays faintly visible through them. */
+/* Standalone surfaces, not the full-bleed shell. Do not clip overflow here:
+   menus, focus rings and sticky descendants must stay outside the card. */
+.pi-card { border-radius: var(--card-radius); }
 .pi-panel {
   border: 1px solid var(--border);
-  border-radius: 0;
+  border-radius: var(--card-radius);
   background: color-mix(in srgb, var(--bg-panel) 92%, transparent);
+}
+:is(input, select, textarea, button).pi-panel {
+  border-radius: var(--control-radius);
 }
 
 /* pi's bracket button: the label sits between [ ] in the accent colour, and
@@ -4004,7 +4253,6 @@ span.token.table {
 .pi-bracket::after {
   display: inline-block;
   color: var(--accent);
-  transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .pi-bracket::before {
   content: "[";
@@ -4014,17 +4262,24 @@ span.token.table {
   content: "]";
   margin-left: 0.7ch;
 }
-.pi-bracket:hover:not(:disabled)::before,
-.pi-bracket:focus-visible::before {
-  transform: translateX(-3px);
-}
-.pi-bracket:hover:not(:disabled)::after,
-.pi-bracket:focus-visible::after {
-  transform: translateX(3px);
+/* Decorative motion is pointer-only. Tab focus uses the existing ring. */
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .pi-bracket::before,
+  .pi-bracket::after {
+    transition: transform 140ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .pi-bracket:hover:not(:disabled):not(:focus-visible)::before {
+    transform: translateX(-3px);
+  }
+  .pi-bracket:hover:not(:disabled):not(:focus-visible)::after {
+    transform: translateX(3px);
+  }
+  .pi-bracket:focus-visible::before,
+  .pi-bracket:focus-visible::after {
+    transition: none;
+  }
 }
 @media (hover: none) {
-  .pi-bracket:hover::before,
-  .pi-bracket:hover::after,
   .robin-margin-entry:hover::before,
   .robin-margin-entry:hover::after {
     transform: none;
@@ -4081,7 +4336,7 @@ span.token.table {
   min-height: 44px;
   padding: 0 12px;
   border: 0;
-  border-radius: 0;
+  border-radius: var(--control-radius);
   background: transparent;
   color: var(--text-muted);
   text-decoration: none;
@@ -4094,10 +4349,12 @@ span.token.table {
   cursor: pointer;
   transition: background 0.12s ease, color 0.12s ease;
 }
-.robin-nav-entry:hover,
-.robin-nav-close:hover {
-  background: var(--bg-hover);
-  color: var(--text);
+@media (hover: hover) and (pointer: fine) {
+  .robin-nav-entry:hover,
+  .robin-nav-close:hover {
+    background: var(--bg-hover);
+    color: var(--text);
+  }
 }
 .robin-nav-entry:active,
 .robin-nav-close:active,
@@ -4163,8 +4420,107 @@ span.token.table {
    safe-area inset. Only the panels that slide over it need the inset back:
    the sidebar on phones, the file panel below the split breakpoint. */
 .chat-shell {
+  flex-direction: column;
   --chat-sidebar-safe-top: 0px;
   --chat-panel-safe-top: 0px;
+}
+
+.robin-nav-tooltip {
+  border-radius: var(--control-radius);
+  position: fixed;
+  z-index: 460;
+  max-width: 280px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--text);
+  box-shadow: var(--card-shadow);
+  font: 12px/1.4 var(--font-mono);
+  pointer-events: none;
+}
+
+@media (min-width: 960px) {
+  :is(.chat-shell, .robin-shell):is([data-navigation-placement="left"], [data-navigation-placement="left-labels"]) { flex-direction: row; }
+  :is([data-navigation-placement="left"], [data-navigation-placement="left-labels"]) > .robin-navigation-container {
+    width: 48px;
+    height: 100%;
+    border-bottom: 0;
+    border-right: 1px solid var(--border);
+  }
+  [data-navigation-placement="left-labels"] > .robin-navigation-container { width: 184px; }
+  .robin-nav.is-rail.is-expanded { padding-inline: 6px; }
+  .robin-nav.is-rail.is-expanded .robin-nav-entry {
+    justify-content: flex-start;
+    gap: 10px;
+    padding-inline: 12px;
+    font-family: var(--font-ui);
+    font-size: 14px;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+  .robin-nav.is-expanded .robin-nav-label { flex: 1; min-width: 0; }
+  .robin-nav.is-expanded :is(.robin-nav-badge, .robin-nav-dot) { align-self: center; margin: 0; }
+  .robin-nav-expand { border: 0; background: transparent; text-align: left; }
+  .robin-nav.is-rail .robin-nav-expand { flex-shrink: 0; margin-bottom: 8px; }
+  .robin-nav.is-rail {
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    padding: calc(8px + env(safe-area-inset-top)) 1px calc(8px + env(safe-area-inset-bottom));
+  }
+  .robin-nav.is-rail .robin-nav-main {
+    flex: 1;
+    min-height: 0;
+    flex-direction: column;
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-width: none;
+  }
+  .robin-nav.is-rail .robin-nav-main::-webkit-scrollbar { display: none; }
+  .robin-nav.is-rail .robin-nav-utility {
+    flex-direction: column;
+    flex-shrink: 0;
+    margin: 8px 0 0;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+  }
+  .robin-nav.is-rail .robin-nav-entry {
+    justify-content: center;
+    width: 100%;
+    height: 44px;
+    padding: 0;
+    flex-shrink: 0;
+  }
+  .robin-nav.is-top-icons .robin-nav-entry {
+    justify-content: center;
+    width: 44px;
+    padding: 0;
+  }
+  .robin-nav:is(.is-rail, .is-top-icons) .robin-nav-icon { margin: 0; }
+  /* Keep names available to assistive technology; hover and focus show the portal hint. */
+  .robin-nav:is(.is-rail:not(.is-expanded), .is-top-icons) .robin-nav-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .robin-nav.is-rail .robin-nav-entry.is-current::after {
+    top: 9px;
+    bottom: 9px;
+    left: 0;
+    right: auto;
+    width: 2px;
+    height: auto;
+  }
+  .robin-nav:is(.is-rail:not(.is-expanded), .is-top-icons) :is(.robin-nav-badge, .robin-nav-dot) {
+    position: absolute;
+    top: 3px;
+    right: 2px;
+    margin: 0;
+  }
 }
 
 @media (max-width: 959px) {
@@ -4188,7 +4544,7 @@ span.token.table {
   .robin-shell-content.is-dashboard { padding-top: 0; }
   /* Narrow chat already has its session-sidebar button in the corner the
      Robin menu button would take, so the masthead stays a bar instead of
-     becoming a drawer: icons only, scrolling sideways when it runs out. */
+     becoming a drawer: Home / Chat / More use the existing workspace directory. */
   .chat-shell { --chat-panel-safe-top: env(safe-area-inset-top); }
   .chat-shell > .robin-navigation-container {
     position: static;
@@ -4235,7 +4591,7 @@ span.token.table {
     height: 44px;
     padding: 0;
     border: 1px solid var(--border);
-    border-radius: 0;
+    border-radius: var(--control-radius);
     background: var(--bg-panel);
     color: var(--text);
   }
@@ -4267,7 +4623,7 @@ span.token.table {
     height: var(--app-viewport-height, 100dvh);
     border-right: 1px solid var(--border);
     border-bottom: 0;
-    transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.22s ease;
+    transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
   }
   .robin-navigation-container.robin-navigation-open {
     transform: translateX(0);
@@ -4282,7 +4638,11 @@ span.token.table {
     width: 100%;
     height: 100%;
     padding: env(safe-area-inset-top) 6px env(safe-area-inset-bottom);
+    /* Short/landscape screens scroll the whole menu, including utilities. */
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
   }
+  .robin-nav.is-drawer > * { flex-shrink: 0; }
   .robin-nav-header {
     display: flex;
     align-items: center;
@@ -4291,6 +4651,21 @@ span.token.table {
     flex-shrink: 0;
     border-bottom: 1px solid var(--border);
   }
+  .robin-nav-grab {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 44px;
+    padding: 0 10px;
+    font: 14px/1.4 var(--font-ui);
+    color: var(--text-muted);
+    touch-action: pan-y pinch-zoom;
+    user-select: none;
+    -webkit-user-select: none;
+    cursor: grab;
+  }
+  .robin-nav-grab:active { cursor: grabbing; }
   .robin-nav-close {
     display: flex;
     align-items: center;
@@ -4513,14 +4888,6 @@ span.token.table {
   .directory-picker-footer {
     flex-wrap: wrap;
     padding-bottom: max(10px, env(safe-area-inset-bottom)) !important;
-  }
-  textarea,
-  input,
-  select {
-    font-size: 16px !important;
-  }
-  .chat-input-textarea {
-    font-size: max(16px, var(--chat-content-font-size, 14px)) !important;
   }
 }
 
@@ -5511,10 +5878,17 @@ span.token.table {
     flex-wrap: wrap;
     padding-bottom: max(10px, env(safe-area-inset-bottom)) !important;
   }
+}
+
+/* iOS focus zoom depends on field size, not portrait width. Cover touch
+   tablets and landscape phones too, including devices with a paired mouse. */
+@media (max-width: 640px), (any-pointer: coarse) {
   textarea,
   input,
   select {
-    font-size: 16px !important;
+    /* Larger title/reading fields declare this on the field itself, not
+       its container. One floor, without per-workspace !important patches. */
+    font-size: max(16px, var(--field-font-size, 16px)) !important;
   }
   .chat-input-textarea {
     font-size: max(16px, var(--chat-content-font-size, 14px)) !important;
@@ -5543,5 +5917,58 @@ span.token.table {
   /* Tapping it would close the keyboard anyway. */
   html[data-keyboard-open] .new-session-context {
     display: none !important;
+  }
+}
+
+/* After every responsive shell rule: an earlier media block is overridden
+   by the phone drawer's later transition declaration. Keep closed transforms
+   (they hide the panels), remove only the travel between states. */
+@media (prefers-reduced-motion: reduce) {
+  .robin-navigation-container,
+  .robin-navigation-scrim,
+  .sidebar-container,
+  .right-panel-container,
+  .right-panel-overlay-backdrop,
+  .ui-action {
+    transition: none;
+  }
+  .pi-bracket::before,
+  .pi-bracket::after {
+    transform: none;
+    transition: none;
+  }
+}
+
+/* Saving is a local, quiet status, not a toast or an animation. */
+.save-status { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 8px; color: var(--text-muted); font: 13px/1.5 var(--font-ui); }
+.save-status[data-state="error"], .save-status[data-state="conflict"] { color: var(--danger); }
+.save-status[data-state="dirty"] { color: var(--text-muted); }
+.save-status button { text-decoration: underline; text-underline-offset: 3px; }
+
+/* Keep content opaque where the user asks; do not introduce glass to satisfy this preference. */
+@media (prefers-reduced-transparency: reduce) {
+  .robin-navigation-container, .robin-dashboard-header, .pi-panel, .pi-topbar,
+  .settings-dialog-surface, .config-panel-surface, .session-sidebar {
+    background: var(--bg-panel);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+@media (prefers-contrast: more) {
+  html:root {
+    --text-muted: var(--text);
+    --text-dim: var(--text);
+    --copy: var(--text);
+    --border: color-mix(in srgb, var(--text) 65%, var(--bg-panel));
+    --nav-panel-background: var(--bg-panel);
+  }
+  .pi-panel, .pi-card, .robin-dashboard-header, .settings-dialog-surface, .config-panel-surface {
+    background: var(--bg-panel);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  :is(button, a, input, textarea, select, summary):focus-visible {
+    outline: 3px solid var(--text);
+    outline-offset: -3px;
   }
 }

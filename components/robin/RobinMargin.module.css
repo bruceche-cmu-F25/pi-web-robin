@@ -1,0 +1,28 @@
+.compact { display: none; }
+
+@media (max-width: 959px) {
+  /* More shortcuts, not more header rows. The existing nav owns native scrolling.
+     Keep names visible even when the desktop preference is icons only. */
+  :global(.chat-shell) .compact:global(.robin-nav-compact) {
+    display: flex;
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+    width: max-content;
+    min-width: 100%;
+    gap: 4px;
+    justify-content: flex-start;
+  }
+  :global(.chat-shell) .compact :global(.robin-nav-entry) {
+    min-height: 44px;
+    gap: 6px;
+    font-family: var(--font-ui);
+    font-size: max(13px, 1rem);
+  }
+  :global(.chat-shell) .compact :global(.robin-nav-label) {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+  }
+}

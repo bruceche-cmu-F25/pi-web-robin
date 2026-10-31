@@ -8,7 +8,7 @@ import { DARK_THEMES, THEME_OPTIONS } from "../lib/theme.ts";
 const base = process.env.E2E_BASE_URL || "http://127.0.0.1:30141";
 const artifacts = fileURLToPath(new URL("../test-results/themes/", import.meta.url));
 const themes = THEME_OPTIONS.map(({ id }) => id);
-const labels = ["System", "Light", "Mist", "Lilac", "Sand", "Rose", "Dark", "Pine", "Dusk", "Ember", "Slate", "High contrast light", "High contrast dark", "Zenburn", "Matrix"];
+const labels = ["System", "Glass", "Dark glass", "Light", "Mist", "Lilac", "Sand", "Rose", "Dark", "Pine", "Dusk", "Ember", "Slate", "High contrast light", "High contrast dark", "Zenburn", "Matrix"];
 await mkdir(artifacts, { recursive: true });
 const browser = await chromium.launch();
 
@@ -50,7 +50,7 @@ try {
     for (const [index, theme] of themes.entries()) {
       const radio = page.getByRole("radio", { name: labels[index], exact: true });
       await radio.locator("..").click();
-      await expectTheme(theme === "auto" ? "light" : theme);
+      await expectTheme(theme === "auto" ? "glass" : theme);
       assert.equal(await radio.isChecked(), true);
       assert.equal(await page.evaluate(() => localStorage.getItem("pi-theme")), theme);
       const colors = await page.locator("html").evaluate((root) => {
@@ -74,13 +74,13 @@ try {
       }), true, `Theme names must fit their swatches at ${width}px`);
       await page.screenshot({ path: `${artifacts}/${theme}-${width}.png`, animations: "disabled" });
       await page.reload();
-      await expectTheme(theme === "auto" ? "light" : theme);
+      await expectTheme(theme === "auto" ? "glass" : theme);
       await openSettings();
       assert.equal(await radio.isChecked(), true, "Selection must survive refresh");
     }
     await page.getByRole("radio", { name: "System", exact: true }).locator("..").click();
     await page.emulateMedia({ colorScheme: "dark" });
-    await expectTheme("dark");
+    await expectTheme("glass-dark");
     await page.getByRole("radio", { name: "Pine", exact: true }).locator("..").click();
     await page.emulateMedia({ colorScheme: "light" });
     await expectTheme("pine");
@@ -116,7 +116,7 @@ try {
       const bounds = await menu.boundingBox();
       assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width, "Menu must fit the viewport");
       await menu.getByRole("menuitemradio", { name: labels[index], exact: true }).click();
-      await expectTheme(theme === "auto" ? "light" : theme);
+      await expectTheme(theme === "auto" ? "glass" : theme);
       await menu.waitFor({ state: "detached" });
       assert.equal(await page.evaluate(() => localStorage.getItem("pi-theme")), theme);
       assert.equal(await themeButton.evaluate((button) => button === document.activeElement), true);

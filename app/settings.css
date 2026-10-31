@@ -1,4 +1,12 @@
 /* Shared settings and configuration surfaces. */
+:root {
+  --config-caption: 1rem;
+  --config-copy: 1.077rem;
+}
+.config-panel-root, .settings-dialog-surface, .config-picker-backdrop {
+  font-family: var(--font-ui);
+  font-size: var(--config-copy);
+}
 .config-panel-root {
   min-width: 0;
   min-height: 0;
@@ -185,8 +193,9 @@
   gap: 8px;
   width: 100%;
   min-width: 0;
-  height: 30px;
-  padding: 0 8px;
+  min-height: 36px;
+  height: auto;
+  padding: 7px 8px;
   border: 0;
   border-radius: 5px;
   outline: none;
@@ -1259,16 +1268,11 @@
 }
 
 .config-button-primary.is-success {
-  border-color: #16a34a;
-  background: #16a34a;
-  animation: saved-pop 0.45s ease;
+  /* A receipt, not a celebration. Keep the theme's proven text/background pair. */
+  opacity: 1;
 }
 
-.config-button-success-icon {
-  flex-shrink: 0;
-  stroke-dasharray: 18;
-  animation: saved-check-draw 0.35s ease forwards;
-}
+.config-button-success-icon { flex-shrink: 0; }
 
 .config-button.is-pushed-right {
   margin-left: auto;
@@ -1288,8 +1292,8 @@
 }
 
 .config-switch[aria-checked="true"] {
-  border-color: var(--accent);
-  background: var(--accent);
+  border-color: var(--success);
+  background: var(--success);
 }
 
 .config-switch:not(:disabled):hover {
@@ -1297,8 +1301,8 @@
 }
 
 .config-switch[aria-checked="true"]:not(:disabled):hover {
-  border-color: var(--accent-hover);
-  background: var(--accent-hover);
+  border-color: color-mix(in srgb, var(--success) 88%, var(--text));
+  background: color-mix(in srgb, var(--success) 88%, var(--text));
 }
 
 .config-switch::before {
@@ -2055,15 +2059,50 @@
   }
 }
 
-@keyframes saved-pop {
-  0%   { transform: scale(1); box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.55); }
-  40%  { transform: scale(1.08); box-shadow: 0 0 0 6px rgba(74, 222, 128, 0.25); }
-  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(74, 222, 128, 0); }
+/* One type scale for configuration: controls/captions 13, copy 14, headings 16.
+   Paths and code retain their explicit mono face; no change to chat typography. */
+.config-panel-subtitle, .config-sidebar-group-label, .config-sidebar-group-status,
+.config-sidebar-text, .config-field-label, .config-detail-path, .config-scope-tag,
+.config-section-title, .config-scope-switch-reason, .config-detail-heading-note,
+.config-footer-status, .config-add-source-example, .models-sidebar-badge,
+.enabled-models-note, .enabled-models-count, .enabled-models-banner-text,
+.enabled-models-row-id, .enabled-models-pin, .enabled-models-switch-error,
+.enabled-models-error, .enabled-models-empty, .oauth-paste-hint,
+.settings-general-description, .settings-general-error, .settings-language-code,
+.settings-chat-range-header output {
+  font-size: var(--config-caption);
+  line-height: 1.5;
 }
-
-@keyframes saved-check-draw {
-  from { stroke-dashoffset: 18; opacity: 0; }
-  to   { stroke-dashoffset: 0;  opacity: 1; }
+.config-detail, .config-detail-grid, .config-notice, .config-empty-state,
+.config-sidebar-message, .config-add-source-examples-label, .config-add-source-error,
+.skill-description, .skill-instructions, .skill-instructions-status, .oauth-paste-message {
+  font-size: var(--config-copy);
+  line-height: 1.6;
+}
+.config-sidebar-item, .config-button, .config-list-action-button,
+.config-scope-switch-option, .config-add-source-catalog, .enabled-models-row-name,
+.settings-section-tab, .settings-chat-option, .settings-send-mode-option {
+  font-size: var(--config-caption);
+}
+.config-detail-title, .settings-general-heading { font-size: 1.231rem; }
+.config-section-title, .config-field-label, .settings-general-description { color: var(--text-muted); }
+.config-footer { flex-wrap: wrap; }
+.config-footer-status { overflow: visible; overflow-wrap: anywhere; }
+.config-footer-actions { flex-wrap: wrap; margin-left: auto; }
+.config-button { min-height: 32px; height: auto; padding-block: 0.6em; line-height: 1.25; }
+.settings-navigation-options { flex-wrap: wrap; flex-shrink: 1; }
+.config-button:active:not(:disabled) { filter: brightness(0.92); transition: none; }
+.config-close-button:focus-visible, .config-list-action-button:focus-visible,
+.settings-section-tab:focus-visible, .settings-language-option:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+@media (max-width: 640px), (any-pointer: coarse) {
+  .config-button, .config-sidebar-item, .config-list-action-button,
+  .settings-send-mode-option, .config-scope-switch-option { min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .config-button, .config-switch, .config-switch-knob, .settings-section-tab::after { transition: none; }
 }
 
 /* Settings › MCP (components/McpConfig.tsx). Rows keep the shared 30px

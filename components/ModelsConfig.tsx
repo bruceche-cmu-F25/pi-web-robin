@@ -465,7 +465,7 @@ function ProviderDetail({ name, editingName, provider, onChange, onEditingNameCh
             style={{
               alignSelf: "flex-start", height: 30, padding: "0 12px", border: "1px solid var(--border)", borderRadius: 5,
               background: "var(--bg-panel)", color: discoveryState.phase === "loading" ? "var(--text-dim)" : "var(--text-muted)",
-              cursor: discoveryState.phase === "loading" ? "not-allowed" : "pointer", fontSize: 11,
+              cursor: discoveryState.phase === "loading" ? "not-allowed" : "pointer", fontSize: "var(--config-caption)",
             }}
           >
             {discoveryState.phase === "loading" ? t("models.discoveryFetching") : t("models.discoveryFetch")}
@@ -473,7 +473,7 @@ function ProviderDetail({ name, editingName, provider, onChange, onEditingNameCh
         )}
 
         {discoveryState.phase === "error" && (
-          <div style={{ padding: "7px 9px", border: "1px solid color-mix(in srgb, var(--danger) 30%, transparent)", borderRadius: 0, color: "var(--danger)", fontSize: 11, lineHeight: 1.4 }}>
+          <div style={{ padding: "7px 9px", border: "1px solid color-mix(in srgb, var(--danger) 30%, transparent)", borderRadius: 0, color: "var(--danger)", fontSize: "var(--config-caption)", lineHeight: 1.5 }}>
             {discoveryState.message}
           </div>
         )}
@@ -494,7 +494,7 @@ function ProviderDetail({ name, editingName, provider, onChange, onEditingNameCh
                   minHeight: 32, padding: "5px 9px", display: "flex", alignItems: "center", gap: 8,
                   position: "sticky", top: 0, zIndex: 1, borderBottom: "1px solid var(--border)",
                   background: "var(--bg)", cursor: selectableShownIds.length ? "pointer" : "default",
-                  color: "var(--text-muted)", fontSize: 10, fontWeight: 600,
+                  color: "var(--text-muted)", fontSize: "var(--config-caption)", fontWeight: 600,
                 }}
               >
                 <input
@@ -508,7 +508,7 @@ function ProviderDetail({ name, editingName, provider, onChange, onEditingNameCh
                 {t("models.discoverySelectShown")}
               </label>
               {shownDiscoveredModels.length === 0 ? (
-                <div style={{ padding: 12, color: "var(--text-dim)", fontSize: 11 }}>{t("models.discoveryNoMatches")}</div>
+                <div style={{ padding: 12, color: "var(--text-muted)", fontSize: "var(--config-caption)" }}>{t("models.discoveryNoMatches")}</div>
               ) : shownDiscoveredModels.map((model, index) => {
                 const alreadyAdded = existingModelIds.has(model.id);
                 const checked = selectedModelIds.includes(model.id);
@@ -529,10 +529,10 @@ function ProviderDetail({ name, editingName, provider, onChange, onEditingNameCh
                       style={{ width: 13, height: 13, accentColor: "var(--accent)", flexShrink: 0 }}
                     />
                     <span style={{ minWidth: 0, flex: 1 }}>
-                      <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text)", fontSize: 11 }}>{model.name ?? model.id}</span>
-                      {model.name && <code style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text-dim)", fontSize: 10, fontFamily: "var(--font-mono)" }}>{model.id}</code>}
+                      <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text)", fontSize: "var(--config-copy)" }}>{model.name ?? model.id}</span>
+                      {model.name && <code style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text-muted)", fontSize: "var(--config-caption)", fontFamily: "var(--font-mono)" }}>{model.id}</code>}
                     </span>
-                    {alreadyAdded && <span style={{ color: "var(--text-dim)", fontSize: 10 }}>{t("models.discoveryAdded")}</span>}
+                    {alreadyAdded && <span style={{ color: "var(--text-muted)", fontSize: "var(--config-caption)" }}>{t("models.discoveryAdded")}</span>}
                   </label>
                 );
               })}
@@ -1131,7 +1131,7 @@ function ModelDetail({
             aria-live="polite"
             style={{
               marginTop: 8, display: "flex", alignItems: "center",
-              justifyContent: "space-between", gap: 8, color: catalogStatusColor, fontSize: 10,
+              justifyContent: "space-between", gap: 8, color: catalogStatusColor, fontSize: "var(--config-caption)",
             }}
           >
             <span
@@ -1233,8 +1233,8 @@ function ModelDetail({
           }}
         >
           <span style={{ minWidth: 0 }}>
-            <span style={{ display: "block", fontSize: 11, fontWeight: 600 }}>{t("models.advancedSettings")}</span>
-            <span style={{ display: "block", marginTop: 3, color: "var(--text-dim)", fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            <span style={{ display: "block", fontSize: "var(--config-copy)", fontWeight: 600 }}>{t("models.advancedSettings")}</span>
+            <span style={{ display: "block", marginTop: 3, color: "var(--text-muted)", fontSize: "var(--config-caption)", overflowWrap: "anywhere" }}>
               {advancedSummary}
             </span>
           </span>
@@ -1448,7 +1448,7 @@ function OAuthDetail({ provider, onRefresh, enabledModels, contextSettings }: {
         <ConfigDetailActions>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <span style={{ width: 7, height: 7, borderRadius: "50%", background: provider.loggedIn ? "var(--success)" : "var(--border)", display: "inline-block" }} />
-            <span style={{ fontSize: 11, color: provider.loggedIn ? "var(--success)" : "var(--text-dim)" }}>
+            <span style={{ fontSize: "var(--config-caption)", color: provider.loggedIn ? "var(--success)" : "var(--text-muted)" }}>
                {provider.loggedIn ? t("i18n.connected") : t("i18n.notConnected")}
             </span>
           </div>
@@ -1542,7 +1542,7 @@ function OAuthDetail({ provider, onRefresh, enabledModels, contextSettings }: {
             <div style={{ padding: "8px 10px", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 0, color: "var(--text)", fontSize: 16, fontWeight: 700, fontFamily: "var(--font-mono)", letterSpacing: 0 }}>
               {loginState.userCode}
             </div>
-            <p style={{ margin: 0, fontSize: 11, color: "var(--text-dim)", lineHeight: 1.5 }}>
+            <p style={{ margin: 0, fontSize: "var(--config-copy)", color: "var(--text-muted)", lineHeight: 1.5 }}>
               <a href={loginState.verificationUri} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)", wordBreak: "break-all" }}>
                 {loginState.verificationUri}
               </a>
@@ -1639,7 +1639,7 @@ function ApiKeyDetail({ provider, onRefresh, enabledModels, contextSettings }: {
         <ConfigDetailActions>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <span style={{ width: 7, height: 7, borderRadius: "50%", background: provider.configured ? "var(--success)" : "var(--border)", display: "inline-block" }} />
-            <span style={{ fontSize: 11, color: provider.configured ? "var(--success)" : "var(--text-dim)" }}>
+            <span style={{ fontSize: "var(--config-caption)", color: provider.configured ? "var(--success)" : "var(--text-muted)" }}>
                {provider.configured ? t("i18n.configured") : t("i18n.notConfigured")}
             </span>
           </div>
@@ -2318,13 +2318,14 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
 
         {/* Footer */}
         <ConfigFooter status={(loadError || saveError) && (
-          <span style={{ color: "var(--danger)" }}>
+          <span role="alert" style={{ color: "var(--danger)" }}>
             {loadError ? t("models.configUnreadable", { error: loadError }) : saveError}
           </span>
         )}>
           {!embedded && <ConfigButton onClick={onClose}>{t("i18n.cancel")}</ConfigButton>}
           <ConfigButton
             variant="primary"
+            aria-busy={saving || undefined}
             onClick={handleSave}
             disabled={saving || savedOk || loadError !== null}
             className={savedOk ? "is-success" : undefined}

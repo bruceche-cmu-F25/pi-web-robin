@@ -1,0 +1,594 @@
+/* One Glass material family, two palettes. Structural chrome alone refracts
+   the live backdrop; content, code and terminal glyphs never get filtered. */
+[data-theme="glass"] {
+  color-scheme: light;
+  --glass-color-scheme: light;
+  --bg: #f5f7fa;
+  --bg-panel: #f8fafc;
+  --bg-hover: #e1e7ed;
+  --bg-selected: #d6e1eb;
+  --border: #abb6c3;
+  --text: #17232e;
+  --text-muted: #2d3b47;
+  --text-dim: #35434f;
+  --accent: #183b58;
+  --accent-hover: #102e47;
+  --accent-contrast: #ffffff;
+  --user-bg: #e3edf5;
+  --assistant-bg: #f5f7fa;
+  --tool-bg: #f0f4f8;
+  --bg-subtle: rgb(30 48 66 / 0.05);
+  --card-shadow: 0 1px 2px rgb(30 48 66 / 0.04), 0 10px 28px -18px rgb(30 48 66 / 0.20);
+  --overlay-shadow: 0 28px 80px rgb(30 40 55 / 0.22);
+  --glass-overlay-accent: #142a3b;
+  --glass-active-fill: rgb(255 255 255 / 0.48);
+  --glass-header-line: rgb(60 70 85 / 0.12);
+  --glass-tint: 255 255 255;
+  --glass-overlay-alpha: 0.56;
+  --glass-canvas:
+    radial-gradient(ellipse at 0% 8%, rgb(135 183 224 / 0.18), transparent 60%),
+    radial-gradient(ellipse at 100% 0%, rgb(183 160 219 / 0.14), transparent 55%);
+  --glass-preview-edge: rgb(255 255 255 / 0.90);
+}
+html[data-theme="glass-dark"],
+[data-theme="glass-dark"] {
+  color-scheme: dark;
+  --glass-color-scheme: dark;
+  /* Neutral base; raised surfaces get lighter instead of a coloured outline. */
+  --bg: #141416;
+  --bg-deep: #101012;
+  --bg-panel: #2c2c2e;
+  --bg-hover: #343437;
+  --bg-selected: #3b3b3f;
+  --border: #48484d;
+  --text: #f2f2f7;
+  --copy: var(--text-muted);
+  --text-muted: #c7c7cc;
+  --text-dim: #aeaeb5;
+  --accent: #b5d5ff;
+  --accent-hover: #d2e5ff;
+  --accent-contrast: #141416;
+  --on-accent: #141416;
+  --user-bg: #29292d;
+  --assistant-bg: #141416;
+  --tool-bg: #242426;
+  --bg-subtle: rgb(255 255 255 / 0.04);
+  --card-shadow: 0 1px 2px rgb(0 0 0 / 0.16), 0 10px 28px -18px rgb(0 0 0 / 0.40);
+  --overlay-shadow: 0 28px 80px rgb(0 0 0 / 0.40);
+  --glass-overlay-accent: #b5d5ff;
+  --glass-active-fill: rgb(255 255 255 / 0.10);
+  --glass-header-line: rgb(255 255 255 / 0.10);
+  --glass-tint: 44 44 46;
+  /* Brighter raised grey still clears AA over a white editor/image. */
+  --glass-overlay-alpha: 0.86;
+  /* Barely tinted ambient ground, not a fixed purple/amber colour treatment.
+     The material transmits the real backdrop; it doesn't analyse its contrast
+     or switch appearances like Apple's native Regular material. */
+  --glass-canvas:
+    radial-gradient(ellipse at 0% 8%, rgb(170 174 186 / 0.045), transparent 60%),
+    radial-gradient(ellipse at 100% 100%, rgb(185 177 166 / 0.035), transparent 55%);
+  --glass-preview-edge: rgb(240 240 244 / 0.14);
+}
+
+/* Solid defaults cover browsers without backdrop-filter. */
+html[data-theme^="glass"] {
+  --glass-clear-fill: var(--bg-panel);
+  --glass-frost-fill: var(--bg-panel);
+  --glass-fill: var(--glass-clear-fill);
+  --glass-overlay-fill: var(--bg-panel);
+  --glass-inner-fill: var(--bg-panel);
+  --glass-scrim: rgb(0 0 0 / 0.38);
+  --glass-clear-filter: none;
+  --glass-frost-filter: none;
+  --glass-filter: var(--glass-clear-filter);
+  --glass-rim: none;
+  --glass-edge: var(--border);
+  --glass-shadow: 0 3px 12px rgb(30 40 55 / 0.08);
+}
+/* The original grid contains an opaque paper mask. A translucent canvas wash
+   tints that paper without replacing its 4px/20px/cross geometry. It remains
+   behind all UI, static, and confined to page ground (not ruled content). */
+html[data-theme^="glass"],
+html[data-theme^="glass"] :is(.chat-shell, .robin-shell) {
+  background-image: var(--glass-canvas), var(--page-grid-image);
+  background-size: 100% 100%, 100% 100%, var(--page-grid-size);
+  background-position: 0 0, 0 0, var(--page-grid-position);
+}
+
+/* Workspace layout is a window onto the one Robin shell backdrop, not another
+   paper mask or white wash. Opt in only structural ground, never documents,
+   cards, graph canvases, dialogs or sticky reading headers. This also removes
+   a nested pi-grid-surface's opaque paper/restarted ambient gradient. */
+html[data-theme^="glass"] .robin-workspace-ground { background: transparent; }
+
+/* Workspace directories/resources share CSS frost, not large SVG maps. These
+   are siblings of the reading surface; never put this on a document wrapper. */
+html[data-theme^="glass"] .robin-workspace-rail {
+  background: var(--glass-frost-fill);
+  -webkit-backdrop-filter: var(--glass-frost-filter);
+  backdrop-filter: var(--glass-frost-filter);
+  border: 1px solid var(--glass-edge);
+  border-radius: 24px;
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-edge);
+}
+/* Same clear material as Incoming/Notes; retain each page's navigation and
+   mounted views. Wrapping labels remain reachable at narrow/zoomed widths. */
+html[data-theme^="glass"] .robin-workspace-view-switch {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-self: flex-start;
+  width: fit-content;
+  max-width: 100%;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--glass-edge);
+  border-radius: 28px;
+}
+html[data-theme^="glass"] .robin-workspace-view-switch > button {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 44px;
+  padding: 8px 14px;
+  border: 1px solid transparent;
+  border-radius: 23px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+  font: 14px/1.5 var(--font-ui);
+  overflow-wrap: anywhere;
+}
+html[data-theme^="glass"] .robin-workspace-view-switch > :is([aria-current="page"], [aria-pressed="true"]) {
+  background: var(--glass-active-fill);
+  border-color: var(--glass-edge);
+  color: var(--text);
+  font-weight: 500;
+}
+html[data-theme^="glass"] .robin-workspace-view-switch > button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -3px;
+}
+@media (hover: hover) and (pointer: fine) {
+  html[data-theme^="glass"] .robin-workspace-view-switch > button:hover { background: var(--bg-hover); color: var(--text); }
+}
+html[data-theme^="glass"] .robin-workspace-view-switch > button:active { background: var(--bg-selected); }
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more), (forced-colors: active) {
+  html[data-theme^="glass"] .robin-workspace-view-switch > :is([aria-current="page"], [aria-pressed="true"]) {
+    border-color: var(--text);
+    background: var(--bg-selected);
+  }
+}
+@media (forced-colors: active) {
+  html[data-theme^="glass"] .robin-workspace-view-switch > :is([aria-current="page"], [aria-pressed="true"]) { border-color: Highlight; }
+}
+
+/* Material on the floating surface, not its full-width host. Local nav token
+   also reaches the sidebar's existing inline background. */
+html[data-theme^="glass"] :is(
+  .robin-navigation-container, .sidebar-container, .pi-topbar,
+  .robin-dashboard-header .robin-assistant-bar, .robin-mobile-nav-trigger,
+  .settings-dialog-surface, .config-panel-root.is-modal > .config-panel-surface,
+  .chat-input-surface:not(.is-compact), .robin-command-dialog,
+  .robin-dashboard-toolbar, .robin-dashboard-dock, .robin-workspace-tabs
+) {
+  --glass-material: clear;
+  --glass-fill: var(--glass-clear-fill);
+  --glass-filter: var(--glass-clear-filter);
+  --nav-panel-background: var(--glass-fill);
+  background: var(--nav-panel-background);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  border-color: var(--glass-edge);
+  box-shadow: var(--glass-shadow);
+}
+/* Material choice is semantic, not inferred from size: tall inputs stay clear. */
+html[data-theme^="glass"] :is(
+  .robin-navigation-container, .sidebar-container, .settings-dialog-surface,
+  .config-panel-root.is-modal > .config-panel-surface, .robin-command-dialog
+) {
+  --glass-material: frost;
+  --glass-fill: var(--glass-frost-fill);
+  --glass-filter: var(--glass-frost-filter);
+}
+/* Only installed after map decode. Filter the backdrop, never foreground. */
+html[data-theme^="glass"] [data-glass-refraction] {
+  -webkit-backdrop-filter: var(--glass-refraction) !important;
+  backdrop-filter: var(--glass-refraction) !important;
+}
+
+/* Leave fixed drawers and the sticky dashboard header positioned as before. */
+html[data-theme^="glass"] :is(
+  .pi-topbar, .robin-dashboard-header .robin-assistant-bar,
+  .settings-dialog-surface, .config-panel-root.is-modal > .config-panel-surface,
+  .chat-input-surface:not(.is-compact)
+) { position: relative; }
+
+/* Single thin directional edge. The hollow mask never intercepts a pointer. */
+html[data-theme^="glass"] :is(
+  .robin-navigation-container, .sidebar-container, .pi-topbar,
+  .robin-dashboard-header .robin-assistant-bar, .robin-mobile-nav-trigger,
+  .settings-dialog-surface, .config-panel-root.is-modal > .config-panel-surface,
+  .chat-input-surface:not(.is-compact), .robin-command-dialog,
+  .robin-dashboard-toolbar, .robin-dashboard-dock, .robin-workspace-tabs
+)::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  padding: 1px;
+  border-radius: inherit;
+  background: var(--glass-rim);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+html[data-theme^="glass"] :is(.chat-input-surface:not(.is-compact), .robin-dashboard-header .robin-assistant-bar) {
+  --input-surface-radius: 38px;
+}
+/* Do not override --bg locally: menus and content remain opaque. */
+html[data-theme^="glass"] :is(.pi-topbar, .chat-input-surface:not(.is-compact)) {
+  background: var(--nav-panel-background) !important;
+  border-radius: 38px !important;
+  box-shadow: var(--glass-shadow) !important;
+}
+html[data-theme^="glass"] .pi-topbar {
+  margin: 8px 10px;
+  padding-inline: 8px;
+}
+html[data-theme^="glass"] .pi-topbar > div:first-child { border-bottom-color: transparent !important; }
+html[data-theme^="glass"] :is(.settings-dialog-surface, .config-panel-root.is-modal > .config-panel-surface, .robin-command-dialog) {
+  border-radius: 30px;
+  box-shadow: var(--glass-shadow), var(--overlay-shadow);
+}
+html[data-theme^="glass"] :is(.settings-dialog-backdrop, .config-panel-root.is-modal, .robin-navigation-scrim) {
+  background: var(--glass-scrim);
+}
+html[data-theme^="glass"] .sidebar-overlay-backdrop { background: var(--glass-scrim) !important; }
+/* Native top-layer dialog owns the only material layer. */
+html[data-theme^="glass"] .robin-command-dialog::backdrop {
+  background: var(--glass-scrim);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html[data-theme^="glass"] .robin-command-dialog__content {
+  background: transparent;
+  border-color: transparent;
+  border-radius: inherit;
+  box-shadow: none;
+}
+html[data-theme^="glass"] .robin-command-dialog .robin-command-dialog__content .robin-assistant-bar {
+  background: transparent;
+  border-radius: 29px 29px 0 0;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* Overlays cross arbitrary editors/images, unlike chrome on our own canvas. */
+html[data-theme^="glass"] :is(
+  .settings-dialog-surface, .config-panel-root.is-modal > .config-panel-surface,
+  .robin-navigation-container[aria-modal="true"], .robin-command-dialog
+) {
+  --glass-fill: var(--glass-overlay-fill);
+  --text-muted: var(--text);
+  --text-dim: var(--text);
+  --accent: var(--glass-overlay-accent);
+}
+html[data-theme^="glass"] .settings-dialog-surface .config-panel-root.is-embedded > .config-panel-surface {
+  background: transparent;
+}
+html[data-theme^="glass"] :is(.settings-dialog-surface, .config-panel-root.is-modal) .config-sidebar {
+  background: var(--glass-inner-fill);
+}
+html[data-theme^="glass"] .settings-dialog-header { border-bottom-color: var(--glass-header-line); }
+html[data-theme^="glass"] .robin-dashboard-header {
+  background: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: none;
+}
+html[data-theme^="glass"] .robin-dashboard-header .robin-assistant-bar { border-radius: 38px; }
+html[data-theme^="glass"] .robin-mobile-nav-trigger { border-radius: 50%; }
+/* Dashboard chrome stays clear; its reading surfaces use CSS frost in the
+   Dashboard module, not per-row or large SVG refraction filters. */
+html[data-theme^="glass"] .robin-dashboard-dock [aria-current="page"] { background: var(--dashboard-nav-fill, var(--glass-active-fill)); }
+html[data-theme^="glass"] .robin-nav-entry {
+  border-radius: 999px;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+html[data-theme^="glass"] .robin-nav-entry.is-current { background: var(--glass-active-fill); }
+html[data-theme^="glass"] .sidebar-container { border-radius: 30px; }
+html[data-theme^="glass"] .sidebar-container.sidebar-closed { box-shadow: none; }
+html[data-theme^="glass"] .sidebar-container.sidebar-closed::after { display: none; }
+
+@media (min-width: 960px) {
+  html[data-theme^="glass"] .robin-navigation-container {
+    position: relative;
+    margin: 10px 8px;
+    width: auto;
+    border: 1px solid var(--glass-edge);
+    border-radius: 28px;
+  }
+  html[data-theme^="glass"] :is([data-navigation-placement="left"], [data-navigation-placement="left-labels"]) > .robin-navigation-container {
+    height: calc(100% - 20px);
+    width: 48px;
+  }
+  html[data-theme^="glass"] [data-navigation-placement="left-labels"] > .robin-navigation-container { width: 184px; }
+  /* Rails also carry is-horizontal; preserve their 1px / 6px base insets. */
+  html[data-theme^="glass"] .robin-nav.is-horizontal:not(.is-rail) { padding-inline: 12px; }
+  html[data-theme^="glass"] :is(.chat-shell, .robin-shell):is([data-navigation-placement="top"], [data-navigation-placement="top-icons"]) > .robin-navigation-container {
+    --glass-material: clear;
+    --glass-fill: var(--glass-clear-fill);
+    --glass-filter: var(--glass-clear-filter);
+  }
+}
+@media (min-width: 641px) {
+  html[data-theme^="glass"] .sidebar-container.sidebar-open {
+    /* Let the rounded glass panel breathe beside the window edge or nav rail. */
+    margin: 8px 4px 8px 12px;
+    height: calc(100% - 16px);
+  }
+}
+@media (max-width: 959px) {
+  html[data-theme^="glass"] .chat-shell[data-navigation-placement] > .robin-navigation-container {
+    --glass-material: clear;
+    --glass-fill: var(--glass-clear-fill);
+    --glass-filter: var(--glass-clear-filter);
+    position: relative;
+    margin: 8px;
+    border: 1px solid var(--glass-edge);
+    border-radius: 28px;
+  }
+  html[data-theme^="glass"] .robin-shell > .robin-navigation-container {
+    top: 8px;
+    bottom: 8px;
+    left: calc(env(safe-area-inset-left) + 8px);
+    height: calc(var(--app-viewport-height, 100dvh) - 16px);
+    border: 1px solid var(--glass-edge);
+    border-radius: 28px;
+  }
+  /* Offset is included in both dismissal and useDrawerGesture's width. */
+  html[data-theme^="glass"] .robin-shell > .robin-navigation-container.robin-navigation-closed {
+    transform: translateX(calc(-100% - env(safe-area-inset-left) - 8px));
+    box-shadow: none;
+  }
+  html[data-theme^="glass"] .robin-nav.is-drawer { padding-block: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-bottom)); }
+}
+@media (max-width: 640px) {
+  html[data-theme^="glass"] .sidebar-container {
+    --glass-fill: var(--glass-overlay-fill);
+    --text-muted: var(--text);
+    --text-dim: var(--text);
+    --accent: var(--glass-overlay-accent);
+    top: 8px;
+    bottom: 8px;
+    left: calc(env(safe-area-inset-left) + 8px);
+    height: calc(var(--app-viewport-height, 100dvh) - 16px);
+  }
+  html[data-theme^="glass"] .sidebar-container.sidebar-closed {
+    transform: translateX(calc(-100% - env(safe-area-inset-left) - 8px));
+  }
+}
+
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  html[data-theme^="glass"] {
+    --glass-clear-fill: rgb(var(--glass-tint) / 0.30);
+    --glass-frost-fill: rgb(var(--glass-tint) / 0.48);
+    --glass-overlay-fill: rgb(var(--glass-tint) / var(--glass-overlay-alpha));
+    --glass-inner-fill: rgb(var(--glass-tint) / 0.12);
+    --glass-scrim: rgb(27 43 62 / 0.12);
+    --glass-clear-filter: blur(0.7px);
+    --glass-frost-filter: blur(10px);
+    --glass-edge: rgb(255 255 255 / 0.40);
+    --glass-rim: linear-gradient(140deg, rgb(255 255 255 / 0.92), rgb(30 59 66 / 0.22) 48%, rgb(255 255 255 / 0.40));
+    --glass-shadow:
+      inset 0 1px 1px rgb(255 255 255 / 0.90),
+      inset 0 -1px 1px rgb(255 255 255 / 0.35),
+      0 18px 48px -16px rgb(23 46 53 / 0.30),
+      0 2px 6px rgb(23 46 53 / 0.08);
+  }
+  html[data-theme="glass-dark"] {
+    --glass-scrim: rgb(0 0 0 / 0.28);
+    --glass-edge: rgb(240 240 244 / 0.10);
+    --glass-rim: linear-gradient(140deg, rgb(240 240 244 / 0.18), rgb(0 0 0 / 0.12) 48%, rgb(220 220 224 / 0.06));
+    --glass-shadow:
+      inset 0 1px 1px rgb(240 240 244 / 0.10),
+      inset 0 -1px 1px rgb(220 220 224 / 0.025),
+      0 18px 48px -16px rgb(0 0 0 / 0.36),
+      0 2px 6px rgb(0 0 0 / 0.16);
+  }
+}
+
+/* Secondary session surfaces. Popovers live outside filtered toolbars. */
+html[data-theme^="glass"] :is([data-session-search-bar], .terminal-panel-header, .workspace-panel-header, .pi-topbar-panel) {
+  --glass-material: clear;
+  background: var(--glass-clear-fill) !important;
+  -webkit-backdrop-filter: var(--glass-clear-filter);
+  backdrop-filter: var(--glass-clear-filter);
+  border: 1px solid var(--glass-edge);
+  border-radius: 20px;
+  box-shadow: var(--glass-shadow);
+}
+html[data-theme^="glass"] .pi-topbar-panel {
+  --glass-material: frost;
+  --text-muted: var(--text);
+  --text-dim: var(--text);
+  --accent: var(--glass-overlay-accent);
+  background: var(--glass-overlay-fill) !important;
+  -webkit-backdrop-filter: var(--glass-frost-filter);
+  backdrop-filter: var(--glass-frost-filter);
+  overscroll-behavior: contain;
+}
+html[data-theme^="glass"] .pi-topbar-panel > :is(.system-prompt-panel, .tool-definitions-panel, .session-info-popover) {
+  background: transparent !important;
+  border: 0;
+  box-shadow: none !important;
+  max-height: inherit;
+  min-height: 0;
+}
+html[data-theme^="glass"] [data-mobile-toolbar-actions] {
+  border-radius: 0 20px 20px 0;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+html[data-theme^="glass"] .pi-topbar-panel .tool-definitions-sidebar { background: var(--glass-inner-fill); }
+html[data-theme^="glass"] [data-session-search-bar] {
+  margin: 0 10px 8px;
+  padding: 8px !important;
+}
+html[data-theme^="glass"] [data-session-search-bar] :is(input, button),
+html[data-theme^="glass"] .sidebar-search-input {
+  border-radius: 12px !important;
+}
+html[data-theme^="glass"] [data-session-search-bar] input { background: var(--glass-inner-fill) !important; }
+html[data-theme^="glass"] [data-session-search-bar] input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+html[data-theme^="glass"] .workspace-panel-header {
+  position: relative;
+  z-index: 2;
+  margin: 8px;
+}
+html[data-theme^="glass"] .workspace-panel-header .workspace-tabs { background: transparent !important; }
+/* ANSI/xterm keeps its own opaque palette and connection lifetime. */
+html[data-theme^="glass"] .terminal-panel {
+  width: calc(100% - 16px);
+  height: calc(100% - 16px);
+  margin: 8px;
+  grid-template-rows: 44px auto minmax(0, 1fr);
+  background: transparent;
+}
+html[data-theme^="glass"] .terminal-panel-header {
+  --terminal-muted: var(--text-muted);
+  --terminal-strong: var(--text);
+  --terminal-button-border: var(--border);
+  --terminal-hover-bg: var(--bg-hover);
+  color-scheme: var(--glass-color-scheme);
+}
+html[data-theme^="glass"] .terminal-panel-header button { border-radius: 10px; min-width: 32px; min-height: 32px; }
+html[data-theme^="glass"] .terminal-xterm { background: var(--terminal-bg); border-radius: 16px; margin-top: 8px; }
+@media (max-width: 640px) {
+  html[data-theme^="glass"] [data-session-search-bar] { flex-wrap: wrap; justify-content: flex-end; }
+  html[data-theme^="glass"] [data-session-search-bar] > div:first-child { flex-basis: 100% !important; }
+  html[data-theme^="glass"] [data-session-search-bar] :is(input, button) { min-height: 44px; }
+  html[data-theme^="glass"] [data-session-search-bar] button { min-width: 44px; }
+  html[data-theme^="glass"] .terminal-panel-header button { min-height: 44px; min-width: 44px; }
+}
+
+/* One continuous reading plane behind floating chat chrome. Inset measurements
+   protect the first/last lines and keyboard targets, not a mask on the scroller
+   (a scroller mask would cut off backdrop sampling again). Empty chats keep
+   their centred composer and every non-Glass palette keeps its flow layout. */
+html[data-theme^="glass"] .chat-main:has(> .chat-main-body > [data-scroll-chrome]) {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+}
+html[data-theme^="glass"] .chat-main:has([data-scroll-chrome]) > .pi-topbar {
+  grid-area: 1 / 1;
+  z-index: 30;
+  align-self: start;
+}
+html[data-theme^="glass"] .chat-main:has([data-scroll-chrome]) > .chat-main-body {
+  grid-area: 1 / 1 / 3 / 2;
+  min-height: 0;
+}
+html[data-theme^="glass"] .chat-content[data-scroll-chrome] {
+  --chat-visible-top: var(--chat-scroll-top);
+  padding-top: var(--chat-toolbar-height);
+}
+.chat-inline-header { flex-shrink: 0; }
+html[data-theme^="glass"] [data-scroll-chrome] > .chat-inline-header { position: relative; z-index: 3; }
+html[data-theme^="glass"] [data-scroll-chrome] > .chat-transcript-frame { position: absolute; inset: 0; }
+html[data-theme^="glass"] [data-scroll-chrome] .chat-transcript-scroll {
+  padding-top: calc(var(--chat-scroll-top) + 16px);
+  padding-bottom: calc(var(--chat-scroll-bottom) + 16px);
+  scroll-padding-top: calc(var(--chat-scroll-top) + 16px);
+  scroll-padding-bottom: calc(var(--chat-scroll-bottom) + 16px);
+}
+html[data-theme^="glass"] [data-scroll-chrome] [data-minimap-rail] {
+  margin-top: var(--chat-scroll-top);
+  margin-bottom: var(--chat-scroll-bottom);
+}
+html[data-theme^="glass"] [data-scroll-chrome] > .chat-composer { margin-top: auto; z-index: 3; }
+html[data-theme^="glass"] .chat-content[data-scroll-chrome]::before,
+html[data-theme^="glass"] [data-scroll-chrome] > .chat-composer::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+  background: var(--glass-inner-fill);
+  -webkit-backdrop-filter: var(--glass-frost-filter);
+  backdrop-filter: var(--glass-frost-filter);
+}
+html[data-theme^="glass"] .chat-content[data-scroll-chrome]::before {
+  top: 0;
+  height: calc(var(--chat-scroll-top) + 32px);
+  z-index: 2;
+  -webkit-mask-image: linear-gradient(#000 calc(100% - 48px), transparent);
+  mask-image: linear-gradient(#000 calc(100% - 48px), transparent);
+}
+html[data-theme^="glass"] [data-scroll-chrome] > .chat-composer::before {
+  top: -32px;
+  bottom: calc(-1 * env(safe-area-inset-bottom));
+  z-index: -1;
+  -webkit-mask-image: linear-gradient(transparent, #000 48px);
+  mask-image: linear-gradient(transparent, #000 48px);
+}
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more), (forced-colors: active) {
+  html[data-theme^="glass"] .chat-content[data-scroll-chrome]::before,
+  html[data-theme^="glass"] [data-scroll-chrome] > .chat-composer::before {
+    background: var(--bg);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+  html[data-theme^="glass"] .chat-content[data-scroll-chrome]::before { height: var(--chat-scroll-top); }
+  html[data-theme^="glass"] [data-scroll-chrome] > .chat-composer::before { top: 0; }
+}
+
+/* Paired material previews; no live/nested blur in the swatches. */
+.settings-theme-option[data-material] { grid-column: span 10; }
+.settings-theme-option[data-material] :is(.settings-theme-swatch, .settings-theme-fill) { border-radius: 999px; }
+.settings-theme-option[data-material] .settings-theme-fill {
+  background: var(--glass-canvas), var(--bg);
+  box-shadow: inset 0 1px 1px var(--glass-preview-edge);
+}
+
+/* Accessibility changes material, not hit areas or drawer coordinates. */
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more), (forced-colors: active) {
+  html[data-theme^="glass"] {
+    --glass-clear-fill: var(--bg-panel);
+    --glass-frost-fill: var(--bg-panel);
+    --glass-fill: var(--bg-panel);
+    --glass-overlay-fill: var(--bg-panel);
+    --glass-inner-fill: var(--bg-panel);
+    --glass-scrim: rgb(0 0 0 / 0.38);
+    --glass-clear-filter: none;
+    --glass-frost-filter: none;
+    --glass-filter: none;
+    --glass-rim: none;
+    --glass-shadow: none;
+    --glass-edge: var(--border);
+    --glass-canvas: none;
+  }
+  html[data-theme^="glass"],
+  html[data-theme^="glass"] :is(.chat-shell, .robin-shell, .pi-grid-surface) { background-image: none; }
+  html[data-theme^="glass"] [data-glass-refraction] {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+  html[data-theme^="glass"] .settings-theme-option[data-material] .settings-theme-fill {
+    background: var(--bg-panel);
+    box-shadow: none;
+  }
+}

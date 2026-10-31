@@ -34,6 +34,7 @@ import { ThemePicker } from "./ThemePicker";
 import { McpConfig } from "./McpConfig";
 import { ConfigButton, ConfigSwitch } from "./SettingsUi";
 import { FontSettings } from "./FontSettings";
+import { NavigationPlacementSetting } from "./NavigationPlacementSetting";
 
 interface Props {
   cwd: string | null;
@@ -208,6 +209,7 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
         <h3 className="settings-general-heading">{t("settings.appearance")}</h3>
         <p className="settings-general-description">{t("settings.appearanceDescription")}</p>
         <ThemePicker />
+        <NavigationPlacementSetting />
       </section>
 
       <section className="settings-general-section">
@@ -393,6 +395,14 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
           {shellError && <p role="alert" className="settings-general-error">{shellError}</p>}
         </section>
       )}
+
+      <section className="settings-general-section">
+        <h3 className="settings-general-heading">{t("voice.settingsTitle")}</h3>
+        <p className="settings-general-description">{t("voice.settingsIntro")}</p>
+        <a className="config-button config-button-default config-button-secondary" href="/dashboard/settings#voice">
+          {t("voice.openSettings")}
+        </a>
+      </section>
 
       <section className="settings-general-section">
         <h3 className="settings-general-heading">{t("settings.pushPermission")}</h3>
