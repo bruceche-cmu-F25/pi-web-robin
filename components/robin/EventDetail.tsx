@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { eventReturnHref } from "./board-navigation";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import type { DashboardEvent } from "@/extension/robin/events";
 import type { DetailBlock, DetailInline, TechEventDetail, TechEventPerson } from "@/extension/robin/tech-event-detail";
@@ -106,6 +108,8 @@ function Panel({ title, children }: { title: string; children: React.ReactNode }
 /** One public event: its introduction, its people, and whether it fits your week. */
 export function EventDetail({ id }: { id: string }) {
   const { t, locale } = useI18n();
+  const searchParams = useSearchParams();
+  const returnTo = eventReturnHref(searchParams.get("returnTo"));
   const url = `/api/robin/tech-events/${encodeURIComponent(id)}`;
   // The board is polled; this page is not. A description changes daily at most.
   const [data, setData] = useState<EventPageResponse | null>(null);
@@ -155,7 +159,7 @@ export function EventDetail({ id }: { id: string }) {
   };
 
   const back = (
-    <Link href="/dashboard/events" className="ui-action pi-eyebrow min-h-11 self-start">← {t("robin.events.backToEvents")}</Link>
+    <Link href={returnTo} scroll={false} className="ui-action pi-eyebrow min-h-11 self-start">← {t("robin.events.backToEvents")}</Link>
   );
 
   if (loading) {

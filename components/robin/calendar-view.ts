@@ -4,6 +4,10 @@ export type CalendarView = "agenda" | "day" | "week" | "month";
 export function calendarView(value: string | null): CalendarView | null {
   return value === "agenda" || value === "day" || value === "week" || value === "month" ? value : null;
 }
+// Phone Calendar is the hourly calendar; old agenda/month preferences must not hide it.
+export function calendarPresentation(view: CalendarView, mobile: boolean): CalendarView {
+  return mobile && view !== "day" && view !== "week" ? "day" : view;
+}
 export function calendarDays(view: CalendarView, anchor: string): string[] {
   if (view === "month") return monthGrid(anchor);
   if (view === "week") return weekDays(anchor);

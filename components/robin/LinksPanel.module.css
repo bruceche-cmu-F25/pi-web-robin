@@ -1,5 +1,7 @@
 .panel { container-type: inline-size; }
 .groups { columns: 1; column-gap: 16px; }
+/* A category mark sits inside the target; a border would curl around its corners. */
+.familyMark { flex: 0 0 3px; height: 16px; border-radius: var(--detail-radius); }
 
 /* A wide screen does not mean the links card itself has two columns of room. */
 @container (min-width: 640px) {

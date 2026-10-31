@@ -6,6 +6,8 @@ import { enLocale } from "../../lib/i18n/messages/en.ts";
 const read = (path) => readFile(new URL(path, import.meta.url), "utf8");
 const boardSource = await read("./EventsBoard.tsx");
 const marginSource = await read("./RobinMargin.tsx");
+const workspaceSource = await read("./JobHuntWorkspace.tsx");
+const layoutSource = await read("../../app/dashboard/layout.tsx");
 const pageSource = await read("../../app/dashboard/events/page.tsx");
 const listRoute = await read("../../app/api/robin/tech-events/route.ts");
 const scanRoute = await read("../../app/api/robin/tech-events/scan/route.ts");
@@ -16,19 +18,22 @@ test("the events page lives under the dashboard shell", () => {
   // /dashboard has a layout that wraps children in <RobinShell>, so the page
   // gets the shared navigation by being here rather than by rendering it.
   assert.match(pageSource, /<EventsBoard \/>/);
-  assert.match(marginSource, /path: "\/dashboard\/events"/);
+  assert.match(layoutSource, /<JobHuntWorkspace>\{children\}<\/JobHuntWorkspace>/);
+  assert.match(workspaceSource, /const EVENTS = "\/dashboard\/events"/);
+  assert.match(workspaceSource, /\[EVENTS, t\("robin\.nav\.events"\)\]/);
+  assert.match(workspaceSource, /<Link key=\{path\} href=\{href\(path\)\}/);
   const main = marginSource.slice(
     marginSource.indexOf("const mainItems"),
     marginSource.indexOf("const utilityItems"),
   );
-  assert.match(main, /path: "\/dashboard\/events"/);
+  assert.match(main, /path: "\/dashboard\/jobs"[\s\S]*?covers: \["\/dashboard\/events"\]/);
+  assert.doesNotMatch(main, /path: "\/dashboard\/events"/);
 });
 
-test("the nav badge counts what you decided to go to", () => {
-  // A city feed always has something on, so a count of "upcoming" would sit at
-  // a permanent 40 and stop meaning anything.
-  assert.match(marginSource, /const savedEvents = eventItems\.filter\(\(event\) => event\.saved\)\.length/);
-  assert.match(marginSource, /status: \{ count: savedEvents/);
+test("events contribute a discovery dot, not an actionable job count", () => {
+  // The shared Job hunt badge counts jobs/OAs; a city feed must not inflate it.
+  assert.match(marginSource, /const upcomingEvents = \(techEvents\?\.events \?\? \[\]\)\.some\(\(event\) => !event\.hidden\)/);
+  assert.match(marginSource, /status: \{ count: jobsActions \+ roundActions, hasNew: \(jobsNew \|\| upcomingEvents\) && !inJobHunt \}/);
 });
 
 test("the weekly cadence is driven by the read, not by a daemon", () => {

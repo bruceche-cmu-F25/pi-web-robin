@@ -84,7 +84,7 @@ try {
       const overflow = await page.locator('.robin-dashboard').evaluate((el) => ({ client: el.clientWidth, scroll: el.scrollWidth }));
       assert.ok(overflow.scroll <= overflow.client + 1, `${locale}: dashboard overflow ${JSON.stringify(overflow)}`);
     };
-    for (const width of [320, 375, 390, 430]) {
+    for (const width of [320, 360, 374, 375, 390, 430]) {
       await page.setViewportSize({ width, height: 812 });
       if (process.env.E2E_SCREENSHOT_DIR) {
         await mkdir(process.env.E2E_SCREENSHOT_DIR, { recursive: true });
@@ -95,14 +95,20 @@ try {
         const rect = link.getBoundingClientRect();
         return { top: rect.top, height: rect.height, width: rect.width, scroll: link.scrollWidth, client: link.clientWidth };
       }));
-      assert.equal(shortcuts.length, 4);
+      assert.equal(shortcuts.length, 5);
+      assert.equal(await page.locator('.robin-dashboard-shortcuts a').last().getAttribute('href'), '/tools');
       for (const link of shortcuts) {
-        assert.equal(link.top, shortcuts[0].top, `${locale}/${width}: all four shortcuts must share one line`);
+        assert.equal(link.top, shortcuts[0].top, `${locale}/${width}: all five shortcuts must share one line`);
         assert.ok(link.height >= 44 && link.scroll <= link.client + 1, 'Shortcut labels must fit without shrinking or clipping');
       }
       assert.ok((await search.boundingBox()).width >= 120, `${locale}/${width}: search must have room to type`);
       assert.ok(await search.evaluate((el) => parseFloat(getComputedStyle(el).fontSize) >= 16), "Phone inputs must not trigger iOS focus zoom");
-      assert.ok((await page.locator('.robin-assistant-row').boundingBox()).height <= 48, 'Search controls occupy one row');
+      const assistant = page.locator('.robin-assistant-row');
+      assert.ok((await assistant.boundingBox()).height <= (width <= 374 ? 92 : 48), 'Only ultra-narrow screens split the mode selector above the input');
+      const assistantTargets = await assistant.locator('button, select').evaluateAll((nodes) => nodes.filter((node) => node.getClientRects().length).map((node) => {
+        const { width, height } = node.getBoundingClientRect(); return { width, height };
+      }));
+      for (const target of assistantTargets) assert.ok(target.width >= 43.5 && target.height >= 43.5, 'Mode, microphone and submit keep 44px targets');
       const toolbar = page.locator('[data-calendar-toolbar]');
       const controls = await toolbar.locator('button, select').evaluateAll((nodes) => nodes.filter((node) => node.getClientRects().length).map((node) => {
         const box = node.getBoundingClientRect(); return { label: node.getAttribute('aria-label') || node.textContent, x: box.x, y: box.y, width: box.width, height: box.height };
@@ -113,7 +119,7 @@ try {
         assert.ok(a.x >= 0 && a.x + a.width <= width + 1);
         for (const b of controls.slice(i + 1)) assert.ok(a.x + a.width <= b.x + 1 || b.x + b.width <= a.x + 1 || a.y + a.height <= b.y + 1 || b.y + b.height <= a.y + 1, 'Calendar controls must not overlap');
       }
-      assert.equal(new Set(controls.map((control) => Math.round(control.y))).size, 2, 'Calendar actions form exactly two intentional rows');
+      assert.equal(new Set(controls.map((control) => Math.round(control.y))).size, 2, `${locale}/${width}: Calendar actions form exactly two intentional rows: ${JSON.stringify(controls)}`);
       const add = await toolbar.locator('.robin-calendar-add').boundingBox();
       const heading = await toolbar.locator('[data-calendar-heading]').boundingBox();
       assert.ok(heading.x + heading.width <= add.x + 1 && heading.y >= add.y - 1 && heading.y + heading.height <= add.y + add.height + 1, 'Date and create action share the first row');
@@ -174,6 +180,21 @@ try {
     assert.equal(await page.locator('.robin-saved-link').count(), 6);
     const shortLink = page.locator('#dashboard-links .robin-readable-text').last();
     assert.equal(await shortLink.locator('button').count(), 0, 'Short titles must not get a redundant disclosure');
+    for (const width of [320, 375, 430]) {
+      await page.setViewportSize({ width, height: 812 });
+      const titleLayout = await page.locator('#dashboard-links .robin-saved-link').evaluateAll((links) => links.map((link) => {
+        const range = document.createRange();
+        range.selectNodeContents(link);
+        const text = range.getBoundingClientRect();
+        const target = link.getBoundingClientRect();
+        return { title: link.textContent, height: target.height, offset: Math.abs(text.top + text.height / 2 - target.top - target.height / 2), fits: link.scrollWidth <= link.clientWidth + 1 };
+      }));
+      for (const title of titleLayout) {
+        assert.ok(title.height >= 44 && title.fits, `${locale}/${width}: link keeps its tap target and wraps without overflow`);
+        assert.ok(title.offset <= 2, `${locale}/${width}: link text must be vertically centered: ${JSON.stringify(title)}`);
+      }
+    }
+    await page.setViewportSize({ width: 320, height: 812 });
     await moreLinks.click();
     assert.equal(await page.locator('.robin-saved-link').count(), 4);
     const brief = page.locator('.robin-agenda-brief').last();
@@ -265,8 +286,8 @@ try {
       assert.equal(layout.columns, expected, `Available width ${layout.available}: ${JSON.stringify(layout)}`);
       const calendar = layout.panels.find((panel) => panel.id === 'calendar');
       const todos = layout.panels.find((panel) => panel.id === 'dashboard-todos');
-      const main = layout.panels.filter((panel) => !['calendar', 'dashboard-todos', 'dashboard-links'].includes(panel.id));
-      assert.deepEqual(layout.panels.map((panel) => panel.id), ['calendar', 'dashboard-work-queue',
+      const main = layout.panels.filter((panel) => !['calendar', 'dashboard-planner', 'dashboard-todos', 'dashboard-links'].includes(panel.id));
+      assert.deepEqual(layout.panels.map((panel) => panel.id), ['calendar', 'dashboard-planner', 'dashboard-work-queue',
         ...(layout.panels.some((panel) => panel.id === 'dashboard-attention') ? ['dashboard-attention'] : []),
         ...(layout.panels.some((panel) => panel.id === 'dashboard-jobs') ? ['dashboard-jobs'] : []), 'fullstack-open', 'dashboard-links', 'dashboard-todos']);
       const links = layout.panels.find((panel) => panel.id === 'dashboard-links');
@@ -286,7 +307,7 @@ try {
       const typography = await page.locator('[data-dashboard-panels] > div > section > header h2, #dashboard-todos > header h2').evaluateAll((headings) => headings.map((heading) => ({
         style: getComputedStyle(heading).fontStyle, family: getComputedStyle(heading).fontFamily,
       })));
-      assert.equal(typography.length, 6);
+      assert.equal(typography.length, 7);
       assert.ok(typography.every((heading) => heading.style === 'italic' && heading.family === typography[0].family), `${locale}/${width}: ${JSON.stringify(typography)}`);
       assert.equal(await search.evaluate((el) => getComputedStyle(el).fontStyle), 'normal');
       if (process.env.E2E_SCREENSHOT_DIR && [1024, 1920, 2560].includes(width)) {

@@ -19,6 +19,8 @@ export interface CalendarBoard {
 }
 
 export interface CalendarBoardOptions {
+  /** Stored/local preview only; never contact Google or imply full coverage. */
+  localOnly?: boolean;
   /**
    * How far either side of today to pull Google events, in days. Expressed as
    * a width rather than two dates so that `today` is read once, here: a caller
@@ -55,6 +57,7 @@ export async function calendarBoard(options: CalendarBoardOptions = {}): Promise
   }
   const events: DashboardEvent[] = [...readEvents(), ...focusEvents(listTodos({ includeDone: true, includeArchived: true }).todos, today)];
   if (!isConnected()) return { events, today, google: { connected: false } };
+  if (options.localOnly) return { events, today, google: { connected: true, error: "Local snapshot only; Google Calendar has not been refreshed" } };
 
   const from = options.from ?? addDays(today, -(options.before ?? 45));
   const to = options.to ?? addDays(today, options.after ?? 75);

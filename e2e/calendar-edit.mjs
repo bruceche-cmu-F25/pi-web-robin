@@ -13,9 +13,10 @@ try {
     const login = await context.request.post("/api/web-auth", { headers: { Origin: baseURL }, data: { password: process.env.PI_WEB_PASSWORD } });
     assert.ok(login.ok(), `Login failed (${login.status()})`);
   }
-  await context.addInitScript(() => {
+  await context.addInitScript((theme) => {
     if (!localStorage.getItem("pi-locale")) localStorage.setItem("pi-locale", "en");
-  });
+    if (theme) localStorage.setItem("pi-theme", theme);
+  }, process.env.E2E_THEME);
   const today = "2030-05-13"; // Monday
   let events = [
     { id: "meeting", title: "Local meeting", date: today, start: "09:00", end: "10:30", location: "Office", createdAt: "2030-01-01T00:00:00Z" },
@@ -106,6 +107,10 @@ try {
   await page.getByRole("button", { name: "Edit event", exact: true }).click();
   await form.waitFor();
   assert.equal(await form.getByLabel("Start time", { exact: true }).inputValue(), "09:00");
+  const titleType = await form.getByLabel("Event…", { exact: true }).evaluate(el => {
+    const css = getComputedStyle(el); return { size: css.fontSize, serif: css.fontFamily.includes("Georgia") };
+  });
+  assert.deepEqual(titleType, { size: "24px", serif: true }, "Title fields keep their role above generic input styles");
   await form.getByRole("button", { name: /^cancel$/i }).click();
 
   // Google-style empty-space drag opens a quick editor without moving the surrounding page.
@@ -379,11 +384,11 @@ try {
   // Wheel and drag-edge scrolling now move the page, not a nested calendar viewport.
   await page.goto('/dashboard?calendar=week');
   await cell(today).waitFor();
-  const dashboard = page.locator('.robin-dashboard');
+  const dashboard = page.locator('.robin-page');
   const wheelPoint = await point(today, 6 * 60 + 30);
   await page.mouse.move(wheelPoint.x, wheelPoint.y);
   await page.mouse.wheel(0, 300);
-  await page.waitForFunction(() => document.querySelector('.robin-dashboard').scrollTop > 100);
+  await page.waitForFunction(() => document.querySelector('.robin-page').scrollTop > 100);
   assert.equal(await card.locator('[data-calendar-scroll]').evaluate((node) => node.scrollTop), 0);
   await dashboard.evaluate((node) => node.scrollTo({ top: 0, behavior: 'instant' }));
   const beforeEdgeDrag = writes.length;
@@ -391,7 +396,7 @@ try {
   await page.mouse.move(edgeStart.x, edgeStart.y);
   await page.mouse.down();
   await page.mouse.move(edgeStart.x, 1090, { steps: 10 });
-  await page.waitForFunction(() => document.querySelector('.robin-dashboard').scrollTop > 32);
+  await page.waitForFunction(() => document.querySelector('.robin-page').scrollTop > 32);
   await page.keyboard.press('Escape');
   await page.mouse.up();
   assert.equal(writes.length, beforeEdgeDrag);

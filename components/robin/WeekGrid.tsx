@@ -6,10 +6,8 @@ import { parseLocalDate, weekDays } from "@/extension/robin/dates";
 import { formatEventTime, isReadOnlyEvent, occursOn, type DashboardEvent } from "@/extension/robin/events";
 import { layoutDayEvents, layoutSpanBars } from "@/extension/robin/layout";
 import type { Todo } from "@/extension/robin/todo-domain";
-import { todoSpanColorKey } from "@/extension/robin/eventColors";
 import { useEventSurface } from "./eventSurface";
-import { CalendarTodoTitle } from "./CalendarTodoTitle";
-import { TodoDragHandle } from "./TodoDragHandle";
+import { CalendarTasks } from "./CalendarTasks";
 import { useTodayInView } from "./useTodayInView";
 import { eventDragProps } from "./CalendarInteractions";
 import type { CalendarSlot } from "./calendar-edit";
@@ -24,7 +22,7 @@ const END_MINUTE = END_HOUR * 60;
 const GRID_HEIGHT = (END_HOUR - START_HOUR) * HOUR_HEIGHT;
 const HOURS = Array.from({ length: END_HOUR - START_HOUR }, (_, hour) => hour + START_HOUR);
 
-export function WeekGrid({ events, todos, today, anchor, singleDay = false, onSelectEvent, onCompleteTodo, onCreate, onSelectDay }: {
+export function WeekGrid({ events, todos, today, anchor, singleDay = false, onSelectEvent, onCompleteTodo, onCreate, onSelectDay, pendingTodos, todoError, onEditTodo }: {
   events: DashboardEvent[];
   todos: Todo[];
   today: string;
@@ -32,6 +30,9 @@ export function WeekGrid({ events, todos, today, anchor, singleDay = false, onSe
   singleDay?: boolean;
   onSelectEvent: (event: DashboardEvent) => void;
   onCompleteTodo: (todo: Todo) => void;
+  pendingTodos: ReadonlySet<string>;
+  todoError: string | null;
+  onEditTodo: (todo: Todo) => void;
   onCreate: (slot: CalendarSlot) => void;
   onSelectDay: (date: string) => void;
 }) {
@@ -40,8 +41,6 @@ export function WeekGrid({ events, todos, today, anchor, singleDay = false, onSe
   const days = singleDay ? [anchor] : weekDays(anchor);
   const scroller = useTodayInView(`${anchor}:${singleDay}`, today);
   const { bars, lanes } = layoutSpanBars(events, days);
-  const taskSpans = todos.flatMap((todo) => todo.due ? [{ ...todo, date: todo.startDate ?? todo.due, endDate: todo.due }] : []);
-  const tasks = layoutSpanBars(taskSpans, days);
   const [now, setNow] = useState<Date | null>(null);
   useEffect(() => {
     setNow(new Date());
@@ -52,7 +51,7 @@ export function WeekGrid({ events, todos, today, anchor, singleDay = false, onSe
   const spanPosition = (bar: { startIndex: number; endIndex: number; lane: number }): CSSProperties => ({
     left: `calc(${bar.startIndex / days.length * 100}% + 2px)`,
     width: `calc(${(bar.endIndex - bar.startIndex + 1) / days.length * 100}% - 4px)`,
-    top: bar.lane * 26 + 2, height: 24,
+    top: `calc(${bar.lane} * var(--all-day-step, 26px) + 2px)`, height: "var(--all-day-height, 24px)",
   });
 
   return <div className={`${styles.weekScroller} overflow-x-auto`} data-calendar-scroll ref={scroller}>
@@ -69,7 +68,7 @@ export function WeekGrid({ events, todos, today, anchor, singleDay = false, onSe
         </div>
         <div className={styles.weekRow}>
           <div className={styles.bandLabel}>{t("robin.calendar.allDay")}</div>
-          <div className={styles.band} style={{ height: Math.max(36, lanes * 26 + 14) }}>
+          <div className={styles.band} style={{ height: `max(36px, calc(${lanes} * var(--all-day-step, 26px) + 14px))` }}>
             <div className={styles.bandTargets}>
               {days.map((date) => <button key={date} type="button" data-calendar-date={date} data-calendar-create
                 aria-label={t("robin.calendar.createAt", { date, time: t("robin.calendar.allDay") })}
@@ -83,25 +82,8 @@ export function WeekGrid({ events, todos, today, anchor, singleDay = false, onSe
           </div>
         </div>
       </div>
-      {tasks.lanes > 0 && <div className={styles.weekRow}>
-        <div className={styles.bandLabel}>{t("robin.todos.title")}</div>
-        <div className={`${styles.band} ${styles.taskBand}`}>
-          <div className={styles.bandTargets} aria-hidden="true">
-            {days.map((date) => <div key={date} data-calendar-date={date} />)}
-          </div>
-          {tasks.bars.map((bar) => <div key={bar.event.id} className={`${styles.todo} ${styles.weekTodo}`}
-            style={{ gridColumn: `${bar.startIndex + 1} / ${bar.endIndex + 2}`, gridRow: bar.lane + 1,
-              borderColor: `var(--event-${todoSpanColorKey(bar.event)}-line)` }} data-calendar-task={bar.event.id}>
-            <CalendarTodoTitle todo={bar.event}>
-              <label className={styles.todoCheck}>
-                <input type="checkbox" checked={bar.event.done} onChange={() => onCompleteTodo(bar.event)}
-                  aria-label={t("robin.todos.complete", { title: bar.event.title })} />
-              </label>
-              <TodoDragHandle todo={bar.event} />
-            </CalendarTodoTitle>
-          </div>)}
-        </div>
-      </div>}
+      <CalendarTasks todos={todos} days={days} today={today} pending={pendingTodos} error={todoError}
+        onComplete={onCompleteTodo} onEdit={onEditTodo} />
       <div className={styles.weekRow}>
         <div>{HOURS.map((hour) => <div key={hour} className={styles.hour}>{String(hour).padStart(2, "0")}:00</div>)}
           <div className={`${styles.hour} ${styles.endHour}`}>{END_HOUR}:00</div>
@@ -123,11 +105,11 @@ export function WeekGrid({ events, todos, today, anchor, singleDay = false, onSe
             const visibleEnd = Math.min(END_MINUTE, endMinutes);
             const top = Math.min((visibleStart - START_MINUTE) * SCALE, GRID_HEIGHT - 20);
             const height = Math.min(GRID_HEIGHT - top, Math.max(20, (visibleEnd - visibleStart) * SCALE - 2));
-            const colors = surface.span(event);
+            const colors = surface.timed(event);
             return <button key={event.id} type="button" {...eventDragProps(event)} onClick={() => onSelectEvent(event)}
               aria-haspopup="dialog" title={`${formatEventTime(event)} ${event.title}`}
               className={`${styles.event} calendar-event-block`}
-              style={{ ...colors, background: `linear-gradient(${colors.background}, ${colors.background}), var(--bg-panel)`, top, height,
+              style={{ ...colors, top, height,
                 left: `calc(${column / columns * 100}% + 2px)`, width: `calc(${100 / columns}% - 4px)` }}>
               <span className={styles.eventTitle} style={{ WebkitLineClamp: height < 50 ? 1 : 2 }}>{event.title}</span>
               {height >= 38 && <span className={styles.eventMeta}>{formatEventTime(event)}</span>}

@@ -93,10 +93,11 @@ try {
   await drag('single', { x: 5, y: 5 });
   assert.equal(writes.length, count);
 
-  // A clipped multi-day bar starts before the visible week; keep its grab offset.
+  // The compact row's right-side grip is on May 15; dropping on May 16 shifts
+  // the whole clipped range by one day, preserving its original five-day span.
   await drag('range', await point('2030-05-16'));
-  await until(() => get('range').due === '2030-05-18'); await idle();
-  assert.equal(get('range').startDate, '2030-05-13');
+  await until(() => get('range').due === '2030-05-16'); await idle();
+  assert.equal(get('range').startDate, '2030-05-11');
 
   // External sidebar grips can assign a previously absent deadline.
   await drag('undated', await point('2030-05-17'), { side: true });
@@ -164,6 +165,7 @@ try {
   await page.goto('/dashboard?calendar=week'); await grip('range').waitFor();
   const cdp = await context.newCDPSession(page);
   await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true });
+  await grip('range').scrollIntoViewIfNeeded();
   const from = await grip('range').boundingBox(), target = await point('2030-05-15');
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: from.x + from.width / 2, y: from.y + from.height / 2 }] });
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [target] });
@@ -173,7 +175,8 @@ try {
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [target] });
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   await until(() => writes.length === beforeTouch + 1); await idle();
-  assert.equal(get('range').startDate, '2030-05-15');
+  assert.equal(get('range').startDate, '2030-05-10', 'Touch also keeps the grab offset of the right-side May 18 grip');
+  await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: false });
   await cdp.detach();
 
   // Compact week titles expose full content on hover, keyboard focus and explicit activation.
@@ -183,6 +186,50 @@ try {
     { id: 'unbroken', title: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.repeat(3), due: '2030-05-14', done: false, revision: 'unbroken-1' },
   ];
   await page.goto('/dashboard?calendar=week');
+  // Inspect actual transition frames, not just declared CSS durations.
+  const motionRow = card.locator('[data-calendar-task="single"]');
+  const motionPreview = motionRow.locator('[popover]');
+  await motionRow.getByRole('button', { name: `Show full text: ${todos[0].title}`, exact: true }).waitFor();
+  await page.mouse.move(5, 5);
+  const sampleTransition = async (opening) => {
+    await motionPreview.evaluate((node) => {
+      node.addEventListener('beforetoggle', () => requestAnimationFrame(() => {
+        const animations = node.getAnimations();
+        for (const animation of animations) { animation.pause(); animation.currentTime = 70; }
+        node.dataset.sample = JSON.stringify({ properties: animations.map((a) => a.transitionProperty),
+          opacity: Number(getComputedStyle(node).opacity), transform: getComputedStyle(node).transform,
+          display: getComputedStyle(node).display });
+      }), { once: true });
+      delete node.dataset.sample;
+    });
+    if (opening) await motionRow.hover();
+    else await page.mouse.move(5, 5);
+    await page.waitForFunction(() => document.querySelector('[data-calendar-task="single"] [data-sample]'));
+    const sample = JSON.parse(await motionPreview.getAttribute('data-sample'));
+    assert.ok(sample.properties.includes('opacity'), 'Preview fades rather than appearing/disappearing instantly');
+    assert.ok(sample.opacity > 0 && sample.opacity < 1, 'Preview has a real intermediate frame');
+    assert.notEqual(sample.display, 'none', 'Exit stays rendered until the transition finishes');
+    await motionPreview.evaluate((node) => node.getAnimations().forEach((animation) => animation.finish()));
+    return sample;
+  };
+  const entering = await sampleTransition(true);
+  assert.ok(entering.properties.includes('transform'), 'Mouse preview gently scales from its anchor');
+  assert.notEqual(entering.transform, 'matrix(1, 0, 0, 1, 0, 0)');
+  await sampleTransition(false);
+  await motionPreview.waitFor({ state: 'hidden' });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const reduced = await sampleTransition(true);
+  assert.equal(reduced.transform, 'none', 'Reduced motion keeps the fade without zooming');
+  await sampleTransition(false);
+  await motionPreview.waitFor({ state: 'hidden' });
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await motionRow.getByRole('button', { name: `Show full text: ${todos[0].title}`, exact: true }).focus();
+  await page.keyboard.press('Enter');
+  await motionPreview.waitFor({ state: 'visible' });
+  assert.equal(await motionPreview.evaluate((node) => node.getAnimations().length), 0, 'Keyboard previews remain immediate');
+  await page.keyboard.press('Escape');
+  await motionPreview.waitFor({ state: 'hidden' });
+  await page.locator('body').click({ position: { x: 5, y: 5 } });
   if (process.env.E2E_SCREENSHOT_DIR) await mkdir(process.env.E2E_SCREENSHOT_DIR, { recursive: true });
   for (const width of [1600, 1024, 640, 375, 320, 1024]) {
     await page.setViewportSize({ width, height: 1100 });
@@ -192,13 +239,16 @@ try {
       const row = taskCard(todo);
       if (width <= 640) {
         await page.waitForFunction(() => !document.querySelector('.robin-calendar [popover]'));
-        assert.equal(await row.getByRole('button', { name: `Show full text: ${todo.title}`, exact: true }).count(), 0);
-        const title = row.getByText(todo.title, { exact: true });
-        const sizes = await title.locator('..').evaluate((node) => ({ width: node.clientWidth, fullWidth: node.scrollWidth,
-          height: node.clientHeight, fullHeight: node.scrollHeight }));
-        assert.ok(sizes.height > 0 && sizes.fullHeight <= sizes.height + 1 && sizes.fullWidth <= sizes.width + 1, 'Phone titles show the full text without disclosure controls');
+        const expand = row.getByRole('button', { name: `Show full text: ${todo.title}`, exact: true });
+        assert.equal(await row.getByText(todo.title, { exact: true }).evaluate((node) => getComputedStyle(node).webkitLineClamp), '2');
+        await expand.click();
+        const list = page.locator('dialog[open]');
+        await list.getByText(todo.title, { exact: true }).waitFor();
+        if (todo.id === 'single') assert.equal(await list.getByRole('link').getAttribute('href'), 'https://example.com/task');
+        await page.keyboard.press('Escape');
+        await list.waitFor({ state: 'detached' });
         await row.hover(); await grip(todo.id).focus();
-        assert.equal(await row.locator('[popover]').count(), 0, 'Phone hover and focus have no preview surface');
+        assert.equal(await row.locator('[popover]').count(), 0, 'Phone hover and focus have no preview surface; full text is in the day list');
         continue;
       }
       const expand = row.getByRole('button', { name: `Show full text: ${todo.title}`, exact: true });
@@ -234,7 +284,7 @@ try {
     }
     const first = await taskCard(todos[0]).boundingBox(), second = await taskCard(todos[1]).boundingBox();
     assert.ok(second.y >= first.y + first.height, 'Task lanes never overlap');
-    assert.equal(await taskCard(todos[0]).getByRole('link').getAttribute('href'), 'https://example.com/task');
+    if (width > 640) assert.equal(await taskCard(todos[0]).getByRole('link').getAttribute('href'), 'https://example.com/task');
     assert.ok(await card.locator('[data-calendar-sticky]').evaluate((node) => node.clientHeight <= 260));
     if (process.env.E2E_SCREENSHOT_DIR) {
       await page.locator('.robin-dashboard').evaluate((node) => node.scrollTo({ top: 0, behavior: 'instant' }));

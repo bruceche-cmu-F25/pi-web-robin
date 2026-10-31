@@ -39,29 +39,32 @@ try {
     });
     const page = await context.newPage(), errors = [];
     page.on('pageerror', (error) => errors.push(error.message));
-    const bar = page.locator('.robin-assistant-bar');
+    const bar = page.locator('.robin-command-dialog[open] .robin-assistant-bar');
     const input = bar.locator('input');
-    const send = bar.locator('button[type="submit"]');
+    const working = bar.getByRole('status').filter({ hasText: locale === 'en' ? 'Working…' : '处理中…' });
     const trace = bar.locator('.robin-assistant-result-toolbar a');
     const dismiss = bar.getByRole('button', { name: locale === 'en' ? 'Close reply, keep execution record' : '关闭回复，保留执行记录' });
     const reply = bar.locator('.robin-assistant-reply');
     const refresh = () => page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
     const activate = async () => {
-      // The hydrated Day grid distinguishes a ready page from the inert SSR form.
-      await page.locator('.robin-calendar [data-single]').waitFor();
+      await page.getByRole('button', { name: locale === 'en' ? 'Find something' : '找一找', exact: true }).click();
       await bar.locator('select').selectOption('execute');
+      assert.equal(await bar.locator('button[type="submit"]').count(), 0);
       assert.equal(await bar.getAttribute('data-mode'), 'execute');
     };
     await page.goto('/dashboard');
     await activate();
     assert.equal(await trace.count(), 0, 'No invented execution record');
-    await input.fill('Create my task'); await input.press('Enter'); await input.press('Enter');
+    await input.fill('Create my task');
+    await input.dispatchEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true, cancelable: true });
+    assert.equal(writes.length, 0, 'IME confirmation never submits');
+    await input.press('Enter'); await input.press('Enter');
     try { await trace.waitFor(); } catch (error) {
       console.error({ record, writes, text: await bar.innerText(), errors });
       throw error;
     }
     assert.equal(await trace.getAttribute('href'), '/?session=act-session');
-    assert.ok(await send.isDisabled()); assert.equal(writes.length, 1);
+    assert.ok(await input.isDisabled()); assert.equal(writes.length, 1);
     assert.equal(await reply.count(), 0);
     release();
     await reply.waitFor();
@@ -91,21 +94,25 @@ try {
 
     // HTTP failure can leave the agent running. Keep the draft and do not auto-retry.
     failPost = true;
-    await input.fill('A second task'); await send.click();
+    await input.fill('A second task'); await input.press('Enter');
     await bar.getByRole('alert').waitFor();
     await bar.getByText(locale === 'en' ? 'A failed request does not mean nothing changed. Check the execution record before retrying.' : '请求失败不代表操作未发生，请先检查执行记录再重试。', { exact: true }).waitFor();
     assert.equal(await input.inputValue(), 'A second task');
     await refresh();
-    await page.waitForFunction(() => document.querySelector('.robin-assistant-submit').disabled);
+    await working.waitFor();
     assert.equal(writes.length, 2);
     await dismiss.click();
     assert.equal(await bar.getByRole('alert').count(), 0);
-    assert.ok(await send.isDisabled()); assert.ok(await trace.isVisible());
+    await input.press('Enter');
+    assert.equal(writes.length, 2, 'A running trace prevents duplicate Enter submissions');
+    assert.ok(await trace.isVisible());
     await page.reload(); await activate(); await trace.waitFor();
     await input.fill('Do not duplicate this');
-    assert.ok(await send.isDisabled(), 'Refresh does not allow another command during the same running session');
+    await working.waitFor();
+    await input.press('Enter');
+    assert.equal(writes.length, 2, 'Refresh does not allow another command during the same running session');
     record.running = false; await refresh();
-    await page.waitForFunction(() => !document.querySelector('.robin-assistant-submit').disabled);
+    await working.waitFor({ state: 'hidden' });
     assert.equal(writes.length, 2);
     await page.setViewportSize({ width: 1440, height: 1000 });
     assert.ok(await trace.isVisible());

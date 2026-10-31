@@ -17,7 +17,7 @@ test("calendar, product, and notes restore their durable view state from the URL
     [notes, ["pane", "draft"]],
   ]) {
     assert.match(source, /useSearchParams\(\)/);
-    assert.match(source, /writeUrlState\(/);
+    assert.match(source, source === product ? /useBoardNavigation\("\/product"/ : /writeUrlState\(/);
     for (const key of keys) assert.ok(source.includes(`searchParams.get("${key}")`), `missing ${key}`);
   }
 });

@@ -13,11 +13,15 @@ export function AssistantPalette({
 } = {}) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
+  const [visited, setVisited] = useState(false);
+  const [mode, setMode] = useState<"search" | "execute">("search");
+  const triggerRef = useRef<HTMLElement | null>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   const close = useCallback(() => {
     dialogRef.current?.close();
     setOpen(false);
+    triggerRef.current?.focus({ preventScroll: true });
   }, []);
 
   useEffect(() => {
@@ -26,23 +30,28 @@ export function AssistantPalette({
       if (!event.metaKey && !event.ctrlKey) return;
 
       event.preventDefault();
-      setOpen((current) => !current);
+      triggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      setMode("search"); setVisited(true); setOpen((current) => !current);
     };
-
+    const launch = (event: Event) => {
+      triggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      setMode((event as CustomEvent).detail === "execute" ? "execute" : "search");
+      setVisited(true); setOpen(true);
+    };
+    window.addEventListener("robin-assistant-open", launch);
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    return () => { window.removeEventListener("keydown", onKeyDown); window.removeEventListener("robin-assistant-open", launch); };
   }, []);
 
   useEffect(() => {
-    if (!open) return;
     const dialog = dialogRef.current;
     if (!dialog) return;
-
+    if (!open) { dialog.close(); return; }
     if (!dialog.open) dialog.showModal();
     requestAnimationFrame(() => dialog.querySelector<HTMLInputElement>("input")?.focus());
   }, [open]);
 
-  if (!open) return null;
+  if (!visited) return null;
 
   return (
     <dialog
@@ -53,7 +62,10 @@ export function AssistantPalette({
         event.preventDefault();
         close();
       }}
-      onClose={() => setOpen(false)}
+      onClose={() => {
+        // Native close events are queued: an old one must not dismiss a reopened dialog.
+        if (!dialogRef.current?.open) setOpen(false);
+      }}
       onClick={(event) => {
         if (event.target === event.currentTarget) close();
       }}
@@ -68,7 +80,8 @@ export function AssistantPalette({
         >
           ×
         </button>
-        <AssistantBar sessionId={sessionId} cwd={cwd} onNavigate={close} />
+        <AssistantBar sessionId={sessionId} cwd={cwd} onNavigate={close} initialMode={mode} active={open} />
+        {mode === "execute" && <p className="robin-command-dialog__hint">{t("daily.captureHint")}</p>}
         <p className="robin-command-dialog__hint">
           daily · job · email · events · learn · research · product · chat
         </p>

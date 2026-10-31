@@ -28,7 +28,7 @@ test("dashboard commands resolve to their workspace routes", () => {
   assert.equal(dashboardCommandPath("finish daily report"), null);
   assert.match(assistantSource, /href=\{commandHref\}/);
   assert.match(assistantSource, /router\.push\(commandHref/);
-  assert.match(assistantSource, /commandHref \? "robin\.assistant\.open"/);
+  assert.match(assistantSource, /!busy && commandHref && \([\s\S]*?href=\{commandHref\}[\s\S]*?t\("robin\.assistant\.open"\)/);
 });
 
 test("Cmd/Ctrl+K opens the assistant palette on chat and Robin pages", () => {

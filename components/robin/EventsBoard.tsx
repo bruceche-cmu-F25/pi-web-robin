@@ -1,7 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { eventsView } from "./board-navigation";
+import { useBoardNavigation } from "./useBoardNavigation";
+import { useMemo, useRef, useState } from "react";
 import type { DashboardEvent } from "@/extension/robin/events";
 import {
   TECH_EVENT_TOPICS,
@@ -13,7 +16,7 @@ import {
   type TechEventTopic,
 } from "@/extension/robin/tech-events";
 import { useI18n } from "@/hooks/useI18n";
-import { mutate, usePolledResource } from "./usePolledResource";
+import { mutate, mutateResponse, usePolledResource } from "./usePolledResource";
 import {
   Chip,
   EventCover,
@@ -152,6 +155,7 @@ function Actions({ event, busy, pending, onSave, onHide }: CardActions & { event
 function FeaturedCard({
   event,
   rank,
+  returnTo,
   locale,
   scheduleReady,
   scheduleUnavailable,
@@ -159,6 +163,7 @@ function FeaturedCard({
 }: CardActions & {
   event: RatedEvent;
   rank: number;
+  returnTo: string;
   locale: string;
   scheduleReady: boolean;
   scheduleUnavailable: boolean;
@@ -167,7 +172,7 @@ function FeaturedCard({
   const place = placeLine(event, t("robin.events.online"));
   return (
     <article className={styles.featured} data-rank={rank} data-saved={event.saved || undefined} aria-busy={actions.pending}>
-      <Link href={eventHref(event.id)} className={styles.featuredMedia} tabIndex={-1} aria-hidden="true">
+      <Link href={eventHref(event.id, returnTo)} className={styles.featuredMedia} tabIndex={-1} aria-hidden="true">
         <EventCover event={event} eager={rank === 1} />
         <span className={styles.rank} aria-hidden="true">{rank}</span>
       </Link>
@@ -179,7 +184,7 @@ function FeaturedCard({
           <ScoreBadge value={event.rating.overall} large={rank === 1} />
         </div>
         <h3 className={styles.featuredTitle}>
-          <Link href={eventHref(event.id)} className={styles.eventLink} aria-label={t("robin.events.rank", { rank: String(rank) }) + ": " + event.title}>
+          <Link href={eventHref(event.id, returnTo)} className={styles.eventLink} aria-label={t("robin.events.rank", { rank: String(rank) }) + ": " + event.title}>
             {event.title}
           </Link>
         </h3>
@@ -201,12 +206,14 @@ function FeaturedCard({
 /** One row of the full list: dense, scannable, and a link to the event's page. */
 function EventRow({
   event,
+  returnTo,
   locale,
   scheduleReady,
   scheduleUnavailable,
   ...actions
 }: CardActions & {
   event: RatedEvent;
+  returnTo: string;
   locale: string;
   scheduleReady: boolean;
   scheduleUnavailable: boolean;
@@ -226,12 +233,12 @@ function EventRow({
         <strong>{formatTime(event, event.startAt, locale, false)}</strong>
         <span>{event.online ? t("robin.events.online") : event.city?.split(",")[0] ?? ""}</span>
       </time>
-      <Link href={eventHref(event.id)} className={styles.rowThumb} tabIndex={-1} aria-hidden="true">
+      <Link href={eventHref(event.id, returnTo)} className={styles.rowThumb} tabIndex={-1} aria-hidden="true">
         <EventCover event={event} />
       </Link>
       <div className={styles.rowMain}>
         <h4 className={styles.rowTitle}>
-          <Link href={eventHref(event.id)} className={styles.eventLink}>{event.title}</Link>
+          <Link href={eventHref(event.id, returnTo)} className={styles.eventLink}>{event.title}</Link>
         </h4>
         <p className={styles.meta} title={[event.host, place].filter(Boolean).join(" · ")}>
           {[event.host, place].filter(Boolean).join(" · ")}
@@ -274,14 +281,15 @@ export function EventsBoard() {
   const eventResource = usePolledResource<EventsResponse>("/api/robin/tech-events", 30_000);
   const scheduleResource = usePolledResource<ScheduleResponse>("/api/robin/events", 30_000);
 
-  const [query, setQuery] = useState("");
-  const [topic, setTopic] = useState<TopicFilter>("all");
-  const [day, setDay] = useState<string | null>(null);
-  const [savedOnly, setSavedOnly] = useState(false);
-  const [showHidden, setShowHidden] = useState(false);
+  const searchParams = useSearchParams();
+  const { query, topic, day, savedOnly, showHidden } = eventsView(searchParams);
+  const { scrollRef, updateView } = useBoardNavigation("/dashboard/events", searchParams.toString(), !!eventResource.data && !!(scheduleResource.data || scheduleResource.error));
+  const returnTo = "/dashboard/events" + (searchParams.toString() ? `?${searchParams}` : "");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
+  const patchInFlight = useRef(false);
+  const scanInFlight = useRef(false);
 
   const scheduleUnavailable = !!(scheduleResource.error || scheduleResource.data?.google?.error);
   const scheduleReady = scheduleResource.data !== null && !scheduleUnavailable;
@@ -304,13 +312,7 @@ export function EventsBoard() {
   }), [rated, showHidden, savedOnly, topic, day, query, locale]);
 
   const hasFilters = query !== "" || topic !== "all" || savedOnly || showHidden || day !== null;
-  const clearFilters = () => {
-    setQuery("");
-    setTopic("all");
-    setDay(null);
-    setSavedOnly(false);
-    setShowHidden(false);
-  };
+  const clearFilters = () => updateView({ q: null, topic: null, day: null, saved: null, hidden: null });
 
   const recommendations = useMemo(() => scheduleReady
     ? rated
@@ -359,19 +361,28 @@ export function EventsBoard() {
   }, [visible]);
 
   const patch = async (event: TechEvent, change: { saved?: boolean; hidden?: boolean }) => {
+    if (patchInFlight.current) return;
+    patchInFlight.current = true;
     setBusyId(event.id);
     setActionError(null);
     try {
-      await mutate("/api/robin/tech-events", "PATCH", { id: event.id, ...change });
-      await eventResource.refresh();
+      const response = await mutateResponse("/api/robin/tech-events", "PATCH", { id: event.id, ...change });
+      const { event: saved } = await response.json() as { event: TechEvent };
+      eventResource.updateData(current => current ? {
+        ...current, events: current.events.map(item => item.id === saved.id ? saved : item),
+      } : current);
+      void eventResource.refresh();
     } catch (caught) {
       setActionError(caught instanceof Error ? caught.message : String(caught));
     } finally {
+      patchInFlight.current = false;
       setBusyId(null);
     }
   };
 
   const scanNow = async () => {
+    if (scanInFlight.current) return;
+    scanInFlight.current = true;
     setScanning(true);
     setActionError(null);
     try {
@@ -380,13 +391,17 @@ export function EventsBoard() {
     } catch (caught) {
       setActionError(caught instanceof Error ? caught.message : String(caught));
     } finally {
+      scanInFlight.current = false;
       setScanning(false);
     }
   };
 
-  const pickDay = (key: string) => {
-    setDay((current) => current === key ? null : key);
-    document.getElementById("all-upcoming-events")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const pickDay = (key: string, keyboard: boolean) => {
+    updateView({ day: day === key ? null : key });
+    const heading = document.getElementById("all-upcoming-events");
+    heading?.focus({ preventScroll: true });
+    const instant = keyboard || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    heading?.scrollIntoView({ behavior: instant ? "instant" : "smooth", block: "start" });
   };
 
   const scan = eventResource.data?.scan ?? null;
@@ -395,6 +410,7 @@ export function EventsBoard() {
   const error = actionError ?? eventResource.error ?? scheduleResource.error ?? scheduleResource.data?.google?.error;
   const loaded = !!eventResource.data;
   const cardProps = (event: RatedEvent) => ({
+    returnTo,
     busy: busyId !== null,
     pending: busyId === event.id,
     onSave: () => void patch(event, { saved: !event.saved }),
@@ -402,7 +418,7 @@ export function EventsBoard() {
   });
 
   return (
-    <div className={`robin-page robin-dashboard flex-1 overflow-y-auto ${styles.page}`} style={{ minHeight: 0 }}>
+    <div ref={scrollRef} className={`robin-page robin-dashboard flex-1 overflow-y-auto ${styles.page}`} style={{ minHeight: 0 }}>
       <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 p-4 desktop:p-6">
         <header className={styles.hero}>
           <div className="flex min-w-0 flex-col gap-2">
@@ -457,7 +473,7 @@ export function EventsBoard() {
                 data-weekend={[0, 6].includes(new Date(`${entry.day}T12:00:00Z`).getUTCDay()) || undefined}
                 aria-pressed={entry.day === day}
                 disabled={entry.count === 0}
-                onClick={() => pickDay(entry.day)}
+                onClick={(event) => pickDay(entry.day, event.detail === 0)}
                 aria-label={t("robin.events.ribbonDay", { day: formatDay(entry.day, locale), count: String(entry.count) })}
               >
                 <span className="pi-eyebrow">{entry.day === today ? t("robin.events.today") : formatDay(entry.day, locale, "weekday")}</span>
@@ -513,14 +529,14 @@ export function EventsBoard() {
 
           <label className="flex flex-col gap-2">
             <span className="sr-only">{t("robin.events.search")}</span>
-            <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("robin.events.searchPlaceholder")} className="min-h-11 w-full px-3 text-sm" />
+            <input type="search" value={query} onChange={(event) => updateView({ q: event.target.value || null }, "replace")} placeholder={t("robin.events.searchPlaceholder")} className="min-h-11 w-full px-3 text-sm" />
           </label>
           <div className={styles.filters} role="group" aria-label={t("robin.events.filters")}>
             {(["all", ...TECH_EVENT_TOPICS] as TopicFilter[]).map((candidate) => (
               <button
                 key={candidate}
                 type="button"
-                onClick={() => setTopic(candidate)}
+                onClick={() => updateView({ topic: candidate === "all" ? null : candidate })}
                 className="ui-action ui-action--chip pi-eyebrow min-h-11 px-3 py-2"
                 data-state={candidate === topic ? "accent" : "muted"}
                 aria-pressed={candidate === topic}
@@ -533,7 +549,7 @@ export function EventsBoard() {
             <span className="flex flex-wrap items-center gap-2 desktop:ml-auto">
               <button
                 type="button"
-                onClick={() => setSavedOnly((on) => !on)}
+                onClick={() => updateView({ saved: savedOnly ? null : "1" })}
                 className="ui-action ui-action--chip pi-eyebrow min-h-11 px-3 py-2"
                 data-state={savedOnly ? "accent" : "muted"}
                 aria-pressed={savedOnly}
@@ -542,7 +558,7 @@ export function EventsBoard() {
               </button>
               <button
                 type="button"
-                onClick={() => setShowHidden((on) => !on)}
+                onClick={() => updateView({ hidden: showHidden ? null : "1" })}
                 className="ui-action ui-action--chip pi-eyebrow min-h-11 px-3 py-2"
                 data-state={showHidden ? "accent" : "muted"}
                 aria-pressed={showHidden}

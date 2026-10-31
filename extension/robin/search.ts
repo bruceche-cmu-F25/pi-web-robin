@@ -1,19 +1,19 @@
 import type { Link } from "./links.ts";
 import type { Todo } from "./todo-domain.ts";
 
-/**
- * Calendar events are deliberately absent: the calendar sits directly above the
- * search field showing the same days, so events here only pushed the links and
- * todos being looked for out of the result list.
- */
+import type { DashboardEvent } from "./events.ts";
+
+/** Search is a read-only index of the supplied collections, never an agent turn. */
 export interface DashboardSearchData {
   links: Link[];
   todos: Todo[];
+  events?: DashboardEvent[];
 }
 
 export type DashboardSearchResult =
   | { kind: "link"; item: Link }
-  | { kind: "todo"; item: Todo };
+  | { kind: "todo"; item: Todo }
+  | { kind: "event"; item: DashboardEvent };
 
 interface RankedResult {
   result: DashboardSearchResult;
@@ -21,7 +21,7 @@ interface RankedResult {
   text: string;
 }
 
-/** Search the saved links and todos, preferring title matches over metadata. */
+/** Prefer title matches over metadata; calendar coverage is disclosed by the caller. */
 export function searchDashboard(
   data: DashboardSearchData,
   query: string,
@@ -36,7 +36,12 @@ export function searchDashboard(
       title: item.title,
       text: `${item.title} ${item.url} ${item.group ?? ""}`,
     })),
-    ...data.todos.map((item) => ({
+    ...(data.events ?? []).map((item) => ({
+      result: { kind: "event" as const, item },
+      title: item.title,
+      text: `${item.title} ${item.date} ${item.endDate ?? ""} ${item.location ?? ""}`,
+    })),
+    ...data.todos.filter((item) => !item.archivedAt).map((item) => ({
       result: { kind: "todo" as const, item },
       title: item.title,
       text: `${item.title} ${item.due ?? ""}`,

@@ -1,0 +1,83 @@
+.optionalFields, .optionalFieldInputs { display: contents; }
+.optionalFields > summary { display: none; }
+@media (max-width: 959px) {
+  .panel:global(.pi-card) { padding: 0; background: transparent; border: 0; box-shadow: none; }
+  .panel > header h2 { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+  .panel > header { min-height: 44px; padding-inline: 4px; }
+  .panel > header > div > span { color: var(--text-muted) !important; font: 400 max(13px, .8125rem)/1.4 var(--font-ui-default); }
+  .panel > header > button:global(.robin-panel-add) { background: transparent; border-color: transparent; box-shadow: none; color: var(--accent); font: 400 max(13px, .8125rem)/1.4 var(--font-ui-default); }
+  .panel > header > button::before, .panel > header > button::after { content: none; }
+  .filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px; padding: 4px; border: 0; border-radius: 999px; background: var(--bg-subtle); }
+  .panel .filters > button { padding-inline: 4px; border: 0; border-radius: 999px; background: transparent; font: 400 max(13px, .8125rem)/1.4 var(--font-ui-default); color: var(--text-muted); }
+  .panel .filters > button[aria-pressed="true"] { background: var(--bg-panel); color: var(--text); box-shadow: var(--card-shadow); }
+  .taskGroup { border-top: 0; }
+  .taskGroup > summary { padding-block: 8px; min-height: 44px; }
+  .taskGroup > summary > h3 { font: 400 max(12px, .75rem)/1.4 var(--font-ui-default); letter-spacing: 0; text-transform: none; }
+  .taskGroup > div { gap: 5px; }
+  .row { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; padding: 4px; gap: 4px; border: 1px solid var(--todo-row-edge, var(--border)); border-radius: 20px; box-shadow: none; align-items: center; font-family: var(--font-ui-default); }
+  .row > label, .row > details { align-self: center; }
+  .row > label { width: 44px; height: 44px; }
+  .row > div { display: block; }
+  .row :global(.robin-todo-actions) :is(button, summary) { min-width: 44px; min-height: 44px; }
+  .row :global(.robin-readable-text) { margin-bottom: 0 !important; }
+  .openTask { display: flex; flex-direction: column; justify-content: center; width: 100%; min-height: 44px; padding-block: 4px; text-align: left; gap: 2px; font: 400 max(15px, .9375rem)/1.45 var(--font-ui-default); }
+  .taskName { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+  .taskDate { color: var(--text-muted); font: 400 max(12px, .75rem)/1.4 var(--font-ui-default); overflow-wrap: anywhere; }
+  .row[data-overdue] { background-image: linear-gradient(var(--danger-soft), var(--danger-soft)); }
+  .row[data-overdue] .taskDate { color: var(--danger); }
+  .row:has(details[open]) { position: relative; z-index: var(--z-popover); }
+  .row :global(.robin-todo-actions) > summary { color: var(--text-muted); }
+  .check { position: relative; }
+  .check input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; margin: 0; cursor: inherit; }
+  .check > span { display: grid; place-items: center; width: 20px; height: 20px; border: 1px solid var(--text-muted); border-radius: 50%; font-size: 13px; pointer-events: none; }
+  .check input:checked + span { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast); }
+  .check input:focus-visible + span { outline: 2px solid var(--focus-ring); outline-offset: 3px; }
+  .check input:disabled + span { opacity: .5; }
+  :global(html[data-theme^="glass"]) .panel { --todo-row-fill: var(--glass-clear-fill); --todo-row-edge: var(--glass-edge); }
+  :global(html[data-theme^="glass"]) .row { box-shadow: inset 0 1px 0 var(--glass-edge), 0 0 0 1px var(--workspace-line, var(--border)); }
+  :global(html[data-theme^="glass"]) .filters { background: var(--glass-clear-fill); box-shadow: inset 0 0 0 1px var(--glass-edge); }
+  :global(html[data-theme^="glass"]) .filters > button[aria-pressed="true"] { background: var(--glass-active-fill); box-shadow: none; }
+  :global(html[data-theme^="glass"]) .row[data-overdue] { -webkit-backdrop-filter: var(--glass-clear-filter); backdrop-filter: var(--glass-clear-filter); }
+  :global(html[data-theme^="glass"]) .row[data-overdue] .taskDate { color: var(--text-muted); }
+  .addForm { align-items: stretch; }
+  .addForm > label, .optionalFields { flex-basis: 100%; min-width: 0; }
+  .optionalFields { display: block; }
+  .optionalFields > summary { display: flex; align-items: center; min-height: 44px; color: var(--accent); font: 14px/1.5 var(--font-ui); cursor: pointer; }
+  .optionalFields > summary::after { content: "+"; margin-left: auto; }
+  .optionalFields[open] > summary::after { content: "−"; }
+  .optionalFields > summary::-webkit-details-marker { display: none; }
+  .optionalFields:not([open]) > .optionalFieldInputs { display: none; }
+  .optionalFieldInputs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding-block: 8px; }
+  .optionalFieldInputs > label { min-width: 0; }
+  .optionalFieldInputs > label:last-child { grid-column: 1 / -1; }
+  .addForm input { min-width: 0; width: 100%; min-height: 44px; font-size: max(16px, 1rem); }
+  .addForm > button { min-height: 44px; width: 100%; }
+}
+.title { position: relative; min-width: 0; }
+.preview { display: none; }
+
+/* Keep the wrapped text's intrinsic height throughout both directions.
+   Switching white-space on hover would make the closing height snap again. */
+@media (min-width: 960px) and (hover: hover) and (pointer: fine) {
+  .reveal { display: grid; grid-template-rows: 0fr; min-height: 1.5em; transition: grid-template-rows 200ms ease; }
+  .content { min-height: 0; overflow: hidden; opacity: 0; transition: opacity 120ms ease; }
+  .preview { display: block; position: absolute; inset: 0 0 auto; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; pointer-events: none; opacity: 1; transition: opacity 120ms ease; }
+  .row:is(:hover, :focus-within) .reveal { grid-template-rows: 1fr; }
+  .row:is(:hover, :focus-within) .content { opacity: 1; }
+  .row:is(:hover, :focus-within) .preview { opacity: 0; }
+  /* Tab focus reveals content immediately, without delaying navigation. */
+  .row:focus-within :is(.reveal, .content, .preview) { transition: none; }
+  .content:focus-within { overflow: visible; }
+}
+
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more), (forced-colors: active) {
+  :global(html[data-theme^="glass"]) .panel { --todo-row-fill: var(--bg-panel); --todo-row-edge: var(--border); }
+  :global(html[data-theme^="glass"]) .row { box-shadow: none; }
+  :global(html[data-theme^="glass"]) .row[data-overdue] { background-image: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+  :global(html[data-theme^="glass"]) .row[data-overdue] .taskDate { color: var(--danger); }
+  :global(html[data-theme^="glass"]) .filters { background: var(--bg-panel); box-shadow: inset 0 0 0 1px var(--border); }
+  :global(html[data-theme^="glass"]) .filters > button[aria-pressed="true"] { background: var(--bg-selected); outline: 1px solid var(--border); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .row :is(.reveal, .content, .preview) { transition: none; }
+}

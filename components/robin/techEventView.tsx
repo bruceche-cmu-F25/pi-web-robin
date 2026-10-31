@@ -12,8 +12,9 @@ import styles from "./EventsBoard.module.css";
  */
 
 /** The in-app page for one event. The id carries a colon, hence the encoding. */
-export function eventHref(id: string): string {
-  return `/dashboard/events/${encodeURIComponent(id)}`;
+export function eventHref(id: string, returnTo?: string): string {
+  const path = `/dashboard/events/${encodeURIComponent(id)}`;
+  return returnTo ? `${path}?${new URLSearchParams({ returnTo })}` : path;
 }
 
 export function localDay(event: Pick<TechEvent, "startAt" | "timezone">): string {

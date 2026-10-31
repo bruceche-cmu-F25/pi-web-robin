@@ -11,7 +11,7 @@ const learnLayout = await read("../../app/learn/layout.tsx");
 const css = await read("../../app/globals.css");
 
 test("Robin routes share one persistent compact navigation", () => {
-  assert.match(dashboardLayout, /<RobinShell>\{children\}<\/RobinShell>/);
+  assert.match(dashboardLayout, /<RobinShell><JobHuntWorkspace>\{children\}<\/JobHuntWorkspace><\/RobinShell>/);
   assert.match(learnLayout, /<RobinShell>[\s\S]*?\{children\}[\s\S]*?<\/RobinShell>/);
   assert.match(marginSource, /drawer \? " is-drawer" : " is-horizontal"/);
   assert.match(css, /\.robin-nav\.is-horizontal/);
@@ -45,6 +45,8 @@ test("navigation separates primary pages from chat and settings", () => {
   for (const href of ["/dashboard", "/dashboard/gmail", "/dashboard/jobs", "/learn"]) {
     assert.match(main, new RegExp(`path: \"${href.replaceAll("/", "\\/")}\"`));
   }
+  assert.doesNotMatch(main, /path: "\/dashboard\/events"/);
+  assert.match(main, /covers: \["\/dashboard\/events"\]/);
   assert.match(utility, /href: chatHref/);
   assert.match(utility, /path: "\/dashboard\/settings"/);
 });
@@ -60,9 +62,13 @@ test("client navigation is opt-in at both ends and never preloads every workspac
   assert.match(marginSource, /clientNavigation \? \{ prefetch: false \} : \{\}/);
 });
 
-test("narrow screens use an off-canvas drawer", () => {
+test("specialist workspaces retain the drawer; the dashboard uses its own phone navigation", async () => {
+  assert.match(shellSource, /pathname !== "\/dashboard" && <button/);
   assert.match(shellSource, /className="robin-mobile-nav-trigger"/);
-  assert.match(shellSource, /if \(event\.key === "Escape" && !event\.defaultPrevented\) closeDrawer\(\)/);
+  assert.match(shellSource, /if \(event\.key === "Escape"\) \{ setKeyboardMotion\(true\); closeDrawer\(\); \}/);
+  const dashboard = await read("./Dashboard.tsx");
+  assert.match(dashboard, /DASHBOARD_VIEWS\.map/);
+  assert.match(dashboard, /aria-current=\{view === key \? "page" : undefined\}/);
   assert.match(shellSource, /inert=\{!inline && open\}/);
   assert.match(css, /@media \(max-width: 959px\)[\s\S]*?robin-navigation-container\.robin-navigation-closed[\s\S]*?translateX/);
 });

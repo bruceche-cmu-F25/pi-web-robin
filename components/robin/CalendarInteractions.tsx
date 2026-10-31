@@ -60,7 +60,10 @@ export function CalendarInteractions({ children, events, todos, busy, onMove, on
       const scroller = cell.closest("[data-calendar-scroll]");
       if (!scroller) continue;
       const clip = scroller.getBoundingClientRect();
-      const pageTop = cell.closest(".robin-dashboard")?.querySelector(".robin-dashboard-header")?.getBoundingClientRect().bottom ?? 0;
+      const workspace = cell.closest(".robin-dashboard");
+      const pageTop = workspace?.querySelector(".robin-dashboard-header")?.getBoundingClientRect().bottom ?? 0;
+      const footer = workspace?.querySelector(".robin-dashboard-dock")?.parentElement;
+      const pageBottom = footer?.getClientRects().length ? footer.getBoundingClientRect().top : window.innerHeight;
       const header = timedCell ? (scroller.querySelector("[data-calendar-sticky]")?.getBoundingClientRect().height ?? 0) : 0;
       const scale = Number(cell.dataset.calendarScale);
       const first = Number(cell.dataset.calendarMinute ?? 0);
@@ -68,7 +71,7 @@ export function CalendarInteractions({ children, events, todos, busy, onMove, on
       const end = fields.end ? toMinutes(fields.end) - first : start + 60;
       const top = Math.max(0, pageTop, clip.top + header, timedCell ? rect.top + start * scale : rect.top);
       const bandBottom = cell.closest("[data-calendar-sticky]")?.getBoundingClientRect().bottom ?? clip.bottom;
-      const bottom = Math.min(window.innerHeight, clip.bottom, bandBottom, timedCell ? rect.top + Math.max(end, start + 15) * scale : rect.bottom);
+      const bottom = Math.min(window.innerHeight, pageBottom, clip.bottom, bandBottom, timedCell ? rect.top + Math.max(end, start + 15) * scale : rect.bottom);
       const left = Math.max(0, clip.left, rect.left), right = Math.min(window.innerWidth, clip.right, rect.right);
       if (right > left && bottom > top) boxes.push({ left, top, width: right - left, height: bottom - top });
     }
@@ -89,7 +92,7 @@ export function CalendarInteractions({ children, events, todos, busy, onMove, on
     const { pointerId, clientX: x, clientY: y } = pointer;
     let moved = false, currentX = x, currentY = y, frame = 0;
     const scroller = source.closest<HTMLElement>("[data-calendar-scroll]") ?? root.current?.querySelector<HTMLElement>("[data-calendar-scroll]");
-    const page = source.closest<HTMLElement>(".robin-dashboard");
+    const page = source.closest<HTMLElement>(".robin-page") ?? source.closest<HTMLElement>(".robin-dashboard");
     const fieldsAt = (target: CalendarSlot) => {
       if (todo) {
         const dates = moveTodo(todo, origin, target);
@@ -113,11 +116,13 @@ export function CalendarInteractions({ children, events, todos, busy, onMove, on
       // The full-height calendar scrolls vertically with the dashboard, not in a nested window.
       const vertical = scroller.scrollHeight > scroller.clientHeight + 1 ? scroller : page;
       const clip = vertical?.getBoundingClientRect() ?? rect;
+      const footer = page?.closest(".robin-dashboard")?.querySelector(".robin-dashboard-dock")?.parentElement;
+      const footerTop = footer?.getClientRects().length ? footer.getBoundingClientRect().top : window.innerHeight;
       const headerBottom = vertical === scroller
         ? (scroller.querySelector("[data-calendar-sticky]")?.getBoundingClientRect().bottom ?? rect.top)
-        : (page?.querySelector(".robin-dashboard-header")?.getBoundingClientRect().bottom ?? clip.top);
+        : (page?.closest(".robin-dashboard")?.querySelector(".robin-dashboard-header")?.getBoundingClientRect().bottom ?? clip.top);
       const topEdge = Math.max(rect.top, clip.top, headerBottom, 0);
-      const bottomEdge = Math.min(rect.bottom, clip.bottom, window.innerHeight);
+      const bottomEdge = Math.min(rect.bottom, clip.bottom, footerTop, window.innerHeight);
       const leftEdge = Math.max(rect.left, 0), rightEdge = Math.min(rect.right, window.innerWidth);
       if (currentX >= leftEdge && currentX < rightEdge && currentY >= topEdge && currentY < bottomEdge) {
         const left = scroller.scrollLeft, top = vertical?.scrollTop;

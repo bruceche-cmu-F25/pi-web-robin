@@ -7,21 +7,24 @@ import type { Todo } from "@/extension/robin/todo-domain";
 import { TodoTitle } from "./TodoTitle";
 import styles from "./CalendarPanel.module.css";
 
-type Props = { todo: Todo; children: ReactNode };
+type Props = { todo: Todo; check: ReactNode; children: ReactNode; onOpen: () => void };
 
-/** Phones show the content directly: no disclosure button, popover or hover listeners. */
-export function CalendarTodoTitle({ todo, children }: Props) {
+/** Phones disclose the full task in the day list, without hover or popovers. */
+export function CalendarTodoTitle({ todo, check, children, onOpen }: Props) {
   const mobile = useIsMobile();
   const { t } = useI18n();
-  if (!mobile) return <DesktopCalendarTodoTitle todo={todo}>{children}</DesktopCalendarTodoTitle>;
-  return <div className={styles.todoCopy}>
-    <div className={styles.todoControls}>{children}</div>
-    <div className={styles.weekTodoTitle}><TodoTitle todo={todo} t={t} nativeTooltip={false} /></div>
+  if (!mobile) return <DesktopCalendarTodoTitle todo={todo} check={check} onOpen={onOpen}>{children}</DesktopCalendarTodoTitle>;
+  return <div className={styles.todoCopy} data-mobile>
+    <div className={styles.todoControls}>{check}{children}</div>
+    <button type="button" className={styles.taskTitleButton} aria-haspopup="dialog"
+      aria-label={t("robin.common.expandText", { title: todo.title })} onClick={onOpen}>
+      <span className={styles.weekTodoTitle}>{todo.title}</span>
+    </button>
   </div>;
 }
 
 /** Desktop preview uses the native top layer without moving the calendar layout. */
-function DesktopCalendarTodoTitle({ todo, children }: Props) {
+function DesktopCalendarTodoTitle({ todo, check, children }: Props) {
   const { t } = useI18n();
   const id = useId();
   const root = useRef<HTMLDivElement>(null);
@@ -38,15 +41,20 @@ function DesktopCalendarTodoTitle({ todo, children }: Props) {
     popup.current?.hidePopover();
     if (hadFocus) root.current?.querySelector<HTMLButtonElement>("button[aria-controls]")?.focus({ preventScroll: true });
   };
-  const show = () => {
+  const show = (pointer = false) => {
     clearTimer();
     const panel = popup.current, anchor = root.current;
     if (!overflowing || dismissed.current || !panel || !anchor || panel.matches(":popover-open")) return;
+    // Keyboard/click disclosure stays immediate; only mouse previews ease in/out.
+    panel.dataset.motion = String(pointer && window.matchMedia("(hover: hover) and (pointer: fine)").matches);
     panel.showPopover();
     const rect = anchor.getBoundingClientRect();
-    panel.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - panel.offsetWidth - 8))}px`;
+    const left = Math.max(8, Math.min(rect.left, window.innerWidth - panel.offsetWidth - 8));
     const below = rect.bottom + 6;
-    panel.style.top = `${Math.max(8, below + panel.offsetHeight <= window.innerHeight - 8 ? below : rect.top - panel.offsetHeight - 6)}px`;
+    const above = below + panel.offsetHeight > window.innerHeight - 8;
+    panel.style.left = `${left}px`;
+    panel.style.top = `${Math.max(8, above ? rect.top - panel.offsetHeight - 6 : below)}px`;
+    panel.style.transformOrigin = `${Math.max(0, Math.min(panel.offsetWidth, rect.left + rect.width / 2 - left))}px ${above ? "bottom" : "top"}`;
   };
   const leave = () => {
     clearTimer();
@@ -92,7 +100,7 @@ function DesktopCalendarTodoTitle({ todo, children }: Props) {
   }, [open]);
 
   return <div ref={root} className={styles.todoCopy}
-    onPointerEnter={(event) => { if (event.pointerType === "mouse" && event.buttons === 0) { clearTimer(); dismissed.current = false; timer.current = setTimeout(show, 220); } }}
+    onPointerEnter={(event) => { if (event.pointerType === "mouse" && event.buttons === 0) { clearTimer(); dismissed.current = false; timer.current = setTimeout(() => show(true), 220); } }}
     onPointerLeave={() => { dismissed.current = false; leave(); }}
     onFocusCapture={(event) => {
       // Native popovers can restore focus while another popover is opening.
@@ -102,6 +110,7 @@ function DesktopCalendarTodoTitle({ todo, children }: Props) {
     onPointerDownCapture={(event) => {
       if ((event.target as Element).closest("[data-calendar-todo], input")) { dismissed.current = true; hide(); }
     }}>
+    {check}
     <div className={styles.todoControls}>
       {children}
       {overflowing && <button type="button" className={styles.todoMore} aria-haspopup="dialog" aria-controls={id} aria-expanded={open}

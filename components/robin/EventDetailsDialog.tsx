@@ -9,6 +9,8 @@ import {
   type DashboardEvent,
 } from "@/extension/robin/events";
 import { useI18n } from "@/hooks/useI18n";
+import { EVENT_COLOR_KEYS, type EventColorKey } from "@/extension/robin/eventColors";
+import styles from "./CalendarPanel.module.css";
 
 function externalUrl(value: string | undefined): string | null {
   if (!value) return null;
@@ -53,6 +55,9 @@ export function EventDetailsDialog({
   onEdit,
   error,
   busy,
+  seriesColor,
+  onSeriesColor,
+  colorFailed,
 }: {
   event: DashboardEvent;
   onClose: () => void;
@@ -60,6 +65,9 @@ export function EventDetailsDialog({
   onEdit: (event: DashboardEvent) => void;
   error: string | null;
   busy: boolean;
+  seriesColor?: EventColorKey;
+  onSeriesColor?: (color: EventColorKey | null) => void;
+  colorFailed?: boolean;
 }) {
   const { t, locale } = useI18n();
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -114,7 +122,7 @@ export function EventDetailsDialog({
   return (
     <dialog
       ref={dialogRef}
-      className="calendar-event-dialog"
+      className={`calendar-event-dialog ${styles.details}`}
       aria-labelledby={titleId}
       aria-describedby={readOnly ? noticeId : undefined}
       onCancel={(dialogEvent) => {
@@ -182,6 +190,20 @@ export function EventDetailsDialog({
               </DetailRow>
             )}
           </dl>
+          {onSeriesColor && <fieldset className={styles.colorPicker}>
+            <legend>{t("robin.calendar.seriesColor")}</legend>
+            <p>{t("robin.calendar.seriesColorLocal")}</p>
+            <div className={styles.colorChoices}>
+              <button type="button" aria-pressed={!seriesColor} onClick={() => onSeriesColor(null)}>{t("robin.calendar.colorAutomatic")}</button>
+              {EVENT_COLOR_KEYS.map((key) => <button key={key} type="button" aria-label={t(`robin.calendar.color.${key}`)}
+                title={t(`robin.calendar.color.${key}`)} aria-pressed={seriesColor === key} onClick={() => onSeriesColor(key)}>
+                <span style={{ background: `var(--calendar-${key})` }} aria-hidden="true">
+                  {seriesColor === key && <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m5 12 4 4L19 6" /></svg>}
+                </span>
+              </button>)}
+            </div>
+            {colorFailed && <p role="alert">{t("robin.calendar.colorFailed")}</p>}
+          </fieldset>}
         </div>
 
         <footer

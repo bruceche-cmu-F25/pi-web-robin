@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { calendarDays, calendarView, stepCalendar } from "./calendar-view.ts";
+import { calendarDays, calendarPresentation, calendarView, stepCalendar } from "./calendar-view.ts";
+
+test("phone calendar keeps an hourly timeline even with legacy month/agenda preferences", () => {
+  for (const view of ["agenda", "month", "day", "week"]) {
+    assert.equal(calendarPresentation(view, true), view === "week" ? "week" : "day");
+    assert.equal(calendarPresentation(view, false), view, "Desktop retains every view");
+  }
+});
 
 test("month means the complete natural month, with adjacent days filling whole weeks", () => {
   const days = calendarDays("month", "2030-05-19");

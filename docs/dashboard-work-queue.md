@@ -1,6 +1,8 @@
 # Dashboard work queue
 
-`WorkQueuePanel.tsx` sits directly below the calendar in the main dashboard lane.
+`WorkQueuePanel.tsx` is an optional, remembered disclosure in the dashboard's
+planning/resources area (More on phones), not the default Daily screen.
+See [Daily workspace](dashboard-workspace.md).
 It uses the existing todos and calendar endpoints, without an agent turn, external
 notifications, calendar writes, or another task collection.
 

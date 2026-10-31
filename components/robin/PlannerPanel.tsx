@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { writeUrlState } from "@/lib/url-state";
 import { useI18n } from "@/hooks/useI18n";
 import { blockHasEnded, blockIsFuture, blockMinutes, DEFAULT_PLANNER, defaultSelection, ESTIMATE_CHOICES, validatePlannerOptions, type PlannerOptions, type PlannerSelection } from "@/extension/robin/planner";
 import type { PlannerCapture, PlannerProposal, plannerBoard } from "@/extension/robin/planner-domain";
@@ -9,7 +11,7 @@ import { requestRefresh } from "./refreshBus";
 import { TodoTitle } from "./TodoTitle";
 import { PlannerTimeline } from "./PlannerTimeline";
 import { timelineDays, timelineEntries } from "./planner-timeline";
-import { mutateResponse, usePolledResource } from "./usePolledResource";
+import { mutateResponse, ResourceActivity, usePolledResource } from "./usePolledResource";
 import styles from "./PlannerPanel.module.css";
 
 type Board = ReturnType<typeof plannerBoard>;
@@ -33,7 +35,7 @@ function Effort({ value, onChange }: { value: Omit<PlannerSelection, "id">; onCh
   </div>;
 }
 
-export function PlannerPanel() {
+export function PlannerPanel({ compact = false }: { compact?: boolean }) {
   const { t, locale } = useI18n();
   const resource = usePolledResource<Board>(URL);
   const data = resource.data?.todos ? resource.data : null;
@@ -54,6 +56,10 @@ export function PlannerPanel() {
   const [tab, setTab] = useState<"setup" | "schedule">("setup");
   const [editingTask, setEditingTask] = useState<string | null>(null);
   const dialog = useRef<HTMLDialogElement>(null);
+  const params = useSearchParams();
+  const active = useContext(ResourceActivity);
+  const requested = params.get("plan") === "1";
+  useEffect(() => { if (active && requested) { dialog.current?.showModal(); writeUrlState({ plan: null }, "replace"); } }, [active, requested]);
   const closeButton = useRef<HTMLButtonElement>(null);
   const previewHeading = useRef<HTMLHeadingElement>(null);
   const schedulePane = useRef<HTMLElement>(null);
@@ -184,13 +190,15 @@ export function PlannerPanel() {
     <p className={styles.meta}>{t("planner.rules")}</p>
   </details>;
 
+  const SavedSlots = compact ? "details" : "div";
   return <section id="dashboard-planner" className={`pi-card ${styles.panel}`} aria-label={t("planner.title")}>
     <header className={styles.header}><div><h2 className="pi-section-title">{t("planner.title")}</h2><p className={styles.meta}>{saved.length ? t("planner.savedSummary", { count: saved.length }) : t("planner.hint")}</p></div>
       <button type="button" className="ui-action pi-bracket" data-state="accent" onClick={() => { setTab(proposal || saved.length ? "schedule" : "setup"); dialog.current?.showModal(); closeButton.current?.focus(); }}>{t("planner.open")}</button>
     </header>
-    {!saved.length && <p className={styles.intro}>{t("planner.empty")}</p>}
+    {!compact && !saved.length && <p className={styles.intro}>{t("planner.empty")}</p>}
     {!!data?.conflicts.length && <p role="alert" className={styles.warning}>{t("planner.conflict", { count: data.conflicts.length })}</p>}
-    {saved.length > 0 && <>
+    {saved.length > 0 && <SavedSlots>
+      {compact && <summary className="ui-action min-h-11 py-2">{t("planner.savedSummary", { count: saved.length })}</summary>}
       <div className={styles.chips} role="group" aria-label={t("planner.week")}>{[false, true].map((week) => <button key={String(week)} className="ui-action" aria-pressed={showWeek === week} onClick={() => setShowWeek(week)}>{t(week ? "planner.week" : "planner.today")}</button>)}</div>
       {!visibleSaved.length && <p className={styles.meta}>{t("planner.noToday")}</p>}
       <ul className={styles.slots}>{visibleSaved.map(({ todo, block }) => <li key={`${todo.id}:${block.id}`} data-done={block.done}>
@@ -206,7 +214,7 @@ export function PlannerPanel() {
         </div>
       </li>)}</ul>
       <p className={styles.meta}>{t("planner.slotHint")}</p>
-    </>}
+    </SavedSlots>}
     {(error || resource.error) && <p role="alert" className={styles.error}>{error || resource.error}</p>}
     <p role="status" className={styles.status}>{message}</p>
     <dialog ref={dialog} className={styles.dialog} aria-labelledby="weekly-planner-title" onCancel={(event) => { if (busy) event.preventDefault(); }}>
@@ -282,7 +290,7 @@ export function PlannerPanel() {
           {busy === "extract" && <button type="button" className="ui-action" onClick={() => controller.current?.abort()}>{t("planner.cancel")}</button>}
           {tab === "schedule" && <button type="button" className="ui-action" onClick={() => setTab("setup")}>{t("planner.backSetup")}</button>}
           {proposal && proposedMinutes > 0 && <button type="button" className="ui-action" disabled={Boolean(busy) || unavailable || !selected.length} onClick={() => void run("preview", () => preview())}>{t("planner.preview")}</button>}
-          <button type="button" className="ui-action pi-bracket" data-state="accent" disabled={Boolean(busy) || (capture ? !capture.tasks.length && !capture.events.length : unavailable || !selected.length)}
+          <button type="button" className="ui-action ui-action--primary" aria-busy={Boolean(busy)} disabled={Boolean(busy) || (capture ? !capture.tasks.length && !capture.events.length : unavailable || !selected.length)}
             onClick={() => capture ? saveCapture() : proposal && proposedMinutes > 0 ? accept() : void run("preview", () => preview())}>{t(capture ? "planner.capture" : proposal && proposedMinutes > 0 ? "planner.accept" : "planner.preview")}</button>
         </div>
       </footer>

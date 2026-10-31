@@ -18,10 +18,11 @@ test("searchDashboard searches titles and collection metadata", () => {
   assert.deepEqual(searchDashboard(data, "2026-08-20").map(({ kind }) => kind), ["todo"]);
 });
 
-test("the calendar is left out — it is already on screen above the field", () => {
+test("calendar entries can be found by title, date or location", () => {
   const withEvents = { ...data, events: [{ id: "e1", title: "Office hours", date: "2026-08-20", location: "Wean Hall" }] };
-  assert.deepEqual(searchDashboard(withEvents, "Office hours"), []);
-  assert.deepEqual(searchDashboard(withEvents, "Wean"), []);
+  assert.deepEqual(searchDashboard(withEvents, "Office hours").map(({ kind, item }) => [kind, item.id]), [["event", "e1"]]);
+  assert.equal(searchDashboard(withEvents, "Wean")[0]?.item.id, "e1");
+  assert.equal(searchDashboard(withEvents, "2026-08-20").length, 2);
 });
 
 test("searchDashboard ranks title matches first and respects its limit", () => {

@@ -2,7 +2,7 @@
 .content { display: flex; flex-direction: column; height: 100%; max-width: 1680px; margin: 0 auto; min-height: 0; }
 .header, .heading, .headerActions { display: flex; align-items: center; gap: 16px; }
 .header { justify-content: space-between; flex-shrink: 0; }
-.header h1 { font-size: 28px; font-weight: 400; font-style: italic; }
+.header h1 { font: italic 400 var(--type-page-size)/1.25 var(--font-serif); }
 .today { color: var(--text-muted); font-family: var(--font-mono); font-size: 12px; }
 .headerActions { gap: 12px; font-family: var(--font-mono); font-size: 13px; }
 .views { display: flex; gap: 20px; flex-shrink: 0; margin-top: 16px; border-bottom: 1px solid var(--border); overflow-x: auto; }
@@ -80,7 +80,7 @@
 .titleField { display: grid; gap: 8px; }
 .fields label { display: grid; gap: 8px; min-width: 0; font: 12px var(--font-mono); color: var(--text-muted); }
 .fields input, .fields select, .fields textarea { width: 100%; font: 14px/1.6 var(--font-mono); }
-.fields textarea { font: 20px/1.5 var(--font-serif); resize: vertical; }
+.dialog .fields textarea { --field-font-size: max(20px, 1.25rem); font: var(--field-font-size)/1.5 var(--font-serif); resize: vertical; }
 .dates { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .editorFooter { display: flex; justify-content: flex-end; gap: 16px; padding: 16px 24px max(16px, env(safe-area-inset-bottom)); border-top: 1px solid var(--border); flex-shrink: 0; }
 .editorFooter .delete { margin-right: auto; }
@@ -181,7 +181,7 @@
 @media (max-width: 759px) {
   .page { padding: 8px 12px 0; }
   .header, .headerActions { gap: 8px; }
-  .header h1 { font-size: 24px; white-space: nowrap; }
+  .header h1 { white-space: nowrap; }
   .today, .capacitySummary, .plannerTrigger svg { display: none; }
   .headerActions { font-size: 12px; }
   .views { gap: 8px; margin-top: 8px; }

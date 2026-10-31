@@ -22,8 +22,8 @@ interface ViewProps {
   onSelectEvent: (event: DashboardEvent) => void;
 }
 
-export function AgendaView({ events, todos, today, start, onSelectEvent, onCompleteTodo }: ViewProps & {
-  todos: Todo[]; start: string; onCompleteTodo: (todo: Todo) => void;
+export function AgendaView({ events, todos, today, start, singleDay = false, onSelectEvent, onCompleteTodo }: ViewProps & {
+  todos: Todo[]; start: string; singleDay?: boolean; onCompleteTodo: (todo: Todo) => void;
 }) {
   const { t, locale } = useI18n();
   const surface = useEventSurface();
@@ -58,12 +58,12 @@ export function AgendaView({ events, todos, today, start, onSelectEvent, onCompl
     </span>}
   </div>;
   return <div className={`${styles.agenda} flex flex-col gap-3`} data-calendar-scroll>
-    {withStart.filter((group) => group.date <= addDays(start, 2)).map((group) => <div key={group.date} data-calendar-date={group.date} className="flex flex-col gap-1">
+    {withStart.filter((group) => singleDay ? group.date === start : group.date <= addDays(start, 2)).map((group) => <div key={group.date} data-calendar-date={group.date} className="flex flex-col gap-1">
       <h3 className="pi-eyebrow">{group.date === today && <span className="pi-today-badge mr-2">{parseLocalDate(today).getDate()}</span>}{dayLabel(group.date)}</h3>
       {!group.events.length && !group.todos.length && <p className="px-2 py-1 text-sm" style={{ color: "var(--text-dim)" }}>{t("robin.calendar.nothingScheduled")}</p>}
       {group.todos.map(todoRow)}{group.events.map(eventRow)}
     </div>)}
-    {withStart.filter((group) => group.date > addDays(start, 2)).map((group) => <details key={group.date} data-calendar-date={group.date} className="robin-agenda-brief border-b" style={{ borderColor: "var(--border)" }}>
+    {!singleDay && withStart.filter((group) => group.date > addDays(start, 2)).map((group) => <details key={group.date} data-calendar-date={group.date} className="robin-agenda-brief border-b" style={{ borderColor: "var(--border)" }}>
       <summary className="ui-action cursor-pointer py-3 text-xs"><span className="font-mono">{dayLabel(group.date)}</span><span className="ml-2">· {group.events.length + group.todos.length}</span></summary>
       <div className="flex min-w-0 flex-col gap-2 pb-2">{group.todos.map(todoRow)}{group.events.map(eventRow)}</div>
     </details>)}

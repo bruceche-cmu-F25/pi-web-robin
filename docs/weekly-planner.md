@@ -1,6 +1,10 @@
 # Dashboard weekly planner
 
-`PlannerPanel` sits immediately below the calendar (desktop and mobile). It combines existing todos and the local +
+`PlannerPanel` has a compact opener below the desktop calendar and in More on
+phones. Daily's **Help me plan** opens the same dialog without accepting a plan.
+Its saved-slot list is folded in compact mode but remains available for logging,
+undoing and releasing work; `compact=false` still shows it directly.
+See [Daily workspace](dashboard-workspace.md). It combines existing todos and the local +
 connected Google calendar without creating another task collection. The ordinary
 Todo/Kanban views and the daily work queue remain usable.
 

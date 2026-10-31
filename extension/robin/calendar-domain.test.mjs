@@ -69,6 +69,17 @@ test("a board that cannot be read at all still reports connected", async (t) => 
   assert.deepEqual(board.events, []);
 });
 
+test("explicit local snapshots never contact Google and declare incomplete coverage", async (t) => {
+  connect();
+  createCalendarEvent({ title: "Local shadow fixture", date: "2030-01-02" });
+  const fetch = t.mock.method(globalThis, "fetch", async () => { throw new Error("Unexpected external request"); });
+  const board = await calendarBoard({ localOnly: true });
+  assert.equal(fetch.mock.callCount(), 0);
+  assert.equal(board.google.connected, true);
+  assert.match(board.google.error, /not been refreshed/);
+  assert.equal(board.events[0].title, "Local shadow fixture");
+});
+
 test("explicit navigation windows are validated even without a Google connection", async () => {
   for (const options of [{ from: "2030-05-01" }, { to: "2030-05-31" },
     { from: "2030-02-31", to: "2030-03-03" }, { from: "2030-06-01", to: "2030-05-01" },
