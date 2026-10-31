@@ -200,7 +200,12 @@ export interface GmailMessageDetail extends GmailMessage {
  */
 export async function getEmail(id: string): Promise<GmailMessageDetail | null> {
   const token = await getAccessToken();
-  const raw = await gmailGet(token, `/users/me/messages/${encodeURIComponent(id)}?format=full`) as GmailApiMessage;
+  return parseGmailMessageDetail(await gmailGet(token, `/users/me/messages/${encodeURIComponent(id)}?format=full`));
+}
+
+/** Shared extraction for read-only consumers; no request, token or persistence side effects. */
+export function parseGmailMessageDetail(value: unknown): GmailMessageDetail | null {
+  const raw = value as GmailApiMessage;
   const message = mapMessage(raw);
   if (!message) return null;
 

@@ -87,6 +87,12 @@ export function isConnected(account: GoogleAccount = "primary"): boolean {
   return readTokens(account) !== null;
 }
 
+/** Capture a grant for a bounded read. Only a boolean escapes, never token material. */
+export function googleConnectionGuard(account: GoogleAccount = "primary"): () => boolean {
+  const refreshToken = readTokens(account)?.refreshToken;
+  return () => Boolean(refreshToken && readTokens(account)?.refreshToken === refreshToken);
+}
+
 /** Existing read-only grants must be re-authorized before Jarvis can send. */
 export function canSendGmail(account: GoogleAccount = "primary"): boolean {
   return readTokens(account)?.scopes?.includes(GMAIL_SEND_SCOPE) ?? false;
