@@ -1,0 +1,44 @@
+% Public synthetic fixture: legacy resume preamble and structured sections, never personal data.
+\documentclass[10pt,letterpaper]{article}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage[margin=0.45in]{geometry}
+\usepackage{enumitem}
+\usepackage{tabularx}
+\usepackage{titlesec}
+\usepackage[hidelinks]{hyperref}
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0pt}
+\setlength{\tabcolsep}{0pt}
+\setlist[itemize]{leftmargin=1.15em,label=\textbullet,itemsep=0.5pt,topsep=1pt}
+\titleformat{\section}{\normalsize\bfseries}{}{0pt}{}[\titlerule]
+\titlespacing*{\section}{0pt}{6pt}{3pt}
+\newcommand{\entry}[2]{\par\noindent\begin{tabularx}{\linewidth}{@{}Xr@{}}\textbf{#1}& #2\end{tabularx}}
+\newcommand{\detail}[2]{\noindent\begin{tabularx}{\linewidth}{@{}Xr@{}}\textit{#1}& #2\end{tabularx}}
+\urlstyle{same}
+\begin{document}
+\fontsize{9}{10.3}\selectfont
+\begin{center}
+{\Large\bfseries Example Candidate}\\
+\href{mailto:example@example.com}{example@example.com} \quad \url{https://example.com}
+\end{center}
+\section{Education}
+\entry{Example University}{2024--2026}
+\detail{Computer Science}{Example City}
+\section{Experience}
+\entry{Example Organization}{2025}
+\detail{Software Engineering Project}{Remote}
+\begin{itemize}
+\item Built a synthetic demonstration of structured resume sections.
+\item Kept \textbf{bold}, \textit{italic}, \textsc{small caps}, \textsf{sans serif}, and \texttt{monospaced} text readable.
+\end{itemize}
+\section{Projects}
+\entry{Example Project}{2026}
+\begin{itemize}
+\item Tested tables, hyperlinks, bullet points, headings and compact spacing.
+\end{itemize}
+\section{Skills}
+Example tools: Python, TypeScript and SQL.
+\end{document}

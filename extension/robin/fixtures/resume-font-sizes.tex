@@ -1,0 +1,31 @@
+% Public dependency probe, not a user's resume. Every glyph is shipped to PDF:
+% merely selecting fonts (or putting them in an unused box) does not warm PFB files.
+\documentclass{article}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{url}
+\usepackage[paperwidth=420mm,paperheight=594mm,margin=10mm]{geometry}
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+\makeatletter
+\newcommand{\samplefaces}[1]{%
+  {#1\mdseries\upshape Aa}
+  {#1\bfseries\upshape Aa}
+  {#1\mdseries\itshape Aa}
+  {#1\bfseries\itshape Aa}
+  {#1\mdseries\slshape Aa}
+  {#1\bfseries\slshape Aa}
+  {#1\mdseries\scshape Aa}
+  {#1\bfseries\scshape Aa}%
+}
+\begin{document}
+\@for\samplesize:=5,6,7,8,8.4,9,10,10.95,12,14.4,17.28,20.74,21,24.88,29.86,35.83,42.99,51.59\do{%
+  \begingroup
+  \fontsize{\samplesize}{65}\selectfont
+  \samplefaces{\rmfamily}\samplefaces{\sffamily}\samplefaces{\ttfamily}
+  \textbullet\ \textendash\ \textemdash\ \textcopyright\par
+  % URLs can initialize math fonts even in an otherwise text-only resume.
+  \url{https://example.com}\quad $\alpha+\sum_{i=1}^{2}x_i^2=\sqrt{y}$\par
+  \endgroup
+}
+\end{document}
