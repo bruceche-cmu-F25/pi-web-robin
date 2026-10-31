@@ -55,7 +55,7 @@ export const FsoNoteEditor = forwardRef<FsoNoteEditorHandle, {
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState(false);
   const textRef = useRef(text);
-  const savedRef = useRef(note?.text ?? "");
+  const savedRef = useRef<string | null>(note?.text ?? "");
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const queueRef = useRef<Promise<void>>(Promise.resolve());
 
@@ -66,22 +66,24 @@ export const FsoNoteEditor = forwardRef<FsoNoteEditorHandle, {
    */
   const save = useCallback((): Promise<void> => {
     clearTimeout(timer.current);
-    if (textRef.current === savedRef.current) {
-      return queueRef.current.then(() => undefined);
-    }
     setState("saving");
 
     const attempt = queueRef.current.then(async () => {
+      // Compare only after older writes settle: an in-flight B can replace
+      // confirmed A even when the user has already changed the draft back to A.
       const latest = textRef.current;
-      if (latest === savedRef.current) return;
-      const saved = await putNote(chapter.id, latest);
-      savedRef.current = latest;
-      onSaved(chapter.id, saved);
+      if (latest !== savedRef.current) {
+        const saved = await putNote(chapter.id, latest);
+        savedRef.current = latest;
+        onSaved(chapter.id, saved);
+      }
       setError(null);
       setState(textRef.current === latest ? "saved" : "dirty");
     });
 
     const reported = attempt.catch((caught) => {
+      // A lost response does not prove the older write never reached the server.
+      savedRef.current = null;
       setError(caught instanceof Error ? caught.message : String(caught));
       setState("error");
       throw caught;
@@ -118,8 +120,9 @@ export const FsoNoteEditor = forwardRef<FsoNoteEditorHandle, {
   useEffect(() => () => {
     clearTimeout(timer.current);
     const text = textRef.current;
-    if (text === savedRef.current) return;
-    onSavedRef.current(chapter.id, text.trim() ? { text, updatedAt: new Date().toISOString() } : null);
+    if (text !== savedRef.current) {
+      onSavedRef.current(chapter.id, text.trim() ? { text, updatedAt: new Date().toISOString() } : null);
+    }
     // Serialize behind any in-flight save so a slower older write cannot land
     // after this keepalive one and roll the note back.
     queueRef.current = queueRef.current

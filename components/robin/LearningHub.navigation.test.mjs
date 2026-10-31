@@ -48,7 +48,7 @@ test("the hub stays a front door rather than a second dashboard", async () => {
   assert.match(source, /<LearningShelf \/>/);
 });
 
-test("the five channels, iOS ideas data and two FDE guides live together in one shelf card", () => {
+test("the channels, startup case studies and FDE guides live together in one shelf card", () => {
   const group = LEARNING_SHELF.filter((entry) => entry.id === "ai-creators-fde");
   assert.equal(group.length, 1);
   assert.deepEqual(group[0].links.map((entry) => entry.url), [
@@ -56,11 +56,19 @@ test("the five channels, iOS ideas data and two FDE guides live together in one 
     "https://www.youtube.com/@freecodecamp",
     "https://www.youtube.com/@starterstory",
     "https://www.starterstory.com/data/ios-app-ideas",
+    "https://www.loot-drop.io/",
     "https://www.youtube.com/@GregIsenberg",
     "https://www.youtube.com/@howiaipodcast",
     "https://www.youtube.com/@DanKoeTalks",
     "https://www.varickagents.com/blog/forward-deployed-engineering-101",
   ]);
+});
+
+test("Loot Drop is accessible from product discovery as well as the learning shelf", async () => {
+  const research = await read("ProductResearch.tsx");
+  assert.match(research, /href="https:\/\/www\.loot-drop\.io\/" target="_blank" rel="noopener noreferrer"/);
+  assert.match(research, /创业失败案例/);
+  assert.match(research, /Failed startup case studies/);
 });
 
 test("every shelf group has a purpose and every link has a local visual preview", async () => {
@@ -120,6 +128,24 @@ test("the hub gives the FDE roadmap a dedicated four-checkpoint card with a cali
       assert.ok(messages.includes(`"learn.fde.${key}"`), `${file} lacks learn.fde.${key}`);
     }
   }
+});
+
+test("the hub keeps roadmap, GPT-2 and video entries in the resource rail without the retired map", async () => {
+  assert.match(source, /href: "\/learn\/roadmap"/);
+  assert.match(source, /href: "\/learn\/watch"/);
+  assert.match(source, /<WorkspaceRail/);
+  assert.doesNotMatch(source, /\/learn\/map/);
+  const page = await read("../../app/learn/roadmap/page.tsx");
+  assert.match(page, /if \(params\.view === "notes" \|\| params\.note\) return <LearningRoadmap \/>/);
+  assert.match(page, /if \(params\.view === "course" \|\| params\.lesson\) return <LearningCourse \/>/);
+  assert.match(page, /return <LearningGraph \/>/);
+  assert.match(source, /t\("graph\.title"\)/);
+  const course = await read("LearningCourse.tsx");
+  assert.match(course, /\/api\/robin\/learning\/course/);
+  assert.doesNotMatch(course, /\/api\/robin\/assistant|localStorage/);
+  const workspace = await read("LearningRoadmap.tsx");
+  assert.match(workspace, /\/api\/robin\/learning\/roadmap/);
+  assert.doesNotMatch(workspace, /localStorage|\/api\/robin\/assistant/);
 });
 
 test("the hub links to the focused GPT-2 walkthrough page", () => {

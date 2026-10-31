@@ -4,10 +4,13 @@ import test from "node:test";
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
 
-test("Daily keeps Learning after Jobs in document order at every layout width", () => {
+test("Daily keeps Learning and Jobs in disclosures beside the workspace directory", () => {
   const dashboard = read("./Dashboard.tsx");
-  assert.match(dashboard, /<JobsPanel \/>\s*<LearningPanel \/>/);
-  assert.match(dashboard, /<LearningPanel \/>\s*<nav id="dashboard-tools"[\s\S]*?<\/nav>\s*<LinksPanel\b[^>]*\/>/);
+  assert.match(dashboard, /<DashboardDisclosure id="fullstack-open"[^>]*><LearningPanel \/><\/DashboardDisclosure>/);
+  assert.match(dashboard, /<DashboardDisclosure id="dashboard-jobs"[^>]*><JobsPanel \/><\/DashboardDisclosure>/);
+  assert.match(dashboard, /!desktop && <><DashboardDirectory href=\{contextHref\}/);
+  assert.match(read("./DashboardDirectory.tsx"), /href: "\/tools", key: "tools", label: "toolbox.shortcut"/);
+  assert.doesNotMatch(dashboard, /id="dashboard-tools"/);
 });
 
 test("the hub adds course history without making the existing curriculum trackable", () => {

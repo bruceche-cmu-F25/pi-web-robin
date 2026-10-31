@@ -1,12 +1,14 @@
 "use client";
 
-import { useState, type CSSProperties } from "react";
+import { useRef, useState, type CSSProperties } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import type { EventColorKey } from "@/extension/robin/eventColors";
 import { FULLSTACK_STEPS, practiceHref, type CourseStep, type LearningSnapshot } from "@/extension/robin/learning";
 import { mutate, usePolledResource } from "./usePolledResource";
 import { PracticeDailyPlan } from "./PracticeDailyPlan";
 import styles from "./LearningPanel.module.css";
+
+interface ProgressChange { step: string; completed: boolean }
 
 const ACTION = "ui-action pi-chrome-label pi-bracket text-xs disabled:opacity-40";
 const PRIMARY_ACTION = `ui-action ui-action--outline inline-flex min-h-[44px] items-center justify-center px-3 py-2 text-xs font-medium ${styles.primary}`;
@@ -168,19 +170,41 @@ export function LearningPanel({ showCourseOutline = false }: { showCourseOutline
   const { t } = useI18n();
   const { data, error, loading, refresh } = usePolledResource<LearningSnapshot>("/api/robin/learning", 15_000);
   const [busy, setBusy] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const inFlight = useRef(false);
+  const [failed, setFailed] = useState<(ProgressChange & { message: string }) | null>(null);
+  const [saved, setSaved] = useState<ProgressChange | null>(null);
+  const describe = ({ step, completed }: ProgressChange) => ({
+    step: FULLSTACK_STEPS.find((item) => item.id === step)?.title ?? step,
+    state: t(completed ? "learn.daily.completedState" : "learn.daily.incompleteState"),
+  });
 
   const complete = async (step: string, completed: boolean) => {
-    setBusy(true);
-    setActionError(null);
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setBusy(true); setFailed(null); setSaved(null);
     try {
-      await mutate("/api/robin/learning", "PATCH", { step, completed });
+      try {
+        await mutate("/api/robin/learning", "PATCH", { step, completed });
+      } catch (caught) {
+        // Keep the exact id and desired state: polling can advance course.next
+        // before the user retries. Setting this state is idempotent, not a toggle.
+        setFailed({ step, completed, message: caught instanceof Error ? caught.message : String(caught) });
+        return;
+      }
+      setSaved({ step, completed });
+      // refresh reports read failures via `error`; an acknowledged PATCH must
+      // never be presented as an unconfirmed write merely because its GET failed.
       await refresh();
-    } catch (caught) {
-      setActionError(caught instanceof Error ? caught.message : String(caught));
     } finally {
-      setBusy(false);
+      inFlight.current = false; setBusy(false);
     }
+  };
+  const reload = async () => {
+    if (inFlight.current) return;
+    inFlight.current = true; setRefreshing(true);
+    try { await refresh(); }
+    finally { inFlight.current = false; setRefreshing(false); }
   };
 
   const practice = data?.practice;
@@ -207,12 +231,19 @@ export function LearningPanel({ showCourseOutline = false }: { showCourseOutline
       </header>
 
       {loading && !data && <p role="status" className="py-2 text-sm" style={{ color: "var(--text-dim)" }}>{t("learn.daily.loading")}</p>}
-      {(error || actionError) && (
+      {error && (
         <div role="alert" className="flex flex-wrap items-center gap-3 text-xs" style={{ color: "var(--danger)" }}>
-          <span>{actionError ?? error}</span>
-          <button type="button" className={ACTION} onClick={() => void refresh()}>{t("learn.daily.retry")}</button>
+          <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{t("learn.daily.readError", { error })}</span>
+          <button type="button" className={ACTION} disabled={busy || refreshing} onClick={() => void reload()}>{t(refreshing ? "learn.daily.refreshing" : "learn.daily.retry")}</button>
         </div>
       )}
+      {failed && (
+        <div role="alert" className="flex flex-wrap items-center gap-3 text-xs" style={{ color: "var(--danger)" }}>
+          <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{t("learn.daily.writeError", { ...describe(failed), error: failed.message })}</span>
+          <button type="button" className={ACTION} disabled={busy || refreshing} onClick={() => void complete(failed.step, failed.completed)}>{t("learn.daily.retrySave")}</button>
+        </div>
+      )}
+      {saved && <p role="status" className="text-xs [overflow-wrap:anywhere]" style={{ color: "var(--text-muted)" }}>{t("learn.daily.saved", describe(saved))}</p>}
 
       {/* Two tracks, one habit. Side by side on desktop so the card reads as
           one row of the day rather than two stacked panels. */}
@@ -297,7 +328,7 @@ export function LearningPanel({ showCourseOutline = false }: { showCourseOutline
                   <a href={courseHref(course.next)} className={PRIMARY_ACTION} data-state="accent">
                     {t("learn.daily.continueCourse")} →
                   </a>
-                  <button type="button" className={`${ACTION} min-h-11`} disabled={busy || Boolean(error)} onClick={() => void complete(course.next!.id, true)}>
+                  <button type="button" className={`${ACTION} min-h-11`} disabled={busy || refreshing || Boolean(error)} onClick={() => void complete(course.next!.id, true)}>
                     {t(busy ? "learn.daily.saving" : "learn.daily.complete")}
                   </button>
                 </>
@@ -312,7 +343,7 @@ export function LearningPanel({ showCourseOutline = false }: { showCourseOutline
                   type="button"
                   className="ui-action min-h-11 text-xs disabled:opacity-40"
                   style={{ color: "var(--text-muted)" }}
-                  disabled={busy || Boolean(error)}
+                  disabled={busy || refreshing || Boolean(error)}
                   onClick={() => void complete(course.lastCompleted!.id, false)}
                   title={`${t("learn.daily.lastDone")} ${course.lastCompleted.title}`}
                 >
@@ -321,7 +352,7 @@ export function LearningPanel({ showCourseOutline = false }: { showCourseOutline
               )}
             </div>
             {/* The hub has the whole map, which already says what this preview does. */}
-            {showCourseOutline && <CourseMap course={course} disabled={busy || Boolean(error)} onComplete={(step, done) => void complete(step, done)} />}
+            {showCourseOutline && <CourseMap course={course} disabled={busy || refreshing || Boolean(error)} onComplete={(step, done) => void complete(step, done)} />}
             {!showCourseOutline && (course.currentPart || course.upcoming.length > 0) && (
               <details className="border-t" style={{ borderColor: "var(--border)" }}>
                 <summary className="ui-action min-h-[44px] cursor-pointer py-3 text-xs" style={{ color: "var(--text-muted)" }}>

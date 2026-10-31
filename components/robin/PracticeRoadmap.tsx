@@ -154,7 +154,7 @@ export function PracticeRoadmap({ list, onListChange, records, today, selected, 
           <p className={styles.intro}>{t("coding.map.description")}</p>
         </div>
         <div className={styles.summary}>
-          <div className={styles.lists} role="group" aria-label={t("coding.rail.catalog")}>
+          <div className={`robin-workspace-tabs robin-workspace-view-switch ${styles.lists}`} role="group" aria-label={t("coding.rail.catalog")}>
             {PRACTICE_LISTS.map((candidate) => (
               <button key={candidate} type="button" disabled={pending} aria-pressed={candidate === list}
                 onClick={() => { setPattern(null); setQuery(""); onListChange(candidate); }}>

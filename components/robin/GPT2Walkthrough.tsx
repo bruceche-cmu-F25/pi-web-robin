@@ -35,7 +35,7 @@ export function GPT2Walkthrough() {
 
         <header className="pi-panel flex flex-col gap-3 p-5 desktop:p-7">
           <span className="pi-eyebrow">{t("learn.gpt2.eyebrow")}</span>
-          <h1 className="text-3xl" style={{ fontStyle: "italic", fontWeight: 400, color: "var(--text)" }}>
+          <h1 className="pi-page-title">
             {t("learn.gpt2.title")}
           </h1>
           <p className="max-w-3xl" style={{ color: "var(--text-muted)", fontSize: 15, lineHeight: 1.7 }}>

@@ -1,0 +1,74 @@
+/* Learning Hub continuation: existing Pi paper, typography and theme tokens; no new visual system. */
+.page { flex: 1; min-height: 0; overflow-y: auto; }
+.main { max-width: 1440px; margin: 0 auto; padding: 24px; color: var(--text); }
+.header { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; margin-bottom: 24px; }
+.header h1 { font: italic 400 var(--type-page-size)/1.25 var(--font-serif); margin: 0 0 12px; overflow-wrap: break-word; }
+.header p { max-width: 65ch; line-height: 1.65; color: var(--text-muted); }
+.header nav { display: flex; flex-wrap: wrap; gap: 8px 20px; flex-shrink: 0; }
+.main a { color: var(--accent); text-underline-offset: 4px; }
+.header a, .training a { display: inline-flex; align-items: center; min-height: 44px; }
+.main button, .main select, .main input { min-height: 44px; }
+.main button { cursor: pointer; padding: 8px 12px; border: 1px solid var(--border); background: transparent; color: var(--text); text-align: left; }
+.main button:hover:not(:disabled) { background: var(--bg-hover); }
+.main button:disabled { opacity: .6; cursor: default; }
+.main :is(button, a, input, select, textarea, summary):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.main :is(input, select, textarea) { width: 100%; min-width: 0; border: 1px solid var(--border); background: var(--bg-panel); color: var(--text); padding: 10px; font-size: 16px; }
+.main label { display: grid; gap: 8px; font-size: 14px; }
+.toolbar { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 16px; margin-bottom: 24px; }
+.toolbar label { flex: 1; max-width: 340px; min-width: 180px; }
+.vaultName { min-height: 44px; display: flex; align-items: center; overflow-wrap: anywhere; color: var(--text-muted); }
+.layout { display: grid; grid-template-columns: 270px minmax(0, 1fr); gap: 32px; align-items: start; }
+.landscape { position: sticky; top: 16px; max-height: calc(100dvh - 160px); overflow-y: auto; padding-right: 12px; scrollbar-gutter: stable; }
+.landscape h2 { font: 400 20px/1.4 var(--font-serif); margin: 0 0 16px; }
+.landscape h3 { margin: 20px 0 8px; font-size: 14px; color: var(--text-muted); }
+.outlineToggle { display: none; }
+.modes { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+.modes button { border-color: transparent; border-bottom-color: var(--border); }
+.modes button[aria-pressed="true"] { color: var(--accent); border-bottom: 2px solid var(--accent); }
+.noteList { display: grid; gap: 2px; }
+.noteList button { border: 0; border-left: 3px solid transparent; line-height: 1.6; overflow-wrap: anywhere; }
+.noteList button[aria-current="page"] { border-left-color: var(--accent); color: var(--accent); background: var(--accent-faint); }
+.noteList small { display: block; color: var(--text-muted); margin-top: 4px; }
+.noteList p { padding: 12px 0; color: var(--text-muted); line-height: 1.65; }
+.training { display: grid; border-top: 1px solid var(--border); margin-top: 24px; }
+.study { min-width: 0; padding: 24px 32px; border: 1px solid var(--border); background: var(--bg-panel); }
+.sourceHeader { display: flex; flex-wrap: wrap; gap: 8px 16px; justify-content: space-between; align-items: baseline; padding-bottom: 20px; border-bottom: 1px solid var(--border); }
+.sourceHeader p { font: 12px/1.6 var(--font-mono); color: var(--text-muted); overflow-wrap: anywhere; }
+.sourceHeader a { min-height: 44px; display: inline-flex; align-items: center; }
+.chapterPicker { margin: 20px 0; }
+.reader { min-width: 0; line-height: 1.8; font-size: 16px; overflow-wrap: anywhere; }
+.reader :global(.markdown-body) { font-size: 16px; }
+.reader :is(h1, h2) { font-family: var(--font-serif); line-height: 1.4; }
+.reader :is(pre, table) { max-width: 100%; overflow-x: auto; }
+.reader :global(.markdown-body table) { display: block; }
+.reader ol { padding-left: 24px; }
+.reader li { margin: 12px 0; }
+.reader input[type="checkbox"] { min-height: 0; width: auto; }
+.main .inlineLink { display: inline; min-height: 0; padding: 0; border: 0; color: var(--accent); text-decoration: underline; text-underline-offset: 3px; font: inherit; }
+.practiceHint { padding: 12px 0; color: var(--text-muted); font-size: 14px; }
+.assessment { display: grid; gap: 12px; margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border); }
+.assessment > label:first-child { max-width: 340px; margin-bottom: 8px; }
+.assessment p { color: var(--text-muted); font-size: 14px; line-height: 1.65; }
+.assessment textarea { resize: vertical; line-height: 1.65; }
+.saveRow { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.saveRow button { border-color: var(--accent); color: var(--accent); }
+.saveRow span { color: var(--text-muted); font-size: 13px; }
+.warning { color: var(--warning); border-left: 3px solid var(--warning); padding: 12px 16px; margin: 16px 0; overflow-wrap: anywhere; line-height: 1.6; }
+.connections { margin-top: 24px; border-top: 1px solid var(--border); padding-top: 12px; }
+.connections summary { cursor: pointer; min-height: 44px; padding: 10px 0; }
+.connections button { display: block; width: 100%; margin-top: 8px; overflow-wrap: anywhere; }
+.privacy { margin-top: 24px; max-width: 90ch; color: var(--text-muted); font-size: 13px; line-height: 1.7; }
+@media (max-width: 1000px) {
+  .header { flex-direction: column; gap: 8px; }
+  .layout { grid-template-columns: 230px minmax(0, 1fr); gap: 20px; }
+  .study { padding: 20px; }
+}
+@media (max-width: 760px) {
+  .main { padding: 16px; }
+  .layout { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .landscape { position: static; max-height: none; padding: 0; overflow: visible; }
+  .landscape h2 { display: none; }
+  .outlineToggle { display: block; width: 100%; margin-bottom: 16px; }
+  .landscape[data-expanded="false"] .catalogContent { display: none; }
+  .study { padding: 16px; }
+}

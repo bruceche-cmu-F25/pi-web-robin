@@ -130,7 +130,7 @@ export function WatchList() {
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div className="flex flex-col gap-1">
               <span className="pi-eyebrow">{t("watch.eyebrow")}</span>
-              <h1 className="text-3xl" style={{ fontStyle: "italic", fontWeight: 400, color: "var(--text)" }}>
+              <h1 className="pi-page-title">
                 {t("watch.title")}
               </h1>
             </div>

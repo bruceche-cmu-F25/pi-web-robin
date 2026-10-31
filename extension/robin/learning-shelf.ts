@@ -183,6 +183,11 @@ export const LEARNING_SHELF: readonly ShelfGroup[] = [
         hint: "Browse reported revenue, traffic, and founder stories for app ideas; verify the numbers before treating them as market evidence.",
       },
       {
+        title: "Loot Drop — 创业失败案例 / Failed Startup Case Studies",
+        url: "https://www.loot-drop.io/",
+        hint: "Study failed startups alongside success stories; use their failure modes to question your product assumptions, not as proof your idea will fail.",
+      },
+      {
         title: "Greg Isenberg — YouTube",
         url: "https://www.youtube.com/@GregIsenberg",
         hint: "AI tools, startup ideas, and product building.",

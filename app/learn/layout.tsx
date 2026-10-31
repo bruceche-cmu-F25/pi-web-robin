@@ -9,7 +9,7 @@ export default function LearnLayout({ children }: { children: ReactNode }) {
       <WorkspaceShortcutListener />
       <I18nProvider>
         <RobinShell>
-          <div className="pi-grid-surface flex min-h-0 min-w-0 flex-1 overflow-hidden">{children}</div>
+          <div className="pi-grid-surface robin-workspace-ground flex min-h-0 min-w-0 flex-1 overflow-hidden">{children}</div>
         </RobinShell>
       </I18nProvider>
     </Suspense>

@@ -27,8 +27,11 @@
 .cell[data-level="4"] { border-color: transparent; background: var(--success); }
 .cell[data-future] { border-style: dashed; border-color: color-mix(in srgb, var(--border) 45%, transparent); background: transparent; }
 .cell[data-today] { outline: 1px solid var(--accent); outline-offset: 1px; }
-button.cell { cursor: pointer; transition: transform 0.12s; }
-button.cell:hover { transform: scale(1.25); }
+button.cell { cursor: pointer; }
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  button.cell { transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1); }
+  button.cell:hover { transform: scale(1.25); }
+}
 button.cell[aria-pressed="true"] { outline: 2px solid var(--text); outline-offset: 1px; }
 .scale { display: flex; align-items: center; gap: 3px; margin-top: 8px; font-size: 10px; color: var(--text-dim); }
 .scale > .cell:first-of-type { margin-left: 4px; }

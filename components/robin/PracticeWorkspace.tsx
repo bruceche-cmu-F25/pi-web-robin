@@ -55,7 +55,7 @@ export function PracticeWorkspace({ initialProblem, initialList }: {
   const [list, setList] = useState<PracticeList>("neetcode150");
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
   const [focusMode, setFocusMode] = useState(false);
-  const [coachOpen, setCoachOpen] = useState(true);
+  const [coachOpen, setCoachOpen] = useState(false);
   const [pane, setPane] = useState<(typeof PANES)[number]["id"]>("problem");
   const [actionError, setActionError] = useState<string | null>(null);
   const [adopted, setAdopted] = useState(false);

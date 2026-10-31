@@ -19,6 +19,12 @@
   padding: 8px 12px;
   border-bottom: 1px solid var(--border);
 }
+.workspace .action {
+  min-height: 44px;
+  font: var(--type-action-size)/1.4 var(--font-ui);
+  letter-spacing: normal;
+  text-transform: none;
+}
 .crumb { color: var(--text-dim); text-decoration: none; }
 .crumb:hover { color: var(--text); }
 .barTitle { font-family: var(--font-serif); font-style: italic; font-size: 18px; font-weight: 400; line-height: 1.2; color: var(--text); }
@@ -33,7 +39,7 @@
 .roadmap { max-width: 1080px; margin-inline: auto; padding: 32px 28px 64px; }
 
 .intro { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 20px 40px; padding-bottom: 22px; border-bottom: 1px solid var(--border); }
-.intro h1 { margin: 6px 0 8px; font-family: var(--font-serif); font-style: italic; font-weight: 400; font-size: 34px; line-height: 1.15; color: var(--text); }
+.intro h1 { margin: 6px 0 8px; font: italic 400 var(--type-page-size)/1.25 var(--font-serif); color: var(--text); }
 .intro p { max-width: 58ch; color: var(--text-muted); font-size: 14px; line-height: 1.6; }
 .summary { display: grid; gap: 10px; width: min(100%, 320px); }
 .total { display: flex; align-items: baseline; gap: 8px; color: var(--text-muted); font-size: 13px; }
@@ -141,7 +147,6 @@
 @media (max-width: 767px) {
   .roadmap { padding: 22px 14px 48px; }
   .crumb, .railBack, .railPart > button, .railChapterButton, .readToggle { min-height: 44px; }
-  .intro h1 { font-size: 28px; }
   .spine { grid-template-columns: minmax(0, 1fr); padding-left: 24px; }
   .spine::before { left: 11px; }
   .partRow { justify-content: flex-start; }
@@ -248,7 +253,7 @@
 /* ── notebook ────────────────────────────────────────── */
 .notebook { max-width: 820px; margin-inline: auto; padding: 32px 28px 64px; }
 .notebook > header { padding-bottom: 18px; border-bottom: 1px solid var(--border); }
-.notebook > header h1 { margin-top: 6px; font-family: var(--font-serif); font-style: italic; font-weight: 400; font-size: 30px; }
+.notebook > header h1 { margin-top: 6px; font: italic 400 var(--type-page-size)/1.25 var(--font-serif); }
 .notebookPart { margin-top: 28px; }
 .notebookPart > h2 { display: flex; align-items: baseline; gap: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
 .notebookPart > h2 span:first-child { font: 11px/1 var(--font-mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-text); }

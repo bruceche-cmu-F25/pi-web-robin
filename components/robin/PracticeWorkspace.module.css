@@ -45,7 +45,6 @@
 .resources a { display: flex; align-items: center; min-height: 44px; padding: 0 8px; font-size: 13px; }
 .workspace .primary { color: var(--accent); border: 1px solid var(--accent-line-strong); background: var(--accent-soft); font-weight: 600; }
 .coach { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg-panel); overflow: hidden; }
-.coach > section > header, .coach > section > div { padding: 20px; }
 
 .record { max-width: 1200px; margin: 0 auto; padding: 40px 32px 64px; }
 .record > p { margin-bottom: 16px; }
@@ -63,5 +62,4 @@
   .identity { flex-basis: 100%; }
   .stage { height: calc(100dvh - 52px); min-height: min(620px, calc(100dvh - 52px)); }
   .record { padding: 28px 16px 40px; }
-  .workspace :is(input, textarea) { font-size: 16px !important; }
 }

@@ -220,7 +220,7 @@ export function FsoWorkspace() {
     <section className={styles.frame} aria-label={chapter.title}>
       <div className={styles.frameBar}>
         {!isMobile && (
-          <button type="button" className="ui-action pi-chrome-label pi-bracket" style={{ fontSize: 10 }}
+          <button type="button" className={`ui-action pi-bracket ${styles.action}`}
             data-state={railOpen ? "accent" : undefined} aria-expanded={railOpen} aria-controls="fso-rail"
             onClick={toggleRail}>
             {t("fso.contents")}
@@ -237,7 +237,7 @@ export function FsoWorkspace() {
             {t(isDone(chapter.id) ? "fso.readDone" : chapter.external ? "fso.markCourse" : "fso.markRead")}
           </label>
           {next && (
-            <button type="button" className="ui-action pi-chrome-label pi-bracket" style={{ fontSize: 10 }} onClick={() => open(next)}>
+            <button type="button" className={`ui-action pi-bracket ${styles.action}`} onClick={() => open(next)}>
               {t("fso.next", { chapter: `${next.part}${next.letter}` })} →
             </button>
           )}
@@ -289,19 +289,19 @@ export function FsoWorkspace() {
           </span>
         )}
         <nav className={styles.barNav} aria-label={t("fso.views")} inert={opening}>
-          <button type="button" className="ui-action pi-chrome-label pi-bracket" style={{ fontSize: 10 }}
+          <button type="button" className={`ui-action pi-bracket ${styles.action}`}
             data-state={view === "roadmap" ? "accent" : undefined} aria-current={view === "roadmap" ? "page" : undefined}
             onClick={() => navigate("roadmap", chapter)}>
             {t("fso.roadmap")}
           </button>
           {chapter && (
-            <button type="button" className="ui-action pi-chrome-label pi-bracket" style={{ fontSize: 10 }}
+            <button type="button" className={`ui-action pi-bracket ${styles.action}`}
               data-state={view === "chapter" ? "accent" : undefined} aria-current={view === "chapter" ? "page" : undefined}
               onClick={() => void open(chapter)}>
               {chapter.part}{chapter.letter}
             </button>
           )}
-          <button type="button" className="ui-action pi-chrome-label pi-bracket" style={{ fontSize: 10 }}
+          <button type="button" className={`ui-action pi-bracket ${styles.action}`}
             data-state={view === "notebook" ? "accent" : undefined} aria-current={view === "notebook" ? "page" : undefined}
             onClick={() => navigate("notebook", chapter)}>
             {t("fso.notebook.title")} · {notedIds.size}
@@ -312,7 +312,7 @@ export function FsoWorkspace() {
             {isMobile ? (
               <WorkspacePaneSwitch panes={MOBILE_PANES} active={mobilePane} onChange={setMobilePane} />
             ) : (["notes", "mentor"] as const).map((tab) => (
-              <button key={tab} type="button" className="ui-action pi-chrome-label pi-bracket" style={{ fontSize: 10 }}
+              <button key={tab} type="button" className={`ui-action pi-bracket ${styles.action}`}
                 data-state={side === tab ? "accent" : undefined} aria-expanded={side === tab} aria-controls="fso-side"
                 onClick={() => setSide(side === tab ? null : tab)}>
                 {t(tab === "notes" ? "fso.notes.title" : "coding.mentor.title")}
