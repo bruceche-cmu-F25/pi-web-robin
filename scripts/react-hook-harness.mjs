@@ -10,6 +10,8 @@ export function hookHarness(file, imports = {}, globals = {}) {
   const slot = (init) => slots[cursor++] ?? (slots[cursor - 1] = init());
   const changed = (a, b) => !a || !b || a.length !== b.length || a.some((value, i) => !Object.is(value, b[i]));
   const react = {
+    createContext: (value) => ({ value }),
+    useContext: (context) => context.value,
     useState(initial) {
       const state = slot(() => ({ value: typeof initial === "function" ? initial() : initial }));
       return [state.value, (value) => { state.value = typeof value === "function" ? value(state.value) : value; }];

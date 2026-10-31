@@ -67,11 +67,41 @@ function SidebarToastCard({ toast, dismissLabel, durationMs, onDismissRef }: Toa
     if (card && window.matchMedia?.("(hover: hover)").matches && card.matches(":hover")) setHovered(true);
   }, []);
 
-  // The countdown starts over whenever the pointer or focus leaves.
+  // Hover/focus still grants a fresh reading window. Hidden-tab time never
+  // consumes it: one timeout while visible, no polling or React timer ticks.
   useEffect(() => {
     if (paused) return;
-    const timer = window.setTimeout(() => onDismissRef.current(), durationMs);
-    return () => window.clearTimeout(timer);
+    let remaining = durationMs;
+    let started = 0;
+    let timer: number | undefined;
+    const stop = () => {
+      if (timer === undefined) return;
+      window.clearTimeout(timer);
+      timer = undefined;
+      remaining = Math.max(0, remaining - (performance.now() - started));
+    };
+    const resume = () => {
+      if (document.visibilityState !== "visible" || timer !== undefined) return;
+      started = performance.now();
+      timer = window.setTimeout(() => {
+        // A background timer may run before visibilitychange is delivered.
+        if (document.visibilityState !== "visible") {
+          timer = undefined;
+          return;
+        }
+        onDismissRef.current();
+      }, remaining);
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") resume();
+      else stop();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    resume();
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, [paused, durationMs, onDismissRef]);
 
   return (

@@ -1,6 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { useI18n } from "@/hooks/useI18n";
+
+/** Hidden workspace panes retain drafts without polling their resources. */
+export const ResourceActivity = createContext(true);
 import { onRefreshRequest } from "./refreshBus";
 
 export interface PolledResource<T> {
@@ -22,28 +26,48 @@ export interface PolledResource<T> {
  *
  * A minute is enough for passive dashboard updates. Local actions and returning
  * to a visible tab still refresh immediately; hidden tabs do not poll.
+ * Set enabled=false for an inactive panel: keep data, but suspend automatic reads.
+ * intervalMs may select a cadence from the latest data (fast while running,
+ * slow while idle). Changing the cadence refreshes once and replaces the timer.
  *
  * One request is in flight per mount: starting a new refresh aborts the old one
  * and a monotonically increasing sequence drops anything that still settles
  * later. Without both, a slow response can land after a faster newer one and
  * silently roll the panel back to stale data.
  */
-export function usePolledResource<T>(url: string, intervalMs = 60_000): PolledResource<T> {
+export function usePolledResource<T>(url: string, intervalMs: number | ((data: T | null) => number) = 60_000, enabled = true): PolledResource<T> {
+  enabled = useContext(ResourceActivity) && enabled;
+  const { t } = useI18n();
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const sequenceRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const lastTextRef = useRef<string | null>(null);
+  // Derive a number, not an effect dependency on a caller's inline function.
+  const pollMs = typeof intervalMs === "function" ? intervalMs(data) : intervalMs;
 
   const refresh = useCallback(async () => {
     const sequence = ++sequenceRef.current;
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
+    // loading is the initial-load state: background reads must not hide rows.
+    // Bound the body too, not just response headers. A stalled/aborted transport
+    // may still resolve later; both the sequence and signal fence its result.
+    const timeout = setTimeout(() => {
+      if (sequence === sequenceRef.current) {
+        setError(t("robin.common.readTimeout"));
+        setLoading(false);
+      }
+      controller.abort();
+    }, 30_000);
+    const clearDeadline = () => clearTimeout(timeout);
+    controller.signal.addEventListener("abort", clearDeadline, { once: true });
     try {
       const response = await fetch(url, { signal: controller.signal });
       const text = await response.text();
+      if (sequence !== sequenceRef.current || controller.signal.aborted) return;
       if (response.ok && text === lastTextRef.current) {
         // An unchanged poll keeps the same object: no parse and no re-render of
         // every row below it.
@@ -61,9 +85,11 @@ export function usePolledResource<T>(url: string, intervalMs = 60_000): PolledRe
       if (sequence !== sequenceRef.current || controller.signal.aborted) return;
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
+      clearDeadline();
+      controller.signal.removeEventListener("abort", clearDeadline);
       if (sequence === sequenceRef.current && !controller.signal.aborted) setLoading(false);
     }
-  }, [url]);
+  }, [url, t]);
 
   const updateData = useCallback((update: (current: T | null) => T | null) => {
     sequenceRef.current += 1;
@@ -85,9 +111,10 @@ export function usePolledResource<T>(url: string, intervalMs = 60_000): PolledRe
   }, [url]);
 
   useEffect(() => {
+    if (!enabled) return;
     let timer: ReturnType<typeof setInterval> | undefined;
     const start = () => {
-      if (timer === undefined) timer = setInterval(() => void refresh(), intervalMs);
+      if (timer === undefined) timer = setInterval(() => void refresh(), pollMs);
     };
     const stop = () => {
       if (timer !== undefined) {
@@ -112,9 +139,10 @@ export function usePolledResource<T>(url: string, intervalMs = 60_000): PolledRe
       stop();
       unsubscribe();
       document.removeEventListener("visibilitychange", onVisibilityChange);
+      sequenceRef.current += 1;
       abortRef.current?.abort();
     };
-  }, [refresh, intervalMs]);
+  }, [refresh, pollMs, enabled]);
 
   return { data, error, loading, refresh, updateData };
 }
