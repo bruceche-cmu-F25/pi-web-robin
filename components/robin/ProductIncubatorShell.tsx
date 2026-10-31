@@ -1,156 +1,95 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsSplitLayout } from "@/hooks/useIsMobile";
 import { AgentPanel } from "./AgentPanel";
 import { PaneDivider } from "./PaneDivider";
-import { productCopy } from "./product-copy";
 import { ProductGlyph } from "./ProductGlyph";
 import styles from "./ProductWorkspace.module.css";
 
 const WIDTH_KEY = "pi-product-agent-width";
-const MIN_WIDTH = 300;
-const MAX_WIDTH = 620;
-const PREFERRED_WIDTH = 390;
-
-/**
- * How the page asks the agent to go and do something.
- *
- * The agent is the one part of this section with any leverage — it can
- * actually go and look, which is the expensive half of deciding whether an
- * idea is worth a month — and for a long time it sat behind a button that did
- * nothing until you typed. The page can now hand it a brief and an idea to
- * attach what it finds to.
- */
+const MIN_WIDTH = 280;
+const MAX_WIDTH = 520;
+const PREFERRED_WIDTH = 340;
+type Scope = { ideaId?: string; name?: string; validation?: boolean };
+type Proposal = { id: string; ideaId: string; text: string };
 interface AgentHandle {
-  /** Open the panel, scope it to an idea, and optionally send a brief. */
   ask: (options?: { ideaId?: string; brief?: string }) => void;
+  /** Context changes never dispatch a turn. Each idea retains its own mounted panel. */
+  select: (scope: Scope) => void;
+  partnerHost: HTMLDivElement | null;
+  proposal: Proposal | null;
+  clearProposal: (id: string) => void;
 }
-
-const AgentContext = createContext<AgentHandle>({ ask: () => {} });
-
-export function useProductAgent(): AgentHandle {
-  return useContext(AgentContext);
-}
-
-const PRODUCT_TOOL_KEYS: Record<string, string> = {
-  product_list: "product.tool.list",
-  product_get: "product.tool.get",
-  product_add_link: "product.tool.link",
-};
+const AgentContext = createContext<AgentHandle>({ ask: () => {}, select: () => {}, partnerHost: null, proposal: null, clearProposal: () => {} });
+export function useProductAgent(): AgentHandle { return useContext(AgentContext); }
+const PRODUCT_TOOL_KEYS: Record<string, string> = { product_list: "product.tool.list", product_get: "product.tool.get", product_add_link: "product.tool.link" };
 
 export function ProductIncubatorShell({ children }: { children: ReactNode }) {
   const { locale } = useI18n();
-  const copy = productCopy(locale);
+  const zh = locale.startsWith("zh");
   const split = useIsSplitLayout();
   const [agentOpen, setAgentOpen] = useState(false);
-  const [ideaId, setIdeaId] = useState<string | undefined>(undefined);
-  const [pending, setPending] = useState<{ id: string; text: string } | undefined>(undefined);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [scope, setScope] = useState<Scope>({});
+  const [contexts, setContexts] = useState<string[]>([""]);
+  const [pending, setPending] = useState<Record<string, { id: string; text: string }>>({});
+  const [proposal, setProposal] = useState<Proposal | null>(null);
+  const [partnerHost, setPartnerHost] = useState<HTMLDivElement | null>(null);
   const [agentWidth, setAgentWidth] = useState(PREFERRED_WIDTH);
   const latestWidth = useRef(PREFERRED_WIDTH);
-
+  const toggleRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
-    const stored = Number(window.localStorage.getItem(WIDTH_KEY));
-    if (Number.isFinite(stored) && stored >= MIN_WIDTH && stored <= MAX_WIDTH) {
-      latestWidth.current = stored;
-      setAgentWidth(stored);
-    }
+    try {
+      const stored = Number(window.localStorage.getItem(WIDTH_KEY));
+      if (Number.isFinite(stored) && stored >= MIN_WIDTH && stored <= MAX_WIDTH) { latestWidth.current = stored; setAgentWidth(stored); }
+    } catch { /* Resizing still works when storage is unavailable. */ }
   }, []);
-
+  const select = useCallback((next: Scope) => {
+    setScope(current => current.ideaId === next.ideaId && current.name === next.name && current.validation === next.validation ? current : next);
+    const key = next.ideaId ?? "";
+    setContexts(current => current.includes(key) ? current : [...current, key]);
+  }, []);
+  const ask = useCallback(({ ideaId, brief }: { ideaId?: string; brief?: string } = {}) => {
+    setScope(current => ({ ideaId, name: current.ideaId === ideaId ? current.name : undefined }));
+    setContexts(current => current.includes(ideaId ?? "") ? current : [...current, ideaId ?? ""]);
+    setAgentOpen(true); setMobileOpen(true);
+    if (brief) setPending(current => ({ ...current, [ideaId ?? ""]: { id: crypto.randomUUID(), text: brief } }));
+  }, []);
+  const clearProposal = useCallback((id: string) => setProposal(current => current?.id === id ? null : current), []);
+  const handle = useMemo(() => ({ ask, select, partnerHost, proposal, clearProposal }), [ask, select, partnerHost, proposal, clearProposal]);
   const resizeAgent = (requested: number) => {
-    const available = Math.max(MIN_WIDTH, window.innerWidth - 420);
-    const next = Math.min(Math.max(requested, MIN_WIDTH), Math.min(MAX_WIDTH, available));
-    latestWidth.current = next;
-    setAgentWidth(next);
+    const next = Math.min(Math.max(requested, MIN_WIDTH), Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, window.innerWidth - 620)));
+    latestWidth.current = next; setAgentWidth(next);
   };
+  const commitWidth = () => { try { window.localStorage.setItem(WIDTH_KEY, String(latestWidth.current)); } catch { /* Optional browser preference. */ } };
+  const close = () => { setAgentOpen(false); setMobileOpen(false); toggleRef.current?.focus(); };
+  const visible = split ? agentOpen : mobileOpen;
 
-  const handle = useMemo<AgentHandle>(() => ({
-    ask: ({ ideaId: id, brief } = {}) => {
-      setIdeaId(id);
-      setAgentOpen(true);
-      // A fresh key each time, so asking for the same brief twice actually
-      // asks twice rather than being mistaken for a re-render.
-      if (brief) setPending({ id: `${id ?? "all"}:${Date.now()}`, text: brief });
-    },
-  }), []);
-
-  const agent = (
-    <AgentPanel
-      mode="product"
-      endpoint="/api/robin/product-assistant"
-      // Scoping the session to one idea is what lets the agent read it with
-      // product_get and save links back to it.
-      requestBody={ideaId ? { productId: ideaId } : {}}
-      titleKey={ideaId ? "product.agent.product" : "product.agent.incubator"}
-      placeholderKey={ideaId ? "product.agent.placeholder" : "product.agent.incubatorPlaceholder"}
-      restartHintKey="product.agent.restartHint"
-      toolKeys={PRODUCT_TOOL_KEYS}
-      pending={pending}
-      onClose={() => setAgentOpen(false)}
-    />
-  );
-
-  return (
-    <AgentContext.Provider value={handle}>
-    <div className="robin-page robin-dashboard flex flex-1 flex-col" style={{ minWidth: 0, minHeight: 0 }}>
-      <header
-        className={`border-b py-3 ${styles.shellHeader}`}
-        // No wash: this page is a document on the ruled ground, and the nav
-        // panel colour is the chat shell's chrome. One hairline separates it.
-        style={{ borderColor: "var(--border)" }}
-      >
-        {/* The hairline runs full width; the title lines up with the centred
-            column below it, which only spans the page while the agent is shut. */}
-        <div className={styles.shellFrame}>
+  return <AgentContext.Provider value={handle}>
+    <div className={`robin-page robin-dashboard robin-workspace-ground ${styles.labShell}`} data-mobile-partner={mobileOpen}>
+      <header className={`robin-workspace-ground ${styles.shellHeader}`}><div className={styles.shellFrame}>
         <div className={styles.brandMark} aria-hidden="true"><ProductGlyph name="map" /></div>
-        <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <h1 className={styles.shellTitle}>{copy.title}</h1>
-        </div>
-        <button
-          type="button"
-          onClick={() => handle.ask()}
-          className="ui-action pi-chrome-label pi-bracket ml-auto min-h-[44px] px-2 split:min-h-0 split:px-0"
-          data-state={agentOpen ? "accent" : undefined}
-          aria-expanded={agentOpen}
-        >
-          <ProductGlyph name="market" className="mr-2 inline-block size-4" />{copy.agent}
+        <div className={styles.labBrand}><h1 className={styles.shellTitle}>{zh ? "产品实验室" : "Product lab"}</h1><span>PRODUCT LAB / {zh ? "从想法到证据" : "FROM IDEA TO EVIDENCE"}</span></div>
+        <button ref={toggleRef} type="button" onClick={() => { if (split) setAgentOpen(!agentOpen); else setMobileOpen(!mobileOpen); }} className="ui-action pi-bracket" aria-label={visible ? (zh ? "收起伙伴" : "Hide partner") : (zh ? "Brainstorm 伙伴" : "Brainstorm partner")} aria-expanded={visible} aria-controls="product-partner">
+          {visible ? (zh ? "收起伙伴" : "Hide partner") : split ? (zh ? "Brainstorm 伙伴" : "Brainstorm partner") : (zh ? "伙伴" : "Partner")}
         </button>
-        </div>
-      </header>
-
-      <div className="flex flex-1" style={{ minWidth: 0, minHeight: 0 }}>
-        <div className="flex flex-1" style={{ minWidth: 0, minHeight: 0 }}>{children}</div>
-
-        {agentOpen && split ? (
-          <>
-            <PaneDivider
-              edge="right"
-              label="Resize product agent"
-              title="Double-click or press Enter to reset"
-              width={agentWidth}
-              min={MIN_WIDTH}
-              max={MAX_WIDTH}
-              onResize={resizeAgent}
-              onCommit={() => window.localStorage.setItem(WIDTH_KEY, String(latestWidth.current))}
-              onReset={() => {
-                resizeAgent(PREFERRED_WIDTH);
-                window.localStorage.setItem(WIDTH_KEY, String(PREFERRED_WIDTH));
-              }}
-            />
-            <aside className="flex shrink-0 flex-col" style={{ width: agentWidth, minHeight: 0, background: "var(--bg-panel)" }}>
-              {agent}
-            </aside>
-          </>
-        ) : null}
+      </div></header>
+      <div className={styles.labBody}>
+        <div className={styles.labWork}>{children}</div>
+        {visible && split && <PaneDivider edge="right" label={zh ? "调整伙伴宽度" : "Resize partner"} title={zh ? "双击或 Enter 重置" : "Double-click or Enter to reset"} width={agentWidth} min={MIN_WIDTH} max={MAX_WIDTH} onResize={resizeAgent} onCommit={commitWidth} onReset={() => { resizeAgent(PREFERRED_WIDTH); commitWidth(); }} />}
+        <aside id="product-partner" aria-label={zh ? "Brainstorm 伙伴" : "Brainstorm partner"} className={`robin-workspace-ground ${styles.labPartner}`} hidden={!visible} style={{ width: split ? agentWidth : undefined }}>
+          <div className={styles.partnerContext}><strong>{scope.name || (zh ? "还没成形的想法" : "An idea taking shape")}</strong><p>{scope.validation ? (zh ? "草案不等于批准" : "A draft is not approval") : (zh ? "建议由你确认，不自动推进阶段。" : "You decide what to keep; stages never advance automatically.")}</p></div>
+          <div ref={setPartnerHost} className={styles.partnerHost} hidden={!scope.validation} />
+          {contexts.map(key => <div key={key} className={styles.partnerChat} hidden={Boolean(scope.validation) || key !== (scope.ideaId ?? "")}>
+            <AgentPanel mode="product" endpoint="/api/robin/product-assistant" requestBody={key ? { productId: key } : {}} transcriptKey={`product-lab:${key || "incubator"}`}
+              titleKey="product.agent.brainstorm" placeholderKey={key ? "product.agent.placeholder" : "product.agent.incubatorPlaceholder"} restartHintKey="product.agent.restartHint" emptyHintKey="product.agent.brainstormHint" toolKeys={PRODUCT_TOOL_KEYS}
+              pending={pending[key]} disabled={!visible || Boolean(scope.validation) || key !== (scope.ideaId ?? "")} onClose={close}
+              replyAction={key ? { labelKey: "product.agent.adopt", onReply: text => { setProposal({ id: crypto.randomUUID(), ideaId: key, text }); setMobileOpen(false); } } : undefined} />
+          </div>)}
+        </aside>
       </div>
-
-      {agentOpen && !split ? (
-        <div className="fixed inset-0 flex" style={{ zIndex: "var(--z-modal)", background: "var(--bg-panel)" }}>
-          {agent}
-        </div>
-      ) : null}
     </div>
-    </AgentContext.Provider>
-  );
+  </AgentContext.Provider>;
 }

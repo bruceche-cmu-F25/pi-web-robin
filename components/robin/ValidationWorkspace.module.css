@@ -1,0 +1,73 @@
+/* Market-validation workbench: existing Pi tokens and document layout, no new theme. */
+.page { min-width: 0; min-height: 0; overflow-y: auto; flex: 1; }
+.frame { width: 100%; max-width: 1320px; margin-inline: auto; padding: 24px; color: var(--text); }
+.frame [hidden], .partnerFrame[hidden] { display: none !important; }
+.frame.embeddedFrame { padding: 0; }
+.workspace.embeddedWorkspace { display: block; }
+.embeddedWorkspace > .document { padding: 0; background: transparent; }
+.frame.partnerFrame { padding: 12px 20px 24px; }
+.conversation.partnerConversation { padding: 0; border: 0; background: transparent; }
+.partnerConversation .messages { max-height: none; }
+.frame h1 { font: italic 400 var(--type-page-size)/1.25 var(--font-serif); margin: 12px 0; overflow-wrap: break-word; }
+.frame h2 { font-size: 21px; font-weight: 600; margin: 0 0 12px; }
+.frame h3 { font-size: 16px; font-weight: 600; margin: 16px 0 8px; }
+.frame p { margin-block: 10px; line-height: 1.65; overflow-wrap: anywhere; }
+.frame a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.header, .projectHeader { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.header > div, .projectHeader > div { min-width: 0; }
+.header { padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+.header p { color: var(--text-muted); }
+.notice { padding: 12px 16px; border-left: 3px solid var(--accent); background: var(--accent-faint); }
+.muted { color: var(--text-muted); font-size: 14px; }
+.actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.actions h2 { margin: 0; flex: 1; }
+.frame button:not(:global(.chat-send-button)) { min-height: 44px; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--control-radius); background: var(--bg-panel); color: var(--text); cursor: pointer; font-size: 14px; }
+.frame button[type="submit"]:not(:global(.chat-send-button)) { color: var(--accent); border-color: var(--accent-line); }
+.frame button:active { background: var(--bg-selected); }
+.frame button:disabled { color: var(--text-muted); cursor: not-allowed; opacity: .65; }
+.frame :is(button, a, input, textarea, select, summary):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.frame :is(input:not([type="radio"]):not([type="checkbox"]), textarea:not(:global(.chat-input-textarea)), select) { width: 100%; min-width: 0; min-height: 44px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--control-radius); background: var(--bg); color: var(--text); font-family: inherit; font-size: 16px; }
+.frame textarea:not(:global(.chat-input-textarea)) { resize: vertical; line-height: 1.6; }
+.frame fieldset { min-width: 0; border: 0; margin: 0; padding: 0; }
+.field { display: grid; gap: 8px; margin-block: 14px; font-size: 14px; }
+.check { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 14px; cursor: pointer; }
+.check input { width: 18px; height: 18px; accent-color: var(--accent); flex-shrink: 0; }
+.frame details { border-block-start: 1px solid var(--border); margin-top: 16px; padding-top: 8px; }
+.frame summary { min-height: 44px; padding-block: 10px; cursor: pointer; font-size: 15px; overflow-wrap: anywhere; }
+.frame dl > div { padding-block: 8px; }
+.frame dt { color: var(--text-muted); font-size: 14px; }
+.frame dd { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65; }
+.section { padding-block: 20px; border-bottom: 1px solid var(--border); }
+.empty { padding-block: 36px; color: var(--text-muted); }
+.error { padding: 12px; border: 1px solid var(--danger); color: var(--danger); overflow-wrap: anywhere; }
+.status { display: inline-flex; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--detail-radius); white-space: nowrap; font-size: 13px; }
+.projectHeader { margin-top: 24px; }
+.projectList { list-style: none; padding: 0; margin: 20px 0; }
+.projectList li { display: flex; gap: 16px; align-items: center; padding-block: 16px; border-bottom: 1px solid var(--border); }
+.projectList button { flex: 1; min-width: 0; display: grid; gap: 8px; text-align: start; border: 0; background: none; }
+.projectList strong { font-size: 18px; overflow-wrap: anywhere; }
+.projectList button span { color: var(--text-muted); overflow-wrap: anywhere; white-space: pre-wrap; }
+.workspace { display: grid; grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr); gap: 32px; align-items: start; margin-top: 24px; }
+.conversation { min-width: 0; padding: 20px; border: 1px solid var(--border); border-radius: var(--card-radius); background: var(--bg-panel); }
+.document { min-width: 0; background: var(--bg-panel); padding: 0 24px; border-radius: var(--card-radius); }
+.messages { max-height: 65vh; overflow-y: auto; overflow-wrap: anywhere; }
+.messages :global(.markdown-body) p { margin: 0 0 8px; line-height: inherit; }
+.messages :global(.markdown-body) p:last-child { margin-bottom: 0; }
+.prose { white-space: pre-wrap; line-height: 1.7; }
+.frame .candidateEditor { padding-block: 16px; border-bottom: 1px solid var(--border); }
+.candidateEditor legend { font-size: 14px; }
+.approval { border-top: 1px solid var(--border); margin-top: 20px; padding-top: 12px; }
+.observation { padding-block: 14px; border-bottom: 1px solid var(--border); }
+.observation blockquote { margin: 12px 0; padding-left: 14px; border-left: 2px solid var(--border); white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; }
+.frame time { font-size: 13px; overflow-wrap: anywhere; }
+.frame ol { padding-left: 22px; }
+.frame li { overflow-wrap: anywhere; }
+@media (hover: hover) and (pointer: fine) { .frame button:not(:disabled):hover { background: var(--bg-hover); } }
+@media (max-width: 900px) { .workspace { grid-template-columns: minmax(0, 1fr); gap: 20px; } .messages { max-height: 50vh; } }
+@media (max-width: 600px) {
+  .frame { padding: 16px; }
+  .header, .projectHeader { flex-direction: column; gap: 12px; }
+  .conversation, .document { padding: 16px; }
+  .projectList li { flex-wrap: wrap; gap: 8px; }
+  .projectList button { flex-basis: 100%; }
+}

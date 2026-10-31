@@ -6,6 +6,8 @@
 
 The header identifies the product. The pipeline counts all of its contacts across email and social: Needs review, Ready, Contacted, Replied, Interested and Closed. Clicking a stage opens its complete list. The initial list focuses on current Shopify / DTC candidates; historical audiences remain under More filters. Channel counts reflect the filtered list, and social contacts are eligible even if they also have a sourced email.
 
+The workspace URL's `view` selects one of the eight workspaces (`contacts` by default); refresh retains it and invalid values fall back to Contacts. Switching replaces the current history entry rather than adding tab-history entries that could bypass the existing discard confirmation. Both desktop buttons and the phone's native workspace picker use that same guard. Only the view is restored; contact filters, selections and editable copy are not newly persisted. Product background uses a disclosure, KPIs stay in a compact four-column phone strip, and list shortcuts appear only inside Contacts. The sender identity, queue semantics and sending confirmations remain unchanged.
+
 The workspace retains the left-hand list and right-hand contact detail. The top navigation exposes Contacts, Review queue, Send queue and Templates. Select people independently of channel, then click Add to review queue. This persists the selection without approving or sending anything. Existing queue entries are deduplicated.
 
 ## Review and send

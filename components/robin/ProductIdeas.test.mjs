@@ -13,7 +13,9 @@ test("the page can put the agent to work on one idea", () => {
   assert.match(source, /agent\.ask\(\{ ideaId: idea\.id, brief: researchBrief\(\{ name, note \}, locale\) \}\)/);
   assert.match(shell, /export function useProductAgent/);
   // Scoped to that idea, which is what lets it read the idea and save links back.
-  assert.match(shell, /requestBody=\{ideaId \? \{ productId: ideaId \} : \{\}\}/);
+  assert.match(shell, /requestBody=\{key \? \{ productId: key \} : \{\}\}/);
+  assert.match(shell, /contexts\.map\(key =>/);
+  assert.match(shell, /transcriptKey=\{`product-lab:/);
   assert.match(shell, /if \(brief\) setPending/);
 });
 
@@ -28,29 +30,19 @@ test("the brief asks for the discouraging answer", () => {
   }
 });
 
-test("name and note save themselves without losing keystrokes", () => {
-  // Every other field on the card already saved on its own; a Save button for
-  // two of them was a second rule to remember.
-  assert.doesNotMatch(source, /copy\.save\b/);
-  // Separate drafts, so saving one never sends or clears the other.
-  assert.match(source, /const name = nameDraft \?\? idea\.name/);
-  assert.match(source, /const note = noteDraft \?\? idea\.note/);
-  assert.match(source, /writeText\(\{ name: sent \}\)/);
-  assert.match(source, /writeText\(\{ note: sent \}\)/);
-  // A draft is dropped only if it is still exactly what was sent.
-  assert.match(source, /setNoteDraft\(\(current\) => \(current === sent \? null : current\)\)/);
-  assert.match(source, /setNameDraft\(\(current\) => \(current\?\.trim\(\) === sent \? null : current\)\)/);
-  // The note waits for a pause, and a blur flushes it.
-  assert.match(source, /setTimeout\(\(\) => void saveNote\(\), NOTE_AUTOSAVE_MS\)/);
-  assert.match(source, /onBlur=\{\(\) => void saveNote\(\)\}/);
-  // Step, bet, link and park writes leave text drafts alone.
-  assert.match(source, /const save = async \(patch: Record<string, unknown>\) => \{\s*setBusy\(true\);\s*await patchIdea\(patch\);\s*setBusy\(false\);\s*\};/);
+test("the row delegates text saves and deletion ordering to the idea text module", () => {
+  // Behavior is covered at the useIdeaText interface and by product-autosave E2E.
+  assert.doesNotMatch(source, /copy\.save\b|textWrites|noteVersion|nameVersion/);
+  assert.match(source, /useIdeaText\(idea,/);
+  assert.match(source, /onBlur=\{\(\) => void text\.save\("name"\)\}/);
+  assert.match(source, /onBlur=\{\(\) => void text\.save\("note"\)\}/);
+  assert.match(source, /await text\.remove\(/);
 });
 
 test("an open card names the idea once, as its editable heading", () => {
   assert.match(source, /\{open \? \(\s*\/\/[^\n]*\n[\s\S]*?className=\{styles\.titleInput\}/);
   // Exactly one field edits an existing idea's name.
-  assert.equal(source.match(/setNameDraft\(event\.target\.value\)/g)?.length, 1);
+  assert.equal(source.match(/text\.edit\("name", event\.target\.value\)/g)?.length, 1);
 });
 
 test("the page sits on the document ground, with filters only when they filter", () => {
@@ -89,9 +81,13 @@ test("the page says what the steps are, and each one says what to do", () => {
 });
 
 test("discovery, the reference map and personal ideas are independent views with CRM preserved", () => {
-  assert.match(source, /\["discover", "map", "ideas"\]/);
+  assert.match(source, /\["discover", "map"\]/);
+  assert.match(source, /\["ideas", "experiments", "outreach", "evidence"\]/);
   assert.match(source, /href="\/product\/jarvis"/);
-  assert.match(source, /return params.get\("idea"\) \|\| params.get\("stage"\) \? "ideas" : "discover"/);
+  assert.match(source, /view === "map" \|\| view === "ideas" \|\| view === "discover"/);
+  assert.match(source, /return "ideas"/);
+  assert.match(source, /<ProductExperiments/);
+  assert.match(source, /\/product\/validation\?idea=\$\{encodeURIComponent\(idea.id\)\}/);
   assert.match(source, /hidden=\{view !== "ideas"\}/, "switching views keeps capture and notebook drafts mounted");
   assert.match(source, /<ProductLaunchMap/);
   assert.match(source, /<ProductResearch/);
@@ -174,5 +170,6 @@ test("idea controls reflow and remain touchable on a phone", () => {
   assert.match(source, /basis-full[^"]*split:basis-auto[^"]*split:flex-1/);
   assert.match(source, /flex flex-col items-start gap-2 border-t[^"]*split:flex-row/);
   assert.match(source, /pi-bracket min-h-\[44px\] shrink-0 px-2 text-xs split:min-h-0/);
-  assert.match(shell, /pi-bracket ml-auto min-h-\[44px\] px-2 split:min-h-0/);
+  assert.match(shell, /data-mobile-partner=\{mobileOpen\}/);
+  assert.match(shell, /aria-controls="product-partner"/);
 });

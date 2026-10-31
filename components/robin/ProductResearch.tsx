@@ -8,8 +8,10 @@ import styles from "./ProductWorkspace.module.css";
 
 const SOURCE = "https://www.starterstory.com/data/ios-app-ideas";
 
-export function ProductResearch({ zh, onCreated, onRefresh }: {
+export function ProductResearch({ zh, active, onCreated, onRefresh, onCapture }: {
   zh: boolean;
+  active: boolean;
+  onCapture: () => void;
   onCreated: (idea: Idea) => Promise<void>;
   onRefresh: () => Promise<unknown>;
 }) {
@@ -31,6 +33,18 @@ export function ProductResearch({ zh, onCreated, onRefresh }: {
     <ol className={styles.readingPath} aria-label={zh ? "如何使用机会研究" : "How to use this desk"}>
       {(zh ? ["选现有 App", "改进 / 迁移", "小实验验证"] : ["Choose an app", "Improve / transfer", "Run a small test"]).map((step, index) => <li key={index}><span className={styles.stepLabel}>0{index + 1}</span><span>{step}</span></li>)}
     </ol>
-    <ProductOpportunities onSave={onRefresh} onCreated={onCreated} />
+    <ProductOpportunities active={active} onSave={onRefresh} onCreated={onCreated} />
+    <aside className={styles.discoveryFooter} aria-label={zh ? "研究补充入口" : "More ways to explore"}>
+      <div>
+        <h3>{zh ? "已经有自己的想法？" : "Already have an idea?"}</h3>
+        <p>{zh ? "不必先选目录产品，直接记录自己的问题与切口。" : "Skip the directory and capture your own problem and angle."}</p>
+        <button type="button" className={`ui-action pi-bracket ${styles.timestamp}`} onClick={onCapture}>{zh ? "直接记想法" : "Capture your idea"}</button>
+      </div>
+      <div>
+        <h3>{zh ? "也看看失败的理由" : "Study what failed, too"}</h3>
+        <p>{zh ? "对照失败案例检查需求与商业模式；案例是参考，不是对你的产品的结论。" : "Challenge demand and business-model assumptions. Cases are references, not verdicts on your product."}</p>
+        <a href="https://www.loot-drop.io/" target="_blank" rel="noopener noreferrer" className={`ui-action ${styles.timestamp}`}>{zh ? "Loot Drop · 创业失败案例 ↗" : "Loot Drop · Failed startup case studies ↗"}</a>
+      </div>
+    </aside>
   </div>;
 }

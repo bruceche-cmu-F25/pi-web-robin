@@ -4,6 +4,8 @@ import { OutreachAutomation } from "./OutreachAutomation";
 import outreachStyles from "./OutreachStatus.module.css";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { writeUrlState } from "@/lib/url-state";
 import { memo, type CSSProperties, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { BALANCED_JARVIS_QUOTA, CORE_JARVIS_SEGMENTS, JARVIS_RESEARCH_LANES, JARVIS_RESEARCH_LANE_QUOTA, JARVIS_TARGET_PERSONAS, JARVIS_PERSONA_QUOTA, JARVIS_NEWS_BURDEN_KEYS, JARVIS_NEWS_BURDEN_MAX, JARVIS_SOCIAL_PLATFORMS, JARVIS_STATUSES, DEFAULT_JARVIS_OUTBOX, DEFAULT_JARVIS_DAILY, JARVIS_DELIVERY_POLICY, isCurrentValidationProspect, isJarvisFollowUpDue, jarvisSentToday, jarvisTier, hasJarvisSocialOutreach, JARVIS_PERSONA_PLAYBOOK, isQualifiedInfoExec, isResearchedTargetUser, isVerifiedJarvisTarget, isOutreachApprovedFor, jarvisContactMethods, newsBurdenTotal, jarvisComposeLinks, jarvisListPriority, type CoreJarvisSegment, type JarvisResearchLane, type JarvisLead, type JarvisPersona, type JarvisSegment, type JarvisState, type JarvisStatus, type JarvisTemplate } from "@/extension/robin/jarvis-shape";
@@ -70,6 +72,8 @@ type StageFilter = JarvisStatus | "closed" | "all";
 type SegmentFilter = JarvisSegment | "core" | "adjacent" | "all" | "exec";
 type SortKey = "priority" | "burden" | "updated";
 type Tab = "overview" | "email" | "social" | "activity";
+const WORKSPACES = ["crm", "contacts", "review", "send", "sent", "connections", "templates", "automation"] as const;
+type Workspace = typeof WORKSPACES[number];
 
 // Built once per lead object; the payload is only re-parsed when the server's JSON changes.
 const haystacks = new WeakMap<JarvisLead, string>();
@@ -94,7 +98,11 @@ export function JarvisDiscovery() {
   const rescoring = data?.rescore?.status === "running";
   const websiteRunning = data?.websiteRun?.status === "running";
   useEffect(() => { setResearching(running || rescoring || websiteRunning); }, [running, rescoring, websiteRunning]);
-  const [workspace, setWorkspace] = useState<"crm" | "contacts" | "review" | "send" | "sent" | "connections" | "templates" | "automation">("contacts");
+  const params = useSearchParams();
+  const requestedView = params.get("view");
+  const workspace: Workspace = WORKSPACES.find(view => view === requestedView) ?? "contacts";
+  // Replace rather than adding history entries that could bypass an editor's discard confirmation.
+  const setWorkspace = (next: Workspace) => writeUrlState({ view: next }, "replace");
   const [checked, setChecked] = useState<Set<string>>(() => new Set());
   const toggleChecked = useCallback((id: string) => setChecked((set) => {
     const next = new Set(set);
@@ -324,6 +332,20 @@ export function JarvisDiscovery() {
   };
   const showFollowUps = () => { setSegment("all"); setStage("all"); setDueOnly(true); };
   const n = (value: number) => data ? value : "—";
+  const workspaces: Array<[Workspace, string]> = [
+    ["contacts", t("1 · 选人", "1 · Contacts")],
+    ["review", `${t("2 · 审核队列", "2 · Review queue")} · ${n(reviewQueue.length)}`],
+    ["send", `${t("3 · 发送队列", "3 · Send queue")} · ${n(sendQueue.length)}`],
+    ["sent", `${t("已发送", "Sent")} · ${n(sentLeads.length)}`],
+    ["connections", `Connect · ${n(leads.filter(lead => lead.linkedinConnection && !lead.linkedinConnection.acceptedAt).length)}`],
+    ["crm", t("CRM 概览", "CRM overview")],
+    ["automation", t("自动任务", "Automation")],
+    ["templates", t("消息模板", "Message templates")],
+  ];
+  const chooseWorkspace = (next: Workspace) => {
+    if (next === "send") setSendFocus(null);
+    switchWorkspace(next);
+  };
 
   return <main ref={pageRef} className={`robin-page robin-dashboard ${styles.page}`}>
     <div className={styles.inner}>
@@ -333,7 +355,7 @@ export function JarvisDiscovery() {
           <h1>Cold Reach</h1>
           <div className={styles.productBar}>
             <label>{t("产品 / Idea", "Product / idea")} <select aria-label={t("产品 / Idea", "Product / idea")} value="jarvis" onChange={() => {}}><option value="jarvis">Jarvis</option></select></label>
-            <span>{t("跨领域个人情报过滤器 · DTC、医疗与跨来源运营", "Cross-domain personal intelligence · DTC, healthcare and cross-source operators")}</span>
+            <details className={styles.productContext}><summary>{t("产品背景", "Product context")}</summary><p>{t("跨领域个人情报过滤器 · DTC、医疗与跨来源运营", "Cross-domain personal intelligence · DTC, healthcare and cross-source operators")}</p></details>
             <Link href="/product" className="ui-action pi-bracket text-xs">{t("产品与想法", "Products & ideas")}</Link>
           </div>
         </div>
@@ -342,22 +364,20 @@ export function JarvisDiscovery() {
         </section>
       </header>
 
+      <nav className={styles.workflowNav} aria-label={t("联系工作区", "Outreach workflow")}>
+        {workspaces.map(([key, label]) => <button type="button" key={key} aria-pressed={workspace === key} onClick={() => chooseWorkspace(key)}>{label}</button>)}
+      </nav>
+      <label className={styles.mobileWorkspace}>{t("工作区", "Workspace")}
+        <select value={workspace} onChange={event => chooseWorkspace(event.target.value as Workspace)}>
+          {workspaces.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+        </select>
+      </label>
+      <GoogleConnect account="outreach" onChanged={() => void refresh()} />
+      <div hidden={workspace !== "contacts"}>
       <div className={styles.routeFilters} aria-label={t("当前名单快捷入口", "Current list shortcuts")}>
         <button type="button" onClick={() => showCurrentContacts()}>{t(`当前名单 · ${stats.candidates} 人 · 清除筛选`, `Current list · ${stats.candidates} · Clear filters`)}</button>
         <button type="button" onClick={() => showCurrentContacts(true)}>{t(`○ 未处理 · ${untouchedCount} 人`, `○ Untouched · ${untouchedCount}`)}</button>
       </div>
-      <nav className={styles.workflowNav} aria-label="Outreach workflow">
-        <button aria-pressed={workspace === "automation"} onClick={() => switchWorkspace("automation")}>{t("自动任务", "Automation")}</button>
-        <button aria-pressed={workspace === "crm"} onClick={() => switchWorkspace("crm")}>{t("CRM 概览", "CRM overview")}</button>
-        <button aria-pressed={workspace === "contacts"} onClick={() => switchWorkspace("contacts")}>{t("1 · 选人", "1 · Contacts")}</button>
-        <button aria-pressed={workspace === "review"} onClick={() => switchWorkspace("review")}>{t("2 · 审核队列", "2 · Review queue")} · {reviewQueue.length}</button>
-        <button aria-pressed={workspace === "send"} onClick={() => { setSendFocus(null); switchWorkspace("send"); }}>{t("3 · 发送队列", "3 · Send queue")} · {sendQueue.length}</button>
-        <button aria-pressed={workspace === "connections"} onClick={() => switchWorkspace("connections")}>Connect · {leads.filter((lead) => lead.linkedinConnection && !lead.linkedinConnection.acceptedAt).length}</button>
-        <button aria-pressed={workspace === "sent"} onClick={() => switchWorkspace("sent")}>{t("已发送", "Sent")} · {sentLeads.length}</button>
-        <button aria-pressed={workspace === "templates"} onClick={() => switchWorkspace("templates")}>{t("消息模板", "Message templates")}</button>
-      </nav>
-      <GoogleConnect account="outreach" onChanged={() => void refresh()} />
-      <div hidden={workspace !== "contacts"}>
       <nav className={styles.pipeline} aria-label={t("联系阶段", "Pipeline stages")}>
         {OPEN_STAGES.map((s) => <button key={s} type="button" data-status={s} aria-pressed={stage === s} onClick={() => { setStage(stage === s ? "all" : s); setSegment("all"); setPersona(null); setReviewFilter("all"); setContactFilter("all"); setQuery(""); setShowArchived(true); setDueOnly(false); }}>
           <span>{STATUSES[s][zh ? 0 : 1]}</span><strong>{n(stats.byStage[s])}</strong>

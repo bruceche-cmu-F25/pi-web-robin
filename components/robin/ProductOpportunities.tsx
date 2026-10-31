@@ -22,10 +22,10 @@ interface Board {
   assessments?: Record<string, Assessment>;
 }
 
-export function ProductOpportunities({ onSave, onCreated }: { onSave: () => Promise<unknown>; onCreated?: (idea: Idea) => Promise<void> }) {
+export function ProductOpportunities({ onSave, onCreated, active = true }: { onSave: () => Promise<unknown>; onCreated?: (idea: Idea) => Promise<void>; active?: boolean }) {
   const { locale } = useI18n();
   const zh = locale.startsWith("zh");
-  const { data, error, refresh } = usePolledResource<Board>("/api/robin/product-opportunities", 30_000);
+  const { data, error, refresh } = usePolledResource<Board>("/api/robin/product-opportunities", 30_000, active);
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const agent = useProductAgent();

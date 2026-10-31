@@ -36,6 +36,7 @@ try {
   let revision = 0;
   const assessments = {};
   let assessmentRequests = 0;
+  let directoryReads = 0;
   let failOpportunityRead = false;
   let holdAssessment = false;
   await page.route("**/api/robin/**", async (route) => {
@@ -78,6 +79,7 @@ try {
       return route.fulfill({ json: { assessment } });
     }
     if (path === "/api/robin/product-opportunities") {
+      if (method === "GET") directoryReads++;
       if (method === "GET" && failOpportunityRead) return route.fulfill({ status: 503, json: { error: "目录刷新失败" } });
       if (method === "POST") {
         const input = route.request().postDataJSON();
@@ -96,19 +98,41 @@ try {
     return route.fulfill({ json: { resources: [], contacts: [], review: null, jobs: [], records: [], events: [], rounds: [], finals: {} } });
   });
   await page.goto("/product");
-  await page.getByRole("heading", { name: "产品工作室", exact: true }).waitFor();
-  const nav = page.getByRole("navigation", { name: "产品工作区", exact: true });
+  await page.getByRole("heading", { name: "产品实验室", exact: true }).waitFor();
+  const nav = page.getByRole("navigation", { name: /^(产品工作区|Product workspace)$/ });
   const map = page.locator("#product-view-map");
   const detail = page.locator("#product-map-detail");
   const research = page.locator("#product-view-discover");
   const pick = (name) => page.getByRole("group", { name: "产品上线思维导图" }).getByRole("button", { name: new RegExp(name) });
-  const showMap = async () => { await nav.getByRole("button", { name: /产品全景图/ }).click(); await map.waitFor(); };
-  assert.equal(await nav.getByRole("link", { name: /CRM/ }).getAttribute("href"), "/product/jarvis");
-  assert.equal(await research.isVisible(), true);
-  assert.equal(await page.locator("#product-view-ideas").isVisible(), false);
-  assert.equal(writes, 0);
+  const clickNav = async (name) => {
+    if (!await nav.isVisible()) await page.getByRole("button", { name: "项目目录", exact: true }).click();
+    await nav.getByRole("button", { name }).click();
+  };
+  const showMap = async () => { await clickNav(/产品全景图/); await map.waitFor(); };
+  assert.equal(await nav.getByRole("link", { name: /Outreach/ }).getAttribute("href"), "/product/jarvis");
+  const workbench = page.locator("#product-view-ideas");
+  await workbench.getByRole("button", { name: "设计师交付助手", exact: false }).waitFor();
+  assert.equal(await workbench.isVisible(), true, "Personal work is the default entry");
+  assert.equal(await research.isVisible(), false);
+  assert.equal(directoryReads, 0, "The personal workbench does not read or trigger discovery");
+  assert.equal(await workbench.getByRole("link", { name: "验证这个想法" }).first().getAttribute("href"), "/product/validation?idea=one");
+  await workbench.getByRole("button", { name: "打开产品全景图", exact: true }).first().click();
+  await map.waitFor();
+  assert.equal(await map.getByLabel("应用到").inputValue(), "one");
+  await page.goBack();
+  await workbench.waitFor();
+  assert.equal(new URL(page.url()).searchParams.get("idea"), null, "An idea's map is one history entry, not a hidden intermediate selection");
+  await page.screenshot({ path: `${screenshots}/workbench-entry-light.png` });
+  await workbench.locator("header").getByRole("button", { name: "记想法" }).click();
+  await page.waitForFunction(() => document.activeElement === document.querySelector('section[aria-labelledby="product-capture-title"] input:not([type=file])'));
+  await clickNav(/机会研究/);
+  await page.goBack();
+  await page.locator('#product-view-inbox').waitFor();
+  await page.goForward();
+  await research.waitFor();
+  assert.equal(writes, 0, "Navigating and focusing capture never writes or runs AI");
   assert.equal(await research.getByRole("list", { name: "如何使用机会研究" }).isVisible(), true);
-  assert.ok((await nav.boundingBox()).height < 80);
+  assert.ok((await nav.boundingBox()).width <= 220, 'References belong to the project rail');
   assert.equal(await research.getByRole("link", { name: /打开 iOS App 点子库/ }).getAttribute("href"), SOURCE);
   assert.equal(await research.locator("li").filter({ has: page.getByRole("link") }).count(), 3);
   assert.equal(await research.getByText("Papermark", { exact: true }).count(), 0, "Interview examples do not supply discovery candidates");
@@ -125,10 +149,11 @@ try {
 
   // Container-driven reflow also handles the assistant, not just phone viewports.
   await page.setViewportSize({ width: 1280, height: 1000 });
-  await page.getByRole("button", { name: /研究助手/ }).click();
+  await page.getByRole("button", { name: "收起伙伴", exact: true }).click();
+  await page.getByRole("button", { name: "Brainstorm 伙伴", exact: true }).click();
   await page.getByRole("button", { name: /关闭/ }).waitFor();
   assert.equal(await page.locator("main").evaluate((el) => el.scrollWidth > el.clientWidth + 1), false);
-  await page.getByRole("button", { name: /关闭/ }).click();
+  await page.getByRole("button", { name: "收起伙伴", exact: true }).click();
   await page.setViewportSize({ width: 1440, height: 1000 });
   assert.equal(writes, 0, "Opening the assistant does not run research or write a project");
 
@@ -154,7 +179,7 @@ try {
   await note().fill("备份恢复演练，另一分支");
   await pick("需求与切入点").click();
   assert.equal(await note().inputValue(), "我的客户证据，保留草稿");
-  await nav.getByRole("button", { name: /机会研究/ }).click();
+  await clickNav(/机会研究/);
   await showMap();
   assert.equal(await note().inputValue(), "我的客户证据，保留草稿");
   await map.getByLabel("应用到").selectOption("two");
@@ -207,7 +232,7 @@ try {
   await page.screenshot({ path: `${screenshots}/map-light.png`, animations: "disabled" });
 
   // Assessments are explicit, durable and independent of ideas; failed reads/writes retain the result.
-  await nav.getByRole("button", { name: /机会研究/ }).click();
+  await clickNav(/机会研究/);
   assert.equal(assessmentRequests, 0);
   failOpportunityRead = true;
   await firstListing.getByRole("button", { name: /判断值不值得做/ }).click();
@@ -254,20 +279,31 @@ try {
   // Capture remains independent, including drafts while switching views.
   const capture = page.locator('section[aria-labelledby="product-capture-title"]');
   const captureInput = capture.locator("input:not([type=file])");
+  await clickNav(/想法收件箱/);
   await captureInput.fill("保留 capture 草稿");
   await showMap();
-  await nav.getByRole("button", { name: /我的想法/ }).click();
+  await clickNav(/想法收件箱/);
   assert.equal(await captureInput.inputValue(), "保留 capture 草稿");
   await page.screenshot({ path: `${screenshots}/ideas-light.png` });
 
   // Responsive + dark theme, including with the assistant reducing available width.
-  for (const width of [1440, 768, 375]) {
+  for (const width of [1440, 768, 375, 320]) {
     await page.setViewportSize({ width, height: 1000 });
-    for (const viewName of ["机会研究", "产品全景图", "我的想法"]) {
-      await nav.getByRole("button", { name: new RegExp(viewName) }).click();
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    for (const viewName of ["机会研究", "产品全景图", "实验室总览"]) {
+      await clickNav(new RegExp(viewName));
       const overflow = await page.locator("main").evaluate((el) => el.scrollWidth > el.clientWidth + 1);
       assert.equal(overflow, false, `${viewName} overflows at ${width}px`);
     }
+    await page.locator("main").evaluate(el => { el.scrollTop = 0; });
+    await page.screenshot({ path: `${screenshots}/workbench-${width}.png`, animations: "disabled" });
+    // Even on a long mobile list, the capture shortcut brings the real field
+    // into view without throwing away its draft or submitting anything.
+    await workbench.locator("header").getByRole("button", { name: "记想法" }).click();
+    await page.waitForFunction(() => document.activeElement === document.querySelector('section[aria-labelledby="product-capture-title"] input:not([type=file])'));
+    assert.equal(await captureInput.inputValue(), "保留 capture 草稿");
+    const captureBox = await captureInput.boundingBox();
+    assert.ok(captureBox.y >= 0 && captureBox.y + captureBox.height <= 1000);
     await showMap();
     await page.evaluate(() => { document.documentElement.dataset.theme = "dark"; document.documentElement.classList.add("dark"); });
     await page.screenshot({ path: `${screenshots}/map-dark-${width}.png`, animations: "disabled" });
@@ -278,7 +314,7 @@ try {
         return top >= 0 && top < window.innerHeight;
       });
       await detail.getByRole("link", { name: "↑ 返回全景图" }).click();
-      await nav.getByRole("button", { name: /机会研究/ }).click();
+      await clickNav(/机会研究/);
       await firstListing.scrollIntoViewIfNeeded();
       await page.screenshot({ path: `${screenshots}/directory-mobile.png`, animations: "disabled" });
       await hypotheses().click();
@@ -286,6 +322,7 @@ try {
     }
   }
   // A failed refresh must be visible without fabricated empty data.
+  await clickNav(/机会研究/);
   failRead = true;
   await page.reload();
   await page.getByRole("alert").filter({ hasText: "读取失败" }).waitFor();
@@ -302,6 +339,24 @@ try {
   await page.locator("main").evaluate((el) => { el.scrollTop = 0; });
   await page.screenshot({ path: `${screenshots}/discover-en.png`, animations: "disabled" });
   assert.equal(writes, beforeEnglishBrowse, "Changing language and reading never writes ideas");
+  failRead = false;
+  ideas.length = 0;
+  await page.goto("/product");
+  await page.getByRole("heading", { name: "Your next product starts with one thought." }).waitFor();
+  for (const width of [320, 812, 1440]) {
+    await page.setViewportSize({ width, height: width === 812 ? 375 : 1000 });
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    assert.equal(await page.locator("main").evaluate(el => el.scrollWidth > el.clientWidth + 1), false, `Empty English workbench fits at ${width}px`);
+    if (!await nav.isVisible()) await page.getByRole('button', { name: 'Projects', exact: true }).click();
+    await nav.getByRole('button', { name: 'Lab overview', exact: true }).click();
+    await workbench.locator("header").getByRole("button", { name: "New idea" }).click();
+    await page.waitForFunction(() => document.activeElement === document.querySelector('section[aria-labelledby="product-capture-title"] input:not([type=file])'));
+  }
+  if (!await nav.isVisible()) await page.getByRole('button', { name: 'Projects', exact: true }).click();
+  await nav.getByRole('button', { name: 'Lab overview', exact: true }).click();
+  await page.getByRole("button", { name: /Explore opportunities/i }).click();
+  await research.waitFor();
+  assert.equal(writes, beforeEnglishBrowse, "Empty-state entry points stay read-only");
   assert.deepEqual(errors, []);
   console.log(`Product workspace passed; screenshots: ${screenshots}`);
 } catch (error) {

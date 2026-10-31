@@ -44,7 +44,7 @@
 /* The cohort palette as one stripe: the page's colour key, read before any row. */
 .header::before { content: ""; position: absolute; inset: -1px -1px auto; height: 4px; background: linear-gradient(90deg, var(--jv-info_exec) 0 20%, var(--jv-clinic) 20% 40%, var(--jv-professional_services) 40% 60%, var(--jv-nontech_exec) 60% 80%, var(--jv-small_tech) 80%); }
 .day { color: var(--jv-info_exec); }
-.title h1 { font-family: var(--font-serif); font-size: clamp(30px, 4vw, 40px); font-style: italic; font-weight: 400; line-height: 1.1; margin-top: 6px; }
+.title h1 { font: italic 400 var(--type-page-size)/1.25 var(--font-serif); margin-top: 6px; }
 .kpis { display: flex; flex-wrap: wrap; border-block: 1px solid var(--border); }
 .kpis { background: var(--bg-panel); }
 .kpis > div { background: color-mix(in srgb, var(--c, transparent) 5%, transparent); position: relative; padding: 8px 14px 10px; display: flex; flex-direction: column; gap: 2px; border-inline-start: 1px solid var(--border); box-shadow: inset 0 2px var(--c, transparent); }
@@ -439,10 +439,28 @@
 .editorHead h2 { font-size: 28px; }
 .copyHeading select { width: auto; min-width: 130px; }
 .copyHeading h3 { flex: 1; }
-.workflowNav { display: flex; flex-wrap: wrap; gap: 10px; margin: 18px 0; }
+.mobileWorkspace { display: none; }
+.productContext { color: var(--text-muted); font: 13px/1.6 var(--font-mono); }
+.productContext summary { min-height: 44px; align-content: center; cursor: pointer; }
+.productContext p { max-width: 60ch; padding-block: 4px 12px; overflow-wrap: anywhere; }
+.workflowNav { display: flex; flex-wrap: wrap; gap: 10px; margin: 4px 0; }
 .workflowNav button { border: 1px solid var(--border); padding: 12px 18px; color: var(--text-muted); background: var(--bg-panel); cursor: pointer; }
 .workflowNav button[aria-pressed=true] { color: var(--accent); border-color: var(--accent); background: var(--accent-faint); }
 .workflowNav button:last-child { margin-left: auto; }
+@media (max-width: 700px) {
+  .header { padding: 12px; gap: 8px; }
+  .title { min-width: 0; }
+  .title > :global(.pi-eyebrow) { display: none; }
+  .title h1 { margin-top: 0; }
+  .productBar { gap: 0 12px; }
+  .kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .kpis > div { min-width: 0; padding: 6px; }
+  .kpis strong { font-size: 20px; }
+  .kpis span { font-size: 12px; overflow-wrap: anywhere; }
+  .workflowNav { display: none; }
+  .mobileWorkspace { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 12px; color: var(--text-muted); font: 14px/1.5 var(--font-mono); }
+  .mobileWorkspace select { width: 100%; min-width: 0; min-height: 44px; font-size: 16px; }
+}
 .templateWorkspace { border: 1px solid var(--border); background: var(--bg-panel); padding: 24px; }
 .templateWorkspace h2 { font: 26px var(--font-serif); margin-bottom: 12px; }
 
@@ -461,5 +479,9 @@
 .selectionFooter { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding-top: 16px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-muted); }
 .selectionFooter button { color: var(--accent); cursor: pointer; font-size: 12px; }
 @media(max-width: 640px) { .selectionPanel { padding: 20px; } }
+/* Keep dense desktop filters, but give touch controls real hit areas. */
+@media (max-width: 960px), (pointer: coarse) {
+  .page :is(button, summary) { min-height: 44px; min-width: 44px; }
+}
 
 /* Delivery history remains visible independently of selection and queue state. */

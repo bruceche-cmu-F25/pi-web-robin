@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light" data-layout="desk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'none'; form-action 'none'; base-uri 'none'">
+  <title>产品实验室 · 交互样板</title>
+  <link rel="stylesheet" href="./lab.css">
+  <script src="./lab.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">跳到工作区</a>
+  <div class="prototype-bar"><span><strong>交互样板</strong> 虚构数据 · 不发送消息、不调用 AI · 刷新重置</span><button data-action="reset">重置样板</button></div>
+  <header class="app-header">
+    <div class="brand"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M11 4h10M13 4v9L5 26a2 2 0 0 0 2 3h18a2 2 0 0 0 2-3l-8-13V4M9 21h14M13 24h1m5 2h1"/></svg><div><strong>产品实验室</strong><span>PRODUCT LAB / 从想法到证据</span></div></div>
+    <div class="header-controls"><div class="layout-picker" role="group" aria-label="样板布局"><button data-layout="desk" aria-pressed="true">A · 三栏工作台</button><button data-layout="journal" aria-pressed="false">B · 聚焦手记</button></div><button data-action="theme" id="theme-button">深色外观</button></div>
+  </header>
+  <div class="mobile-tools"><button data-action="navigation" aria-controls="navigation" aria-expanded="false">项目目录</button><button data-action="partner" aria-controls="partner" aria-expanded="false">Brainstorm 伙伴</button></div>
+  <div class="workspace" id="workspace">
+    <aside class="navigation" id="navigation" aria-label="实验室导航"></aside>
+    <main id="main" tabindex="-1"></main>
+    <aside class="partner" id="partner" aria-label="Brainstorm 伙伴"></aside>
+  </div>
+  <dialog id="modal" aria-labelledby="modal-title"><form id="modal-form"><div class="dialog-head"><span class="eyebrow">PRODUCT LAB / PREVIEW</span><button type="button" data-action="close-modal" aria-label="关闭弹窗">×</button></div><h2 id="modal-title"></h2><div id="modal-content"></div><div class="dialog-actions" id="modal-actions"></div></form></dialog>
+  <div class="toast" id="toast" role="status" hidden></div>
+  <noscript>这个交互样板需要启用 JavaScript。现有产品页面及 Outreach 未受影响。</noscript>
+</body>
+</html>
