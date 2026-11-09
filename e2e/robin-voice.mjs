@@ -162,7 +162,19 @@ try {
   await page.evaluate(() => { document.documentElement.setAttribute('data-theme', 'glass'); window.__meterAmplitude = 0.03; });
   for (const width of [320, 390, 1440]) {
     await page.setViewportSize({ width, height: 844 });
-    await launch().waitFor(); await launch().click(); await recording();
+    const capture = width >= 960 ? page.locator('#dashboard-desktop-assistant').getByRole('button', { name: 'Dictate', exact: true }) : launch();
+    await capture.waitFor();
+    assert.equal(await launch().count(), width >= 960 ? 0 : 1, 'Standalone voice is phone-only; desktop uses its input microphone');
+    if (width >= 960) {
+      const bar = page.locator('#dashboard-desktop-assistant');
+      await bar.getByRole('button', { name: 'Act', exact: true }).click();
+      await capture.waitFor();
+      assert.equal(await capture.count(), 1, 'Act keeps one input microphone');
+      await bar.getByRole('button', { name: 'Search', exact: true }).click();
+      await capture.waitFor();
+      assert.equal(await capture.count(), 1, 'Search keeps one input microphone');
+    }
+    await capture.click(); await recording();
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `page fits ${width}`);
     const bounds = await panel.boundingBox(); assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width + 1);
     assert.ok(await panel.evaluate(el => el.scrollWidth <= el.clientWidth + 1));

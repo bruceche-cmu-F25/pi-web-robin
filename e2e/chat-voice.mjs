@@ -58,7 +58,20 @@ try {
   };
   const finish = async () => { await page.waitForTimeout(750); await panel.getByRole("button", { name: "Done speaking", exact: true }).click(); };
   await page.goto(`/?cwd=${encodeURIComponent(cwd)}`);
+  const voiceStart = shell.locator('[data-companion-launcher]');
+  await voiceStart.waitFor();
+  mkdirSync('outputs/robin-voice', { recursive: true });
+  for (const width of [320, 390, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    const surface = await shell.locator('.chat-input-surface').boundingBox(), launch = await voiceStart.boundingBox();
+    assert.ok(launch.width >= 44 && launch.height >= 44, 'voice has a full touch target');
+    assert.ok(launch.x >= surface.x && launch.x + launch.width <= surface.x + surface.width + 1, 'voice belongs inside the composer');
+    assert.equal(await page.locator('[data-robin-companion]').getByRole('button').count(), 0, 'no floating launcher');
+    await page.screenshot({ path: `outputs/robin-voice/voice-entry-${width}.png` });
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 });
   await input.fill("Prefix replace suffix");
+  assert.equal(await voiceStart.count(), 0, 'a draft restores Send instead of competing with voice');
   // An attached image must survive recognition; no attachment write reaches the server.
   await input.evaluate(el => {
     const data = new DataTransfer();

@@ -1,12 +1,15 @@
-/** Local dictation and optional cloud TTS. No agent dispatch or Qwen Gateway. */
+/** Local dictation and optional Boson / legacy Alibaba TTS. No agent dispatch. */
 import { VOICE_MAX_BYTES, VOICE_TEXT_LIMIT, VoiceError, type VoiceReadiness } from "./voice.ts";
 import { localVoiceConfig, transcribeLocalVoice } from "./local-voice.ts";
+import { bosonApiKey } from "./settings.ts";
 export { VoiceError } from "./voice.ts";
 const ASR_MODEL = "whisper.cpp (local)";
 const TTS_MODEL = "qwen3-tts-flash";
 const RESULT_HOST = "dashscope-result-bj.oss-cn-beijing.aliyuncs.com";
 
 function configuration(env = process.env) {
+  const boson = bosonApiKey(env);
+  if (boson) return { key: boson, origin: "https://api.boson.ai", model: "higgs-tts-3" };
   const key = (env.ROBIN_VOICE_API_KEY || env.DASHSCOPE_API_KEY || "").trim();
   let origin: URL;
   try { origin = new URL(env.ROBIN_VOICE_ORIGIN || "https://dashscope.aliyuncs.com"); }
@@ -16,12 +19,12 @@ function configuration(env = process.env) {
     || !(origin.hostname === "dashscope.aliyuncs.com" || /^[a-z0-9-]+\.cn-beijing\.maas\.aliyuncs\.com$/.test(origin.hostname))) {
     throw new VoiceError("setup", 503);
   }
-  return { key, origin: origin.origin };
+  return { key, origin: origin.origin, model: TTS_MODEL };
 }
 export function voiceReadiness(): VoiceReadiness {
-  let ttsConfigured = false;
-  try { ttsConfigured = !!configuration().key; } catch { /* Presence is not a live credential test. */ }
-  return { configured: localVoiceConfig().ready, ttsConfigured, asrModel: ASR_MODEL, ttsModel: TTS_MODEL };
+  let ttsConfigured = false, ttsModel = TTS_MODEL;
+  try { const config = configuration(); ttsConfigured = !!config.key; ttsModel = config.model; } catch { /* Presence is not a live credential test. */ }
+  return { configured: localVoiceConfig().ready, ttsConfigured, asrModel: ASR_MODEL, ttsModel };
 }
 
 /** Only the exact 16 kHz mono PCM WAV produced by our recorder is accepted. */
@@ -58,7 +61,7 @@ async function bounded(response: Response, limit: number): Promise<Uint8Array> {
 type Dependencies = { fetch?: typeof fetch; env?: NodeJS.ProcessEnv };
 // Per-process ceiling, not a distributed rate limiter; all routes retain Pi Web authentication.
 const state = globalThis as typeof globalThis & { __robinVoiceActive?: number };
-async function operation<T>(signal: AbortSignal, deps: Dependencies, run: (request: (path: string, body: unknown) => Promise<unknown>, signal: AbortSignal, fetcher: typeof fetch) => Promise<T>): Promise<T> {
+async function operation<T>(signal: AbortSignal, deps: Dependencies, run: (config: ReturnType<typeof configuration>, signal: AbortSignal, fetcher: typeof fetch) => Promise<T>): Promise<T> {
   const config = configuration(deps.env);
   if (!config.key) throw new VoiceError("setup", 503);
   if ((state.__robinVoiceActive ?? 0) >= 2) throw new VoiceError("busy", 429);
@@ -67,15 +70,7 @@ async function operation<T>(signal: AbortSignal, deps: Dependencies, run: (reque
   const fetcher = deps.fetch ?? fetch;
   try {
     combined.throwIfAborted();
-    const request = async (path: string, body: unknown) => {
-      const response = await fetcher(config.origin + path, {
-        method: "POST", headers: { Authorization: `Bearer ${config.key}`, "Content-Type": "application/json" },
-        body: JSON.stringify(body), signal: combined, redirect: "error",
-      });
-      if (!response.ok) { await response.body?.cancel(); throw new VoiceError("provider", 502); }
-      return JSON.parse(new TextDecoder().decode(await bounded(response, 256 * 1024))) as unknown;
-    };
-    const result = await run(request, combined, fetcher);
+    const result = await run(config, combined, fetcher);
     combined.throwIfAborted();
     return result;
   } catch (error) {
@@ -93,18 +88,28 @@ export async function transcribeVoice(bytes: Uint8Array, signal: AbortSignal, de
 
 export async function synthesizeVoice(text: unknown, signal: AbortSignal, deps: Dependencies = {}): Promise<Uint8Array> {
   if (typeof text !== "string" || !text.trim() || text.length > VOICE_TEXT_LIMIT) throw new VoiceError("text");
-  return operation(signal, deps, async (request, combined, fetcher) => {
-    const result = await request("/api/v1/services/aigc/multimodal-generation/generation", {
-      model: TTS_MODEL, input: { text, voice: "Cherry", language_type: "Auto" },
-    }) as { output?: { audio?: { url?: unknown } } };
-    if (typeof result?.output?.audio?.url !== "string") throw new VoiceError("provider", 502);
-    const url = new URL(result.output.audio.url);
-    if (!["http:", "https:"].includes(url.protocol) || url.hostname !== RESULT_HOST
-      || url.username || url.password || url.port || !url.pathname.endsWith(".wav")) throw new VoiceError("provider", 502);
-    // Official responses may use http. Fetch the same signed object over TLS only.
-    url.protocol = "https:";
-    const audio = await fetcher(url, { signal: combined, redirect: "error" }); // No API authorization on OSS requests.
-    if (!audio.ok) { await audio.body?.cancel(); throw new VoiceError("provider", 502); }
+  return operation(signal, deps, async (config, combined, fetcher) => {
+    const boson = config.model === "higgs-tts-3";
+    const response = await fetcher(config.origin + (boson ? "/v1/audio/speech" : "/api/v1/services/aigc/multimodal-generation/generation"), {
+      method: "POST", headers: { Authorization: `Bearer ${config.key}`, "Content-Type": "application/json" },
+      body: JSON.stringify(boson
+        ? { model: config.model, input: text, voice: "oliver", response_format: "wav", stream: false }
+        : { model: config.model, input: { text, voice: "Cherry", language_type: "Auto" } }),
+      signal: combined, redirect: "error",
+    });
+    if (!response.ok) { await response.body?.cancel(); throw new VoiceError("provider", 502); }
+    let audio = response;
+    if (!boson) {
+      const result = JSON.parse(new TextDecoder().decode(await bounded(response, 256 * 1024))) as { output?: { audio?: { url?: unknown } } };
+      if (typeof result?.output?.audio?.url !== "string") throw new VoiceError("provider", 502);
+      const url = new URL(result.output.audio.url);
+      if (!["http:", "https:"].includes(url.protocol) || url.hostname !== RESULT_HOST
+        || url.username || url.password || url.port || !url.pathname.endsWith(".wav")) throw new VoiceError("provider", 502);
+      // Official responses may use http. Fetch the same signed object over TLS only.
+      url.protocol = "https:";
+      audio = await fetcher(url, { signal: combined, redirect: "error" }); // No API authorization on OSS requests.
+      if (!audio.ok) { await audio.body?.cancel(); throw new VoiceError("provider", 502); }
+    }
     const bytes = await bounded(audio, 8 * 1024 * 1024);
     if (bytes.length < 44 || Buffer.from(bytes.subarray(0, 4)).toString() !== "RIFF"
       || Buffer.from(bytes.subarray(8, 12)).toString() !== "WAVE") throw new VoiceError("provider", 502);

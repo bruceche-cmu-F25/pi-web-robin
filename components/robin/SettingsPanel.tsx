@@ -15,6 +15,7 @@ import { GoogleConnect } from "./GoogleConnect";
 import { ThemePicker } from "../ThemePicker";
 import { NavigationPlacementSetting } from "../NavigationPlacementSetting";
 import { VoiceSettings } from "./VoiceSettings";
+import { ConfigButton, ConfigDetailActions } from "../SettingsUi";
 import styles from "./SettingsPanel.module.css";
 
 const settingGroups = [
@@ -45,6 +46,7 @@ interface SecretStatus {
 }
 
 interface SettingsResponse {
+  boson?: { set: boolean; source?: "file" | "env" };
   notifications: { channel: NotificationChannel };
   google: {
     clientId: SecretStatus;
@@ -71,7 +73,7 @@ interface SettingsResponse {
 type Translate = (key: string, params?: Record<string, string>) => string;
 type SaveAction =
   | "google" | "notion" | "playwright" | "token" | "chatIds" | "dailyAgenda" | "jobDigest" | "gmailDigest"
-  | "reminders" | "transcription" | "notifications";
+  | "reminders" | "transcription" | "notifications" | "boson";
 type SavePhase = "saving" | "saved";
 
 // Compare each editable field with its own last acknowledged value. Refreshing
@@ -233,6 +235,8 @@ export function SettingsPanel() {
   const [calendarLabel, setCalendarLabel] = useState("");
   const [notionToken, setNotionToken] = useState("");
   const [playwrightToken, setPlaywrightToken] = useState("");
+  const [bosonKey, setBosonKey] = useState("");
+  const [bosonRevision, setBosonRevision] = useState(0);
   const [botToken, setBotToken] = useState("");
   const [notificationChannel, setNotificationChannel] = useState<NotificationChannel>("telegram");
   const [testingPush, setTestingPush] = useState(false);
@@ -257,7 +261,7 @@ export function SettingsPanel() {
   const form = { notificationChannel, chatIds, dailyAgenda, jobDigest, jobChatIds, gmailDigest,
     gmailChatIds, reminders, reminderChatIds, transcription };
   const dirty = Boolean(clientId || clientSecret || calendarInput || calendarLabel || notionToken
-    || playwrightToken || botToken || transcriptionKey
+    || playwrightToken || botToken || transcriptionKey || bosonKey
     || (baseline && Object.entries(form).some(([key, value]) => !sameDraft(value, baseline[key]))));
   useEffect(() => {
     if (!dirty && !busy) return;
@@ -453,7 +457,7 @@ export function SettingsPanel() {
           {dirty && <p role="status" className="text-sm" style={{ color: "var(--text-muted)" }}>{t("robin.settings.unsaved")}</p>}
           {error && <div ref={errorRef} role="alert" tabIndex={-1} className={styles.error}>
             <p>{error}</p>
-            <button type="button" disabled={busy} onClick={() => { setError(null); void load(); }}>{t("robin.settings.retryLoad")}</button>
+            <button type="button" disabled={busy} onClick={async () => { if (await load()) setError(null); }}>{t("robin.settings.retryLoad")}</button>
           </div>}
           {notice && <p role="status" className={styles.notice}>{notice}</p>}
           {!data && !error && <p role="status" className={styles.notice}>{t("robin.settings.loading")}</p>}
@@ -501,7 +505,32 @@ export function SettingsPanel() {
       </section>
 
       <section id="voice" hidden={category !== "voice"} className={styles.card}>
-        {category === "voice" && <VoiceSettings />}
+        {category === "voice" && <VoiceSettings key={bosonRevision} previewDisabled={busy || !!bosonKey}>
+          <h3>{t("voice.bosonTitle")}</h3>
+          <p>{t("voice.bosonHint")}</p>
+          <p><a href="https://www.boson.ai/workspace/api-key" target="_blank" rel="noopener noreferrer">{t("voice.keyGuide")}</a>
+            {" · "}<a href="https://docs.boson.ai/free-trial-credit" target="_blank" rel="noopener noreferrer">{t("voice.bosonCredit")}</a></p>
+          <p>{t(data?.boson?.set ? data.boson.source === "env" ? "voice.bosonEnv" : "voice.bosonSet" : "voice.bosonUnset")}</p>
+          <label className={styles.field}>
+            Boson API Key
+            <input type="password" value={bosonKey} onChange={event => setBosonKey(event.target.value)}
+              autoComplete="new-password" spellCheck={false} maxLength={4096}
+              className="min-h-11 rounded px-2" style={inputStyle} />
+          </label>
+          <ConfigDetailActions>
+            <SaveButton label={t("voice.bosonSave")} t={t}
+              phase={saveFeedback?.action === "boson" ? saveFeedback.phase : undefined}
+              disabled={busy || !bosonKey.trim()}
+              onClick={() => void send("POST", { section: "boson", apiKey: bosonKey }, t("voice.bosonSaved"), "boson").then(saved => {
+                if (saved) { setBosonKey(current => current === bosonKey ? "" : current); setBosonRevision(value => value + 1); }
+              })} />
+            <ConfigButton disabled={busy || data?.boson?.source !== "file"}
+              onClick={() => void send("DELETE", { section: "boson" }, t("voice.bosonRemoved"), "boson").then(saved => {
+                if (saved) setBosonRevision(value => value + 1);
+              })}>{t("voice.bosonRemove")}</ConfigButton>
+          </ConfigDetailActions>
+          {failedAction === "boson" && error && <p role="alert" style={{ color: "var(--danger)" }}>{error}</p>}
+        </VoiceSettings>}
       </section>
 
       {/* ---------- Google ---------- */}

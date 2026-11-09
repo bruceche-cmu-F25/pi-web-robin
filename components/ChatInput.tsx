@@ -28,6 +28,7 @@ import { FolderIcon, getFileIcon } from "./FileIcons";
 import { ImagePreview } from "./ImagePreview";
 import { DismissButton } from "./DismissButton";
 import { VoiceControls, type VoiceHandle } from "./robin/VoiceControls";
+import { CompanionLauncher } from "./robin/CompanionLauncher";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useEnterSendMode } from "@/hooks/useEnterSendMode";
 import { useI18n } from "@/hooks/useI18n";
@@ -100,6 +101,7 @@ interface Props {
   onSoundToggle?: () => void;
   onAudioUnlock?: () => void;
   draftKey?: string;
+  createVoiceTranscriptSink?: () => import("@/lib/voice-transcript").VoiceTranscriptSink;
   /** Session working directory — enables the @ file autocomplete menu */
   cwd?: string | null;
   /** Files picked with the attach button, handled like files dropped onto the chat. Without it the button takes images only. */
@@ -621,7 +623,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   retryInfo, queuedMessages, inputHistory = [], onRecallQueue,
   slashCommands, slashCommandsLoading, onLoadSlashCommands,
   onBuiltinCommand,
-  soundEnabled, onSoundToggle, onAudioUnlock,
+  soundEnabled, onSoundToggle, onAudioUnlock, createVoiceTranscriptSink,
   onPromptWithStreamingBehavior,
   draftKey,
   cwd,
@@ -2391,6 +2393,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                 </button>
               )}
             </>
+          ) : !compact && !bashMode && !voiceCapturing && !value.trim() && !attachedImages.length ? (
+            <CompanionLauncher createTranscriptSink={createVoiceTranscriptSink} />
           ) : (
             <button
               onClick={handleSend}

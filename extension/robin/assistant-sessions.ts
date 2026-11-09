@@ -10,7 +10,8 @@
  * that offers "start a new conversation" should not have to reach into the
  * JSON layer to find it.
  */
-import { dataPath, readJsonObject, writeJsonObject } from "./paths.ts";
+import { dataPath, readJsonObject, updateJsonObject } from "./paths.ts";
+import type { VoiceTurnRecord } from "./voice-action-domain.ts";
 
 const ASSISTANT_FILE = "assistant.json";
 
@@ -23,6 +24,8 @@ export function assistantStatePath(): string {
  * restarts so the conversation keeps its context ("move it to Thursday").
  */
 interface AssistantState {
+  /** Bounded replay fences/receipts for the assistant's voice commands, not a second task store. */
+  voiceTurns?: Record<string, VoiceTurnRecord>;
   sessionId?: string;
   dailyAgendaSessionId?: string;
   /**
@@ -63,12 +66,28 @@ function readAssistantState(): AssistantState {
   return readJsonObject<AssistantState>(ASSISTANT_FILE) ?? {};
 }
 
-function writeAssistantState(patch: Partial<AssistantState>): void {
-  writeJsonObject(ASSISTANT_FILE, {
-    ...readAssistantState(),
-    ...patch,
-    updatedAt: new Date().toISOString(),
+export function readVoiceTurn(id: string): VoiceTurnRecord | undefined {
+  return readAssistantState().voiceTurns?.[id];
+}
+
+/** Locked journal transition. Callbacks must not acquire task-store locks. */
+export function updateVoiceTurn<T>(id: string, update: (current: VoiceTurnRecord | undefined) => { record: VoiceTurnRecord; result: T }): T {
+  return updateJsonObject<AssistantState, T>(ASSISTANT_FILE, current => {
+    const state = current ?? {};
+    const turns = state.voiceTurns ?? {};
+    const { record, result } = update(turns[id]);
+    // Expired ids cannot start again (the domain validates their timestamp).
+    const retained = Object.fromEntries(Object.entries(turns).filter(([, turn]) => turn.createdAt > Date.now() - 86_400_000));
+    if (!retained[id] && Object.keys(retained).length >= 512) throw new Error("Voice request journal full");
+    retained[id] = record;
+    return { value: { ...state, voiceTurns: retained }, result, changed: true };
   });
+}
+
+function writeAssistantState(patch: Partial<AssistantState>): void {
+  updateJsonObject<AssistantState, void>(ASSISTANT_FILE, current => ({
+    value: { ...current, ...patch, updatedAt: new Date().toISOString() }, result: undefined, changed: true,
+  }));
 }
 
 export function readAssistantSessionId(): string | null {
@@ -152,10 +171,11 @@ const SESSION_FIELDS: Record<AssistantSessionKind, keyof AssistantState> = {
  */
 export function clearAssistantSession(kind: AssistantSessionKind): boolean {
   const field = SESSION_FIELDS[kind];
-  const state = readAssistantState();
-  if (state[field] === undefined) return false;
-  const { [field]: _dropped, ...rest } = state;
-  void _dropped;
-  writeJsonObject(ASSISTANT_FILE, { ...rest, updatedAt: new Date().toISOString() });
-  return true;
+  return updateJsonObject<AssistantState, boolean>(ASSISTANT_FILE, current => {
+    const state = current ?? {};
+    if (state[field] === undefined) return { value: state, result: false, changed: false };
+    const { [field]: _dropped, ...rest } = state;
+    void _dropped;
+    return { value: { ...rest, updatedAt: new Date().toISOString() }, result: true, changed: true };
+  });
 }

@@ -215,6 +215,19 @@ export function reviewTodo(ref: TodoRef, decision: unknown): TodoResult<Todo> {
   });
 }
 
+/** Restore a server-recorded undo snapshot only if the task is unchanged.
+ * Never accept snapshots from HTTP/model input. Refuse rather than displace a
+ * different task the user has since selected as next. */
+export function restoreTodoSnapshot(ref: TodoRef, before: Todo): TodoResult<Todo> {
+  if (!ref.revision || ref.id !== before.id) throw new TodoConflictError();
+  return changeTodo(ref, (todo, todos) => {
+    if (before.next && todos.some(other => other.id !== todo.id && other.next)) throw new TodoConflictError();
+    for (const key of Object.keys(todo)) delete (todo as unknown as Record<string, unknown>)[key];
+    Object.assign(todo, structuredClone(before));
+    return todo;
+  });
+}
+
 export function todoRevision(todos: Todo[]): string {
   return createHash("sha256").update(JSON.stringify(todos)).digest("hex");
 }

@@ -54,6 +54,11 @@ export const ROBIN_TOOL_NAMES = [
  * pinned to the practice repository, where reading and running code is what
  * the session is for and the user can see every tool call.
  */
+/** Spoken commands share Robin's conversation, but may only read/change tasks.
+ * voice_task also requires a live server-owned per-turn grant. No coding,
+ * discovery, mail, calendar, permanent deletion, or nested tool execution. */
+export const ROBIN_VOICE_TOOL_NAMES = ["todo_list", "voice_task"] as const;
+
 export const ROBIN_COACH_TOOL_NAMES = [
   "practice_current",
   "practice_list",

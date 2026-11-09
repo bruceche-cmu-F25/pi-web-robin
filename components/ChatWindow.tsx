@@ -337,7 +337,7 @@ export function ChatWindow({ session, sessionSearchOpen = false, sessionSearchTa
     showScrollToBottom,
     sessionIdRef, scrollContainerRef,
     lastUserMsgRef, promptAnchorActive,
-    handleSend, handleAbort, handleFork, handleEditContent, cancelEdit, handleModelChange,
+    handleSend, handleAbort, handleFork, handleEditContent, cancelEdit, handleModelChange, createVoiceTranscriptSink,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     dismissCompactError,
     handleRecallQueue,
@@ -1202,6 +1202,7 @@ export function ChatWindow({ session, sessionSearchOpen = false, sessionSearchTa
       onSoundToggle={onSoundToggle}
       onAudioUnlock={unlockAudio}
       draftKey={session?.id ?? newSessionDraftKey ?? undefined}
+      createVoiceTranscriptSink={createVoiceTranscriptSink}
       cwd={session?.cwd ?? newSessionCwd}
       onAttachFiles={onAttachFiles}
     />

@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
-import { transcribeVoice, synthesizeVoice, validateVoiceWav } from './voice-domain.ts';
+import test, { after } from 'node:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { applySettingsSection, clearSettingsSection } from './settings.ts';
+const dir = mkdtempSync(join(tmpdir(), 'robin-voice-domain-'));
+process.env.ROBIN_DATA_DIR = dir;
+after(() => rmSync(dir, { recursive: true, force: true }));
+import { transcribeVoice, synthesizeVoice, validateVoiceWav, voiceReadiness } from './voice-domain.ts';
 import { voiceExcerpt } from './voice.ts';
 import { createJiti } from 'jiti';
 const jiti = createJiti(import.meta.url, { tsconfigPaths: true });
@@ -69,6 +76,52 @@ test('concurrent paid requests are bounded and slots are released on cancel', as
   await assert.rejects(synthesizeVoice('hello', signal(), { env, fetch: () => assert.fail() }), { code: 'busy' });
   controllers.forEach(c => c.abort()); await Promise.all(pending);
   await assert.rejects(synthesizeVoice('hello', AbortSignal.abort(), { env, fetch: () => assert.fail() }), { code: 'cancelled' });
+});
+test('Boson uses its fixed endpoint and documented request, with no Alibaba fallback', async () => {
+  let calls = 0;
+  const result = await synthesizeVoice('你好。 Hello.', signal(), { env: { ...env, BOSON_API_KEY: 'bai-secret' }, fetch: async (url, options) => {
+    calls++;
+    assert.equal(url, 'https://api.boson.ai/v1/audio/speech');
+    assert.equal(options.headers.Authorization, 'Bearer bai-secret');
+    assert.equal(options.redirect, 'error');
+    assert.deepEqual(JSON.parse(options.body), { model: 'higgs-tts-3', input: '你好。 Hello.', voice: 'oliver', response_format: 'wav', stream: false });
+    return new Response(bytes());
+  } });
+  assert.equal(calls, 1);
+  assert.deepEqual(result, bytes());
+});
+test('a settings save and removal change synthesis without restart', async () => {
+  try {
+    applySettingsSection('boson', { apiKey: 'bai-saved' });
+    assert.equal(voiceReadiness().ttsConfigured, true);
+    assert.equal(voiceReadiness().ttsModel, 'higgs-tts-3');
+    assert.ok(!JSON.stringify(voiceReadiness()).includes('bai-saved'));
+    await synthesizeVoice('hello', signal(), { env: { BOSON_API_KEY: 'bai-env' }, fetch: async (_, options) => {
+      assert.equal(options.headers.Authorization, 'Bearer bai-saved');
+      return new Response(bytes());
+    } });
+  } finally { clearSettingsSection('boson'); }
+  await assert.rejects(synthesizeVoice('hello', signal(), { env: {}, fetch: () => assert.fail() }), { code: 'setup' });
+});
+test('Boson errors, redirects, JSON and oversized audio are bounded, masked and never retried', async () => {
+  for (const response of [new Response('bai-secret', { status: 401 }), new Response('', { status: 429 }),
+    new Response('', { status: 302, headers: { Location: 'https://attacker.test/' } }),
+    Response.json({ audio: 'unexpected' }), new Response(new Uint8Array(8 * 1024 * 1024 + 1))]) {
+    let calls = 0;
+    await assert.rejects(synthesizeVoice('hello', signal(), { env: { ...env, BOSON_API_KEY: 'bai-secret' }, fetch: async () => {
+      calls++; return response;
+    } }), error => error.code === 'provider' && !error.message.includes('bai-secret'));
+    assert.equal(calls, 1);
+  }
+});
+test('Boson shares concurrency and cancellation bounds with legacy speech', async () => {
+  const controllers = [new AbortController(), new AbortController()];
+  const pending = controllers.map(c => assert.rejects(synthesizeVoice('hello', c.signal, {
+    env: { BOSON_API_KEY: 'bai-test' }, fetch: async (_, options) => new Promise((_, reject) =>
+      options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true })),
+  }), { code: 'cancelled' }));
+  await assert.rejects(synthesizeVoice('hello', signal(), { env, fetch: () => assert.fail() }), { code: 'busy' });
+  controllers.forEach(c => c.abort()); await Promise.all(pending);
 });
 test('spoken excerpts strip code and tables, preserve negation and never split an overlong sentence', () => {
   assert.equal(voiceExcerpt('**不要删除。** 先备份！然后确认？第四句。'), '不要删除。 先备份！然后确认？');

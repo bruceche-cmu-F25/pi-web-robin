@@ -32,7 +32,9 @@ import {
   ROBIN_READ_ONLY_TOOL_NAMES,
   ROBIN_SCORING_TOOL_NAMES,
   ROBIN_TOOL_NAMES,
+  ROBIN_VOICE_TOOL_NAMES,
 } from "@/extension/robin/tools";
+import { withVoiceTaskScope } from "@/extension/robin/voice-action-domain";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { getRpcSession, startRpcSession, type AgentSessionWrapper } from "@/lib/rpc-manager";
 import { resolveSessionPath } from "@/lib/session-reader";
@@ -363,6 +365,29 @@ async function runTurn(
   }).finally(() => recordRobinSessionActivity(session.sessionId, session.sessionFile));
 }
 
+
+/** Same Robin transcript/lock as typed Act, with a narrower runtime allow-list.
+ * SDK allow-lists are fixed at creation: rebuild the idle wrapper, not the
+ * conversation, rather than pretending set_tools can widen/narrow registration.
+ * No browser AbortSignal: ending playback does not roll back a submitted task.
+ */
+export async function runRobinVoiceTurn(requestId: string, message: string, allowTasks: boolean) {
+  return withRobinTurnLock("default", async leaseSignal => {
+    const remembered = readAssistantSessionId();
+    const previous = remembered ? getRpcSession(remembered) : undefined;
+    if (previous?.isRunning()) throw new Error("Robin is still working");
+    if (previous?.isAlive()) await previous.shutdown();
+    const toolNames = allowTasks ? [...ROBIN_VOICE_TOOL_NAMES] : ["todo_list"];
+    const { session, sessionId } = await acquireSession(toolNames, remembered, writeAssistantSessionId);
+    try {
+      const tools = await session.send({ type: "get_tools" }) as Array<{ name: string; active: boolean }>;
+      if (!Array.isArray(tools) || toolNames.some(name => !tools.some(tool => tool.name === name && tool.active))) throw new Error("Voice tools unavailable");
+      session.silenceCompletionNotifications();
+      const result = await withVoiceTaskScope(sessionId, requestId, () => runTurn(session, message, [], TURN_TIMEOUT_MS, true, leaseSignal));
+      return { ...result, sessionId };
+    } finally { await endOneShot(session); }
+  });
+}
 
 /** One turn, in the mode's own session, with the mode's own tools and model. */
 export async function runAssistantTurn(

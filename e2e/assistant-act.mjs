@@ -47,9 +47,9 @@ try {
     const reply = bar.locator('.robin-assistant-reply');
     const refresh = () => page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
     const activate = async () => {
-      await page.getByRole('button', { name: locale === 'en' ? 'Find something' : '找一找', exact: true }).click();
-      await bar.locator('select').selectOption('execute');
-      assert.equal(await bar.locator('button[type="submit"]').count(), 0);
+      await page.getByRole('button', { name: locale === 'en' ? 'Type to Robin' : '写给 Robin', exact: true }).click();
+      assert.equal(await bar.locator('select').count(), 0);
+      assert.equal(await bar.locator('button[type="submit"]').count(), 1, 'A visible Send control accompanies the input');
       assert.equal(await bar.getAttribute('data-mode'), 'execute');
     };
     await page.goto('/dashboard');

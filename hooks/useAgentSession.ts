@@ -983,6 +983,52 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [isNew, newSessionCwd, toolPreset, opts.sideChat]);
 
+  const createVoiceTranscriptSink = useCallback(() => {
+    // Freeze the destination at launch, not at the arrival of a later caption.
+    let target: Promise<string | null> | null = sessionIdRef.current ? Promise.resolve(sessionIdRef.current) : null;
+    let expectedLeaf: string | null | undefined = target ? activeLeafIdRef.current : undefined;
+    let promoted = false;
+    return async (transcript: import("@/lib/voice-transcript").VoiceTranscript) => {
+      target ??= ensureNewSession().catch(error => { target = null; throw error; });
+      const sid = await target;
+      if (!sid) throw new Error("No chat session for voice transcript");
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 15_000);
+      try {
+        const result = await sendAgentCommand<{ entryId: string }>(sid, {
+          type: "append_voice_transcript", transcript, expectedLeaf,
+        }, { signal: controller.signal });
+        expectedLeaf = result.entryId;
+      } finally { clearTimeout(timer); }
+      if (!promoted && sessionHookMountedRef.current && sessionIdRef.current === sid) {
+        promoted = true;
+        promoteNewSession(1, transcript.text);
+      }
+      window.dispatchEvent(new CustomEvent("pi-web:voice-transcript", { detail: sid }));
+    };
+  }, [ensureNewSession, promoteNewSession]);
+
+  useEffect(() => {
+    let live = true, dirty = false, refreshing = false;
+    const changed = async (event: Event) => {
+      const sid = (event as CustomEvent).detail;
+      if (typeof sid !== "string" || sid !== sessionIdRef.current) return;
+      dirty = true;
+      if (refreshing) return;
+      refreshing = true;
+      try {
+        while (live && dirty && sid === sessionIdRef.current) {
+          dirty = false;
+          // A read begun before the append may be stale; do not join it as our refresh.
+          await Promise.allSettled([...loadFlightsRef.current.values()]);
+          if (live && sid === sessionIdRef.current) await loadSession(sid);
+        }
+      } finally { refreshing = false; }
+    };
+    window.addEventListener("pi-web:voice-transcript", changed);
+    return () => { live = false; window.removeEventListener("pi-web:voice-transcript", changed); };
+  }, [loadSession]);
+
   // Opening the System or Tools panel may initialize an otherwise dormant
   // session. This is deliberately a non-prompt command: it creates no message
   // or model run, but lets users inspect the exact prompt before sending one.
@@ -2788,6 +2834,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   return {
     // State
     data, loading, error, activeLeafId, messages, activeToolResults, entryIds, messageKeys, historyCursor, hasEarlierMessages, earlierTurnCount, streamingStore,
+    createVoiceTranscriptSink,
     agentRunning, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, modelSwitching, sessionStats, autoCompactionEnabled,

@@ -5,6 +5,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, type ComponentType, type SVGProps } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "@/hooks/useI18n";
+import { CompanionLauncher } from "./CompanionLauncher";
 import { useIsSplitLayout } from "@/hooks/useIsMobile";
 import { setNavigationPlacement, useNavigationPlacement } from "@/hooks/useNavigationPlacement";
 import { getInitialNavigation } from "@/lib/initial-navigation";
@@ -373,9 +374,9 @@ export function RobinMargin({ drawer, onClose, onNavigate, chatContext }: {
       </nav>
 
       <nav className="robin-nav-utility" aria-label={t("robin.nav.utilityNavigation")}>
-        {utilityItems.map((item) => (
-          <NavEntry key={item.path} item={item} pathname={pathname} onNavigate={onNavigate} />
-        ))}
+        <NavEntry item={utilityItems[0]} pathname={pathname} onNavigate={onNavigate} />
+        {!chatContext && <CompanionLauncher navigation onOpen={onNavigate} />}
+        <NavEntry item={utilityItems[1]} pathname={pathname} onNavigate={onNavigate} />
       </nav>
       </>}
     </div>

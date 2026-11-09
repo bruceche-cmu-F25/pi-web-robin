@@ -10,6 +10,7 @@ process.env.ROBIN_DATA_DIR = dir;
 
 const {
   applySettingsSection,
+  bosonApiKey,
   clearSettingsSection,
   settingsView,
   clearGoogleCredentials,
@@ -51,12 +52,38 @@ beforeEach(() => {
   clearNotion();
   clearPlaywrightExtensionToken();
   clearTelegram();
+  clearSettingsSection("boson");
+  delete process.env.BOSON_API_KEY;
   delete process.env.ROBIN_GOOGLE_CLIENT_ID;
   delete process.env.ROBIN_GOOGLE_CLIENT_SECRET;
   delete process.env.NOTION_API_TOKEN;
   delete process.env.PLAYWRIGHT_MCP_EXTENSION_TOKEN;
   delete process.env.TELEGRAM_BOT_TOKEN;
   delete process.env.TELEGRAM_ALLOWED_CHAT_IDS;
+});
+
+test("Boson key is write-only, overrides env immediately and preserves other settings", () => {
+  process.env.BOSON_API_KEY = "bai-env-secret";
+  setNotionToken("secret-notion-preserved");
+  assert.equal(bosonApiKey(), "bai-env-secret");
+  assert.deepEqual(settingsView().boson, { set: true, source: "env" });
+  const saved = applySettingsSection("boson", { apiKey: "  bai-file-secret  " });
+  assert.deepEqual(saved, { boson: { set: true, source: "file" } });
+  assert.equal(bosonApiKey(), "bai-file-secret");
+  assert.equal(notionSettings().apiToken, "secret-notion-preserved");
+  assert.ok(!JSON.stringify(settingsView()).includes("bai-"));
+  assert.equal(statSync(secretsPath()).mode & 0o777, 0o600);
+  assert.deepEqual(clearSettingsSection("boson"), { boson: { set: true, source: "env" } });
+  assert.equal(bosonApiKey(), "bai-env-secret");
+  delete process.env.BOSON_API_KEY;
+  assert.deepEqual(settingsView().boson, { set: false });
+});
+test("invalid Boson keys never overwrite a working credential or echo supplied text", () => {
+  applySettingsSection("boson", { apiKey: "bai-keep-this" });
+  for (const apiKey of [undefined, null, 1, {}, "", "  ", "private key", "secret\nheader", "x".repeat(4097)]) {
+    assert.throws(() => applySettingsSection("boson", { apiKey }), { message: "Enter a valid Boson API key" });
+    assert.equal(bosonApiKey(), "bai-keep-this");
+  }
 });
 
 test("describeSecret never reveals the value", () => {

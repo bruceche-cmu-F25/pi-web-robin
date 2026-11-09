@@ -1,13 +1,16 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import type { VoiceReadiness } from "@/extension/robin/voice";
 import { ConfigButton, ConfigDetailActions, ConfigDetailGrid, ConfigDetailGridRow } from "../SettingsUi";
+import { useRobinVoice } from "./useRobinVoice";
 
-/** Read-only diagnostics. Only the explicit microphone check requests access. */
-export function VoiceSettings() {
+/** Diagnostics never capture audio; preview is an explicit, billed TTS request. */
+export function VoiceSettings({ children, previewDisabled = false }: { children?: ReactNode; previewDisabled?: boolean }) {
   const { t } = useI18n();
+  const speech = useRobinVoice(() => {});
+  const previewing = speech.phase === "synthesizing" || speech.phase === "speaking";
   const [permission, setPermission] = useState<PermissionState | "unknown">("unknown");
   const [availability, setAvailability] = useState<"checking" | "ready" | "insecure" | "unsupported">("checking");
   const [config, setConfig] = useState<VoiceReadiness | null>(null);
@@ -94,6 +97,7 @@ export function VoiceSettings() {
         </ConfigDetailGridRow>
         <ConfigDetailGridRow label={t("voice.replyService")}>
           {t(failed ? "voice.configFailed" : !config ? "voice.checking" : config.ttsConfigured ? "voice.ttsReady" : "voice.ttsOff")}
+          {config?.ttsConfigured && <span> · {config.ttsModel}</span>}
         </ConfigDetailGridRow>
       </ConfigDetailGrid>
     </div>
@@ -105,6 +109,19 @@ export function VoiceSettings() {
     </ConfigDetailActions>
     <p>{t("voice.microphoneCheckHint")}</p>
     {result && <p role={result === "ok" ? "status" : "alert"} style={{ color: result === "ok" ? "var(--text)" : "var(--danger)" }}>{t(`voice.micResult.${result}`)}</p>}
+    {children}
+    <p>{t("voice.bosonPreviewHint")}</p>
+    <p>{t("voice.bosonSample")}</p>
+    <ConfigDetailActions>
+      <ConfigButton disabled={previewDisabled || previewing || !config?.ttsConfigured || config.ttsModel !== "higgs-tts-3"}
+        onClick={() => speech.readReply(t("voice.bosonSample"))}>
+        {t(speech.phase === "synthesizing" ? "voice.bosonGenerating" : "voice.bosonPreview")}
+      </ConfigButton>
+      {(previewing || speech.audioUrl) && <ConfigButton onClick={speech.end}>{t("voice.stopSpeech")}</ConfigButton>}
+    </ConfigDetailActions>
+    {speech.error && <p role="alert" style={{ color: "var(--danger)" }}>{t(`voice.error.${speech.error}`)}</p>}
+    <audio ref={speech.audioRef} controls hidden={!speech.audioUrl} aria-label={t("voice.bosonPreview")}
+      style={{ width: "100%" }} onEnded={speech.playbackEnded} onPause={speech.playbackPaused} onPlay={speech.playbackStarted} />
     <h3>{t("voice.permissionGuide")}</h3>
     <p>{t("voice.permissionHelp")}</p>
     <p>{t("voice.chromePermissionHelp")}</p>

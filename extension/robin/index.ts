@@ -26,9 +26,11 @@ import { registerProviderTools } from "./provider-tools.ts";
 import { registerRoundTools } from "./round-tools.ts";
 import { listTodos } from "./todo-domain.ts";
 import { registerTodoTools } from "./todo-tools.ts";
+import { registerVoiceActionTools } from "./voice-action-tools.ts";
 
 const robin = (pi: ExtensionAPI) => {
   registerTodoTools(pi);
+  registerVoiceActionTools(pi);
   registerLinkTools(pi);
   registerNotionTools(pi);
   registerObsidianTools(pi);

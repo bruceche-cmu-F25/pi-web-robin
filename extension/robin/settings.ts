@@ -20,7 +20,7 @@
  * lingering environment variable is never a silent surprise.
  */
 import { chmodSync } from "node:fs";
-import { dataPath, readJsonObject, writeJsonObject } from "./paths.ts";
+import { dataPath, readJsonObject, writeJsonObject, updateJsonObject } from "./paths.ts";
 
 const SECRETS_FILE = "secrets.json";
 const CLOCK_TIME = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
@@ -173,6 +173,7 @@ export interface GoogleCalendarSource {
 }
 
 export interface RobinSecrets {
+  boson?: { apiKey?: string };
   notifications?: { channel: NotificationChannel };
   outreachGoogle?: { clientId?: string; clientSecret?: string };
   google?: {
@@ -245,6 +246,26 @@ export function describeSecret(value: string | undefined, source: SecretSource |
     hint: value.slice(-4),
     length: value.length,
   };
+}
+
+/** Boson TTS is independent from local recognition and Telegram transcription. */
+export function bosonApiKey(env = process.env): string | undefined {
+  return pick(read().boson?.apiKey, env.BOSON_API_KEY).value;
+}
+
+export function describeBoson() {
+  const { value, source } = pick(read().boson?.apiKey, process.env.BOSON_API_KEY);
+  // No credential tail: presence and source are sufficient for this form.
+  return { set: !!value, ...(source ? { source } : {}) };
+}
+
+function setBosonKey(value: unknown): void {
+  if (typeof value !== "string" || !value.trim() || value.length > 4096 || /\s/.test(value.trim())) {
+    throw new Error("Enter a valid Boson API key");
+  }
+  updateJsonObject<RobinSecrets, void>(SECRETS_FILE, secrets => ({
+    value: { ...secrets, boson: { apiKey: value.trim() } }, result: undefined, changed: true,
+  }));
 }
 
 /* ---------- Google ---------- */
@@ -665,11 +686,12 @@ export function parseChatIds(raw: string | undefined): number[] {
  * setters and knew the shape of every field. Adding a setting meant editing
  * two files.
  */
-export const SETTINGS_SECTIONS = ["google", "googleCalendars", "notion", "playwright", "telegram", "notifications"] as const;
+export const SETTINGS_SECTIONS = ["google", "googleCalendars", "notion", "playwright", "telegram", "notifications", "boson"] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 /** Configuration state as the screen renders it — presence and origin, never a secret. */
 export interface SettingsView {
+  boson: ReturnType<typeof describeBoson>;
   notifications: ReturnType<typeof notificationSettings>;
   google: ReturnType<typeof describeGoogle>;
   notion: ReturnType<typeof describeNotion>;
@@ -683,6 +705,7 @@ export type SettingsResult<T> = T | { error: string; status?: number };
 
 export function settingsView(): SettingsView {
   return {
+    boson: describeBoson(),
     notifications: notificationSettings(),
     google: describeGoogle(),
     notion: describeNotion(),
@@ -808,6 +831,9 @@ export function applySettingsSection(
   body: Record<string, unknown>,
 ): SettingsResult<Partial<SettingsView>> {
   switch (section) {
+    case "boson":
+      setBosonKey(body.apiKey);
+      return { boson: describeBoson() };
     case "google": return applyGoogle(body);
     case "googleCalendars": return applyGoogleCalendars(body);
     case "notion":
@@ -828,6 +854,14 @@ export function applySettingsSection(
 /** Forget one section's credentials; the environment becomes the fallback again. */
 export function clearSettingsSection(section: unknown): SettingsResult<Partial<SettingsView>> {
   switch (section) {
+    case "boson": {
+      updateJsonObject<RobinSecrets, void>(SECRETS_FILE, secrets => {
+        const next = { ...secrets };
+        delete next.boson;
+        return { value: next, result: undefined, changed: !!secrets?.boson };
+      });
+      return { boson: describeBoson() };
+    }
     case "google":
       clearGoogleCredentials();
       return { google: describeGoogle() };
@@ -841,7 +875,7 @@ export function clearSettingsSection(section: unknown): SettingsResult<Partial<S
       clearTelegram();
       return { telegram: describeTelegram() };
     default:
-      return { error: 'section must be "google", "notion", "playwright", or "telegram"' };
+      return { error: 'section must be "google", "notion", "playwright", "telegram", or "boson"' };
   }
 }
 

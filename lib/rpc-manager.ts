@@ -5,6 +5,7 @@ import { randomUUID } from "crypto";
 import { existsSync, realpathSync, writeFileSync } from "fs";
 import { resolve } from "path";
 import { validateAgentImages } from "./image-attachments";
+import { appendVoiceTranscript } from "./session-voice-transcript";
 import { assertSessionWritable, onSessionStorageFailure, sessionStorageFailure } from "./session-storage-guard";
 import { invalidateModelsCache } from "./models-cache";
 import { invalidateModelRuntimeWithExtensions } from "./model-runtime";
@@ -869,6 +870,18 @@ export class AgentSessionWrapper {
       }
 
       switch (type) {
+      case "append_voice_transcript": {
+        if (this.isRunning()) throw new Error("Chat is busy; voice transcript was not appended");
+        const result = appendVoiceTranscript(this.inner.sessionManager, command.transcript, command.expectedLeaf);
+        if (result.message) {
+          if (this.sessionFile) cacheSessionPath(this.sessionId, this.sessionFile);
+          invalidateSessionListCache();
+          // Pi rebuilds provider context from this manager before every request.
+          // Notify viewers only; do not prompt, steer, run hooks or send a completion push.
+          this.emit({ type: "message_end", message: result.message });
+        }
+        return { entryId: result.entryId, duplicate: result.duplicate };
+      }
       case "prompt": {
         // Serialize only admission. Once the preceding prompt has either
         // passed or failed preflight, the SDK can atomically decide whether

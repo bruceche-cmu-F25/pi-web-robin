@@ -54,7 +54,8 @@ test('local dictation needs no cloud key; sanitized child args/env, private temp
 test('readiness separates local ASR from optional TTS and reveals no paths', () => {
   const saved = { ...process.env }, env = config();
   try {
-    delete process.env.ROBIN_VOICE_API_KEY; delete process.env.DASHSCOPE_API_KEY;
+    delete process.env.ROBIN_VOICE_API_KEY; delete process.env.DASHSCOPE_API_KEY; delete process.env.BOSON_API_KEY;
+    process.env.ROBIN_DATA_DIR = dir;
     process.env.ROBIN_VOICE_WHISPER_BIN = env.ROBIN_VOICE_WHISPER_BIN;
     process.env.ROBIN_VOICE_WHISPER_MODEL = env.ROBIN_VOICE_WHISPER_MODEL;
     assert.deepEqual(voiceReadiness(), { configured: true, ttsConfigured: false, asrModel: 'whisper.cpp (local)', ttsModel: 'qwen3-tts-flash' });

@@ -1,0 +1,78 @@
+.launcher {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--text);
+  color: var(--bg);
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+/* Toolbar parents may set button ink; keep the filled voice control's glyph paired with its fill. */
+.launcher svg { color: var(--bg); }
+.navLauncher { cursor: pointer; font: inherit; }
+.panel {
+  position: fixed;
+  inset-inline: 0;
+  top: calc(var(--companion-top, 0px) + var(--companion-height, 100dvh) / 2);
+  bottom: auto;
+  transform: translateY(-50%);
+  margin: 0 auto;
+  width: min(420px, calc(100vw - 24px));
+  max-height: calc(var(--companion-height, 100dvh) - 24px - env(safe-area-inset-bottom));
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--panel-radius, 24px);
+  background: var(--bg-panel);
+  color: var(--text);
+  font: 14px/1.5 var(--font-ui);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.panel[open] { display: flex; flex-direction: column; }
+.panel:not([open]), .panel [hidden] { display: none !important; }
+.panel::backdrop { background: rgb(0 0 0 / 18%); }
+.header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 16px; flex-shrink: 0; }
+.header h2 { font: 500 15px/1.5 var(--font-ui); }
+.header h2 span { font-size: 12px; font-weight: 400; color: var(--text-muted); margin-inline-start: 6px; }
+.panel button { min-height: 44px; min-width: 44px; border: 0; border-radius: var(--control-radius, 12px); padding: 8px 12px; background: var(--bg-hover); color: var(--text); cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; user-select: none; }
+.panel button:disabled { opacity: .5; cursor: default; }
+.panel button:active:not(:disabled), .launcher:active { opacity: .7; }
+.panel :is(button, input, textarea, select, a, summary):focus-visible, .launcher:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.header button { background: transparent; color: var(--text-muted); font-size: 13px; }
+.voice { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 8px 20px 20px; flex-shrink: 0; }
+.glyph { color: var(--text-muted); height: 48px; }
+.glyph[data-active="true"] { color: var(--accent); }
+.status { font-size: 19px; font-weight: 500; text-align: center; }
+.callControls { display: flex; justify-content: center; gap: 20px; }
+.callControls button { width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; padding: 0; }
+.callControls button[aria-pressed="true"] { background: var(--danger-soft); color: var(--danger); }
+.callControls .end { background: var(--text); color: var(--bg); }
+.consent { font-size: 12px; color: var(--text-muted); text-align: center; }
+.receipt { width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: var(--control-radius, 12px); overflow-wrap: anywhere; }
+.receipt p { margin-bottom: 6px; }
+.error { color: var(--danger); text-align: center; font-size: 13px; overflow-wrap: anywhere; }
+.transcript { min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 16px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 12px; }
+.context, .help { color: var(--text-muted); font-size: 13px; overflow-wrap: anywhere; }
+.context select { display: block; width: 100%; min-height: 44px; margin-top: 4px; padding: 8px; border: 1px solid var(--border); border-radius: var(--control-radius, 12px); background: var(--bg); color: var(--text); font: 16px var(--font-ui); }
+.messages { display: flex; flex-direction: column; gap: 12px; }
+.messages p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.user { align-self: flex-end; border-radius: var(--card-radius, 16px); padding: 10px 12px; background: var(--user-bg); max-width: 94%; }
+.assistant { padding-block: 4px; }
+.composer textarea { width: 100%; min-height: 76px; max-height: 160px; resize: vertical; border: 1px solid var(--border); border-radius: var(--card-radius, 14px); background: var(--bg); color: var(--text); font: inherit; font-size: 16px; padding: 10px 12px; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.help summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; }
+.help p { margin-bottom: 10px; }
+.help button { margin-inline-end: 8px; margin-block-start: 4px; }
+.panel a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.transcript blockquote { border-inline-start: 2px solid var(--border); padding-inline-start: 10px; overflow-wrap: anywhere; }
+.audio { width: calc(100% - 32px); height: 44px; margin: 0 16px 12px; flex-shrink: 0; }
+@media (hover: hover) and (pointer: fine) { .panel button:hover:not(:disabled) { background: var(--bg-selected); color: var(--text); } .launcher:hover { opacity: .85; } }
+@media (max-height: 400px) { .voice { gap: 6px; padding-bottom: 10px; } .glyph { display: none; } }
+@media (prefers-contrast: more) { .panel { border: 2px solid var(--text); } }
+@media (forced-colors: active) { .panel button, .launcher { border: 1px solid ButtonText; } }
