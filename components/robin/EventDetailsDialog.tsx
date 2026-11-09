@@ -111,7 +111,9 @@ export function EventDetailsDialog({
     })}`;
   const readOnly = isReadOnlyEvent(event);
   const planner = event.source === "planner";
-  const calendarUrl = externalUrl(event.url) ?? (event.source === "google" ? "https://calendar.google.com/calendar/u/0/r" : null);
+  const study = event.source === "study";
+  const calendarUrl = (study && event.url?.startsWith("/") && !event.url.startsWith("//") && !event.url.includes("\\") ? event.url : externalUrl(event.url))
+    ?? (event.source === "google" ? "https://calendar.google.com/calendar/u/0/r" : null);
   const meetingUrl = externalUrl(event.meetingUrl);
   const copyUrl = meetingUrl ?? calendarUrl;
   const locationUrl = event.location
@@ -141,7 +143,7 @@ export function EventDetailsDialog({
           <div className="min-w-0">
             <p className="pi-eyebrow mb-1">
               {readOnly
-                ? t("robin.calendar.readOnlySource", { calendar: event.calendar ?? "Google" })
+                ? study ? (locale.startsWith("zh") ? "学习日程" : "Study schedule") : t("robin.calendar.readOnlySource", { calendar: event.calendar ?? "Google" })
                 : t("robin.calendar.localEvent")}
             </p>
             <h2 id={titleId} className="text-xl leading-tight" style={{ color: "var(--text)" }}>
@@ -160,7 +162,7 @@ export function EventDetailsDialog({
         </header>
 
         <div className="min-h-0 overflow-y-auto px-4 py-4">
-          {readOnly && <p id={noticeId} role="status" className="mb-3 text-sm">{t(planner ? "planner.editInPlanner" : "robin.calendar.editInGoogleHint")}</p>}
+          {readOnly && <p id={noticeId} role="status" className="mb-3 text-sm">{study ? (locale.startsWith("zh") ? "在学习中心调整此日程" : "Edit this session in Learning Hub") : t(planner ? "planner.editInPlanner" : "robin.calendar.editInGoogleHint")}</p>}
           {error && <p role="alert" className="mb-3 text-sm" style={{ color: "var(--accent)" }}>{error}</p>}
           <dl className="flex flex-col gap-4">
             <DetailRow label={t("robin.calendar.date")}>{dateLabel}</DetailRow>
@@ -229,7 +231,7 @@ export function EventDetailsDialog({
               rel="noreferrer"
               className="ui-action ui-action--outline-soft flex min-h-11 items-center px-3"
             >
-              {t(readOnly ? "robin.calendar.editInGoogle" : "robin.calendar.openCalendar")}
+              {study ? (locale.startsWith("zh") ? "打开学习资源 ↗" : "Open study resource ↗") : t(readOnly ? "robin.calendar.editInGoogle" : "robin.calendar.openCalendar")}
             </a>
           )}
           {copyUrl && (

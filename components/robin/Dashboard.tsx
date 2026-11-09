@@ -1,13 +1,14 @@
 "use client";
 
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { localDate, parseLocalDate } from "@/extension/robin/dates";
 import { useIsSplitLayout } from "@/hooks/useIsMobile";
 import { writeUrlState } from "@/lib/url-state";
 import { AssistantBar } from "./AssistantBar";
-import { RobinVoice } from "./RobinVoice";
+import { CompanionLauncher } from "./CompanionLauncher";
 import { CalendarPanel } from "./CalendarPanel";
 import { WorkQueuePanel } from "./WorkQueuePanel";
 import { PlannerPanel } from "./PlannerPanel";
@@ -17,10 +18,10 @@ import { LearningPanel } from "./LearningPanel";
 import { LinksPanel } from "./LinksPanel";
 import { TodoPanel } from "./TodoPanel";
 import { DailyOverview } from "./DailyOverview";
+import { BriefBoard } from "./BriefBoard";
 import { ChatReviews } from "./ChatReviews";
 import { usePolledResource } from "./usePolledResource";
 import type { SessionReviewsResponse } from "@/lib/session-reviews";
-import { DashboardQuickAdd } from "./DashboardQuickAdd";
 import { DashboardDirectory } from "./DashboardDirectory";
 import { DashboardDisclosure, DashboardPane } from "./DashboardDisclosure";
 import { DASHBOARD_VIEWS, dashboardView, type DashboardView } from "./dashboard-view";
@@ -48,16 +49,18 @@ export function Dashboard() {
   const footerRef = useRef<HTMLElement>(null);
   useLayoutEffect(() => {
     const workspace = workspaceRef.current, header = headerRef.current, footer = footerRef.current;
-    if (desktop || !workspace || !header || !footer || typeof ResizeObserver === "undefined") return;
+    if (!workspace || !header || typeof ResizeObserver === "undefined") return;
     // Measure actual chrome, including safe areas, wrapping and keyboard hiding.
     // CSS alone enables overlap in Glass; ordinary themes keep their flow layout.
     const measure = () => {
       workspace.style.setProperty("--dashboard-header-height", `${header.offsetHeight}px`);
-      workspace.style.setProperty("--dashboard-footer-height", `${footer.offsetHeight}px`);
+      workspace.style.setProperty("--dashboard-footer-height", `${footer?.offsetHeight ?? 0}px`);
       workspace.dataset.chromeMeasured = "true";
     };
     const observer = new ResizeObserver(measure);
-    observer.observe(header, { box: "border-box" }); observer.observe(footer, { box: "border-box" }); measure();
+    observer.observe(header, { box: "border-box" });
+    if (footer) observer.observe(footer, { box: "border-box" });
+    measure();
     return () => {
       observer.disconnect(); delete workspace.dataset.chromeMeasured;
       workspace.style.removeProperty("--dashboard-header-height");
@@ -112,7 +115,6 @@ export function Dashboard() {
     <header ref={headerRef} className={`robin-dashboard-header ${styles.header}`}>
       <DashboardPane id="dashboard-desktop-assistant" active={desktop} className={`${styles.frame} ${styles.desktopToolbar}`}>
         <div className={styles.desktopSearch}><AssistantBar active={desktop} /></div>
-        {desktop && <RobinVoice />}
       </DashboardPane>
       {!desktop && <section className={styles.mobileHead} aria-label={t("daily.navigation")}>
         <div className={styles.pageTitle}>
@@ -124,14 +126,27 @@ export function Dashboard() {
           <button type="button" className="ui-action" onClick={() => launch("search")} aria-label={t("daily.search")}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></svg>
           </button>
-          <RobinVoice />
-          <DashboardQuickAdd href={contextHref} onAssistant={() => launch("execute")} />
         </div>
+        <button type="button" className={styles.agentEntry} onClick={() => launch("execute")} aria-haspopup="dialog">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M7 9h2m3 0h2m3 0h1M7 13h10m-7 3h4" /></svg>
+          <span>{t("daily.askRobin")}</span>
+          <svg className={styles.agentArrow} width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg>
+        </button>
       </section>}
     </header>
     <div ref={scrollRef} className={`robin-page flex-1 overflow-y-auto ${styles.viewport}`}>
       <main className={styles.frame}>
-        {desktop && <div className={styles.desktopHead}><h1>{t("daily.navigation")}</h1><p>{heading}</p></div>}
+        {desktop && <div className={styles.desktopHead}>
+          <h1>{t("daily.navigation")}</h1>
+          <div className={styles.desktopHeadActions}>
+            <p>{heading}</p>
+            <Link href={contextHref("/tools")} prefetch={false} className={`ui-action ui-action--outline ${styles.desktopToolLink}`}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14 6a5 5 0 00-6 6L3 17a3 3 0 004 4l5-5a5 5 0 006-6l-3 3-4-4z" /></svg>
+              {t("toolbox.shortcut")}
+            </Link>
+          </div>
+        </div>}
+        {desktop && <div className={styles.desktopBrief}><BriefBoard compact today={today ?? ""} /></div>}
         <DashboardPane id="dashboard-daily-view" active={!desktop && view === "daily"}>
           <ChatReviews resource={reviews} />
           <DailyOverview />
@@ -141,26 +156,35 @@ export function Dashboard() {
             <CalendarPanel />
           </DashboardPane>
           <DashboardPane id="dashboard-todos-view" active={desktop || view === "todos"} className={styles.rail}>
-            <TodoPanel embedded={desktop} />
             {desktop && <LinksPanel placement="daily" embedded />}
+            <TodoPanel embedded={desktop} />
           </DashboardPane>
           <DashboardPane id="dashboard-more-view" active={desktop || view === "more"} className={styles.extras}>
             {!desktop && <><DashboardDirectory href={contextHref} /><h2 className={styles.inlineToolsTitle}>{t("daily.inlineTools")}</h2></>}
-            <PlannerPanel compact />
-            <DashboardDisclosure id="dashboard-work-queue" title={t("daily.queue")} description={desktop ? undefined : t("daily.queueHint")}><WorkQueuePanel /></DashboardDisclosure>
-            {desktop && <AttentionPanel />}
-            <DashboardDisclosure id="dashboard-links" title={t("daily.linksAll")} description={desktop ? undefined : t("daily.linksHint")}><LinksPanel placement={desktop ? "other" : "all"} /></DashboardDisclosure>
-            <DashboardDisclosure id="fullstack-open" title={t(desktop ? "learn.title" : "daily.learningPreview")} description={desktop ? undefined : t("daily.learningHint")}><LearningPanel /></DashboardDisclosure>
-            <DashboardDisclosure id="dashboard-jobs" title={t(desktop ? "robin.jobs.title" : "daily.jobsPreview")} description={desktop ? undefined : t("daily.jobsHint")}><JobsPanel /></DashboardDisclosure>
+            <PlannerPanel compact={!desktop} />
+            <DashboardDisclosure id="dashboard-work-queue" title={t(desktop ? "daily.focusPreview" : "daily.queue")} description={t("daily.queueHint")}><WorkQueuePanel /></DashboardDisclosure>
+            {desktop ? <>
+              <AttentionPanel />
+              <LearningPanel homePreview />
+              <JobsPanel />
+              <LinksPanel placement="other" embedded />
+            </> : <>
+              <DashboardDisclosure id="dashboard-links" title={t("daily.linksAll")} description={t("daily.linksHint")}><LinksPanel placement="all" /></DashboardDisclosure>
+              <DashboardDisclosure id="fullstack-open" title={t("daily.learningPreview")} description={t("daily.learningHint")}><LearningPanel /></DashboardDisclosure>
+              <DashboardDisclosure id="dashboard-jobs" title={t("daily.jobsPreview")} description={t("daily.jobsHint")}><JobsPanel /></DashboardDisclosure>
+            </>}
           </DashboardPane>
         </div>
       </main>
     </div>
     {!desktop && <footer ref={footerRef} className={styles.mobileFooter}>
       <nav className={`robin-dashboard-dock ${styles.bottomNav}`} aria-label={t("daily.navigation")}>
-        {DASHBOARD_VIEWS.map((key) => <button key={key} type="button" className="ui-action" data-view={key} aria-current={view === key ? "page" : undefined} aria-controls={`dashboard-${key}-view`} onClick={() => select(key)}>
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d={ICONS[key]} /></svg><span>{t(`daily.view.${key}`)}</span>
-        </button>)}
+        {DASHBOARD_VIEWS.map((key, index) => <Fragment key={key}>
+          {index === 2 && <CompanionLauncher />}
+          <button type="button" className="ui-action" data-view={key} aria-current={view === key ? "page" : undefined} aria-controls={`dashboard-${key}-view`} onClick={() => select(key)}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d={ICONS[key]} /></svg><span>{t(`daily.view.${key}`)}</span>
+          </button>
+        </Fragment>)}
       </nav>
     </footer>}
   </div>;

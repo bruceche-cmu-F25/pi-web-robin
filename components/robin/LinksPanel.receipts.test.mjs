@@ -4,8 +4,9 @@ import { linkSections } from "../../extension/robin/link-families.ts";
 import { deferred, findElement, hookHarness, settle } from "../../scripts/react-hook-harness.mjs";
 
 const link = { id: "fixture", title: "Original", url: "https://example.com/old", group: "Test" };
-function panelHarness() {
+function panelHarness({ group = "Test", placement = "all" } = {}) {
   const requests = [];
+  let locale = "en";
   const resource = hookHarness(new URL("./usePolledResource.ts", import.meta.url), {
     "./refreshBus": { onRefreshRequest: () => () => {} },
     "@/hooks/useI18n": { useI18n: () => ({ t: String }) },
@@ -20,7 +21,7 @@ function panelHarness() {
   });
   let currentResource;
   const panel = hookHarness(new URL("./LinksPanel.tsx", import.meta.url), {
-    "@/hooks/useI18n": { useI18n: () => ({ t: (key, values) => key + (values?.title ? `:${values.title}` : "") }) },
+    "@/hooks/useI18n": { useI18n: () => ({ t: (key, values) => key === "daily.shortcuts" ? (locale === "en" ? "Everyday links" : "日常入口") : key + (values?.title ? `:${values.title}` : "") }) },
     "@/hooks/useIsMobile": { useIsMobile: () => false, useIsSplitLayout: () => true },
     "./SavedLinkLaunch": { SavedLinkLaunch: function SavedLinkLaunch() {} },
     "./SavedLinkIcon": { useLinkIconBackfill() {} }, "./usePopoverDismiss": {},
@@ -30,20 +31,43 @@ function panelHarness() {
       usePolledResource: (...args) => (currentResource = resource.render(() => resource.exports.usePolledResource(...args))),
     },
   }, { Error, window: { confirm: () => true } });
-  const render = () => panel.render(() => panel.exports.LinksPanel({}));
+  const render = () => panel.render(() => panel.exports.LinksPanel({ placement }));
   const input = field => findElement(render(), node => node.type === "input" && node.props["aria-label"] === `robin.links.${field}Placeholder`)?.props;
   const button = label => findElement(render(), node => node.type === "button" && (node.props["aria-label"] === label || node.props.children === label))?.props;
   return {
     requests, render, input, button,
+    setLocale(next) { locale = next; },
     shown: () => findElement(render(), node => node.type?.name === "SavedLinkLaunch")?.props.link,
     refresh: () => currentResource.refresh(),
     respond(request, body, status = 200) { request.resolve({ ok: status < 400, status, text: async () => JSON.stringify(body), json: async () => body }); },
-    async load() { render(); this.respond(requests[0], { links: [link] }); await settle(); render(); },
+    async load() { render(); this.respond(requests[0], { links: [{ ...link, group }] }); await settle(); render(); },
     edit() { button("robin.links.edit:Original").onClick(); input("name").onChange({ target: { value: "Edited" } }); },
     async offlineRefresh() { await settle(); this.respond(requests.at(-1), { error: "Read offline" }, 503); await settle(); },
     unmount() { panel.unmount(); resource.unmount(); },
   };
 }
+
+for (const placement of ["all", "daily"]) test(`${placement} links localize the built-in group without changing its stored name`, async () => {
+  const h = panelHarness({ group: "日常入口", placement });
+  try {
+    await h.load();
+    const label = (value) => findElement(h.render(), node => node.type === (placement === "daily" ? "h2" : "h3") && node.props.children === value);
+    assert.ok(label("Everyday links"), "English label is displayed");
+    h.setLocale("zh-CN");
+    assert.ok(label("日常入口"));
+    h.setLocale("en");
+    assert.ok(label("Everyday links"));
+    assert.equal(h.shown().group, "日常入口");
+    if (placement === "daily") {
+      h.button("robin.common.add").onClick();
+      h.input("url").onChange({ target: { value: "https://example.com/new" } });
+      findElement(h.render(), node => node.type === "form").props.onSubmit({ preventDefault() {} });
+      assert.equal(h.requests.at(-1).body.group, "日常入口");
+      h.respond(h.requests.at(-1), { link: { ...link, group: "日常入口", id: "new" } });
+      await settle();
+    }
+  } finally { h.unmount(); }
+});
 
 test("failed edits retain both fields and a retry action; double submission is fenced", async () => {
   const h = panelHarness();

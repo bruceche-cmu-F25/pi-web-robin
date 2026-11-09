@@ -50,6 +50,29 @@ try {
     await page.addStyleTag({ content: 'nextjs-portal{display:none!important}' });
     const shortcuts = page.locator('#daily-shortcuts');
     await shortcuts.locator('.robin-saved-link').first().waitFor();
+    if (platform !== 'desktop') {
+      const agentEntry = page.getByRole('button', { name: '写给 Robin', exact: true });
+      assert.ok((await agentEntry.boundingBox()).height >= 44, 'Agent entry is a full-width touch target');
+      await agentEntry.click();
+      const palette = page.locator('.robin-command-dialog[open]');
+      await palette.waitFor();
+      assert.equal(await palette.locator('.robin-assistant-bar').getAttribute('data-mode'), 'execute');
+      assert.equal(await palette.locator('.robin-assistant-modes').count(), 0, 'Typing and search have separate entrances');
+      assert.equal(await palette.locator('.robin-command-dialog__hint').count(), 0, 'No instructional copy in the Dashboard palette');
+      const send = palette.getByRole('button', { name: '发送', exact: true });
+      assert.equal(await send.isDisabled(), true, 'Send is present but requires a draft');
+      const form = palette.locator('.robin-assistant-form');
+      assert.ok((await form.boundingBox()).height >= 56 && (await send.boundingBox()).width >= 44, 'Input and Send are full-sized controls');
+      assert.equal(await palette.locator('input').evaluate(el => getComputedStyle(el).fontSize), '16px', 'iOS does not zoom the composer');
+      await page.waitForFunction(() => document.activeElement === document.querySelector('.robin-command-dialog[open] input'));
+      assert.deepEqual(writes, [], 'Opening the agent does not execute a task');
+      await palette.getByRole('button', { name: '关闭', exact: true }).click();
+      await page.getByRole('button', { name: '找一找', exact: true }).click();
+      await page.waitForFunction(() => document.querySelector('.robin-command-dialog[open] .robin-assistant-bar')?.dataset.mode === 'search');
+      assert.equal(await palette.locator('.robin-assistant-modes').count(), 0, 'Search cannot switch to Act');
+      assert.equal(await palette.locator('button[type="submit"]').count(), 0, 'Search never submits an instruction');
+      await palette.getByRole('button', { name: '关闭', exact: true }).click();
+    }
     assert.equal(await page.getByRole('heading', { name: '日历', exact: true }).count(), 0);
     assert.equal(await shortcuts.locator('.robin-saved-link').count(), 6);
     assert.equal(await shortcuts.getByRole('link', { name: /打开网页版/ }).count(), 0, 'No permanent Web labels beside shortcuts');
@@ -76,6 +99,11 @@ try {
         for (const width of [320, 390, 812]) {
           await page.setViewportSize({ width, height: width === 812 ? 390 : 844 });
           await shortcuts.scrollIntoViewIfNeeded();
+          const entry = page.getByRole('button', { name: '写给 Robin', exact: true });
+          const entryBox = await entry.boundingBox();
+          assert.ok(entryBox.x >= 0 && entryBox.x + entryBox.width <= width && entryBox.height >= 44, 'Agent entry fits phone chrome');
+          assert.equal(await page.locator('.robin-dashboard-dock [data-companion-launcher]').count(), 1, 'Voice is reachable by thumb from the dock');
+          assert.equal(await page.locator('.robin-dashboard-toolbar [data-companion-launcher]').count(), 0, 'No duplicate voice launcher in the masthead');
           assert.ok(await page.locator('main').evaluate(el => el.scrollWidth <= el.clientWidth + 1));
           for (const link of await shortcuts.locator('[data-app-link] a').all()) {
             const box = await link.boundingBox(); assert.ok(box.width >= 44 && box.height >= 44);
@@ -84,9 +112,10 @@ try {
           await page.locator('.robin-dashboard-dock').getByRole('button', { name: '更多', exact: true }).click();
           const entries = page.locator('[data-workspace]');
           await entries.first().waitFor();
-          assert.equal(await entries.count(), 10);
-          assert.equal(await entries.locator('small').count(), 10);
-          assert.equal(new Set(await entries.locator('svg:first-child path').evaluateAll(nodes => nodes.map(node => node.getAttribute('d')))).size >= 10, true);
+          assert.equal(await entries.count(), 9);
+          assert.equal(await page.locator('a[href*="/dashboard/kanban"]').count(), 0, 'Kanban is removed from More and navigation');
+          assert.equal(await entries.locator('small').count(), 9);
+          assert.equal(new Set(await entries.locator('svg:first-child path').evaluateAll(nodes => nodes.map(node => node.getAttribute('d')))).size >= 9, true);
           for (const entry of await entries.all()) {
             const href = new URL(await entry.getAttribute('href'), baseURL);
             assert.equal(href.searchParams.get('session'), 'fixture'); assert.equal(href.searchParams.get('cwd'), '/tmp/fixture');

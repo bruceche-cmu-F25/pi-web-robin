@@ -918,16 +918,31 @@ a.session-tree-main {
   bottom: 37px;
 }
 
-/* One toolbar row in the cells of the chat's top bar beside it (AppShell):
-   36px with its line, as that bar is, so the two read as one bar. Each cell is divided on its
-   right; the search cell's right is the sidebar's own edge. */
+/* One quiet surface: content title, then search and compose. Material comes
+   from the sidebar itself, never another glass layer around its buttons. */
 .sidebar-header {
   display: flex;
   flex: none;
-  align-items: stretch;
-  height: 36px;
+  align-items: center;
+  gap: 4px;
+  min-height: 52px;
+  padding: 4px 8px;
   box-sizing: border-box;
-  border-bottom: 1px solid var(--border);
+}
+
+.sidebar-heading {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin: 0;
+  padding-left: 8px;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 1.154rem;
+  font-weight: 500;
+  line-height: 1.4;
 }
 
 /* The tablist itself holds only the two tabs (ARIA allows nothing else in it). */
@@ -937,8 +952,7 @@ a.session-tree-main {
   align-items: stretch;
 }
 
-/* The chat bar's cells: a 2px line on top that takes the accent when the
-   cell is the one chosen (a tab, the open search). */
+/* Tabs retain their semantics, but no longer divide the header into cells. */
 .sidebar-tab,
 .sidebar-new-button,
 .sidebar-search-toggle {
@@ -947,32 +961,25 @@ a.session-tree-main {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 0 12px;
+  min-height: 44px;
+  padding: 0 8px;
   border: 0;
-  border-top: 2px solid transparent;
-  border-radius: 0;
+  border-radius: var(--control-radius);
   background: transparent;
   color: var(--text-muted);
+  font-family: var(--font-ui);
   font-size: 12px;
   white-space: nowrap;
   cursor: pointer;
   transition: background 0.12s, color 0.12s;
 }
 
-.sidebar-tab,
-.sidebar-new-button {
-  border-right: 1px solid var(--border);
-}
-
-/* New closes its own left side in both layouts, so New and the search read
-   as two cells, as the chat bar's right-end cell does: the brand before it
-   is no cell, and in the tabs layout the spacer leaves a gap after the last
-   tab at most widths. Its -1px margin lays that line over the last tab's
-   right one where the spacer has collapsed, and keeps New's footprint (and
-   so the fit levels) what it was without the line. */
-.sidebar-new-button {
-  margin-left: -1px;
-  border-left: 1px solid var(--border);
+.sidebar-new-button,
+.sidebar-search-toggle {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  touch-action: manipulation;
 }
 
 .sidebar-tab-icon {
@@ -980,16 +987,25 @@ a.session-tree-main {
   color: var(--text-dim);
 }
 
-.sidebar-tab:hover,
-.sidebar-new-button:not(:disabled):hover,
-.sidebar-search-toggle:hover {
-  background: var(--bg-hover);
+@media (hover: hover) and (pointer: fine) {
+  .sidebar-tab:hover,
+  .sidebar-new-button:not(:disabled):hover,
+  .sidebar-search-toggle:hover {
+    background: var(--bg-hover);
+    color: var(--text);
+  }
+}
+
+.sidebar-tab:active,
+.sidebar-new-button:not(:disabled):active,
+.sidebar-search-toggle:active {
+  background: var(--bg-selected);
   color: var(--text);
+  transition: none;
 }
 
 .sidebar-tab.is-selected,
 .sidebar-search-toggle.is-active {
-  border-top-color: var(--accent);
   background: var(--bg-selected);
   color: var(--text);
 }
@@ -1009,60 +1025,9 @@ a.session-tree-main {
   font-weight: 400;
 }
 
-/* With the files below the sessions there is no tab to choose: the brand
-   stands where the tabs were (PiWebTitle), the panel's typographic anchor,
-   as on the old sidebar. Not a cell: no box, no line on its right; its text
-   in the chevron column (6px in plus a header toggle's 5px). A click shows
-   the versions in the accent for a few seconds. Never cut: New's label
-   gives way first, and on a row too narrow for the versions they take the
-   sidebar's meta size (data-fit 2, which only they reach: "Pi Web" fits
-   beside the two cells at the sidebar's 180px minimum, and at 11px so do
-   the versions with a digit to spare). */
-.sidebar-brand {
-  flex: none;
-  align-self: center;
-  min-width: 6ch;
-  margin: 0 0 0 7px;
-  padding: 2px 4px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text);
-  font-family: var(--font-mono);
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  line-height: normal;
-  text-align: left;
-  white-space: nowrap;
-  cursor: default;
-}
-
-.sidebar-brand.is-version {
-  color: var(--accent);
-}
-
-.sidebar-brand:focus {
-  outline: none;
-}
-
-.sidebar-brand:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
 .sidebar-header-spacer {
   flex: 1;
   min-width: 0;
-}
-
-.sidebar-new-button {
-  font-weight: 500;
-}
-
-.sidebar-search-toggle {
-  width: 36px;
-  padding: 0;
 }
 
 .sidebar-new-button:disabled {
@@ -1070,26 +1035,16 @@ a.session-tree-main {
   cursor: not-allowed;
 }
 
-/* Where the labels do not fit (useHeaderFit measures them: their widths
-   change with the language): New keeps its + (data-fit 1), then the tabs
-   their icons, or the brand's versions take a smaller type (2). A hidden
-   label is still each one's name. */
-.sidebar-header[data-fit="1"] .sidebar-new-button,
-.sidebar-header[data-fit="2"] .sidebar-new-button {
-  width: 36px;
-  padding: 0;
-}
-
+/* Narrow desktops keep both views accessible without shrinking the actions.
+   Phones have room for 44px tabs, even when translated labels are hidden. */
 .sidebar-header[data-fit="2"] .sidebar-tab {
-  padding: 0 11px;
+  padding: 0 6px;
 }
 
-.sidebar-header[data-fit="2"] .sidebar-brand {
-  font-size: 11px;
+@media (pointer: coarse) {
+  .sidebar-tab { min-width: 44px; }
 }
 
-.sidebar-header[data-fit="1"] .sidebar-new-label,
-.sidebar-header[data-fit="2"] .sidebar-new-label,
 .sidebar-header[data-fit="2"] .sidebar-tab-label {
   position: absolute;
   width: 1px;

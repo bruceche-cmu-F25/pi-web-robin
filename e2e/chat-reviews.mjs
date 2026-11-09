@@ -130,13 +130,22 @@ try {
     }
   }
   await page.setViewportSize({ width: 390, height: 844 });
+  failWrite = true;
+  await panel.locator('li a > [aria-hidden="true"]').first().click();
+  await panel.getByRole("alert").waitFor();
+  assert.equal(new URL(page.url()).pathname, "/dashboard", "A failed acceptance must not leave the chat review behind");
+  assert.equal(await panel.locator('[data-review-id="chat-1"]').count(), 1);
+  failWrite = false;
   await panel.locator('li a > [aria-hidden="true"]').first().click();
   await page.waitForURL(url => url.pathname === "/" && url.searchParams.get("session") === "chat-1");
   assert.equal(new URL(page.url()).searchParams.has("cwd"), false);
-  assert.equal(writes.length, 0, "Navigation alone never accepts");
-  await page.goBack(); await panel.locator("li").first().waitFor();
-  await page.reload(); await panel.locator("li").first().waitFor();
-  assert.equal(await panel.locator("li:visible").count(), 3, "Queue survives document navigation and reload");
+  assert.deepEqual(writes.slice(0, 2), [{ id: "chat-1", entryId: "reply-chat-1" }, { id: "chat-1", entryId: "reply-chat-1" }]);
+  await page.goBack();
+  await panel.getByRole("status").filter({ hasText: "3 个对话待验收" }).waitFor();
+  await page.reload();
+  assert.equal(await panel.locator('[data-review-id="chat-1"]').count(), 0, "One tap keeps the reply removed after navigation and reload");
+  reviews = [make("chat-1", "后续的新回复", "another-reply"), ...reviews];
+  await panel.getByRole("status").filter({ hasText: "4 个对话待验收" }).waitFor();
   failWrite = true;
   await panel.locator("li button").first().click();
   await panel.getByRole("alert").waitFor();
@@ -144,7 +153,7 @@ try {
   failWrite = false; holdWrite = true;
   await panel.locator("li button").first().evaluate(el => { el.click(); el.click(); });
   await page.waitForFunction(() => document.querySelector("#dashboard-chat-reviews li button")?.disabled);
-  assert.equal(writes.length, 2, "Duplicate activation is guarded synchronously");
+  assert.equal(writes.length, 4, "Duplicate activation is guarded synchronously");
   reviews[0] = make("chat-1", "更新后的结果", "new-reply");
   await panel.getByRole("link", { name: /更新后的结果/ }).waitFor();
   releaseWrite(); holdWrite = false;

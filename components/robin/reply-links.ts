@@ -2,8 +2,8 @@ export type ReplySegment =
   | { type: "text"; value: string }
   | { type: "link"; value: string; href: string };
 
-const URL_PATTERN = /https?:\/\/[^\s<>"'`]+/giu;
-const TRAILING_PUNCTUATION = /[.,!?;:，。！？；：、)\]}）】》”’]+$/u;
+const URL_PATTERN = /https?:\/\/[^\s<>"'`，。！？；：、（）【】《》“”‘’]+/giu;
+const TRAILING_PUNCTUATION = /[.,!?;:]+$/u;
 
 /** Split assistant prose into safe plain-text and HTTP(S) link segments. */
 export function splitReplyLinks(text: string): ReplySegment[] {
@@ -19,7 +19,14 @@ export function splitReplyLinks(text: string): ReplySegment[] {
   for (const match of text.matchAll(URL_PATTERN)) {
     const start = match.index;
     const raw = match[0];
-    const href = raw.replace(TRAILING_PUNCTUATION, "");
+    let href = raw.replace(TRAILING_PUNCTUATION, "");
+    // Strip prose/Markdown delimiters, not balanced parentheses inside a real URL.
+    const pairs: Record<string, string> = { ")": "(", "]": "[", "}": "{" };
+    while (href) {
+      const last = href.at(-1)!, opening = pairs[last];
+      if (!opening || href.split(last).length <= href.split(opening).length) break;
+      href = href.slice(0, -1).replace(TRAILING_PUNCTUATION, "");
+    }
     if (!href) continue;
 
     if (start > cursor) pushText(text.slice(cursor, start));

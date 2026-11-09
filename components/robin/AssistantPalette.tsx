@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import { useI18n } from "@/hooks/useI18n";
 import { AssistantBar } from "./AssistantBar";
 
@@ -12,6 +13,7 @@ export function AssistantPalette({
   cwd?: string | null;
 } = {}) {
   const { t } = useI18n();
+  const dashboard = usePathname() === "/dashboard";
   const [open, setOpen] = useState(false);
   const [visited, setVisited] = useState(false);
   const [mode, setMode] = useState<"search" | "execute">("search");
@@ -57,7 +59,8 @@ export function AssistantPalette({
     <dialog
       ref={dialogRef}
       className="robin-command-dialog robin-dashboard"
-      aria-label={t("robin.assistant.placeholder")}
+      data-dashboard={dashboard || undefined}
+      aria-label={dashboard ? t(`robin.assistant.${mode}Label`) : t("robin.assistant.placeholder")}
       onCancel={(event) => {
         event.preventDefault();
         close();
@@ -80,11 +83,11 @@ export function AssistantPalette({
         >
           ×
         </button>
-        <AssistantBar sessionId={sessionId} cwd={cwd} onNavigate={close} initialMode={mode} active={open} />
-        {mode === "execute" && <p className="robin-command-dialog__hint">{t("daily.captureHint")}</p>}
-        <p className="robin-command-dialog__hint">
+        <AssistantBar key={dashboard ? mode : undefined} sessionId={sessionId} cwd={cwd} onNavigate={close} initialMode={mode} modeSwitch={!dashboard} active={open} />
+        {!dashboard && mode === "execute" && <p className="robin-command-dialog__hint">{t("daily.captureHint")}</p>}
+        {!dashboard && <p className="robin-command-dialog__hint">
           daily · job · email · events · learn · research · product · chat
-        </p>
+        </p>}
       </div>
     </dialog>
   );

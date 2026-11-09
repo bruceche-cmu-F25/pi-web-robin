@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { chromium } from 'playwright';
+import sharp from 'sharp';
 import { localDate, addDays } from '../extension/robin/dates.ts';
 const baseURL = process.env.E2E_BASE_URL ?? 'http://127.0.0.1:30141';
 const output = '/tmp/robin-dashboard-materials';
@@ -11,7 +12,7 @@ const browser = await chromium.launch({ headless: true, channel: process.env.PLA
 try {
   const context = await browser.newContext({ baseURL, viewport: { width: 390, height: 844 }, serviceWorkers: 'block', reducedMotion: 'reduce' });
   if (process.env.PI_WEB_PASSWORD) assert.ok((await context.request.post('/api/web-auth', { headers: { Origin: baseURL }, data: { password: process.env.PI_WEB_PASSWORD } })).ok());
-  await context.addInitScript(() => { localStorage.setItem('pi-locale', 'zh-CN'); localStorage.setItem('pi-theme', 'glass'); window.documentMarker = Math.random(); });
+  await context.addInitScript(() => { localStorage.setItem('pi-locale', 'zh-CN'); localStorage.setItem('pi-theme', 'glass'); localStorage.setItem('pi-web:navigation-placement', 'top'); window.documentMarker = Math.random(); });
   const today = localDate(), tomorrow = addDays(today, 1), cwd = '/tmp/dashboard 中文';
   const todos = [
     { id: 'bank', title: '去银行存钱', due: today, done: false, color: 'iris', url: 'https://example.com/bank' },
@@ -45,6 +46,47 @@ try {
   const chat = () => page.locator('.robin-dashboard-header a[data-dashboard-chat]:visible');
   const nav = () => page.getByRole('navigation', { name: '首页', exact: true });
   await page.goto(`/dashboard?cwd=${encodeURIComponent(cwd)}`); await hideDev();
+  await page.locator('.robin-dashboard-header h1 time').waitFor();
+  // Desktop Glass must share the phone's underlapping scroll plane, not clip at the search row.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.locator('#dashboard-desktop-assistant input').waitFor();
+  for (const theme of ['glass', 'glass-dark', 'light']) {
+    await page.evaluate(theme => { document.documentElement.dataset.theme = theme; document.documentElement.classList.toggle('dark', theme.endsWith('dark')); }, theme);
+    await page.waitForTimeout(150);
+    const geometry = await page.evaluate(() => {
+      const workspace = document.querySelector('.robin-dashboard').getBoundingClientRect();
+      const viewport = document.querySelector('.robin-dashboard > .robin-page');
+      const header = document.querySelector('.robin-dashboard-header').getBoundingClientRect();
+      return { top: viewport.getBoundingClientRect().top, workspaceTop: workspace.top, headerBottom: header.bottom, mainTop: viewport.querySelector('main').getBoundingClientRect().top + parseFloat(getComputedStyle(viewport.querySelector('main')).paddingTop) };
+    });
+    await page.screenshot({ path: `${output}/desktop-before-scroll-${theme}.png` });
+    if (theme.startsWith('glass')) assert.ok(Math.abs(geometry.top - geometry.workspaceTop) < 1, `${theme}: desktop content must extend behind search, not start below it: ${JSON.stringify(geometry)}`);
+    else assert.ok(geometry.top >= geometry.headerBottom, 'Ordinary themes retain their nonoverlapping layout');
+    assert.ok(geometry.mainTop >= geometry.headerBottom + 20, 'Initial content clears the floating search bar');
+    if (theme.startsWith('glass')) {
+      // A real painted backdrop proves see-through; computed transparency alone cannot.
+      await page.locator('.robin-dashboard > .robin-page').evaluate(viewport => {
+        const main = viewport.querySelector('main');
+        const probe = document.createElement('div'); probe.id = 'desktop-glass-probe';
+        probe.style.cssText = 'height:360px;background:linear-gradient(to right,rgb(240,40,40) 50%,rgb(40,40,240) 50%);';
+        main.prepend(probe);
+        viewport.scrollTop = parseFloat(getComputedStyle(main).paddingTop) + 100;
+      });
+      await page.waitForTimeout(150);
+      const bar = await page.locator('#dashboard-desktop-assistant .robin-assistant-bar').boundingBox();
+      const { data, info } = await sharp(await page.screenshot({ path: `${output}/desktop-see-through-${theme}.png` })).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+      const pixel = (x, y) => [...data.subarray((Math.round(y) * info.width + Math.round(x)) * info.channels, (Math.round(y) * info.width + Math.round(x)) * info.channels + 3)];
+      const left = pixel(bar.x + bar.width * .35, bar.y + bar.height - 16);
+      const right = pixel(bar.x + bar.width * .75, bar.y + bar.height - 16);
+      assert.ok(left[0] - right[0] > 30 && right[2] - left[2] > 30, `${theme}: colored content must transmit through the search capsule: ${left} / ${right}`);
+      const below = pixel(bar.x + bar.width * .35, geometry.headerBottom + 8);
+      assert.ok(below[0] - below[2] > 100, 'Content continues below search without an opaque cutoff strip');
+      await page.locator('#dashboard-desktop-assistant input').click();
+      assert.equal(await page.locator('#dashboard-desktop-assistant input').evaluate(el => document.activeElement === el), true, 'The floating input stays interactive');
+      await page.locator('.robin-dashboard > .robin-page').evaluate(viewport => { document.getElementById('desktop-glass-probe').remove(); viewport.scrollTop = 0; });
+    }
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.locator('.robin-dashboard-header h1 time').waitFor();
   await page.screenshot({ path: `${output}/before.png` });
   await page.evaluate(() => { document.documentElement.dataset.theme = 'glass-dark'; document.documentElement.classList.add('dark'); });

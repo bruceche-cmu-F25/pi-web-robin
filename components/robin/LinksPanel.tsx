@@ -26,6 +26,7 @@ export function LinksPanel({ placement = "all", embedded = false }: {
   const { t } = useI18n();
   const mobile = useIsMobile();
   const desktop = useIsSplitLayout();
+  const shortcuts = placement === "daily" && desktop;
   const [expandedLists, setExpandedLists] = useState<Set<string>>(() => new Set());
   const { data, error, loading, refresh, updateData } = usePolledResource<LinksResponse>("/api/robin/links", 30000);
   const [url, setUrl] = useState("");
@@ -91,6 +92,7 @@ export function LinksPanel({ placement = "all", embedded = false }: {
         ...(title.trim() ? { title } : {}),
         ...(group.trim() ? { group } : {}),
       });
+      if (shortcuts) setExpandedLists((current) => new Set(current).add(DAILY_GROUP));
       setUrl("");
       setTitle("");
       setGroup("");
@@ -281,7 +283,7 @@ export function LinksPanel({ placement = "all", embedded = false }: {
       className={`flex scroll-mt-24 flex-col gap-3 ${styles.panel}${embedded ? "" : " pi-card p-4"}`}
     >
       <header className="flex items-baseline justify-between gap-2">
-        <h2 className="pi-section-title">{placement === "daily" ? DAILY_GROUP : t("robin.links.title")}</h2>
+        <h2 className="pi-section-title">{placement === "daily" ? t("daily.shortcuts") : t("robin.links.title")}</h2>
         <div className="flex items-center gap-2">
           {placement !== "daily" && <a href="https://www.notion.so/" target="_blank" rel="noopener noreferrer" className="ui-action pi-chrome-label pi-bracket text-xs">
             Notion ↗
@@ -349,10 +351,11 @@ export function LinksPanel({ placement = "all", embedded = false }: {
 
           {familyOpen && section.groups.map(({ group: name, links }, groupIndex) => {
         const expanded = placement === "daily" || !collapsedGroups.has(name);
-        const displayName = name === "Other" ? t("robin.links.otherGroup") : name;
-        const shortened = mobile && links.length > 4;
+        const displayName = name === "Other" ? t("robin.links.otherGroup") : name === DAILY_GROUP ? t("daily.shortcuts") : name;
+        const previewCount = shortcuts ? 6 : 4;
+        const shortened = (shortcuts || mobile) && links.length > previewCount;
         const showAll = expandedLists.has(name);
-        const visibleLinks = shortened && !showAll ? links.slice(0, 4) : links;
+        const visibleLinks = shortened && !showAll ? links.slice(0, previewCount) : links;
         return (
         <div
           key={name}
@@ -415,10 +418,12 @@ export function LinksPanel({ placement = "all", embedded = false }: {
           {expanded && (
             <>
               {addingGroup === name && renderAddForm(false)}
+              <div className={shortcuts ? styles.shortcutGrid : "flex flex-col gap-1"}>
               {visibleLinks.map((link) => (
             <div
               key={link.id}
-              className="group flex items-center gap-2 rounded px-2 py-1"
+              className={`group flex items-center gap-2 rounded px-2 py-1${shortcuts ? ` ${styles.shortcut}` : ""}`}
+              data-editing={editingId === link.id || undefined}
               style={{ background: "var(--bg-subtle)" }}
             >
               {editingId === link.id && <SavedLinkIcon link={link} />}
@@ -459,7 +464,7 @@ export function LinksPanel({ placement = "all", embedded = false }: {
               ) : (
                 <SavedLinkLaunch link={link} mobile={!desktop} compact />
               )}
-              {!desktop && editingId !== link.id ? (
+              {(!desktop || shortcuts) && editingId !== link.id ? (
                 <LinkActions label={t("robin.links.actions", { title: link.title })}>
                   <a href={link.url} target="_blank" rel="noopener noreferrer" className="ui-action flex min-h-11 items-center px-2 text-sm" aria-label={t("daily.links.webLabel", { title: link.title })}>{t("daily.links.web")}</a>
                   {renderActions(link)}
@@ -467,6 +472,7 @@ export function LinksPanel({ placement = "all", embedded = false }: {
               ) : renderActions(link)}
             </div>
               ))}
+              </div>
               {shortened && (
                 <button
                   type="button"
@@ -475,7 +481,7 @@ export function LinksPanel({ placement = "all", embedded = false }: {
                   disabled={Boolean(editingId)}
                   onClick={() => toggle(setExpandedLists, name)}
                 >
-                  {showAll ? t("robin.common.showLess") : t("robin.common.showMoreCount", { count: String(links.length - 4) })}
+                  {showAll ? t("robin.common.showLess") : t("robin.common.showMoreCount", { count: String(links.length - previewCount) })}
                 </button>
               )}
             </>

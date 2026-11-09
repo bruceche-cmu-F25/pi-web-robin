@@ -46,7 +46,7 @@ try {
   page.setDefaultTimeout(30_000);
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  const composer = page.locator("textarea").first();
+  const composer = page.locator(".chat-input-textarea");
   const entry = page.getByRole("button", { name: "New general chat", exact: true });
   await page.goto(`/?cwd=${encodeURIComponent(project)}`);
   await composer.fill("Project draft stays in the project");
@@ -58,15 +58,15 @@ try {
   refuse = false;
   await entry.click();
   await page.waitForURL((url) => url.searchParams.get("cwd") === general);
-  await page.waitForFunction(() => document.querySelector("textarea")?.value === "");
+  await page.waitForFunction(() => document.querySelector(".chat-input-textarea")?.value === "");
   await page.locator(".new-session-context").getByText("General chats", { exact: true }).waitFor();
   assert.equal(calls, 2);
   await page.screenshot({ path: "/tmp/general-chats-desktop.png" });
   await composer.fill("General draft");
   await page.reload();
-  await page.waitForFunction(() => document.querySelector("textarea")?.value === "General draft");
+  await page.waitForFunction(() => document.querySelector(".chat-input-textarea")?.value === "General draft");
   await entry.click();
-  await page.waitForFunction(() => document.querySelector("textarea")?.value === "");
+  await page.waitForFunction(() => document.querySelector(".chat-input-textarea")?.value === "");
   assert.equal(calls, 3, "repeated entry opens a fresh composer in the same directory");
   assert.ok(await page.evaluate(() => Object.values(sessionStorage).some((value) => value.includes("Project draft stays in the project"))), "leaving parks the project draft rather than carrying it into general chat");
   await page.goto(`/?cwd=${encodeURIComponent(project)}`);

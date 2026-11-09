@@ -87,12 +87,14 @@ export function AssistantBar({
   cwd,
   onNavigate,
   initialMode = "search",
+  modeSwitch = true,
   active = true,
 }: {
   sessionId?: string | null;
   cwd?: string | null;
   onNavigate?: () => void;
   initialMode?: "search" | "execute";
+  modeSwitch?: boolean;
   active?: boolean;
 } = {}) {
   const { t } = useI18n();
@@ -277,7 +279,8 @@ export function AssistantBar({
       data-mode={mode}
     >
       <div className="robin-assistant-row flex min-w-0 items-stretch">
-        <div role="group" aria-label={t("robin.assistant.mode")} className="robin-assistant-modes shrink-0" data-animate={animateMode || undefined}>
+        {!modeSwitch && <span className="robin-assistant-title">{t(mode === "search" ? "daily.search" : "daily.askRobin")}</span>}
+        {modeSwitch && <div role="group" aria-label={t("robin.assistant.mode")} className="robin-assistant-modes shrink-0" data-animate={animateMode || undefined}>
           <span className="robin-assistant-mode-thumb" aria-hidden="true" />
           {(["search", "execute"] as const).map((value) => (
             <button
@@ -301,7 +304,7 @@ export function AssistantBar({
             <option value="search">{t("robin.assistant.searchShort")}</option>
             <option value="execute">{t("robin.assistant.executeShort")}</option>
           </select>
-        </div>
+        </div>}
         <form
           onSubmit={submit}
           onKeyDown={(event) => {
@@ -321,11 +324,14 @@ export function AssistantBar({
             onChange={(event) => setMessage(event.target.value)}
             onPaste={handlePaste}
             disabled={busy}
-            placeholder={t(`robin.assistant.${mode}Placeholder`)}
+            placeholder={modeSwitch ? t(`robin.assistant.${mode}Placeholder`) : ""}
             className="min-w-0 flex-1 py-2 text-sm disabled:opacity-60"
           />
-          {mode === "execute" && <kbd className="robin-assistant-enter-hint" aria-hidden="true" title={t("robin.assistant.executeHint")}>↵</kbd>}
+          {mode === "execute" && modeSwitch && <kbd className="robin-assistant-enter-hint" aria-hidden="true" title={t("robin.assistant.executeHint")}>↵</kbd>}
           <span ref={setVoiceTrigger} className="flex shrink-0 items-center" />
+          {!modeSwitch && mode === "execute" && <button type="submit" className="robin-assistant-send ui-action" disabled={!message.trim() || executing} aria-label={t("robin.assistant.send")}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" /></svg>
+          </button>}
         </form>
       </div>
       {active && <VoiceControls key={mode} ref={voiceRef} triggerTarget={voiceTrigger} dictationOnly={mode === "search"} inputKind={mode === "search" ? "search" : "message"}

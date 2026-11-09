@@ -85,8 +85,7 @@ try {
   await header.locator("input").fill("linked");
   await header.locator(".robin-search-row").first().waitFor();
   assert.equal(await header.locator(".robin-search-row").count(), 4);
-  await page.locator('[data-disclosure="dashboard-links"] > summary').click();
-  const family = page.locator('[data-link-groups] button').filter({ has: page.locator('[class*="familyMark"]') });
+  const family = page.locator('#dashboard-links [data-link-groups] button').filter({ has: page.locator('[class*="familyMark"]') });
   await family.waitFor();
   assert.equal(await family.evaluate(el => getComputedStyle(el).borderLeftWidth), "0px", "Category colour is an inset mark, not a curved edge");
   await family.click();
@@ -141,7 +140,7 @@ try {
       assert.equal(await header.locator("input").inputValue(), "linked", "Palette does not reset the home search");
     }
   }
-  // Empty, shortcut and mode-switch states retain the original behavior.
+  // Phone Search and Act are separate entrances, with no mode switch or shared draft.
   await page.setViewportSize({ width: 375, height: 812 });
   await page.keyboard.press("Control+k");
   const dialog = page.locator(".robin-command-dialog[open]"), input = dialog.locator("input");
@@ -150,22 +149,22 @@ try {
   await input.fill("daily");
   await dialog.locator('a[href="/dashboard"]').waitFor();
   assert.equal(await dialog.locator('button[type="submit"]').count(), 0, "Shortcut already has an actionable result");
-  await dialog.locator("select").selectOption("execute");
-  assert.equal(await input.inputValue(), "daily", "Mode switch preserves draft without submitting");
-  assert.equal(await dialog.locator('button[type="submit"]').count(), 0, "Execute uses Enter, not a duplicate action");
+  assert.equal(await dialog.locator("select").count(), 0, "Search cannot switch to Act");
+  await page.keyboard.press("Escape");
+  await dialog.waitFor({ state: "detached" });
+  await page.getByRole("button", { name: "写给 Robin", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('.robin-command-dialog[open] .robin-assistant-bar')?.dataset.mode === 'execute');
+  assert.equal(await input.inputValue(), "", "Act never inherits a search query");
+  assert.equal(await dialog.locator("select").count(), 0);
   assert.equal(await input.getAttribute('enterkeyhint'), 'send');
-  await dialog.locator("select").selectOption("search");
-  assert.equal(await dialog.locator('button[type="submit"]').count(), 0);
-  assert.equal(await input.inputValue(), "daily");
   await page.keyboard.press("Escape");
   await dialog.waitFor({ state: "detached" });
   // A restored execution record is a transparent, inset footer, including in Glass.
   for (const width of [1440, 375]) {
     await page.setViewportSize({ width, height: 900 });
-    if (width < 960) { await page.keyboard.press("Control+k"); await dialog.waitFor(); }
+    if (width < 960) { await page.getByRole("button", { name: "写给 Robin", exact: true }).click(); await dialog.waitFor(); }
     const surface = width < 960 ? dialog.locator(".robin-assistant-bar") : header;
-    if (width < 960) await surface.locator("select").selectOption("execute");
-    else await surface.locator(".robin-assistant-modes").getByRole("button", { name: "执行", exact: true }).click();
+    if (width >= 960) await surface.locator(".robin-assistant-modes").getByRole("button", { name: "执行", exact: true }).click();
     const footer = surface.locator(".robin-assistant-result-toolbar[data-idle]");
     await footer.waitFor();
     for (const theme of ["light", "dark", "glass", "glass-dark"]) {

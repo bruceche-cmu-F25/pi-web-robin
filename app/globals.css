@@ -2078,6 +2078,22 @@ button.extension-widget-trigger:focus-visible {
 }
 .robin-command-dialog .robin-assistant-row { padding: 8px 60px 12px 16px; }
 .robin-command-dialog .robin-assistant-bar > :not(.robin-assistant-row) { margin-inline: 16px; }
+/* Dashboard's separated entrances need a composer, not bare text beside a close icon. */
+.robin-command-dialog[data-dashboard] .robin-assistant-row { flex-wrap: wrap; gap:4px; padding: 8px 14px 12px; }
+.robin-command-dialog[data-dashboard] .robin-assistant-title { display: flex; align-items: center; flex-basis: 100%; min-height: 40px; padding-inline: 2px 48px; font: 500 16px/1.4 var(--font-ui); }
+.robin-command-dialog[data-dashboard] .robin-assistant-form { flex: 1 1 100%; gap: 2px; min-height: 56px; padding: 4px 5px 4px 14px; border: 1px solid var(--border); border-radius: var(--card-radius); background: var(--bg-hover); }
+.robin-command-dialog[data-dashboard] .robin-assistant-form:focus-within { border-color: var(--accent-line-strong); outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.robin-command-dialog[data-dashboard] .robin-assistant-form input { min-width: 0; min-height: 44px; font: 16px/1.4 var(--font-ui); }
+.robin-command-dialog[data-dashboard] .robin-assistant-send { flex: 0 0 44px; display: grid; place-items: center; min-width: 44px; min-height: 44px; padding: 0; border-radius: var(--control-radius); background: var(--text); color: var(--bg-panel); }
+.robin-command-dialog[data-dashboard] .robin-assistant-send:disabled { opacity: .4; }
+.robin-command-dialog[data-dashboard] .robin-assistant-send:not(:disabled):active { opacity: .7; }
+.robin-command-dialog[data-dashboard] .robin-assistant-bar > [data-voice-phase] { margin-bottom: 0; }
+.robin-command-dialog[data-dashboard] .robin-assistant-bar > .robin-assistant-result-toolbar[data-idle] { margin: 0 14px 4px; border-top: 1px solid var(--border); }
+html[data-theme^="glass"] .robin-command-dialog[data-dashboard] .robin-assistant-form { background: var(--glass-inner-fill); border-color: var(--glass-edge); }
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more), (forced-colors: active) {
+  html[data-theme^="glass"] .robin-command-dialog[data-dashboard] .robin-assistant-form { background: var(--bg-panel); border-color: var(--border); }
+}
+@media (forced-colors: active) { .robin-command-dialog[data-dashboard] .robin-assistant-send { border: 1px solid ButtonText; } }
 .robin-command-dialog__close {
   border-radius: var(--control-radius);
   position: absolute;
@@ -3595,8 +3611,9 @@ pre, code {
    controls a header of their own on phones; the input retains both actions. */
 @media (max-width: 640px) {
   .robin-command-dialog .robin-assistant-row { flex-wrap: wrap; gap: 8px; padding: 8px 12px 12px; }
+  .robin-command-dialog:not([data-dashboard]) .robin-assistant-row:not(:has(.robin-assistant-modes)) { padding-right: 60px; }
   .robin-command-dialog .robin-assistant-modes { flex-basis: 64px; width: 64px; margin-right: 48px; }
-  .robin-command-dialog .robin-assistant-form { flex-basis: 100%; padding: 0; }
+  .robin-command-dialog:not([data-dashboard]) .robin-assistant-form { flex-basis: 100%; padding: 0; }
   .robin-command-dialog .robin-assistant-bar > :not(.robin-assistant-row) { margin-inline: 12px; }
   .robin-command-dialog__hint { padding: 10px 16px; }
   .robin-search-category { align-self: flex-start; padding-top: 2px; }

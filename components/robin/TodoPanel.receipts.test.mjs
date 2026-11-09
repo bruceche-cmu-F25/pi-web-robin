@@ -7,8 +7,9 @@ const today = "2026-10-29";
 const task = { id: "fixture", title: "Synthetic task", done: false, revision: "v1" };
 const completedAt = new Date(2026, 9, 29, 12).toISOString();
 
-function panelHarness() {
+function panelHarness({ embedded = false, search = "" } = {}) {
   const requests = [];
+  const params = new URLSearchParams(search);
   // Real resource/mutation implementation: transport alone is replaced, including
   // responses that ignore AbortSignal. The panel and resource keep separate hook slots.
   const resource = hookHarness(new URL("./usePolledResource.ts", import.meta.url), {
@@ -26,8 +27,8 @@ function panelHarness() {
   });
   let currentResource;
   const panel = hookHarness(new URL("./TodoPanel.tsx", import.meta.url), {
-    "next/navigation": { useSearchParams: () => new URLSearchParams() },
-    "@/lib/url-state": { writeUrlState() {} },
+    "next/navigation": { useSearchParams: () => params },
+    "@/lib/url-state": { writeUrlState(patch) { for (const [key, value] of Object.entries(patch)) { if (value === null) params.delete(key); else params.set(key, value); } } },
     "@/extension/robin/dates": dates,
     "./TodoDetailsDialog": {},
     "@/hooks/useI18n": { useI18n: () => ({ t: key => key, locale: "en" }) },
@@ -42,9 +43,9 @@ function panelHarness() {
     },
     "./TodoPanel.module.css": { default: {} },
   }, { Error });
-  const render = () => panel.render(() => panel.exports.TodoPanel({}));
+  const render = () => panel.render(() => panel.exports.TodoPanel({ embedded }));
   return {
-    requests, render,
+    requests, render, params,
     row: (id = task.id) => findElement(render(), node => node.type?.name === "TodoRow" && node.props.todo.id === id)?.props,
     refresh: () => currentResource.refresh(),
     respond(request, body, status = 200) {
@@ -57,6 +58,42 @@ function panelHarness() {
     unmount() { panel.unmount(); resource.unmount(); },
   };
 }
+
+test("desktop defaults to upcoming deadlines; phone and explicit filters retain their scope", async () => {
+  const todos = [task, { ...task, id: "near", due: dates.addDays(today, 7) },
+    { ...task, id: "later", due: dates.addDays(today, 8) }, { ...task, id: "late", due: dates.addDays(today, -1) },
+    { ...task, id: "done", done: true, completedAt: "2020-01-01T12:00:00Z" }];
+  for (const [options, visible] of [
+    [{ embedded: true }, ["near", "late"]],
+    [{ embedded: false }, ["fixture", "near", "later", "late"]],
+    [{ embedded: true, search: "tasks=all" }, ["fixture", "near", "later", "late"]],
+    [{ embedded: true, search: "tasks=done" }, ["done"]],
+    [{ embedded: false, search: "tasks=near" }, ["near", "late"]],
+  ]) {
+    const h = panelHarness(options);
+    try {
+      await h.load(todos);
+      assert.deepEqual(todos.filter(todo => h.row(todo.id)).map(todo => todo.id).sort(), visible.sort());
+      assert.equal(h.requests.length, 1, "Filtering makes no writes");
+    } finally { h.unmount(); }
+  }
+});
+
+test("an undated task created in the near view remains visible after its receipt", async () => {
+  const h = panelHarness({ embedded: true, search: "tasks=near&session=keep-me" });
+  try {
+    await h.load([]);
+    findElement(h.render(), node => node.props?.["aria-controls"] === "robin-todo-form").props.onClick();
+    findElement(h.render(), node => node.type === "input" && node.props.required === true).props.onChange({ target: { value: "New task" } });
+    findElement(h.render(), node => node.type === "form").props.onSubmit({ preventDefault() {} });
+    assert.equal(h.params.get("tasks"), "near", "Do not change filters before the save is confirmed");
+    h.respond(h.requests.at(-1), { todo: task, today });
+    await settle(); h.failRead(); await settle();
+    assert.equal(h.params.get("tasks"), "all");
+    assert.equal(h.params.get("session"), "keep-me");
+    assert.equal(h.row().todo.id, task.id);
+  } finally { h.unmount(); }
+});
 
 test("a confirmed Todo completion survives a failed refresh", async () => {
   const h = panelHarness();

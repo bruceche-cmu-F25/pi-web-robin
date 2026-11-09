@@ -125,6 +125,17 @@ try {
   await page.screenshot({ path: `${output}/initial.png` });
   assert.deepEqual(errors, [], 'Glass must not decorate server HTML before the workspace hydrates');
   await checkNavigation();
+  // Brand/version information remains discoverable without a header easter egg.
+  await page.locator('.sidebar-settings-shortcuts').getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('heading', { name: 'About Pi Web', exact: true }).waitFor();
+  assert.match(await page.getByRole('heading', { name: 'About Pi Web', exact: true }).locator('..').innerText(), /Pi Web v[\d.]+ · pi v[\d.]+/);
+  await page.locator('.settings-language-option').filter({ has: page.getByText('zh-CN', { exact: true }) }).click();
+  await page.keyboard.press('Escape');
+  await page.getByRole('heading', { name: '对话', exact: true }).waitFor();
+  await page.screenshot({ path: `${output}/header-zh-CN.png` });
+  await page.locator('.sidebar-settings-shortcuts').getByRole('button', { name: '设置', exact: true }).click();
+  await page.locator('.settings-language-option').filter({ has: page.getByText('en', { exact: true }) }).click();
+  await page.keyboard.press('Escape');
 
   for (const size of [{ width: 1440, height: 900 }, { width: 1024, height: 400 }, { width: 960, height: 768 }, { width: 959, height: 768 }, { width: 641, height: 768 }, { width: 640, height: 768 }, { width: 390, height: 844 }, { width: 320, height: 568 }]) {
     await page.setViewportSize(size);
@@ -148,8 +159,31 @@ try {
     await page.locator('.session-tree-title').first().hover();
     await page.locator('.session-tree-more-action').first().click();
     await checkMenu();
+    const header = await page.locator('.sidebar-header').evaluate(el => {
+      const search = el.querySelector('.sidebar-search-toggle');
+      const compose = el.querySelector('.sidebar-new-button');
+      return {
+        border: getComputedStyle(el).borderBottomWidth,
+        buttons: [search, compose].map(button => {
+          const rect = button.getBoundingClientRect(), style = getComputedStyle(button);
+          return { width: rect.width, height: rect.height, left: rect.left, border: style.borderRightWidth, label: button.getAttribute('aria-label') };
+        }),
+      };
+    });
+    assert.equal(header.border, '0px');
+    assert.ok(header.buttons[0].left < header.buttons[1].left, 'Search precedes compose, visually and in DOM');
+    for (const button of header.buttons) {
+      assert.ok(button.width >= 44 && button.height >= 44 && button.label, 'Named 44px header actions');
+      assert.equal(button.border, '0px', 'No toolbar cell dividers');
+    }
     await page.locator('.sidebar-search-toggle').click();
+    await page.waitForFunction(() => document.activeElement?.id === 'session-search-input');
     await page.locator('#session-search-input').fill('long title');
+    await page.keyboard.press('Escape');
+    await page.locator('#session-search-input').waitFor({ state: 'detached' });
+    assert.ok(await page.locator('.sidebar-search-toggle').evaluate(el => document.activeElement === el), 'Escape restores focus');
+    await page.locator('.sidebar-search-toggle').click();
+    assert.equal(await page.locator('#session-search-input').inputValue(), '');
     await page.locator('.sidebar-search-toggle').click();
     await showSidebarFiles(page);
     await page.locator('.sidebar-files-scroll').getByText(/^0-年度项目详细报告-/).waitFor();

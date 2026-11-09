@@ -84,7 +84,6 @@ import { archiveViewState, filesFoldState, useSidebarMotion } from "@/hooks/useS
 import { DirectoryPicker } from "./DirectoryPicker";
 import { DismissButton } from "./DismissButton";
 import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
-import { PiWebTitle } from "./PiWebTitle";
 import { ProjectWorktreePicker, type ProjectWorktreePickerHandle, type WorktreeRemoval } from "./ProjectWorktreePicker";
 import { SessionSearch } from "./SessionSearch";
 import { SessionTree, sessionRowTitle, type SessionTreeReveal } from "./SessionTree";
@@ -322,7 +321,7 @@ const FILES_SECTION_MAX_HEIGHT = 2000;
 const FILES_SECTION_DEFAULT_HEIGHT = 320;
 const FILES_SECTION_DEFAULT_SHARE = 0.45;
 const SESSIONS_SECTION_MIN_HEIGHT = 120;
-const SIDEBAR_HEADER_HEIGHT = 36;
+const SIDEBAR_HEADER_HEIGHT = 52;
 
 const SESSION_ACTION_LABEL_KEYS: Record<SessionMenuActionId, string> = {
   "open-new-tab": "sidebar.openInNewTab",
@@ -460,18 +459,15 @@ export function handOffDisabledKeyFocus(doc: FocusDocument, key: Element, fallba
 
 /**
  * How much of the toolbar row's labels fit (`data-fit`, app/sidebar.css):
- * all (0), New's + alone (1), then the tabs' icons alone, or below the
- * sessions the brand's versions in a smaller type (2): the brand itself is
- * never cut. Measured, not a fixed width, since the labels' widths change
- * with the language; on the row itself, before paint, again whenever it
- * resizes or `labels` change. The returned fit is for what the row's size
- * does not show: the brand's text changing its width.
+ * all (0), then the tabs' icons alone (2). Actions keep their 44px targets.
+ * Measure before paint and on resize/language changes, rather than guessing
+ * how much room translated labels need.
  */
-function useHeaderFit(ref: RefObject<HTMLElement | null>, labels: string): () => void {
+function useHeaderFit(ref: RefObject<HTMLElement | null>, labels: string): void {
   const fit = useCallback(() => {
     const header = ref.current;
     if (!header) return;
-    for (const level of ["0", "1", "2"]) {
+    for (const level of ["0", "2"]) {
       header.dataset.fit = level;
       if (header.scrollWidth <= header.clientWidth) return;
     }
@@ -484,7 +480,6 @@ function useHeaderFit(ref: RefObject<HTMLElement | null>, labels: string): () =>
     observer.observe(header);
     return () => observer.disconnect();
   }, [ref, fit, labels]);
-  return fit;
 }
 
 /** A menu placed below (or above) a button, lined up with one of its edges. */
@@ -501,6 +496,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionSe
   // decide whether the list needs reloading, and no render reads it.
   const sessionListVersionRef = useRef<number | null>(null);
   const sessionLoadIdRef = useRef(0);
+  const sessionLoadControllerRef = useRef<AbortController | null>(null);
   const [loading, setLoading] = useState(true);
   // The first paint lists summary rows (their time is the file's mtime); the
   // project order is first saved from the full details.
@@ -754,10 +750,16 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionSe
 
   const loadSessions = useCallback(async (showLoading = false, force = false, summary = false) => {
     const loadId = ++sessionLoadIdRef.current;
+    sessionLoadControllerRef.current?.abort();
+    const controller = new AbortController();
+    sessionLoadControllerRef.current = controller;
+    // Bound headers AND body so a stalled list cannot suppress later polling.
+    const timeout = setTimeout(() => controller.abort(), 30_000);
     try {
       if (showLoading) setLoading(true);
       const res = await fetch(sessionListUrl(summary, force), {
         cache: "no-store",
+        signal: controller.signal,
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json() as {
@@ -767,7 +769,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionSe
         awaitingInputSessionIds?: string[];
         completionNotificationSuppressedSessionIds?: string[];
       };
-      if (loadId !== sessionLoadIdRef.current) return;
+      if (loadId !== sessionLoadIdRef.current || controller.signal.aborted) return;
       sessionListVersionRef.current = data.sessionListVersion;
       setAllSessions(data.sessions);
       if (!summary) setSessionDetailsLoaded(true);
@@ -796,8 +798,16 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionSe
     } catch (e) {
       if (loadId === sessionLoadIdRef.current) setError(String(e));
     } finally {
+      clearTimeout(timeout);
+      if (sessionLoadControllerRef.current === controller) sessionLoadControllerRef.current = null;
       if (loadId === sessionLoadIdRef.current) setLoading(false);
     }
+  }, []);
+
+  useEffect(() => () => {
+    sessionLoadIdRef.current += 1;
+    sessionLoadControllerRef.current?.abort();
+    sessionLoadControllerRef.current = null;
   }, []);
 
   const initialLoadDone = useRef(false);
@@ -934,7 +944,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionSe
         setAwaitingInputSessionIds((previous) => sameIdsOr(previous, data.awaitingInputSessionIds ?? []));
         // Pins and archive changed in another window: reload them.
         noteUiRevision(data.sessionUiStateRevision);
-        if (data.sessionListVersion !== sessionListVersionRef.current) {
+        if (data.sessionListVersion !== sessionListVersionRef.current && !sessionLoadControllerRef.current) {
+          // Let an in-flight list finish first. Its returned version is compared
+          // again next poll, so changes during loading are not lost.
           // Reuse the invalidated cache; forcing a scan would change the version again.
           await loadSessions();
         }
@@ -1001,7 +1013,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionSe
     // Not forced: a run's agent_end has already invalidated the server's list,
     // and a forced rescan here, in every tab not showing that session, bumped
     // the version again and made all the others reload once more.
-    if (completedInBackground.length > 0 || hasUnlistedRunningSession) {
+    if ((completedInBackground.length > 0 || hasUnlistedRunningSession) && !sessionLoadControllerRef.current) {
       void loadSessions();
     }
     if (completedWithNotifications.length > 0) {
@@ -2706,12 +2718,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionSe
   // sessions' search alone; the files section's header has the files'.
   const sessionsShown = stacked || sidebarTab === "sessions";
   const searchesFiles = !stacked && sidebarTab === "files" && explorerCwd !== null;
-  // What the toolbar row's widths depend on: New's label, and the tabs (the
-  // chosen tab's label is bolder, the files tab carries the count). The
-  // brand's text reports its own changes (fitHeader).
-  const fitHeader = useHeaderFit(headerRef, (stacked
-    ? ["below", t("sidebar.new")]
-    : ["tabs", t("sidebar.tabSessions"), t("sidebar.tabFiles"), t("sidebar.new"), explorerCwd && changesCount > 0 ? changesCount : "", sidebarTab]
+  // The tabs' labels, selected weight and files count determine their fit.
+  useHeaderFit(headerRef, (stacked
+    ? ["below", t("sidebar.conversations")]
+    : ["tabs", t("sidebar.tabSessions"), t("sidebar.tabFiles"), explorerCwd && changesCount > 0 ? changesCount : "", sidebarTab]
   ).join("\n"));
   const archivedCount = model.archivedCount;
 
@@ -2841,14 +2851,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionSe
           onSelect={(path) => void commitCustomPath(path)}
         />
       )}
-      {/* One toolbar row, in the cells of the chat's top bar beside it (its
-          line continues that bar's): Sessions | Files, then New and the
-          search of the tab in view. Only the two tabs are the tablist. With
-          the files below the sessions there is nothing to choose: the brand
-          stands there (the panel's anchor, the versions on a click), and
-          the search is the sessions'. */}
+      {/* Content first; only the view tabs belong to the tablist.
+          Search follows the visible panel; compose keeps the current project. */}
       <div ref={headerRef} className="sidebar-header">
-        {stacked && <PiWebTitle onWidthChange={fitHeader} />}
+        {stacked && <h2 className="sidebar-heading">{t("sidebar.conversations")}</h2>}
         {!stacked && (
           <div className="sidebar-tabs-list" role="tablist" aria-label={t("sidebar.tabsLabel")}>
             <button
@@ -2887,16 +2893,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionSe
         )}
         <span className="sidebar-header-spacer" />
         <button
-          type="button"
-          className="sidebar-new-button"
-          onClick={handleNewSession}
-          disabled={!selectedCwd}
-          title={selectedCwd ? t("sidebar.newSessionTitle", { path: selectedCwd }) : t("sidebar.selectProject")}
-        >
-          <PlusIcon size={12} />
-          <span className="sidebar-new-label">{t("sidebar.new")}</span>
-        </button>
-        <button
           ref={searchButtonRef}
           type="button"
           onClick={() => {
@@ -2919,7 +2915,17 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionSe
           aria-controls={searchesFiles ? "file-search-input" : "session-search-input"}
           className={`sidebar-search-toggle${(searchesFiles ? fileSearchOpen : sessionSearchOpen) ? " is-active" : ""}`}
         >
-          <SearchIcon size={16} />
+          <SearchIcon size={20} />
+        </button>
+        <button
+          type="button"
+          className="sidebar-new-button"
+          onClick={handleNewSession}
+          disabled={!selectedCwd}
+          aria-label={t("sidebar.newConversation")}
+          title={selectedCwd ? t("sidebar.newSessionTitle", { path: selectedCwd }) : t("sidebar.selectProject")}
+        >
+          <PlusIcon size={20} />
         </button>
       </div>
 
@@ -2961,8 +2967,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionSe
               onChange={(event) => setSessionSearchQuery(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Escape" && !event.nativeEvent.isComposing && event.keyCode !== 229) {
+                  event.preventDefault();
                   event.stopPropagation();
                   setSessionSearchQuery("");
+                  setSessionSearchOpen(false);
+                  searchButtonRef.current?.focus();
                 }
               }}
               className="sidebar-search-input"

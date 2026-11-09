@@ -19,6 +19,11 @@ test("keeps sentence punctuation outside links", () => {
   ]);
 });
 
+test("keeps balanced URL parentheses and separates Chinese prose", () => {
+  const segments = splitReplyLinks("[Wiki](https://example.com/wiki/Topic_(one))，再看 https://example.org/中文。结论");
+  assert.deepEqual(segments.filter((s) => s.type === "link").map((s) => s.href), ["https://example.com/wiki/Topic_(one)", "https://example.org/中文"]);
+  assert.equal(segments.map((s) => s.value).join(""), "[Wiki](https://example.com/wiki/Topic_(one))，再看 https://example.org/中文。结论");
+});
 test("does not turn non-HTTP schemes or plain domains into links", () => {
   const text = "javascript:alert(1) and example.com stay text";
   assert.deepEqual(splitReplyLinks(text), [{ type: "text", value: text }]);

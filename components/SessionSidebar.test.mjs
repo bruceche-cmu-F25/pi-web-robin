@@ -93,7 +93,13 @@ test("the running poll keeps the same Set while the running ids stay the same", 
 test("on a desktop the files sit below the sessions by default, both in view", () => {
   const html = render({ selectedCwd: "/work/alpha", onOpenTerminal: noop });
   assert.match(html, /^<div class="session-sidebar is-files-below" style="--sidebar-files-height:320px">/);
-  assert.match(html, /class="sidebar-brand"/);
+  assert.match(html, /<h2 class="sidebar-heading">Chats<\/h2>/);
+  assert.doesNotMatch(html, /sidebar-brand|sidebar-new-label/);
+  const header = html.slice(0, html.indexOf('id="session-sidebar-panel-sessions"'));
+  assert.ok(header.indexOf('class="sidebar-search-toggle"') < header.indexOf('class="sidebar-new-button"'));
+  // SSR has not adopted selectedCwd yet; compose stays disabled until hydration.
+  assert.match(header, /class="sidebar-new-button" disabled="" aria-label="New conversation" title="Select project…"/);
+  assert.equal((header.match(/<svg width="20" height="20"/g) ?? []).length, 2);
   assert.doesNotMatch(html, /role="tablist"|role="tab"|role="tabpanel"/);
   const sessions = openingTag(html, "session-sidebar-panel-sessions");
   const files = openingTag(html, "session-sidebar-panel-files");
@@ -451,7 +457,7 @@ test("lifecycle refreshes bypass the cache while cross-window polling reuses it"
 test("an older session-list response cannot overwrite a newer refresh", () => {
   assert.match(source, /const sessionLoadIdRef = useRef\(0\)/);
   assert.match(source, /const loadId = \+\+sessionLoadIdRef\.current/);
-  assert.match(source, /if \(loadId !== sessionLoadIdRef\.current\) return;/);
+  assert.match(source, /if \(loadId !== sessionLoadIdRef\.current \|\| controller\.signal\.aborted\) return;/);
   assert.match(source, /if \(loadId === sessionLoadIdRef\.current\) setError/);
   assert.match(source, /if \(loadId === sessionLoadIdRef\.current\) setLoading\(false\)/);
 });

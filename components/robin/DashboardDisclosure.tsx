@@ -39,7 +39,10 @@ export function DashboardDisclosure({ id, title, description, children, initialO
     setOpen(next); if (next) setVisited(true);
     if (ready) try { localStorage.setItem(`robin-disclosure:${id}`, next ? "open" : "closed"); } catch { /* Keep live choice. */ }
   }}>
-    <summary className="ui-action"><span className={styles.disclosureCopy}><span>{title}</span>{description && <small>{description}</small>}</span></summary>
+    <summary className="ui-action">
+      <span className={styles.disclosureCopy}><span>{title}</span>{description && <small>{description}</small>}</span>
+      <svg className={styles.disclosureArrow} width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg>
+    </summary>
     <ResourceActivity value={parentActive && open}>{(open || visited) && children}</ResourceActivity>
   </details>;
 }

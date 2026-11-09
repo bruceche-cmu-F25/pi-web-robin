@@ -454,6 +454,14 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
         </div>
       </section>
 
+      <section className="settings-general-section">
+        <h3 className="settings-general-heading">{t("settings.about")}</h3>
+        <p className="settings-general-description">
+          Pi Web v{process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}
+          {" · "}pi v{process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}
+        </p>
+      </section>
+
       {webAuthEnabled && (
         <section className="settings-general-section">
           <ConfigButton variant="secondary" disabled={loggingOut} onClick={() => void logOut()}>

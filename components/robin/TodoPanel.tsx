@@ -63,7 +63,8 @@ export function TodoPanel({ embedded = false }: { embedded?: boolean }) {
   const { t, locale } = useI18n();
   const { data, error, loading, refresh, updateData } = usePolledResource<TodosResponse>("/api/robin/todos");
   const search = useSearchParams();
-  const filter = search.get("tasks") === "done" ? "done" : search.get("tasks") === "near" ? "near" : "all";
+  const requestedFilter = search.get("tasks");
+  const filter = requestedFilter === "done" ? "done" : requestedFilter === "all" ? "all" : requestedFilter === "near" || embedded ? "near" : "all";
   const selectedId = search.get("todo");
   const showDetails = (todo: Todo) => writeUrlState({ todo: todo.id });
   const [actionError, setActionError] = useState<string | null>(null);
@@ -154,6 +155,8 @@ export function TodoPanel({ embedded = false }: { embedded?: boolean }) {
         ...(due ? { due } : {}),
         ...(url.trim() ? { url } : {}),
       });
+      // A new undated/later task must not disappear into the default near filter.
+      if (filter === "near" && (!due || !today || due > addDays(today, 7))) writeUrlState({ tasks: "all" });
       setTitle("");
       setStartDate("");
       setDue("");
@@ -193,6 +196,7 @@ export function TodoPanel({ embedded = false }: { embedded?: boolean }) {
       <nav className={`${styles.filters} flex flex-wrap gap-2`} aria-label={t("robin.todos.title")}>
         {(["near", "all", "done"] as const).map((value) => <button key={value} type="button" className="ui-action ui-action--outline px-3 min-h-11" data-state={filter === value ? "accent" : undefined} aria-pressed={filter === value} onClick={() => writeUrlState({ tasks: value })}>{t(`daily.filter.${value}`)}</button>)}
       </nav>
+      {embedded && filter === "near" && <p className="text-xs" style={{ color: "var(--text-muted)" }}>{t("daily.nearScope")}</p>}
       {selectedId && <TodoDetailsDialog key={selectedId} todo={todos.find((todo) => todo.id === selectedId)} loading={loading} error={error}
         onClose={() => writeUrlState({ todo: null }, "replace")} onRetry={() => void refresh()}
         onSaved={(saved) => updateData((current) => current && { ...current, todos: current.todos.map((todo) => todo.id === saved.id ? saved : todo) })} />}
