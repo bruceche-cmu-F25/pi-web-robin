@@ -34,6 +34,7 @@ export function shelfPreviewFile(groupId: string, url: string): string {
 }
 
 export const FDE_ROADMAP_URL = "https://learn.varickagents.com/fde-in-30-days";
+export const PYTHON_STUDY_CANVAS_TITLE = "freeCodeCamp · Python 互动学习笔记";
 
 export const LEARNING_SHELF: readonly ShelfGroup[] = [
   {
@@ -79,14 +80,19 @@ export const LEARNING_SHELF: readonly ShelfGroup[] = [
     id: "freecodecamp",
     links: [
       {
+        title: "freeCodeCamp — Python V9",
+        url: "https://www.freecodecamp.org/learn/python-v9/",
+        hint: "Practice Python fundamentals through interactive lessons and projects.",
+      },
+      {
         title: "freeCodeCamp — Front End Development Libraries V9",
         url: "https://www.freecodecamp.org/learn/front-end-development-libraries-v9/",
         hint: "Supplement only: use its exercises when React syntax needs more repetitions.",
       },
       {
-        title: "freeCodeCamp — Back End Development and APIs",
-        url: "https://www.freecodecamp.org/learn/back-end-development-and-apis/",
-        hint: "Supplement only: use it when Express and REST need a second explanation.",
+        title: "freeCodeCamp — Back End Development and APIs V9",
+        url: "https://www.freecodecamp.org/learn/back-end-development-and-apis-v9/",
+        hint: "Practice Node.js, Express, and APIs in the new curriculum.",
       },
       {
         title: "freeCodeCamp — Relational Database",

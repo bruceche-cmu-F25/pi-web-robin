@@ -35,7 +35,7 @@ test("without Google the board is the local store, dated by the server", async (
   createCalendarEvent({ title: "Standup", date: "2030-01-02", start: "09:00" });
 
   const board = await calendarBoard();
-  assert.deepEqual(board.events, readEvents());
+  assert.deepEqual(board.events.filter((event) => event.source !== "study"), readEvents());
   assert.equal(board.events[0].title, "Standup");
   assert.equal(board.google.connected, false);
   assert.equal(board.google.error, undefined);
@@ -52,7 +52,7 @@ test("a Google failure degrades to local-only instead of throwing", async (t) =>
 
   const board = await calendarBoard();
   // The dashboard staying up with the user's own events beats an error page.
-  assert.equal(board.events.length, 1);
+  assert.equal(board.events.filter((event) => event.source !== "study").length, 1);
   assert.equal(board.events[0].title, "Standup");
   assert.equal(board.google.connected, true);
   // …but the caller is still told what went wrong.
@@ -66,7 +66,7 @@ test("a board that cannot be read at all still reports connected", async (t) => 
   const board = await calendarBoard({ before: 0, after: 6 });
   assert.equal(board.google.connected, true);
   assert.ok(board.google.error);
-  assert.deepEqual(board.events, []);
+  assert.deepEqual(board.events.filter((event) => event.source !== "study"), []);
 });
 
 test("explicit local snapshots never contact Google and declare incomplete coverage", async (t) => {
@@ -117,9 +117,18 @@ test("repeated creation reuses the same occurrence, even with a fresh request id
   assert.equal(readEvents().length, 6, "same title is not sufficient to collapse separate appointments");
 });
 
+test("study projection appears on open days but never doubles a conflicting 10am appointment", async () => {
+  const date = "2026-11-04";
+  assert.ok((await calendarBoard({ from: date, to: date })).events.some((event) => event.source === "study"));
+  createCalendarEvent({ title: "Research meeting", date, start: "09:30", end: "12:30" });
+  const board = await calendarBoard({ from: date, to: date });
+  assert.equal(board.events.filter((event) => event.source === "study").length, 0);
+  assert.equal(board.events[0].title, "Research meeting");
+});
+
 test("an event created through the domain shows up on the next board read", async () => {
-  assert.deepEqual((await calendarBoard()).events, []);
+  assert.deepEqual((await calendarBoard()).events.filter((e) => e.source !== "study"), []);
   const event = createCalendarEvent({ title: "Dentist", date: "2030-03-04", start: "10:00", end: "11:00" });
   const board = await calendarBoard();
-  assert.deepEqual(board.events.map((e) => e.id), [event.id]);
+  assert.deepEqual(board.events.filter((e) => e.source !== "study").map((e) => e.id), [event.id]);
 });

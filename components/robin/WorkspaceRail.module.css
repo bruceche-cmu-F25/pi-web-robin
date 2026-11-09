@@ -1,6 +1,8 @@
+.hubHeader { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 12px 28px; }
 .layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 280px); align-items: start; gap: 24px; }
 .content { grid-column: 1; grid-row: 1; min-width: 0; }
 .rail { grid-column: 2; grid-row: 1; position: sticky; top: 20px; min-width: 0; max-height: calc(100dvh - 120px); overflow-y: auto; overscroll-behavior: contain; padding: 16px; border: 1px solid var(--border); border-radius: var(--card-radius); background: var(--bg-panel); box-shadow: var(--card-shadow); color: var(--text); }
+.rail[hidden] { display: none; }
 .title { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; cursor: pointer; font: 500 20px/1.4 var(--font-serif); }
 .title::-webkit-details-marker { display: none; }
 .title::after { content: "+"; color: var(--text-muted); font: 16px/1 var(--font-mono); }
@@ -11,6 +13,17 @@
 .sectionTitle { margin: 0 0 12px; padding-inline-start: 10px; border-inline-start: 3px solid var(--accent); font: 500 15px/1.5 var(--font-mono); }
 .entries { margin: 0; padding: 0; list-style: none; }
 .entries > li + li { border-top: 1px solid var(--border); }
+.pathEntry { display: flex; align-items: center; gap: 10px; min-height: 64px; padding: 8px 4px; color: var(--text); text-decoration: none; border-radius: var(--control-radius); }
+.pathText { flex: 1; min-width: 0; }
+.pathText small { display: block; color: var(--text-muted); font: 11px/1.4 var(--font-mono); }
+.pathText strong { display: block; margin-top: 3px; font: 500 16px/1.4 var(--font-serif); overflow-wrap: anywhere; }
+.pathArrow { flex: none; align-self: center; color: var(--accent); font: 16px/1 var(--font-mono); }
+.pathEntry:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.pathEntry:active { background: var(--bg-selected); }
+.body > .featuredPath { padding-top: 16px; border-top: 1px solid var(--border); }
+.featuredPath .sectionTitle { margin-bottom: 8px; font-size: 12px; }
+.featuredPath .entry { min-height: 44px; padding: 4px 0; }
+.featuredPath .entry strong { font-size: 16px; }
 .entry { display: flex; align-items: baseline; gap: 12px; width: 100%; min-height: 44px; padding: 12px 4px; border: 0; background: transparent; color: var(--text); text-align: start; text-decoration: none; cursor: pointer; }
 .entry > span:first-child { flex: 1; min-width: 0; }
 .entry strong { display: block; font: 500 17px/1.5 var(--font-serif); overflow-wrap: anywhere; }
@@ -25,9 +38,17 @@
 .checkpoints strong, .checkpoints span { display: block; }
 .checkpoints strong { margin-bottom: 6px; font: 500 14px/1.5 var(--font-mono); }
 .checkpoints span { font: 14px/1.7 var(--font-serif); }
+.shelfDisclosure { min-width: 0; }
+.shelfDisclosure > summary { display: flex; align-items: center; min-height: 44px; padding: 0 4px; cursor: pointer; color: var(--text); font: italic 400 22px/1.4 var(--font-serif); }
+.shelfDisclosure > summary::after { content: "+"; margin-left: 12px; color: var(--text-muted); font: 16px/1 var(--font-mono); }
+.shelfDisclosure[open] > summary::after { content: "−"; }
+.shelfDisclosure > summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.shelfDisclosure > section { margin-top: 16px; }
 @media (hover: hover) and (pointer: fine) {
   .entry:hover { background: var(--bg-hover); }
   .entry:hover strong { color: var(--accent); }
+  .pathEntry:hover { background: var(--bg-hover); }
+  .pathEntry:hover .pathText strong { color: var(--accent); }
 }
 @media (max-width: 1150px) {
   .layout { display: flex; flex-direction: column; gap: 20px; }

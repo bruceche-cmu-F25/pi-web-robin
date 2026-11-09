@@ -3,7 +3,7 @@ import { addDays, localDate, startOfWeek } from "@/extension/robin/dates";
 import { dataDir, readJsonObject, updateJsonObject } from "@/extension/robin/paths";
 import {
   readAssistantSessionId, readCoachSessionId, readDailyAgendaSessionId,
-  readJobScorerSessionId, readMailReviewSessionId, readMentorSessionId,
+  readJobScorerSessionId, readMailReviewSessionId, readMentorSessionId, readPlannerSessionId,
 } from "@/extension/robin/assistant-sessions";
 import { readProductAgentSessionIds } from "@/extension/robin/product-agent-state";
 import { readNotesAgentSessionIds } from "@/extension/robin/notes-agent-state";
@@ -103,7 +103,7 @@ export function withRobinTimeContext(message: string, now = new Date()): string 
 function currentSessionIds(): Set<string> {
   return new Set([
     readAssistantSessionId(), readCoachSessionId(), readDailyAgendaSessionId(),
-    readJobScorerSessionId(), readMailReviewSessionId(), readMentorSessionId(),
+    readJobScorerSessionId(), readMailReviewSessionId(), readMentorSessionId(), readPlannerSessionId(),
     ...readNotesAgentSessionIds(), ...readProductAgentSessionIds(),
   ].filter((id): id is string => Boolean(id)));
 }

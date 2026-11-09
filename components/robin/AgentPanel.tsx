@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type ReactNode } from "react";
 import { MarkdownBody } from "@/components/MarkdownBody";
+import type { PlannerProposal } from "@/extension/robin/study-planner-reply";
 import { useI18n } from "@/hooks/useI18n";
 import {
   MAX_AGENT_DOCUMENTS,
@@ -20,6 +21,7 @@ interface Turn {
   tools?: string[];
   /** Names of what was attached — never the data, which would overrun localStorage. */
   attachments?: string[];
+  proposal?: PlannerProposal;
 }
 
 /** What the model is told when files arrive with no words. */
@@ -43,6 +45,8 @@ interface Props {
   /** Product agents use their own scoped-session route but keep this panel's UX. */
   endpoint?: string;
   requestBody?: Record<string, string>;
+  /** Read the current editor draft at send time without remounting the voice composer on each keystroke. */
+  getRequestBody?: () => Record<string, string>;
   /**
    * A message the page wants sent on the user's behalf — a research brief
    * assembled from a record, rather than something they typed.
@@ -52,7 +56,7 @@ interface Props {
    */
   pending?: { id: string; text: string };
   /** A per-reply action the page offers, e.g. keeping a mentor answer in your notes. */
-  replyAction?: { labelKey: string; onReply: (text: string) => void };
+  replyAction?: { labelKey: string; onReply: (text: string, proposal?: PlannerProposal) => void; onlyWithProposal?: boolean };
   onClose?: () => void;
   /** Preserve the transcript/draft but do not dispatch against unconfirmed workspace context. */
   disabled?: boolean;
@@ -79,10 +83,9 @@ interface Props {
  * would mean maintaining the composition handling in two places, which is
  * exactly the kind of subtlety that gets fixed in one copy only.
  *
- * The transcript is client-side only: the conversation itself lives in a pi
- * session on the server and survives a reload, but re-rendering it in a side
- * panel would bury the exchange the user is actually in. Reloading the page
- * therefore gives a clean panel and an agent that still remembers.
+ * The conversation lives in a pi session on the server. Panels with a
+ * transcriptKey keep a browser-local copy of the visible exchange across
+ * reloads; panels without one start with a clean display.
  *
  * The server starts a new session after 30 idle minutes or a date change. The
  * panel cannot see that coming, so it watches the session id each reply
@@ -99,6 +102,7 @@ export function AgentPanel({
   emptyHintKey,
   endpoint = "/api/robin/assistant",
   requestBody = {},
+  getRequestBody,
   pending,
   replyAction,
   onClose,
@@ -139,12 +143,14 @@ export function AgentPanel({
     loadingTranscriptRef.current = true;
     try {
       const raw = transcriptKey ? window.localStorage.getItem(`pi-robin-agent-transcript:${transcriptKey}`) : null;
-      setTurns(raw ? JSON.parse(raw) as Turn[] : []);
+      const saved = raw ? JSON.parse(raw) as { turns?: Turn[]; sessionId?: string } | Turn[] : null;
+      setTurns(Array.isArray(saved) ? saved : Array.isArray(saved?.turns) ? saved.turns : []);
+      sessionRef.current = saved && !Array.isArray(saved) && typeof saved.sessionId === "string" ? saved.sessionId : null;
     } catch {
       setTurns([]);
+      sessionRef.current = null;
     }
     setMessage("");
-    sessionRef.current = null;
   }, [transcriptKey]);
 
   useEffect(() => {
@@ -154,7 +160,7 @@ export function AgentPanel({
       return;
     }
     try {
-      window.localStorage.setItem(`pi-robin-agent-transcript:${activeTranscriptKeyRef.current}`, JSON.stringify(turns));
+      window.localStorage.setItem(`pi-robin-agent-transcript:${activeTranscriptKeyRef.current}`, JSON.stringify({ turns, sessionId: sessionRef.current }));
     } catch {
       // The server conversation still works when browser storage is unavailable.
     }
@@ -254,6 +260,7 @@ export function AgentPanel({
         body: JSON.stringify({
           mode,
           ...requestBody,
+          ...getRequestBody?.(),
           message: trimmed || ATTACHMENT_ONLY_MESSAGE,
           ...(files.length > 0 ? {
             images: files.flatMap((file) => file.images.map((image) => ({ type: "image", ...image }))),
@@ -267,12 +274,12 @@ export function AgentPanel({
         }),
       });
       const body = await response.json().catch(() => null) as
-        { reply?: string; usedTools?: string[]; sessionId?: string; error?: string } | null;
+        { reply?: string; usedTools?: string[]; sessionId?: string; proposal?: PlannerProposal; error?: string } | null;
       if (!response.ok || !body) throw new Error(body?.error ?? `Request failed (${response.status})`);
       const rotated = !!body.sessionId && !!sessionRef.current && body.sessionId !== sessionRef.current;
       if (body.sessionId) sessionRef.current = body.sessionId;
       setTurns((previous) => {
-        const reply: Turn = { role: "agent", text: body.reply ?? "", tools: body.usedTools ?? [] };
+        const reply: Turn = { role: "agent", text: body.reply ?? "", tools: body.usedTools ?? [], proposal: body.proposal };
         if (!rotated) return [...previous, reply];
         // The message just sent opened the new session, so the line goes above it.
         const reset: Turn = { role: "reset", text: "" };
@@ -411,12 +418,12 @@ export function AgentPanel({
                   <ul>{[...new Set(turn.tools)].map((name) => <li key={name}>{toolKeys[name] ? t(toolKeys[name]) : name}</li>)}</ul>
                 </details>
               ) : null}
-              {replyAction && turn.role === "agent" && turn.text.trim() ? (
+              {replyAction && turn.role === "agent" && turn.text.trim() && (!replyAction.onlyWithProposal || turn.proposal) ? (
                 <button
                   type="button"
                   className="ui-action workspace-agent-meta"
                   style={{ minHeight: 44 }}
-                  onClick={() => replyAction.onReply(turn.text)}
+                  onClick={() => replyAction.onReply(turn.text, turn.proposal)}
                 >
                   {t(replyAction.labelKey)}
                 </button>

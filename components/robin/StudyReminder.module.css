@@ -1,0 +1,12 @@
+.dialog { width: min(32rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow-y: auto; margin: auto; padding: clamp(1.25rem, 5vw, 2rem); color: var(--text); background: var(--bg-panel); border: 1px solid var(--border); border-radius: 20px; box-shadow: 0 20px 80px rgba(0,0,0,.24); animation: arrive .22s ease-out both; }
+.dialog::backdrop { background: rgba(0,0,0,.56); }
+.dialog h2 { font-family: var(--font-serif); font-size: clamp(1.6rem, 6vw, 2.2rem); line-height: 1.2; margin: .6rem 0 1rem; }
+.eyebrow { font-size: .85rem; letter-spacing: .05em; color: var(--accent); }
+.hint { color: var(--text-muted); margin-top: 1rem; }
+.actions { display: flex; flex-wrap: wrap; gap: .65rem; margin-top: 1.5rem; }
+.actions > * { min-height: 44px; padding: .7rem 1rem; border-radius: 10px; border: 1px solid var(--border); cursor: pointer; }
+.actions > a { background: var(--accent); color: var(--bg); font-weight: 600; text-decoration: none; }
+.actions > :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@keyframes arrive { from { opacity: 0; transform: translateY(10px) scale(.98) } to { opacity: 1; transform: none } }
+@media (prefers-reduced-motion: reduce) { .dialog { animation: none; } }
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) { .dialog { background: var(--bg-panel); } }

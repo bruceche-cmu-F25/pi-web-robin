@@ -5,6 +5,7 @@ import { fetchEventsWithWarnings, isConnected } from "./google-calendar.ts";
 import { newId, readEvents, updateEvents } from "./store.ts";
 import { listTodos } from "./todo-domain.ts";
 import { focusEvents } from "./planner.ts";
+import { studyEvents } from "./study-plan-domain.ts";
 
 export interface CalendarBoard {
   /** Local events plus any read-only ones pulled from Google, unsorted. */
@@ -55,16 +56,19 @@ export async function calendarBoard(options: CalendarBoardOptions = {}): Promise
     parseLocalDate(options.from); parseLocalDate(options.to);
     if (options.to < options.from || options.to > addDays(options.from, 366)) throw new Error("Calendar range must be between 1 and 367 days");
   }
-  const events: DashboardEvent[] = [...readEvents(), ...focusEvents(listTodos({ includeDone: true, includeArchived: true }).todos, today)];
-  if (!isConnected()) return { events, today, google: { connected: false } };
-  if (options.localOnly) return { events, today, google: { connected: true, error: "Local snapshot only; Google Calendar has not been refreshed" } };
-
   const from = options.from ?? addDays(today, -(options.before ?? 45));
   const to = options.to ?? addDays(today, options.after ?? 75);
+  const events: DashboardEvent[] = [...readEvents(), ...focusEvents(listTodos({ includeDone: true, includeArchived: true }).todos, today)];
+  const mergeStudy = (other: DashboardEvent[]) => [...other, ...studyEvents(from, to).filter((study) =>
+    !other.some((event) => study.id.startsWith("study:leetcode:") && event.date <= study.date && (event.endDate ?? event.date) >= study.date
+      && event.start && event.end && event.start < study.end && event.end > study.start),
+  )];
+  if (!isConnected()) return { events: mergeStudy(events), today, google: { connected: false } };
+  if (options.localOnly) return { events: mergeStudy(events), today, google: { connected: true, error: "Local snapshot only; Google Calendar has not been refreshed" } };
   try {
     const pulled = await fetchEventsWithWarnings(from, to);
     return {
-      events: [...events, ...pulled.events],
+      events: mergeStudy([...events, ...pulled.events]),
       today,
       google: {
         connected: true,
@@ -73,7 +77,7 @@ export async function calendarBoard(options: CalendarBoardOptions = {}): Promise
     };
   } catch (error) {
     return {
-      events,
+      events: mergeStudy(events),
       today,
       google: {
         connected: true,

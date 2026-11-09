@@ -8,6 +8,22 @@ const source = await read("LearningHub.tsx");
 const navigationSource = await read("RobinMargin.tsx");
 const learnLayoutSource = await read("../../app/learn/layout.tsx");
 
+test("the hub puts today's tracks before the weekly recap, with resources open", async () => {
+  assert.ok(source.indexOf('<LearningPanel showCourseOutline />') < source.indexOf('<StudyPlan view={view} />'));
+  assert.match(source, /<WorkspaceRail[^>]*expandedOnMobile>/);
+  assert.match(source, /<details className=\{rail\.shelfDisclosure\} open>/);
+  assert.doesNotMatch(source, /pathNumber|href="https:\/\/www\.notion\.so\/"/);
+  const plan = await read("StudyPlan.tsx");
+  assert.match(plan, /手动里程碑/);
+  assert.match(plan, /<details className=\{styles\.milestoneDetails\}>/);
+  assert.doesNotMatch(plan, /<nav className=\{styles\.links\}/);
+});
+
+test("the hub links directly to the current freeCodeCamp back-end course", () => {
+  assert.match(source, /id: "fcc-backend", href: BACKEND_URL/);
+  assert.match(source, /entry\.href\.startsWith\("https:\/\/"\) \? "_blank"/);
+});
+
 test("the hub links to both daily tracks", async () => {
   // The hub is the front door. A track with no entry here is a track nobody
   // finds, which is the whole failure mode a landing page exists to prevent.
@@ -62,6 +78,23 @@ test("the channels, startup case studies and FDE guides live together in one she
     "https://www.youtube.com/@DanKoeTalks",
     "https://www.varickagents.com/blog/forward-deployed-engineering-101",
   ]);
+});
+
+test("the hub opens the user's seeded Python study board without assuming its UUID", () => {
+  assert.match(source, /fetch\("\/api\/robin\/canvases"/);
+  assert.match(source, /board\.title === PYTHON_STUDY_CANVAS_TITLE/);
+  assert.match(source, /\/notes\?view=canvas&canvas=\$\{pythonCanvasId\}/);
+  assert.match(source, /learn\.entry\.pythonNotes\.title/);
+});
+
+test("the freeCodeCamp shelf links to the current Python and back-end curricula", () => {
+  const group = LEARNING_SHELF.find((entry) => entry.id === "freecodecamp");
+  assert.ok(group);
+  for (const url of [
+    "https://www.freecodecamp.org/learn/python-v9/",
+    "https://www.freecodecamp.org/learn/back-end-development-and-apis-v9/",
+  ]) assert.ok(group.links.some((link) => link.url === url), url);
+  assert.ok(!group.links.some((link) => link.url === "https://www.freecodecamp.org/learn/back-end-development-and-apis/"));
 });
 
 test("Loot Drop is accessible from product discovery as well as the learning shelf", async () => {

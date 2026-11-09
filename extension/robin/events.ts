@@ -86,7 +86,7 @@ export function occursOn(event: CalendarEvent, date: string): boolean {
  * on the wire — nothing with a non-local source is ever written to the store.
  */
 export interface DashboardEvent extends CalendarEvent {
-  source?: "local" | "google" | "planner";
+  source?: "local" | "google" | "planner" | "study";
   /** Planner slots are owned by the original task, not editable calendar copies. */
   todoId?: string;
   /** Name of the originating calendar, for events that came from one. */
@@ -109,7 +109,7 @@ export function deduplicateCalendarEvents<T extends DashboardEvent>(events: T[])
   const seen = new Set<string>();
   return events.filter((event) => {
     // Equal titles/times on different task slots must not hide a scheduling conflict.
-    const key = event.source === "planner" ? `planner:${event.id}` : calendarEventKey(event);
+    const key = event.source === "planner" || event.source === "study" ? `${event.source}:${event.id}` : calendarEventKey(event);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -117,7 +117,7 @@ export function deduplicateCalendarEvents<T extends DashboardEvent>(events: T[])
 }
 
 export function isReadOnlyEvent(event: DashboardEvent): boolean {
-  return event.source === "google" || event.source === "planner";
+  return event.source === "google" || event.source === "planner" || event.source === "study";
 }
 
 /** Coerce a supplied time into HH:MM (24h), rejecting anything ambiguous. */

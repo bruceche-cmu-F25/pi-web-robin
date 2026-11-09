@@ -54,6 +54,8 @@ interface AssistantState {
    * would leave one persona reading the other's instructions.
    */
   mentorSessionId?: string;
+  /** The learning planner's separate, read-only conversation. */
+  plannerSessionId?: string;
   updatedAt?: string;
 }
 
@@ -117,8 +119,16 @@ export function writeMentorSessionId(mentorSessionId: string): void {
   writeAssistantState({ mentorSessionId });
 }
 
+export function readPlannerSessionId(): string | null {
+  return readAssistantState().plannerSessionId ?? null;
+}
+
+export function writePlannerSessionId(plannerSessionId: string): void {
+  writeAssistantState({ plannerSessionId });
+}
+
 /** The assistant sessions a caller may ask to start over. */
-export const ASSISTANT_SESSION_KINDS = ["default", "readOnly", "scoring", "mail", "coach", "mentor"] as const;
+export const ASSISTANT_SESSION_KINDS = ["default", "readOnly", "scoring", "mail", "coach", "mentor", "planner"] as const;
 
 export type AssistantSessionKind = (typeof ASSISTANT_SESSION_KINDS)[number];
 
@@ -129,6 +139,7 @@ const SESSION_FIELDS: Record<AssistantSessionKind, keyof AssistantState> = {
   mail: "mailReviewSessionId",
   coach: "coachSessionId",
   mentor: "mentorSessionId",
+  planner: "plannerSessionId",
 };
 
 /**

@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Noto_Sans_Mono } from "next/font/google";
 import { PwaRegistration } from "@/components/PwaRegistration";
 import { ThemeInitScript } from "@/components/ThemeInitScript";
+import { StudyReminder } from "@/components/robin/StudyReminder";
 import "./globals.css";
 import "./settings.css";
 import "./sidebar.css";
@@ -78,6 +79,7 @@ export default function RootLayout({
       </head>
       <body translate="no" className="notranslate" suppressHydrationWarning>
         {children}
+        <StudyReminder />
         <PwaRegistration />
       </body>
     </html>

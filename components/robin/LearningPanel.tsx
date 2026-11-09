@@ -166,8 +166,8 @@ function CourseMap({ course, disabled, onComplete }: {
 }
 
 /** One daily front door, backed by the same records as the learning workspace. */
-export function LearningPanel({ showCourseOutline = false }: { showCourseOutline?: boolean }) {
-  const { t } = useI18n();
+export function LearningPanel({ showCourseOutline = false, homePreview = false }: { showCourseOutline?: boolean; homePreview?: boolean }) {
+  const { t, locale } = useI18n();
   const { data, error, loading, refresh } = usePolledResource<LearningSnapshot>("/api/robin/learning", 15_000);
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -219,9 +219,6 @@ export function LearningPanel({ showCourseOutline = false }: { showCourseOutline
           <span className="text-xs" style={{ color: "var(--text-muted)" }}>{t("learn.daily.focusHint")}</span>
         </div>
         <div className="flex items-center gap-2">
-          <a href="https://www.notion.so/" target="_blank" rel="noopener noreferrer" className="ui-action pi-chrome-label pi-bracket text-xs">
-            Notion ↗
-          </a>
           {!showCourseOutline && (
             <a href="/learn" className="ui-action pi-chrome-label pi-bracket text-xs" data-state="accent">
               {t("learn.daily.hub")}
@@ -233,7 +230,7 @@ export function LearningPanel({ showCourseOutline = false }: { showCourseOutline
       {loading && !data && <p role="status" className="py-2 text-sm" style={{ color: "var(--text-dim)" }}>{t("learn.daily.loading")}</p>}
       {error && (
         <div role="alert" className="flex flex-wrap items-center gap-3 text-xs" style={{ color: "var(--danger)" }}>
-          <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{t("learn.daily.readError", { error })}</span>
+          <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{showCourseOutline ? (locale.startsWith("zh") ? "暂时无法同步学习进度，请重试。" : "Could not sync learning progress. Please retry.") : t("learn.daily.readError", { error })}</span>
           <button type="button" className={ACTION} disabled={busy || refreshing} onClick={() => void reload()}>{t(refreshing ? "learn.daily.refreshing" : "learn.daily.retry")}</button>
         </div>
       )}
@@ -247,7 +244,7 @@ export function LearningPanel({ showCourseOutline = false }: { showCourseOutline
 
       {/* Two tracks, one habit. Side by side on desktop so the card reads as
           one row of the day rather than two stacked panels. */}
-      <div className={`grid gap-3 ${styles.tracks}`}>
+      {(!error || !showCourseOutline) && <div className={`grid gap-3 ${styles.tracks}`}>
         {practice && (
           <article className={styles.track} style={{ borderLeft: trackSurface(TRACK_COLORS.problems).spine }}>
             <div className={styles.trackHeader}>
@@ -281,7 +278,7 @@ export function LearningPanel({ showCourseOutline = false }: { showCourseOutline
                 {t("coding.plan.browse")} →
               </a>
             </div>
-            <details className="border-t" style={{ borderColor: "var(--border)" }}>
+            {!homePreview && <details className="border-t" style={{ borderColor: "var(--border)" }}>
               <summary className="ui-action min-h-[44px] cursor-pointer py-3 text-xs" style={{ color: "var(--text-muted)" }}>
                 {t("learn.daily.practiceDetails")}
               </summary>
@@ -297,7 +294,7 @@ export function LearningPanel({ showCourseOutline = false }: { showCourseOutline
                 </p>
                 <PracticeDailyPlan plan={practice.daily} list={practice.list} />
               </div>
-            </details>
+            </details>}
           </article>
         )}
 
@@ -352,8 +349,11 @@ export function LearningPanel({ showCourseOutline = false }: { showCourseOutline
               )}
             </div>
             {/* The hub has the whole map, which already says what this preview does. */}
-            {showCourseOutline && <CourseMap course={course} disabled={busy || refreshing || Boolean(error)} onComplete={(step, done) => void complete(step, done)} />}
-            {!showCourseOutline && (course.currentPart || course.upcoming.length > 0) && (
+            {showCourseOutline && <details className="border-t" style={{ borderColor: "var(--border)" }}>
+              <summary className="ui-action min-h-[44px] cursor-pointer py-3 text-xs" style={{ color: "var(--text-muted)" }}>{t("learn.daily.courseMap")}</summary>
+              <CourseMap course={course} disabled={busy || refreshing || Boolean(error)} onComplete={(step, done) => void complete(step, done)} />
+            </details>}
+            {!homePreview && !showCourseOutline && (course.currentPart || course.upcoming.length > 0) && (
               <details className="border-t" style={{ borderColor: "var(--border)" }}>
                 <summary className="ui-action min-h-[44px] cursor-pointer py-3 text-xs" style={{ color: "var(--text-muted)" }}>
                   {t("learn.daily.courseDetails")}
@@ -405,7 +405,7 @@ export function LearningPanel({ showCourseOutline = false }: { showCourseOutline
             )}
           </article>
         )}
-      </div>
+      </div>}
 
     </section>
   );

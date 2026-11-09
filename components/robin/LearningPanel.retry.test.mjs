@@ -10,7 +10,7 @@ function setup(completed = []) {
   const resource = { data: { fullstack: fullstackPlan(completed) }, loading: false, error: null,
     refresh: async () => { reads++; await read(); } };
   const h = hookHarness(new URL("./LearningPanel.tsx", import.meta.url), {
-    "@/hooks/useI18n": { useI18n: () => ({ t: (key, values) => values ? `${key} ${JSON.stringify(values)}` : key }) },
+    "@/hooks/useI18n": { useI18n: () => ({ locale: "en", t: (key, values) => values ? `${key} ${JSON.stringify(values)}` : key }) },
     "@/extension/robin/learning": { FULLSTACK_STEPS, practiceHref() {} },
     "./usePolledResource": { usePolledResource: () => resource, mutate: async (url, method, body) => { writes.push({ url, method, ...body }); await write(body); } },
     "./PracticeDailyPlan": { PracticeDailyPlan() {} },
@@ -67,7 +67,7 @@ test("acknowledged save followed by a failed read never offers another PATCH ret
     h.write(async () => {});
     h.read(async () => { h.resource.error = "Refresh failed"; });
     h.button("learn.daily.complete").onClick(); await settle();
-    assert.ok(h.message("learn.daily.saved")); assert.ok(h.message("learn.daily.readError"));
+    assert.ok(h.message("learn.daily.saved")); assert.ok(h.message("Could not sync learning progress. Please retry."));
     assert.equal(h.message("learn.daily.writeError"), null);
     assert.equal(findElement(h.render(), node => node.type === "button" && node.props.children === "learn.daily.retrySave"), null);
     h.button("learn.daily.retry").onClick(); await settle();

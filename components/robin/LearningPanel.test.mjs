@@ -4,12 +4,14 @@ import test from "node:test";
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
 
-test("Daily keeps Learning and Jobs in disclosures beside the workspace directory", () => {
+test("Desktop Home reads learning and jobs directly; phone More keeps lazy disclosures", () => {
   const dashboard = read("./Dashboard.tsx");
+  assert.match(dashboard, /desktop \? <>[\s\S]*?<LearningPanel homePreview \/>[\s\S]*?<JobsPanel \/>/);
   assert.match(dashboard, /<DashboardDisclosure id="fullstack-open"[^>]*><LearningPanel \/><\/DashboardDisclosure>/);
   assert.match(dashboard, /<DashboardDisclosure id="dashboard-jobs"[^>]*><JobsPanel \/><\/DashboardDisclosure>/);
   assert.match(dashboard, /!desktop && <><DashboardDirectory href=\{contextHref\}/);
   assert.match(read("./DashboardDirectory.tsx"), /href: "\/tools", key: "tools", label: "toolbox.shortcut"/);
+  assert.match(dashboard, /desktop && <div className=\{styles\.desktopHead\}>[\s\S]*?<Link href=\{contextHref\("\/tools"\)\}[^>]*>[\s\S]*?\{t\("toolbox\.shortcut"\)\}/);
   assert.doesNotMatch(dashboard, /id="dashboard-tools"/);
 });
 
@@ -27,7 +29,7 @@ test("the hub adds course history without making the existing curriculum trackab
 
 test("the hub's course outline is one ruler of parts, closed until a part is picked", () => {
   const panel = read("./LearningPanel.tsx");
-  assert.match(panel, /showCourseOutline && <CourseMap /);
+  assert.match(panel, /showCourseOutline && <details[\s\S]*?<CourseMap /);
   assert.match(panel, /useState<number \| null>\(null\)/);
   assert.match(panel, /aria-expanded=\{open === part\}/);
   // The per-part <details> stack it replaced took ~600px above the fold.
