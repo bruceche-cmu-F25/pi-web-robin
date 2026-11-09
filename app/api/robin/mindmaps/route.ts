@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createMindmap, deleteMindmap, listMindmaps, mutateMindmap, readMindmap } from "@/extension/robin/mindmap-domain";
+import { createMindmap, deleteMindmap, listMindmaps, mutateMindmap, readMindmap, readMindmapExplanation } from "@/extension/robin/mindmap-domain";
 import { MAX_MAP_BODY, mapObject, MindmapError } from "@/extension/robin/mindmap";
 import { apiRoute } from "@/lib/api-route";
 import { parseJsonWithinLimit, RequestBodyTooLargeError } from "@/lib/bounded-form-data";
@@ -14,7 +14,8 @@ const route = (handler: (req: Request) => Promise<NextResponse> | NextResponse) 
 });
 const body = async (req: Request) => mapObject(await parseJsonWithinLimit(req, MAX_MAP_BODY));
 export const GET = route((req) => {
-  const id = new URL(req.url).searchParams.get("id");
+  const params = new URL(req.url).searchParams, id = params.get("id"), node = params.get("explanation");
+  if (node !== null) return NextResponse.json(readMindmapExplanation(id, node));
   return NextResponse.json(id ? { map: readMindmap(id) } : { maps: listMindmaps() });
 });
 export const POST = route(async (req) => {

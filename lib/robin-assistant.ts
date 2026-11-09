@@ -326,7 +326,7 @@ async function runTurn(
       outcome();
     };
 
-    const timer = setTimeout(
+    const timer = timeoutMs === 0 ? undefined : setTimeout(
       () => finish(() => reject(new Error("The assistant took too long to respond."))),
       timeoutMs,
     );
@@ -464,8 +464,11 @@ export interface ScopedAssistantTurnOptions {
   message: string;
   preamble: string;
   images?: Array<{ type: "image"; data: string; mimeType: string }>;
+  /** 0 disables the turn deadline; explicit cancellation still applies. */
   timeoutMs?: number;
   oneShot?: boolean;
+  /** One-shot background/editorial turns may suppress session-completion pushes without global muting. */
+  silenceCompletionNotifications?: boolean;
   model?: { provider: string; modelId: string } | null;
   /**
    * Applies to this session only. Sent as an RPC after acquisition rather than

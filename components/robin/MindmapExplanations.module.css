@@ -1,0 +1,59 @@
+.reader { width: min(1180px, calc(100vw - 48px)); height: min(900px, calc(100dvh - 48px)); max-width: none; max-height: none; margin: auto; padding: 0; border: 1px solid var(--border); border-radius: var(--panel-radius); background: var(--bg-panel); color: var(--text); font-family: var(--font-ui); box-shadow: var(--card-shadow); }
+.reader[open] { display: flex; flex-direction: column; }
+.reader::backdrop { background: rgb(0 0 0 / 0.42); }
+.header { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0; padding: 16px 24px; border-bottom: 1px solid var(--border); }
+.header > div { min-width: 0; }
+.header h2 { margin: 0; font: 500 18px/1.4 var(--font-ui); }
+.header p { margin: 4px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font: 13px/1.5 var(--font-ui); }
+.header > button { min-width: 44px; flex-shrink: 0; }
+.body { display: grid; grid-template-columns: 220px minmax(0, 1fr); flex: 1; min-height: 0; }
+.library { overflow-y: auto; overscroll-behavior: contain; padding: 20px 12px; border-right: 1px solid var(--border); }
+.library h3 { margin: 0 10px 12px; color: var(--text-muted); font: 13px/1.5 var(--font-ui); }
+.library h3 span { margin-left: 6px; font-variant-numeric: tabular-nums; }
+.reader .library > button { display: flex; width: 100%; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 4px; margin-bottom: 4px; padding: 12px; text-align: left; overflow-wrap: anywhere; }
+.library button span { font: 14px/1.5 var(--font-ui); }
+.library button small { font: 12px/1.5 var(--font-ui); color: var(--text-muted); }
+.library button[aria-current="page"] { background: var(--accent-faint); box-shadow: inset 3px 0 var(--accent); }
+.document { min-width: 0; overflow: auto; overscroll-behavior: contain; padding: 36px 44px 64px; scroll-padding-block: 24px; }
+.paper { max-width: 76ch; margin-inline: auto; }
+.metadata { display: grid; gap: 6px; margin-bottom: 16px; overflow-wrap: anywhere; }
+.metadata > span, .metadata > small { color: var(--text-muted); font: 12px/1.5 var(--font-ui); }
+.metadata strong { font: 500 22px/1.4 var(--font-ui); }
+.tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 16px; }
+.reader .primary { color: var(--accent-contrast); background: var(--accent); }
+.hint, .status, .error, .boundary { font: 13px/1.7 var(--font-ui); overflow-wrap: anywhere; }
+.hint, .status { color: var(--text-muted); }
+.status p { margin: 0 0 20px; }
+.status [data-warning="true"] { padding: 12px 16px; border-left: 3px solid var(--warning); background: var(--bg-subtle); color: var(--text); }
+.error { color: var(--danger); margin-bottom: 20px; }
+.boundary { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--border); color: var(--text-muted); }
+.empty { padding-block: 32px; }
+.empty h3 { font: 500 22px/1.5 var(--font-ui); margin: 0 0 12px; }
+.empty p { max-width: 48ch; color: var(--text-muted); line-height: 1.8; }
+/* Override only this document surface; Buddy retains its compact typography. */
+.prose > div { font: max(17px, 1.3rem)/1.8 var(--font-ui); }
+.reader .prose :is(h1, h2, h3, h4, h5, h6) { margin: 1.6em 0 0.65em; color: var(--text); font-family: var(--font-ui); font-weight: 600; line-height: 1.4; }
+.reader .prose h1 { font-size: max(28px, 2.15rem); }
+.reader .prose h2 { font-size: max(22px, 1.69rem); }
+.reader .prose h3 { font-size: max(18px, 1.38rem); }
+.reader .prose :is(h4, h5, h6) { font-size: max(17px, 1.3rem); }
+.prose p { margin: 0.9em 0; }
+.prose li { margin-block: 0.35em; }
+.prose blockquote { margin: 1.2em 0; padding-left: 18px; border-left: 3px solid var(--border); color: var(--text-muted); }
+.reader .prose pre { margin-block: 1.2em; padding: 16px; border: 1px solid var(--border); border-radius: var(--control-radius); background: var(--bg-subtle); white-space: pre; }
+.reader .prose code { font: max(14px, 1.07rem)/1.7 var(--font-mono); }
+.prose hr { margin-block: 2em; border: 0; border-top: 1px solid var(--border); }
+.reader :is(button, a, select, [tabindex]):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 760px) {
+  .reader { width: 100%; height: 100dvh; border: 0; border-radius: 0; }
+  .header { padding: calc(10px + env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) 10px max(16px, env(safe-area-inset-left, 0px)); }
+  .body { display: flex; flex-direction: column; }
+  .library { display: flex; flex-shrink: 0; gap: 8px; max-height: 100px; overflow: auto; padding: 10px 16px; border-right: 0; border-bottom: 1px solid var(--border); }
+  .library h3 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .reader .library > button { flex: 0 0 auto; width: min(220px, 70vw); margin: 0; padding: 8px 12px; }
+  .library button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .document { flex: 1; min-height: 0; padding: 24px max(20px, env(safe-area-inset-right, 0px)) calc(36px + env(safe-area-inset-bottom, 0px)) max(20px, env(safe-area-inset-left, 0px)); }
+  .metadata strong { font-size: 20px; }
+  .reader .prose h1 { font-size: max(24px, 1.84rem); }
+}
+@media (max-height: 500px) and (min-width: 761px) { .reader { height: calc(100dvh - 16px); } .header { padding-block: 8px; } .document { padding-top: 20px; } }
