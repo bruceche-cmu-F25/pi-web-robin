@@ -12,8 +12,8 @@ export function TextRecoveryWarning() {
 }
 
 /** Offer an old copy, never replace the server-loaded editor without a user choice. */
-export function TextRecoveryNotice({ scope, id, writer, disabled, onRestore }: {
-  scope: RecoveryScope; id: string; writer: string; disabled?: boolean;
+export function TextRecoveryNotice({ scope, id, writer, disabled, className, onRestore }: {
+  scope: RecoveryScope; id: string; writer: string; disabled?: boolean; className?: string;
   // True only after the adopted text has its own local backup. Otherwise keep this copy.
   onRestore: (fields: Record<string, string>) => boolean;
 }) {
@@ -41,10 +41,11 @@ export function TextRecoveryNotice({ scope, id, writer, disabled, onRestore }: {
   return <>
     {recovery.unavailable ? <TextRecoveryWarning /> : null}
     {recovery.drafts.map((draft) => <section key={draft.key} aria-label={zh ? "本机草稿恢复" : "Local draft recovery"}
-      className="min-w-0 border p-3 text-sm" style={{ borderColor: "var(--border)", background: "var(--bg-panel)", overflowWrap: "anywhere" }}>
-      <p>{zh ? "发现本机文字备份，尚未自动恢复。请先预览；恢复会替换相应字段，沿用页面的保存方式。" : "Local text backup found; nothing is restored automatically. Preview first. Restoring replaces those fields and uses normal saving rules."}</p>
+      className={className ?? "min-w-0 border p-3 text-sm"} style={{ borderColor: "var(--border)", background: "var(--bg-panel)", overflowWrap: "anywhere" }}>
+      {className ? <p><strong>{zh ? "上次未保存的编辑" : "Unsaved edits from last time"}</strong> · <time dateTime={draft.savedAt}>{new Date(draft.savedAt).toLocaleString(locale)}</time><span> · {zh ? "不会自动覆盖当前简历" : "Won't overwrite this resume automatically"}</span></p>
+        : <p>{zh ? "发现本机文字备份，尚未自动恢复。请先预览；恢复会替换相应字段，沿用页面的保存方式。" : "Local text backup found; nothing is restored automatically. Preview first. Restoring replaces those fields and uses normal saving rules."}</p>}
       <details className="my-2">
-        <summary className="ui-action min-h-11 py-3">{zh ? "预览备份" : "Preview backup"} · <time dateTime={draft.savedAt}>{new Date(draft.savedAt).toLocaleString(locale)}</time></summary>
+        <summary className="ui-action min-h-11 py-3">{zh ? "预览备份" : "Preview backup"}{!className && <> · <time dateTime={draft.savedAt}>{new Date(draft.savedAt).toLocaleString(locale)}</time></>}</summary>
         {Object.entries(draft.fields).map(([field, value]) => <div key={field}>
           <strong>{labels[field]}</strong><pre className="max-h-48 overflow-auto whitespace-pre-wrap py-2" style={{ font: "inherit", overflowWrap: "anywhere" }}>{value || (zh ? "（空）" : "(empty)")}</pre>
         </div>)}

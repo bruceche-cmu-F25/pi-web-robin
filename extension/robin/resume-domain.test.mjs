@@ -3,13 +3,13 @@ import { after, beforeEach, test } from "node:test";
 import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { readResume, saveResume } from "./resume-domain.ts";
+import { createResume, listResumes, readResume, renameResume, saveResume } from "./resume-domain.ts";
 import { MAX_RESUME_BYTES, RESUME_TEMPLATE, parseResumeProposal, resumeRequest } from "./resume.ts";
 
 const previous = process.env.ROBIN_DATA_DIR;
 const dir = mkdtempSync(join(tmpdir(), "resume-domain-"));
 process.env.ROBIN_DATA_DIR = dir;
-beforeEach(() => { rmSync(join(dir, "resume.json"), { force: true }); });
+beforeEach(() => { rmSync(join(dir, "resume.json"), { force: true }); rmSync(join(dir, "resume-collection.json"), { force: true }); });
 after(() => {
   if (previous === undefined) delete process.env.ROBIN_DATA_DIR; else process.env.ROBIN_DATA_DIR = previous;
   rmSync(dir, { recursive: true, force: true });
@@ -42,6 +42,37 @@ test("corruption is not replaced by a blank resume", () => {
     assert.throws(() => saveResume({ revision: "empty", source: "replacement" }));
     assert.equal(readFileSync(join(dir, "resume.json"), "utf8"), text);
   }
+});
+test("named resumes isolate sources, keep legacy intact, and reject missing ids and corrupt collections", () => {
+  const legacy = saveResume({ revision: "empty", source: "original" });
+  assert.deepEqual(listResumes().map(({ id }) => id), ["main"]);
+  const first = createResume({ name: "Backend" });
+  const second = createResume({ name: "Frontend", source: "" });
+  assert.throws(() => createResume({ name: "No direct save", source: "backend source" }));
+  saveResume({ revision: first.revision, source: "backend source" }, first.id);
+  assert.deepEqual(listResumes().map(({ name }) => name), ["My resume", "Backend", "Frontend"]);
+  assert.equal(readResume(first.id).source, "backend source");
+  const current = readResume(first.id);
+  const changed = saveResume({ revision: current.revision, source: "new backend" }, first.id);
+  assert.equal(readResume(first.id).source, "new backend");
+  assert.deepEqual(readResume(), legacy);
+  assert.deepEqual(readResume(second.id).source, "");
+  assert.throws(() => saveResume({ revision: current.revision, source: "stale" }, first.id), conflict);
+  assert.deepEqual(saveResume({ revision: current.revision, source: "new backend" }, first.id), changed);
+  renameResume({ id: "main", name: "Base" });
+  renameResume({ id: second.id, name: "New name" });
+  assert.deepEqual(listResumes().map(({ name }) => name), ["Base", "Backend", "New name"]);
+  for (const id of ["../resume", "missing", ""]) {
+    assert.throws(() => readResume(id));
+    assert.throws(() => saveResume({ revision: "empty", source: "x" }, id));
+  }
+  assert.throws(() => createResume({ name: "", source: "x" }));
+  const collection = readFileSync(join(dir, "resume-collection.json"), "utf8");
+  writeFileSync(join(dir, "resume-collection.json"), "{broken");
+  assert.throws(() => listResumes());
+  assert.throws(() => createResume({ name: "Oops", source: "" }));
+  assert.equal(readFileSync(join(dir, "resume-collection.json"), "utf8"), "{broken");
+  writeFileSync(join(dir, "resume-collection.json"), collection);
 });
 test("write and generation input limits are UTF-8 bounds, not character guesses", () => {
   for (const source of [null, 42, "x\0y", "中".repeat(MAX_RESUME_BYTES / 3 + 1)]) assert.throws(() => saveResume({ revision: "empty", source }));

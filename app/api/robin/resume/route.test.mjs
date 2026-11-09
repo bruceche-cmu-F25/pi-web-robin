@@ -7,7 +7,9 @@ import { createJiti } from "jiti";
 const previous = process.env.ROBIN_DATA_DIR;
 const dir = mkdtempSync(join(tmpdir(), "resume-api-"));
 process.env.ROBIN_DATA_DIR = dir;
-const route = await createJiti(import.meta.url, { alias: { "@": process.cwd() } }).import("./route.ts");
+const jiti = createJiti(import.meta.url, { alias: { "@": process.cwd() } });
+const route = await jiti.import("./route.ts");
+const documents = await jiti.import("./documents/route.ts");
 after(() => {
   if (previous === undefined) delete process.env.ROBIN_DATA_DIR; else process.env.ROBIN_DATA_DIR = previous;
   rmSync(dir, { recursive: true, force: true });
@@ -18,6 +20,23 @@ function request(method, value, origin = "http://localhost", type = "application
     ...(value === undefined ? {} : { body: JSON.stringify(value) }),
   });
 }
+test("named resumes are selectable and saved independently", async () => {
+  const input = (method, url, value, origin = "http://localhost") => new Request(`http://localhost/api/robin/resume${url}`, { method,
+    headers: { Host: "localhost", Origin: origin, "Content-Type": "application/json" },
+    body: JSON.stringify(value),
+  });
+  const created = await documents.POST(input("POST", "/documents", { name: "Target role", source: "" }));
+  assert.equal(created.status, 200);
+  const { document: first, resumes } = await created.json();
+  assert.equal(resumes.length, 2);
+  assert.equal((await route.GET(new Request(`http://localhost/api/robin/resume?id=${first.id}`, { headers: { Host: "localhost" } }))).status, 200);
+  assert.equal((await route.PUT(input("PUT", `?id=${first.id}`, { source: "two", revision: first.revision }))).status, 200);
+  assert.equal((await route.GET(request("GET"))).status, 200);
+  assert.equal((await route.PUT(input("PUT", "?id=../resume", { source: "x", revision: "empty" }))).status, 404);
+  assert.equal((await documents.PATCH(input("PATCH", "/documents", { id: first.id, name: "Updated" }))).status, 200);
+  assert.equal((await documents.POST(input("POST", "/documents", { name: "", source: "" }))).status, 400);
+  assert.equal((await documents.POST(input("POST", "/documents", { name: "Invalid", source: "" }, "https://evil.example"))).status, 403);
+});
 test("inert private reads, bounded guarded saves, explicit conflict", async () => {
   const read = await route.GET(request("GET"));
   assert.equal(read.status, 200); assert.equal(read.headers.get("cache-control"), "no-store");

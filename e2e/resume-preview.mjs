@@ -29,7 +29,7 @@ try {
         if (source.includes("broken")) return route.fulfill({ status: 422, json: { error: "resume.tex:42: Undefined control sequence." } }).catch(() => {});
         return route.fulfill({ json: source === RESUME_TEMPLATE || source.includes("slow A") ? original : revised }).catch(() => {});
       }
-      if (path === "/api/robin/resume" && req.method() === "GET") return route.fulfill({ json: { document: { source: RESUME_TEMPLATE, revision: "1", updatedAt: "2026-10-01T00:00:00Z" }, hasProfile: false } });
+      if (path === "/api/robin/resume" && req.method() === "GET") return route.fulfill({ json: { document: { source: RESUME_TEMPLATE, revision: "1", updatedAt: "2026-10-01T00:00:00Z" }, resumes: [{ id: "main", name: "My resume", updatedAt: "2026-10-01T00:00:00Z" }], hasProfile: false } });
       if (path === "/api/robin/resume" && req.method() === "POST") {
         const { source } = req.postDataJSON();
         return route.fulfill({ json: { proposal: { source: source.replace("[Your name]", "Agent Candidate"), summary: "Changed the fixture heading.", questions: [] }, sessionId: "preview-test" } });
@@ -134,8 +134,8 @@ try {
 
       // A direct agent edit automatically triggers the same preview path with the new draft.
       await source.fill(RESUME_TEMPLATE); await ready();
-      await page.getByRole("textbox", { name: "What would you like to change?" }).fill("Change the test heading.");
-      await page.getByRole("button", { name: "Edit with agent", exact: true }).click();
+      await page.getByRole("textbox", { name: "Ask Buddy or request a change" }).fill("Change the test heading.");
+      await page.getByRole("button", { name: "Send to Buddy", exact: true }).click();
       await page.waitForFunction(() => document.getElementById("resume-source").value.includes("Agent Candidate"));
       await ready(); assert.ok(calls.at(-1).includes("Agent Candidate"));
       await page.getByRole("button", { name: "Undo last agent edit", exact: true }).click();

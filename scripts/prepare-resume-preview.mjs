@@ -30,6 +30,10 @@ try {
   // Ship actual glyphs for the full size/face matrix so metrics AND outline files are cached.
   const fontSizes = await fs.readFile(new URL("../extension/robin/fixtures/resume-font-sizes.tex", import.meta.url), "utf8");
   legacyDocuments.push(["lmodern-all-sizes-and-faces", fontSizes]);
+  // T1 Latin Modern metrics do not warm XeTeX's TU OpenType faces (e.g. lmroman9-regular.otf).
+  // Exercise real glyph output in fontspec/TU at each optical size before offline requests.
+  legacyDocuments.push(["fontspec-tu-all-sizes-and-faces", fontSizes.replace(String.raw`\usepackage[T1]{fontenc}
+\usepackage{lmodern}`, String.raw`\usepackage{fontspec}`)]);
   legacyDocuments.push(["cmr-all-sizes-and-faces", fontSizes.replace(String.raw`\usepackage{lmodern}`, "")
     .replace(String.raw`\usepackage[T1]{fontenc}`, String.raw`\renewcommand{\rmdefault}{cmr}\usepackage[T1]{fontenc}`)]);
   for (const [name, source] of [["latin", common], ...legacyDocuments, ["chinese", String.raw`\documentclass[fontset=fandol]{ctexart}

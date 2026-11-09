@@ -73,7 +73,6 @@ export function ResumePreview({ source }: { source: string }) {
         document.body.appendChild(anchor); anchor.click(); anchor.remove();
       }}>{t("resume.preview.download")}</button>
     </div>
-    <p className={styles.hint}>{t("resume.preview.hint")}</p>
     {!error && <p role="status" aria-atomic="true" className={styles.hint}>{t(`resume.preview.${visiblePhase}`)}</p>}
     {current && hasWarnings && <p className={styles.previewStale}>{t("resume.preview.warnings")}</p>}
     {preview && !current && <p className={styles.previewStale} role="status">{t("resume.preview.stale")}</p>}
@@ -97,5 +96,6 @@ export function ResumePreview({ source }: { source: string }) {
       </div>
       {preview.diagnostics && <details className={styles.diff}><summary>{t("resume.preview.log")}{!current && ` · ${t("resume.preview.previousLog")}`}</summary><pre>{preview.diagnostics}</pre></details>}
     </>}
+    <details className={styles.previewHelp}><summary>{t("resume.preview.about")}</summary><p className={styles.hint}>{t("resume.preview.hint")}</p></details>
   </section>;
 }

@@ -16,7 +16,9 @@ try {
     if (process.env.PI_WEB_PASSWORD) assert.ok((await context.request.post("/api/web-auth", { headers: { Origin: baseURL }, data: { password: process.env.PI_WEB_PASSWORD } })).ok());
     await context.addInitScript(({ theme }) => { if (!localStorage.getItem("pi-locale")) localStorage.setItem("pi-locale", "en"); localStorage.setItem("pi-theme", theme); }, { theme });
     let stored = { source: width === 320 ? "" : RESUME_TEMPLATE, revision: "1", updatedAt: width === 320 ? null : "2026-10-01T00:00:00Z" };
-    let failSave = false, failPdf = false, invalidAgent = false, saveGate = null, agentGate = null;
+    let failSave = false, failPdf = false, invalidAgent = false, saveGate = null, agentGate = null, agentEntered = null;
+    const extra = new Map(); let mainName = "My resume";
+    const resumes = () => [{ id: "main", name: mainName, updatedAt: stored.updatedAt }, ...[...extra].map(([id, item]) => ({ id, name: item.name, updatedAt: item.updatedAt }))];
     const writes = [], errors = [];
     await context.route("**/api/**", async route => {
       const req = route.request(), path = new URL(req.url()).pathname;
@@ -29,18 +31,34 @@ try {
         if (failPdf) return route.fulfill({ status: 422, json: { error: "Fixture scanned PDF needs OCR" } });
         return route.fulfill({ json: { proposal: { source: converted, summary: "Converted without rewriting candidate facts. Verify the layout.", questions: [] }, sessionId: "fixture-pdf-agent", imported: { name: "candidate.pdf", pages: 2, text: "--- page 1 ---\nAda Example\n--- page 2 ---\nSoftware Engineer, 2024 - 2026" } } }).catch(() => {});
       }
+      if (path === "/api/robin/resume/documents") {
+        const data = req.postDataJSON(); writes.push({ method: req.method(), data });
+        if (req.method() === "POST") {
+          const id = `fixture-${extra.size + 1}`;
+          const document = { ...data, id, revision: "1", updatedAt: "2026-10-01T00:00:00Z" };
+          extra.set(id, document);
+          return route.fulfill({ json: { document, resumes: resumes() } });
+        }
+        if (data.id === "main") mainName = data.name;
+        else extra.set(data.id, { ...extra.get(data.id), name: data.name });
+        return route.fulfill({ json: { resumes: resumes() } });
+      }
       if (path === "/api/robin/resume") {
-        if (req.method() === "GET") return route.fulfill({ json: { document: stored, hasProfile: width !== 320 } });
+        const id = new URL(req.url()).searchParams.get("id") ?? "main";
+        if (req.method() === "GET") return route.fulfill({ json: { document: id === "main" ? stored : extra.get(id), resumes: resumes(), hasProfile: width !== 320 } });
         const data = req.postDataJSON(); writes.push({ method: req.method(), data });
         if (req.method() === "PUT") {
           if (saveGate) await saveGate;
           if (failSave) return route.fulfill({ status: 500, json: { error: "Fixture disk unavailable" } });
-          if (data.revision !== stored.revision) return route.fulfill({ status: 409, json: { error: "Fixture revision conflict" } });
-          stored = { ...stored, source: data.source, revision: String(Number(stored.revision) + 1) };
-          return route.fulfill({ json: { document: stored } });
+          const current = id === "main" ? stored : extra.get(id);
+          if (data.revision !== current.revision) return route.fulfill({ status: 409, json: { error: "Fixture revision conflict" } });
+          const updated = { ...current, source: data.source, revision: String(Number(current.revision) + 1) };
+          if (id === "main") stored = updated; else extra.set(id, updated);
+          return route.fulfill({ json: { document: updated } });
         }
+        agentEntered?.(); agentEntered = null;
         if (agentGate) await agentGate;
-        return route.fulfill({ json: { proposal: { source: invalidAgent ? "truncated source" : revised(data.source), summary: "Tightened phrasing. Verify facts before compiling.", questions: ["Confirm your graduation date."] }, sessionId: "fixture-resume-agent" } }).catch(() => {});
+        return route.fulfill({ json: { proposal: { source: data.instruction === "What can I improve?" ? null : invalidAgent ? "truncated source" : revised(data.source), summary: data.instruction === "What can I improve?" ? "Focus on concrete project outcomes." : "Tightened phrasing. Verify facts before compiling.", questions: data.instruction === "What can I improve?" ? [] : ["Confirm your graduation date."] }, sessionId: "fixture-resume-agent" } }).catch(() => {});
       }
       if (req.method() !== "GET") throw new Error(`Unexpected write: ${req.method()} ${path}`);
       const fixtures = {
@@ -56,13 +74,13 @@ try {
     await page.goto("/dashboard/jobs/resume?session=keep&cwd=%2Ftmp%2Fexample");
     const source = page.getByRole("textbox", { name: "LaTeX source", exact: true });
     const save = page.getByRole("button", { name: "Save source", exact: true });
-    const generate = page.getByRole("button", { name: "Edit with agent", exact: true });
-    const instruction = page.getByRole("textbox", { name: "What would you like to change?" });
+    const generate = page.getByRole("button", { name: "Send to Buddy", exact: true });
+    const instruction = page.getByRole("textbox", { name: "Ask Buddy or request a change" });
     const result = page.getByRole("region", { name: "Latest agent changes", exact: true });
     const undo = page.getByRole("button", { name: "Undo last agent edit", exact: true });
     const stale = page.getByText("You edited the source during generation, so this result was not applied. Ask the agent to edit the current draft again.", { exact: true });
     const waitSource = value => page.waitForFunction(value => document.getElementById("resume-source")?.value === value, value);
-    const saveNow = async () => { await save.click(); await page.getByRole("status").filter({ hasText: "Source saved" }).waitFor(); };
+    const saveNow = async () => { await save.click(); await page.locator("#resume-source-panel").getByRole("status").filter({ hasText: "Source saved" }).waitFor(); };
     const hideResult = () => result.getByRole("button", { name: "Hide change record", exact: true }).click();
     const jump = async () => {
       const button = result.getByRole("button", { name: /^Go to source line/ }).last();
@@ -75,6 +93,11 @@ try {
       assert.ok(await source.evaluate(el => el.getBoundingClientRect().bottom > 0 && el.getBoundingClientRect().top < innerHeight));
     };
     await source.waitFor(); assert.equal(await source.inputValue(), stored.source); assert.equal(writes.length, 0);
+    if (width === 1440) {
+      const preview = page.getByRole("region", { name: "PDF preview" });
+      const buddy = page.getByRole("heading", { name: "Agent Buddy" });
+      assert.ok((await preview.boundingBox()).x < (await buddy.boundingBox()).x, "rendered PDF sits left of Agent Buddy");
+    }
     const tabs = page.getByRole("navigation", { name: "Job hunt views" });
     assert.equal(await tabs.getByRole("link", { name: "Resume", exact: true }).getAttribute("aria-current"), "page");
     assert.equal(await page.locator('.robin-nav-entry[href^="/dashboard/jobs"]').getAttribute("aria-current"), "page");
@@ -83,6 +106,17 @@ try {
     assert.ok(tabTops.every(top => top === tabTops[0]), "three job tabs fit on one row");
     await page.screenshot({ path: `${out}/${width}-${theme}.png`, fullPage: true });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    if (width <= 640) {
+      const jumps = page.getByRole("navigation", { name: "Resume workspace views" });
+      await jumps.getByRole("button", { name: "Agent Buddy" }).click();
+      assert.equal(await page.locator("#resume-buddy").evaluate(el => document.activeElement === el && el.getBoundingClientRect().top < innerHeight), true);
+      assert.ok((await page.getByRole("log", { name: "Resume agent" }).boundingBox()).height > 200, "Buddy keeps most of the panel for conversation");
+      if (width === 390) await page.screenshot({ path: `${out}/${width}-${theme}-buddy.png` });
+      await jumps.getByRole("button", { name: "Source", exact: true }).click();
+      assert.equal(await page.locator("#resume-source-panel").evaluate(el => document.activeElement === el && el.getBoundingClientRect().top < innerHeight), true);
+      await jumps.getByRole("button", { name: "Preview", exact: true }).click();
+      await page.locator("#resume-preview").evaluate(el => { if (document.activeElement !== el) throw new Error("Preview jump did not focus the preview"); });
+    }
     for (const button of await page.locator('[class*="ResumeWorkspace"] button:visible').all()) assert.ok((await button.boundingBox()).height >= 44);
 
     // PDF conversion writes the editor directly, including an empty workspace; never the server.
@@ -136,9 +170,12 @@ try {
       await page.getByRole("button", { name: "Saving…", exact: true }).waitFor();
       const newer = draft + "% newer edit\n"; await source.fill(newer);
       releaseSave(); saveGate = null;
-      await page.getByRole("status").filter({ hasText: "Unsaved changes" }).waitFor();
+      await page.locator("#resume-source-panel").getByRole("status").filter({ hasText: "Unsaved changes" }).waitFor();
       assert.equal(await source.inputValue(), newer); await saveNow();
 
+      await instruction.fill("What can I improve?"); await generate.click();
+      await page.getByRole("log", { name: "Resume agent" }).getByText("Focus on concrete project outcomes.").waitFor();
+      assert.equal(await source.inputValue(), newer, "discussion does not edit the source");
       await instruction.fill("Tighten wording. Do not invent facts.");
       let releaseAgent; agentGate = new Promise(resolve => { releaseAgent = resolve; });
       await generate.click(); await page.getByRole("button", { name: "Stop generating" }).waitFor();
@@ -146,8 +183,10 @@ try {
       releaseAgent(); agentGate = null; await stale.waitFor();
       assert.equal(await source.inputValue(), typedDuring);
       assert.equal(writes.findLast(w => w.method === "POST").data.source, newer);
+      assert.deepEqual(writes.findLast(w => w.method === "POST").data.history.map(turn => turn.role), ["user", "agent"]);
       await hideResult();
       const beforeEditWrites = writes.filter(w => w.method === "PUT").length;
+      await instruction.fill("Tighten wording. Do not invent facts.");
       await generate.click(); await waitSource(revised(typedDuring));
       assert.equal(writes.filter(w => w.method === "PUT").length, beforeEditWrites, "direct agent editing is not a disk save");
       assert.ok(await result.locator('[data-kind="removed"]').count() > 0);
@@ -157,7 +196,7 @@ try {
       await page.screenshot({ path: `${out}/${width}-${theme}-agent-diff.png`, fullPage: true });
 
       // A malformed result cannot replace the draft or discard the previous diff/undo.
-      invalidAgent = true; await generate.click();
+      invalidAgent = true; await instruction.fill("Tighten wording. Do not invent facts."); await generate.click();
       await page.getByText("The agent returned incomplete LaTeX. Your source is unchanged.", { exact: true }).waitFor();
       assert.equal(await source.inputValue(), revised(typedDuring));
       assert.equal(writes.findLast(w => w.method === "POST").data.source, revised(typedDuring), "follow-up reads the agent-updated editor, not the saved CV");
@@ -177,16 +216,41 @@ try {
       await saveNow(); assert.equal(stored.source, typedDuring);
 
       agentGate = new Promise(resolve => { releaseAgent = resolve; });
-      await generate.click(); await page.getByRole("button", { name: "Stop generating", exact: true }).click();
+      const requestStarted = new Promise(resolve => { agentEntered = resolve; });
+      await instruction.fill("Tighten wording. Do not invent facts."); await generate.click(); await requestStarted;
+      await page.getByRole("button", { name: "Stop generating", exact: true }).click();
+      releaseAgent(); agentGate = null;
       await page.getByText("Generation stopped. Your source is unchanged.", { exact: true }).waitFor();
-      releaseAgent(); agentGate = null; assert.equal(await source.inputValue(), typedDuring);
+      assert.equal(await source.inputValue(), typedDuring);
       const imported = RESUME_TEMPLATE + "% imported UTF-8 中文\n";
       await page.locator('input[accept^=".tex"]').setInputFiles({ name: "candidate.tex", mimeType: "text/plain", buffer: Buffer.from(imported) });
       await waitSource(imported);
+      await page.getByText("Source files", { exact: true }).click();
       const downloaded = page.waitForEvent("download"); await page.getByRole("button", { name: "Download .tex", exact: true }).click();
       assert.equal((await downloaded).suggestedFilename(), "resume.tex");
       await saveNow(); await page.reload(); await waitSource(imported);
       assert.equal(await page.getByRole("button", { name: "Restore draft", exact: true }).count(), 0);
+      if (width === 1440) {
+        const choices = page.getByRole("combobox", { name: "Resume", exact: true });
+        await source.fill(imported + "% other unsaved version\n");
+        await page.getByRole("button", { name: "New resume" }).click();
+        await page.getByRole("textbox", { name: "Resume name" }).fill("Backend role");
+        await page.getByRole("checkbox", { name: "Start with current draft" }).check();
+        await page.getByRole("button", { name: "Create" }).click();
+        await choices.selectOption("fixture-1");
+        await waitSource(imported + "% other unsaved version\n");
+        assert.equal(extra.get("fixture-1").source, "", "copy starts as a draft; creation does not save edits");
+        await source.fill("second resume only");
+        await choices.selectOption("main"); await waitSource(imported + "% other unsaved version\n");
+        assert.equal(stored.source, imported, "switching does not save or change another resume");
+        await choices.selectOption("fixture-1"); await waitSource("second resume only");
+        await saveNow(); assert.equal(extra.get("fixture-1").source, "second resume only");
+        await page.getByRole("button", { name: "Rename" }).click();
+        await page.getByRole("textbox", { name: "Rename" }).fill("Backend 2026");
+        await page.getByRole("button", { name: "Rename" }).last().click();
+        await page.reload(); await choices.selectOption("fixture-1"); await waitSource("second resume only");
+        assert.equal(await choices.locator("option:checked").textContent(), "Backend 2026");
+      }
     }
     if (width === 320) {
       await page.evaluate(() => localStorage.setItem("pi-locale", "zh-CN")); await page.reload();
