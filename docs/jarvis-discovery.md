@@ -1,10 +1,16 @@
 # Jarvis market discovery
 
-Open **Product → Jarvis**, or `/product/jarvis`.
+Open **Cold Reach** at `/outreach/research`; `/product/jarvis` is a legacy redirect.
+
+The current UI reads the same cumulative `jarvis-discovery.json`, not a second
+new CRM database. It retains historical cohorts beside the current list. The
+campaign narrative below includes older rubric snapshots: current qualification
+and approval behavior lives in `jarvis-shape.ts` (rubric v6), not the historical
+v4 description. Never infer current send authorization from an old campaign note.
 
 This is a single market-discovery campaign. Gmail sending is either one individually confirmed email, or a paced **outbox** that sends only contacts Bruce has approved in a batch (see [Outbox](#outbox)). Nothing is sent to a contact nobody approved. It has two parts.
 
-## Current 100-person Shopify / DTC validation sprint (`info_exec`, primary)
+## Earlier 100-person Shopify / DTC validation sprint (`info_exec`, historical v4)
 
 The current sprint targets **founders, owners, CEOs and COOs of 5–100 person Shopify / Shopify Plus DTC brands**. Research works company-first, then identifies the current decision-maker. The 100 contacts are split across three experiments: multi-channel (34), regulated categories (33), and expansion/cross-border (33). Healthcare and legal contacts remain readable as historical research but are not added by this sprint.
 
@@ -147,6 +153,37 @@ node --env-file-if-exists=.env.local --experimental-strip-types scripts/jarvis-d
 Placeholders: `{{firstName}}` (a contact's `firstName` override, else the first word of the name), `{{name}}`, `{{company}}`, `{{role}}`, `{{area}}`, `{{work}}` ("your work leading X" / "your work in X"), and `{{opener}}` (the researched, second-person opening paragraph about this person's work). An unknown placeholder is rejected. Saving rewrites only current researched strict-ICP drafts that are unapproved, unqueued, still `new`, and exactly what the previous template produced; legacy, edited, queued, approved or contacted drafts are kept. New research uses the saved template.
 
 The CRM defaults to the three current-ICP lists, with a second filter for **Email to review**, **Social · manual**, and **Contacted**. Historical audiences are tucked away, and the outbox folds to a status line when empty; a queued or paused outbox opens for supervision. The contact editor has **Profile / Email / Social / Notes** tabs. Email and each available social platform have editable per-person drafts. Social messages can be saved, copied, then sent by hand on the person's public profile; opening the profile or copying text never sends or logs a message. After sending manually, explicitly record the send (and any reply) in the Social tab; the exact sent text is retained even if the draft is edited later. Once social outreach is recorded, initial email approval and sending are blocked to prevent duplicate outreach. The contact editor and every row of the HTML list have **Copy email / subject / body** buttons. The HTML list also has its own **Export HTML** button that saves the page as a standalone file.
+
+## State-read transport
+
+The browser requests `?view=compact`: all contacts, evidence, saved/approved/sent
+drafts, status history and global counters remain available. Only derived
+`socialTemplateDrafts` are omitted, with `templateDraftsDeferred: true`.
+`jarvis-template.ts` shares the exact interpolation with the server and exposes
+those previews through per-lead lazy getters, memoized on first use. Do not drop
+saved `socialOutreach` or replace edited/sent drafts with a template. Full/default
+reads and exports remain compatible. No view is written back to storage.
+
+On the audited 816 contacts (734 assessed under v2–v5, 82 under v6, 74 in the
+current candidate list), deferred previews reduce decoded JSON from 5,115,270 to
+4,209,566 bytes and gzip from 876,615 to 840,564 bytes. The wire gain is smaller
+because templates already compress well; no consistent loopback latency win is
+claimed. This does **not** yet load history/details on demand; most legacy fields
+still travel so full search, counts, queue review and history retain their meaning.
+`e2e/crm-read-payload.mjs` checks full/compact counts, old contacts and exact custom
+preview text on desktop/mobile, blocking every business write.
+
+The authenticated CRM GET negotiates streaming gzip through `jsonResponse`, with
+`Vary: Accept-Encoding` and `Cache-Control: no-store`. It keeps the entire state,
+drafts/evidence and fallback follow-up template unchanged; PATCH, approval,
+scheduling and delivery are untouched. Identity and `gzip;q=0` remain supported.
+Measured state: 5,115,270 decoded bytes, 876,616 gzip bytes. Loopback gzip costs
+about 60 ms more than identity on this snapshot; its benefit is transfer cost.
+Four paired browser fetches at a controlled 10 Mbps / 40 ms latency measured
+4.21–4.28 s identity versus 0.79–0.89 s gzip, with identical decoded SHA-256.
+This simulated link is not a measurement of the user's actual network.
+`lib/jarvis-api.test.mjs` checks decoding parity without starting any outbox or
+research task. See the performance audit for broader page measurements.
 
 ## Checks
 

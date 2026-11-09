@@ -11,8 +11,8 @@ const JARVIS_RESEARCH_MODEL = { provider: "openai-codex", modelId: "gpt-5.6-sol"
 
 type ActiveDiscovery = { id: string; ownerId: string; controller: AbortController; heartbeatTimer: ReturnType<typeof setInterval> };
 const registry = globalThis as typeof globalThis & { __jarvisDiscovery?: ActiveDiscovery };
-export function readJarvisView(): JarvisState {
-  const state = readJarvis();
+export function readJarvisView(options: { deferTemplates?: boolean } = {}): JarvisState {
+  const state = readJarvis(options);
   state.template ??= DEFAULT_JARVIS_TEMPLATE;
   state.followUpTemplate ??= DEFAULT_JARVIS_FOLLOW_UP;
   if (state.run?.status === "running" && state.run.id !== registry.__jarvisDiscovery?.id && !hasFreshJarvisRunLease(state.run)) {

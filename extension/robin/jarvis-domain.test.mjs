@@ -9,10 +9,36 @@ const d = await import("./jarvis-domain.ts");
 const { hasDtcPrimaryRoute, isJarvisFollowUpDue, isQualifiedInfoExec, jarvisTier, isJarvisExecutive, isSendableCore, jarvisComposeLinks, jarvisListPriority, newsBurdenTotal, JARVIS_DELIVERY_POLICY } = await import("./jarvis-shape.ts");
 const r = await import("./jarvis-research.ts");
 const outreach = await import("./outreach-shape.ts");
+const { jarvisBrowserLeads } = await import("./jarvis-template.ts");
 beforeEach(() => rmSync(join(root, "jarvis-discovery.json"), { force: true }));
 after(() => rmSync(root, { recursive: true, force: true }));
 const candidate = (extra = {}) => ({ name: "Ada Example", company: "Example Inc", role: "CTO", seniority: "Executive", industry: "AI tools", segment: "clinic", profileUrl: "https://example.com/team/ada", evidence: "Ada Example is CTO of Example Inc.", evidenceUrl: "https://example.com/team", needHypothesis: "可能需要追踪 AI 工具；待访谈验证。", email: "ada@example.com", emailSource: "https://example.com/team/ada", emailQuote: "Contact Ada: ada@example.com", opener: "I came across your work as CTO of Example Inc.", ...extra });
 function add(extra = {}) { d.addJarvisCandidates([candidate(extra)]); return d.readJarvis().leads.at(-1); }
+
+test("compact CRM retains every record and lazily recreates exact current template previews without writes", () => {
+  add({ name: "Dr. Ada Example", firstName: "Ada", area: "leading teams" });
+  add({ name: "Bob Example", company: "Other Inc", email: "bob@example.org", emailQuote: "Contact Bob: bob@example.org" });
+  const file = join(root, "jarvis-discovery.json");
+  const stored = JSON.parse(readFileSync(file, "utf8"));
+  stored.socialTemplates = { instagram: "Hi {{firstName}} — {{name}} / {{company}} / {{role}} / {{area}} / {{work}} / {{opener}} / {{shortOpener}}" };
+  stored.leads[0].socialOutreach = { instagram: { draft: "User-edited draft", sentText: "Immutable sent text", sentAt: "2026-01-01" } };
+  stored.leads[1].assessedVersion = 1;
+  writeFileSync(file, JSON.stringify(stored));
+  const before = readFileSync(file, "utf8");
+  const full = d.readJarvis();
+  const compact = d.readJarvis({ deferTemplates: true });
+  assert.equal(compact.templateDraftsDeferred, true);
+  assert.ok(compact.leads.every(lead => !("socialTemplateDrafts" in lead)));
+  assert.ok(JSON.stringify(compact).length < JSON.stringify(full).length);
+  const browser = jarvisBrowserLeads(compact);
+  assert.equal(typeof Object.getOwnPropertyDescriptor(browser[0], "socialTemplateDrafts").get, "function", "the preview stays lazy until a consumer reads it");
+  assert.deepEqual(browser, full.leads, "all profiles, edits, sent records and custom template slots agree");
+  assert.equal(browser[0].socialTemplateDrafts, browser[0].socialTemplateDrafts, "preview is memoized on first use");
+  assert.equal(outreach.socialDraft(browser[0], "instagram"), "User-edited draft");
+  assert.equal(jarvisBrowserLeads(full), full.leads, "legacy full responses pass through unchanged");
+  assert.equal(readFileSync(file, "utf8"), before);
+  assert.ok(compact.leads.every(lead => !("socialTemplateDrafts" in lead)), "browser projections do not mutate the polled response");
+});
 
 for (const [platform, url] of Object.entries({ linkedin: "https://www.linkedin.com/in/ada", x: "https://x.com/ada", tiktok: "https://www.tiktok.com/@ada" })) {
   test(`${platform} batch review preserves exact channel, revokes edited drafts, and tracks contact/reply without email`, () => {

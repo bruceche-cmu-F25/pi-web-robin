@@ -24,6 +24,8 @@ import { OutreachQueue } from "./OutreachQueue";
 import { DEFAULT_SOCIAL_TEMPLATES, OUTREACH_STATES, outreachDisplayState, outreachDisplayRank, hasSentOutreach, isLinkedInConnectionPending, canAddToReviewQueue, canReviewChannel, channelName, OUTREACH_CHANNELS, outreachStage, socialDraft, inReviewQueue, inSendQueue, type OutreachChannel } from "@/extension/robin/outreach-shape";
 import { JARVIS_OUTREACH_API, JARVIS_PREFERENCES_API, JARVIS_REPORT_API, JARVIS_STATE_API, jarvisActionApi } from "@/lib/jarvis-api";
 
+import { jarvisBrowserLeads } from "@/extension/robin/jarvis-template";
+
 const API = JARVIS_STATE_API;
 const SEGMENTS: Record<JarvisSegment, [string, string]> = {
   info_exec: ["目标用户画像", "Target personas"],
@@ -93,7 +95,7 @@ export function JarvisDiscovery() {
   const t = (cn: string, en: string) => zh ? cn : en;
   // Poll fast only while research is writing new contacts; otherwise the list rarely changes.
   const [researching, setResearching] = useState(false);
-  const { data, error, refresh } = usePolledResource<JarvisState>(API, researching ? 5000 : 30_000);
+  const { data, error, refresh } = usePolledResource<JarvisState>(`${API}?view=compact`, researching ? 5000 : 30_000);
   const running = data?.run?.status === "running";
   const rescoring = data?.rescore?.status === "running";
   const websiteRunning = data?.websiteRun?.status === "running";
@@ -137,7 +139,7 @@ export function JarvisDiscovery() {
   };
   const onDirty = useCallback((dirty: boolean) => { dirtyRef.current = dirty; }, []);
 
-  const leads = useMemo(() => data?.leads ?? [], [data]);
+  const leads = useMemo(() => data ? jarvisBrowserLeads(data) : [], [data]);
   const stats = useMemo(() => {
     const now = Date.now();
     const core = leads.filter((lead) => lead.audienceFit === "core");

@@ -1,4 +1,6 @@
 import { DEFAULT_SOCIAL_TEMPLATES, assertCurrentOutreachCopy, isLinkedInConnectionPending, canReviewOutreach, canPlanChannel, hasApprovedChannelPlan, inReviewQueue, unbrandedOutreachText } from "./outreach-shape.ts";
+import { renderJarvisDraft } from "./jarvis-template.ts";
+export { shortJarvisOpener } from "./jarvis-template.ts";
 import { randomUUID } from "node:crypto";
 import { readJsonObject, updateJsonObject } from "./paths.ts";
 import { isPublicWebHost } from "./public-web.ts";
@@ -34,15 +36,20 @@ function prepareUnnamedCopy(state: JarvisState): JarvisState {
   }
   return state;
 }
-export function readJarvis(): JarvisState {
+export function readJarvis(options: { deferTemplates?: boolean } = {}): JarvisState {
   const state = prepareUnnamedCopy(readJsonObject<JarvisState>(FILE) ?? empty());
   // The first research run targeted tech/VC/research. Keep it visible, but do
   // not let it make the redesigned non-tech campaign look closer to 100.
-  state.leads = state.leads.map((lead) => ({
-    ...lead,
-    socialTemplateDrafts: Object.fromEntries(Object.entries({ ...DEFAULT_SOCIAL_TEMPLATES, ...state.socialTemplates }).map(([platform, body]) => [platform, jarvisDraft(lead, { subject: "Social message", body }).body])),
-    audienceFit: lead.audienceFit ?? (CORE_JARVIS_SEGMENTS.includes(lead.segment as typeof CORE_JARVIS_SEGMENTS[number]) ? "core" : "adjacent"),
-  }));
+  state.leads = state.leads.map((lead) => {
+    const view = { ...lead,
+      audienceFit: lead.audienceFit ?? (CORE_JARVIS_SEGMENTS.includes(lead.segment as typeof CORE_JARVIS_SEGMENTS[number]) ? "core" : "adjacent"),
+    };
+    if (options.deferTemplates) delete view.socialTemplateDrafts;
+    else view.socialTemplateDrafts = Object.fromEntries(Object.entries({ ...DEFAULT_SOCIAL_TEMPLATES, ...state.socialTemplates }).map(([platform, body]) => [platform, jarvisDraft(lead, { subject: "Social message", body }).body]));
+    return view;
+  });
+  if (options.deferTemplates) state.templateDraftsDeferred = true;
+  else delete state.templateDraftsDeferred;
   return state;
 }
 function change<T>(fn: (state: JarvisState) => T, undoAction?: { id: string; op: string }): T {
@@ -220,28 +227,8 @@ export function parseJarvisTemplate(value: unknown): JarvisTemplate {
   return template;
 }
 
-/** Prefer a short sourced opening; never truncate a sentence mid-thought. */
-export function shortJarvisOpener(candidate: JarvisCandidate): string {
-  const first = candidate.opener?.trim().match(/^.*?[.!?](?:\s|$)/)?.[0]?.trim();
-  if (first && first.split(/\s+/).length <= 25 && !first.endsWith("?")) return first;
-  const role = candidate.role.trim();
-  const company = candidate.company.trim().replace(/[.!?]+$/, "");
-  return role && role.split(/\s+/).length <= 6
-    ? `I came across your work as ${role} at ${company}.`
-    : `I came across your work at ${company}.`;
-}
-
 export function jarvisDraft(candidate: JarvisCandidate, template: JarvisTemplate = DEFAULT_JARVIS_TEMPLATE): { subject: string; body: string } {
-  const firstName = candidate.firstName?.trim() || candidate.name.replace(/^(dr|mr|ms|mrs)\.?\s+/i, "").split(/\s+/)[0]!;
-  // An explicit area is written as-is; only the industry fallback is lowercased
-  // ("Behavioral health" reads as "in behavioral health"; acronyms such as "HVAC" stay).
-  const fallback = candidate.industry.trim().replace(/\.$/, "");
-  const area = candidate.area?.trim() || (/^\p{Lu}\p{Ll}/u.test(fallback) ? fallback[0]!.toLowerCase() + fallback.slice(1) : fallback);
-  // "your work leading X" reads better than "your work in leading X".
-  const work = /^\p{Ll}+ing\b/u.test(area) ? `your work ${area}` : `your work in ${area}`;
-  const values: Record<string, string> = { shortOpener: shortJarvisOpener(candidate), firstName, name: candidate.name, company: candidate.company, role: candidate.role, area, work, opener: candidate.opener || `I came across ${work}.` };
-  const fill = (value: string) => value.replace(PLACEHOLDER, (_, key: string) => values[key] ?? "");
-  return { subject: unbrandedOutreachText(fill(template.subject)), body: unbrandedOutreachText(fill(template.body)) };
+  return renderJarvisDraft(candidate, template);
 }
 
 /**

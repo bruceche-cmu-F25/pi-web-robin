@@ -284,6 +284,8 @@ export interface OutreachUndo {
   before: JarvisLead;
 }
 export interface JarvisState {
+  /** Read-only transport: template previews are derived locally, not saved drafts. */
+  templateDraftsDeferred?: boolean;
   outreachUndo?: OutreachUndo;
   leads: JarvisLead[];
   run: JarvisRun | null;
