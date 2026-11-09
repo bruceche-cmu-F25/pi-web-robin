@@ -33,26 +33,21 @@ export async function GET(req: Request) {
       ? listSessionSummaries()
       : listAllSessions({ force });
     // Capture before awaiting: mutations during the scan still require a later refresh.
-    let sessionListVersion = getSessionListVersion();
-    const [initialPersistedSessions, runtimeSessions] = await Promise.all([
+    const sessionListVersion = getSessionListVersion();
+    const [persistedSessions, runtimeSessions] = await Promise.all([
       persistedSessionsPromise,
       attachSessionProjectInfo(getRpcSessionInfos()),
     ]);
     perf?.span("scan+projects");
-    let persistedSessions = initialPersistedSessions;
-    // Summaries stay cheap: the retention sweep reads transcripts, so it runs
-    // on the full listing the sidebar requests right after.
+    // Maintenance must not delay this response or run one unbroken synchronous
+    // scan. A changed file invalidates the next listing, once per sweep.
     if (!summary) {
-      const retention = await maybePruneExpiredSessionPayloads(
-        initialPersistedSessions,
+      void maybePruneExpiredSessionPayloads(
+        persistedSessions,
         (id) => Boolean(getRpcSession(id)?.isAlive()),
-      );
-      if (retention.filesChanged > 0) {
-        invalidateSessionListCache();
-        const refreshedSessions = listAllSessions();
-        sessionListVersion = getSessionListVersion();
-        persistedSessions = await refreshedSessions;
-      }
+        undefined,
+        invalidateSessionListCache,
+      ).catch((error) => console.warn("[sessions] History retention sweep failed", error));
     }
     const sessions = mergeSessionLists(persistedSessions, runtimeSessions);
     return perf?.attach(jsonResponse(

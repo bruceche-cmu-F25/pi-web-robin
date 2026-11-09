@@ -164,6 +164,7 @@ test("writes up to 200 blocks in Notion-sized batches", async () => {
 
 test("a note's files use Undici for multipart even when global fetch is patched", async () => {
   const calls = [];
+  const fileChecks = [];
   let uploads = 0;
   const previousDispatcher = getGlobalDispatcher();
   const mock = new MockAgent();
@@ -173,9 +174,14 @@ test("a note's files use Undici for multipart even when global fetch is patched"
     .intercept({ path: /^\/v1\/file_uploads\/upload-\d+\/send$/, method: "POST" })
     .reply(200, (request) => {
       calls.push({ path: request.path.replace("/v1", "") });
-      assert.match(String(request.headers["content-type"]), /^multipart\/form-data; boundary=/);
-      assert.equal(request.body.get("file")?.name, request.path.includes("upload-1") ? "board.jpg" : "lecture.pdf");
-      assert.equal(request.body.get("file")?.size, 4);
+      const contentType = new Headers(request.headers).get("content-type");
+      assert.match(contentType, /^multipart\/form-data; boundary=/);
+      fileChecks.push(new Response(request.body, { headers: { "Content-Type": contentType } }).formData().then(async form => {
+        const file = form.get("file");
+        assert.equal(file.name, request.path.includes("upload-1") ? "board.jpg" : "lecture.pdf");
+        assert.equal(file.type, request.path.includes("upload-1") ? "image/jpeg" : "application/pdf");
+        assert.equal(await file.text(), "data");
+      }));
       return { status: "uploaded" };
     }).persist();
   try {
@@ -197,6 +203,7 @@ test("a note's files use Undici for multipart even when global fetch is patched"
       { id: "deck1", name: "lecture.pdf", kind: "pdf", mimeType: "application/pdf", bytes },
     ]);
 
+    await Promise.all(fileChecks);
     assert.deepEqual(calls.map((call) => call.path), [
       "/file_uploads", "/file_uploads/upload-1/send", "/file_uploads", "/file_uploads/upload-2/send", "/pages",
     ]);

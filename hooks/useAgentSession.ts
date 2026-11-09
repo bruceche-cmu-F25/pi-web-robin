@@ -677,10 +677,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [applyContextUsage]);
 
   const loadSession = useCallback(async (sid: string, showLoading = false, includeState = false, options?: { force?: boolean }) => {
-    // Single-flight: concurrent reads for the same session (mount + SSE settle +
-    // reconcile) share one request unless the caller forces a fresh read.
-    const flightKey = options?.force ? `force:${sid}` : sid;
-    const inflight = options?.force ? undefined : loadFlightsRef.current.get(flightKey);
+    // Share overlapping reads with identical freshness/state requirements.
+    // Force still probes disk, but mount effect replay need not probe it twice.
+    const flightKey = `${sid}:${Boolean(options?.force)}:${includeState}`;
+    const inflight = loadFlightsRef.current.get(flightKey);
     if (inflight) return await inflight;
   const flight = (async (): Promise<unknown> => {
     let messagesLoaded = false;
@@ -829,7 +829,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (showLoading && !messagesLoaded) setLoading(false);
     }
     })();
-    if (!options?.force) loadFlightsRef.current.set(flightKey, flight);
+    loadFlightsRef.current.set(flightKey, flight);
     flight.finally(() => {
       if (loadFlightsRef.current.get(flightKey) === flight) loadFlightsRef.current.delete(flightKey);
     });

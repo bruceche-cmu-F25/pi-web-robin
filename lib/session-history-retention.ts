@@ -1,4 +1,5 @@
-import { readFileSync, statSync, utimesSync } from "fs";
+import { readFileSync, statSync, utimesSync, type Stats } from "fs";
+import { setImmediate as yieldToIo } from "node:timers/promises";
 import type { SessionInfo } from "./types";
 import { writePrivateFileAtomicSync } from "./atomic-file";
 
@@ -16,6 +17,13 @@ interface RetentionResult {
 
 interface JsonlRetentionResult extends RetentionResult {
   content: string;
+  /** Earliest timestamp that can make an unchanged file need another pass. */
+  nextCheckAt: number;
+}
+
+interface FileRetention {
+  fingerprint: string;
+  nextCheckAt: number;
 }
 
 interface ImageBlock {
@@ -52,6 +60,7 @@ export function pruneExpiredSessionPayloadsFromJsonl(
   const lines = source.split("\n");
   let userImagesRemoved = 0;
   let toolResultsRemoved = 0;
+  let nextCheckAt = Infinity;
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
@@ -70,7 +79,11 @@ export function pruneExpiredSessionPayloadsFromJsonl(
 
     if (entry.type !== "message" || !entry.message) continue;
     const timestampMs = typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : Number.NaN;
-    if (!Number.isFinite(timestampMs) || timestampMs > cutoffMs) continue;
+    if (!Number.isFinite(timestampMs)) continue;
+    if (timestampMs > cutoffMs) {
+      nextCheckAt = Math.min(nextCheckAt, timestampMs + SESSION_PAYLOAD_RETENTION_MS);
+      continue;
+    }
 
     if (entry.message.role === "user" && Array.isArray(entry.message.content)) {
       const kept = entry.message.content.filter((block) => !isInlineImage(block));
@@ -100,12 +113,13 @@ export function pruneExpiredSessionPayloadsFromJsonl(
   }
 
   if (userImagesRemoved === 0 && toolResultsRemoved === 0) {
-    return { content: source, ...emptyResult() };
+    return { content: source, ...emptyResult(), nextCheckAt };
   }
 
   const content = lines.join("\n");
   return {
     content,
+    nextCheckAt,
     filesChanged: 1,
     userImagesRemoved,
     toolResultsRemoved,
@@ -113,28 +127,44 @@ export function pruneExpiredSessionPayloadsFromJsonl(
   };
 }
 
-function pruneSessionFile(path: string, nowMs: number): RetentionResult {
+function fingerprint(stat: Stats): string {
+  return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+}
+
+function pruneSessionFile(path: string, nowMs: number, files: Map<string, FileRetention>): RetentionResult {
   const stat = statSync(path);
   if (nowMs - stat.mtimeMs < ACTIVE_FILE_GRACE_MS) return emptyResult();
+  const stamp = fingerprint(stat);
+  const cached = files.get(path);
+  if (cached?.fingerprint === stamp && cached.nextCheckAt > nowMs) return emptyResult();
 
   const result = pruneExpiredSessionPayloadsFromJsonl(readFileSync(path, "utf8"), nowMs);
-  if (result.filesChanged === 0) return result;
-
-  writePrivateFileAtomicSync(path, result.content);
-  utimesSync(path, stat.atime, stat.mtime);
+  if (result.filesChanged > 0) {
+    writePrivateFileAtomicSync(path, result.content);
+    utimesSync(path, stat.atime, stat.mtime);
+  }
+  files.set(path, {
+    fingerprint: result.filesChanged > 0 ? fingerprint(statSync(path)) : stamp,
+    nextCheckAt: result.nextCheckAt,
+  });
   return result;
 }
 
 declare global {
   var __piSessionHistoryRetentionLastSweepMs: number | undefined;
   var __piSessionHistoryRetentionPromise: Promise<RetentionResult> | undefined;
+  var __piSessionHistoryRetentionFiles: Map<string, FileRetention> | undefined;
 }
 
-/** Opportunistic hourly sweep, triggered by session-list requests. */
+/** Hourly maintenance, not a prerequisite for serving the session list.
+ * Yield between files, never between checking liveness and rewriting a file.
+ * Only the initiating caller's callback runs, once, if any file changed.
+ */
 export function maybePruneExpiredSessionPayloads(
   sessions: readonly SessionInfo[],
   isSessionLive: (id: string) => boolean,
   nowMs = Date.now(),
+  onChanged?: () => void,
 ): Promise<RetentionResult> {
   if (globalThis.__piSessionHistoryRetentionPromise) return globalThis.__piSessionHistoryRetentionPromise;
   if (
@@ -146,14 +176,24 @@ export function maybePruneExpiredSessionPayloads(
 
   globalThis.__piSessionHistoryRetentionLastSweepMs = nowMs;
   const cutoffMs = nowMs - SESSION_PAYLOAD_RETENTION_MS;
-  const sweep = Promise.resolve().then(() => {
+  const sweep = (async () => {
+    // A microtask would still run before the response and starve other requests.
+    await yieldToIo();
+    const files = globalThis.__piSessionHistoryRetentionFiles ??= new Map();
+    const paths = new Set(sessions.map(session => session.path));
+    for (const path of files.keys()) if (!paths.has(path)) files.delete(path);
     const total = emptyResult();
+    let yieldAt = performance.now() + 4;
     for (const session of sessions) {
+      if (performance.now() >= yieldAt) {
+        await yieldToIo();
+        yieldAt = performance.now() + 4;
+      }
       if (!session.path || session.transient || isSessionLive(session.id)) continue;
       const createdMs = Date.parse(session.created);
       if (!Number.isFinite(createdMs) || createdMs > cutoffMs) continue;
       try {
-        const result = pruneSessionFile(session.path, nowMs);
+        const result = pruneSessionFile(session.path, nowMs, files);
         total.filesChanged += result.filesChanged;
         total.userImagesRemoved += result.userImagesRemoved;
         total.toolResultsRemoved += result.toolResultsRemoved;
@@ -162,8 +202,9 @@ export function maybePruneExpiredSessionPayloads(
         // A concurrently removed or malformed session must not break the list.
       }
     }
+    if (total.filesChanged > 0) onChanged?.();
     return total;
-  }).finally(() => {
+  })().finally(() => {
     if (globalThis.__piSessionHistoryRetentionPromise === sweep) {
       globalThis.__piSessionHistoryRetentionPromise = undefined;
     }

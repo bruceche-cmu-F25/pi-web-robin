@@ -10,7 +10,7 @@
  *
  * `apiRoute` owns all four. A handler writes only the path that succeeds, plus
  * whatever status codes are its own business (a 404 for an id that is not
- * there), and returns a `NextResponse` as before.
+ * there), and returns a Web `Response` (including `NextResponse`).
  *
  * This is defence in depth, not the only defence: `proxy.ts` already runs the
  * same origin check over every `/api/*` request. Keeping it here too means a
@@ -49,8 +49,7 @@ export function apiError(error: unknown, status = 400): NextResponse {
 /**
  * Reject an untrusted or wrongly-typed request; null means it may proceed.
  *
- * Exported for the handful of routes that cannot use `apiRoute` because they
- * return a stream or a non-JSON body.
+ * Also available to routes that manage their own response/error lifecycle.
  */
 export function guardApiRequest(req: Request, options: { json?: boolean } = {}): NextResponse | null {
   if (!isApiRequestAllowed(req)) {
@@ -62,7 +61,7 @@ export function guardApiRequest(req: Request, options: { json?: boolean } = {}):
   return null;
 }
 
-type RouteHandler<Context> = (req: Request, context: Context) => Promise<NextResponse> | NextResponse;
+type RouteHandler<Context> = (req: Request, context: Context) => Promise<Response> | Response;
 
 /**
  * Wrap a route handler in the guard and the error shape.
@@ -77,7 +76,7 @@ type RouteHandler<Context> = (req: Request, context: Context) => Promise<NextRes
 export function apiRoute<Context = unknown>(
   handler: RouteHandler<Context>,
   options: ApiRouteOptions = {},
-): (req: Request, context: Context) => Promise<NextResponse> {
+): (req: Request, context: Context) => Promise<Response> {
   return async (req, context) => {
     const isRead = ["GET", "HEAD"].includes(req.method.toUpperCase());
     const blocked = guardApiRequest(req, { json: options.json ?? !isRead });

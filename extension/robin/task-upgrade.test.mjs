@@ -7,7 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, test } from "node:test";
 import { checkTaskStorage, exportTaskSnapshot, migrateTasksToSqlite } from "./task-migration.ts";
 import { TASK_COLLECTIONS, TASK_TABLES, TASK_SCHEMA_VERSION, taskSchemaSql, tablesAtVersion } from "./task-schema.ts";
-import { openTaskDatabase, taskStoragePath, withTaskTransaction } from "./task-store.ts";
+import { countTaskRecordsByField, openTaskDatabase, readTaskRecordsForView, taskStoragePath, withTaskTransaction } from "./task-store.ts";
 import { addTodo, listTodos, updateTodo } from "./todo-domain.ts";
 import { listRounds, updateRound } from "./round-domain.ts";
 import { createCalendarEvent, deleteCalendarEvent } from "./calendar-domain.ts";
@@ -117,6 +117,32 @@ test("v1 stays mixed until explicit upgrade and keeps SQLite task edits rather t
   } finally { backup.close(); }
   assert.equal(JSON.parse(readFileSync(join(migrated.backupDirectory, "task-storage.json"), "utf8")).schemaVersion, 1);
   assert.equal(readFileSync(join(directory, "todos.json"), "utf8"), "stale damaged JSON");
+});
+
+test("selected jobs and field counts keep v1 JSON behavior but fail closed on a mismatched selector", () => {
+  seedV1();
+  assert.deepEqual(readJobs(["missing", job.id]), [job]);
+  assert.deepEqual(readJobs([]), []);
+  assert.equal(readTaskRecordsForView("jobs", ["description"], () => false)[0].description, undefined);
+  assert.equal(readJobs()[0].description, job.description);
+  assert.equal(countTaskRecordsByField("jobs", "status").get("applied"), 1);
+  withTaskTransaction(() => {
+    assert.equal(updateJob(job.id, { note: "Selected legacy edit" }).note, "Selected legacy edit");
+    assert.equal(readJobs([job.id])[0].note, "Selected legacy edit");
+    assert.equal(readTaskRecordsForView("jobs", ["description"], () => true)[0].description, job.description);
+    assert.equal(countTaskRecordsByField("jobs", "status").get("applied"), 1);
+  });
+  assert.equal(read("jobs.json")[0].note, "Selected legacy edit");
+  const db = openTaskDatabase();
+  try {
+    assert.equal(db.prepare("SELECT name FROM sqlite_master WHERE name = 'jobs'").get(), undefined);
+    db.exec("PRAGMA user_version = 2");
+  } finally { db.close(); }
+  assert.throws(() => readJobs([]), /mismatch/);
+  assert.throws(() => readTaskRecordsForView("jobs", ["description"], () => false), /mismatch/);
+  assert.throws(() => countTaskRecordsByField("jobs", "status"), /mismatch/);
+  assert.throws(() => updateJob(job.id, { note: "Must not publish" }), /mismatch/);
+  assert.equal(read("jobs.json")[0].note, "Selected legacy edit");
 });
 
 test("an invalid new collection aborts the entire upgrade without blocking v1 task storage", () => {

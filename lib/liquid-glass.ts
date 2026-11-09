@@ -43,9 +43,10 @@ export function startLiquidGlass() {
     entry.key = "";
   }
   function paint(element: HTMLElement, entry: Surface) {
-    // Closed drawers retain layout dimensions while off-screen. No maps for
-    // those, hidden tabs, or another material nested in a filtered sidebar.
-    if (!element.isConnected || !element.matches(surfaces) || element.closest("[hidden], [inert], .right-panel-closed") ||
+    // Chat chrome samples a continuously scrolling transcript. Keep its CSS
+    // glass: SVG displacement/RGB passes add raster work on every scroll frame.
+    // Closed drawers, hidden tabs and nested materials also need no maps.
+    if (!element.isConnected || !element.matches(surfaces) || element.closest(".chat-main, [hidden], [inert], .right-panel-closed") ||
         element.parentElement?.closest(surfaces) || !element.getClientRects().length) {
       clear(element, entry);
       return;

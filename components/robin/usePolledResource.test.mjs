@@ -33,10 +33,61 @@ function resourceHarness() {
   return {
     ...harness, requests, timers, refreshes, intervals, deadlines,
     render: (url = "/a", enabled = true, interval = 60_000) => harness.render(() => harness.exports.usePolledResource(url, interval, enabled)),
+    pair: () => harness.render(() => [harness.exports.usePolledResource("/a"), harness.exports.usePolledResource("/a")]),
     visibility(value) { visibility = value; events.get("visibilitychange")?.(); },
   };
 }
 const respond = (request, data) => request.resolve({ ok: true, text: async () => JSON.stringify(data), json: async () => data });
+
+test("overlapping panels share transport through the body, not mutable state or completed data", async () => {
+  const h = resourceHarness();
+  try {
+    h.pair();
+    assert.equal(h.requests.length, 1);
+    const body = deferred();
+    h.requests[0].resolve({ ok: true, text: () => body.promise }); await settle();
+    assert.equal(h.pair()[0].data, null);
+    body.resolve(JSON.stringify({ version: 1 })); await settle();
+    const [first, second] = h.pair();
+    assert.equal(first.data.version, 1);
+    assert.equal(second.data.version, 1);
+    assert.notEqual(first.data, second.data, "panels must not share a mutable data object");
+    for (const tick of h.timers) tick();
+    assert.equal(h.requests.length, 2, "settled data is not cached; concurrent polls share a fresh read");
+    h.unmount(); await settle();
+    assert.equal(h.requests[1].signal.aborted, true);
+  } finally { h.unmount(); }
+});
+
+test("effect replay reuses a pending read while a real unmount cancels it", async () => {
+  const h = resourceHarness();
+  try {
+    h.render(); h.render("/a", false); h.render();
+    assert.equal(h.requests.length, 1);
+    await settle();
+    assert.equal(h.requests[0].signal.aborted, false);
+    respond(h.requests[0], { version: 1 }); await settle();
+    assert.equal(h.render().data.version, 1);
+  } finally { h.unmount(); }
+});
+
+test("a confirmed write fences shared pre-write reads without cancelling another panel", async () => {
+  const h = resourceHarness();
+  try {
+    const [first] = h.pair();
+    first.updateData(() => ({ version: 2 }));
+    await settle();
+    assert.equal(h.requests[0].signal.aborted, false, "the second panel still needs its request");
+    // An automatic poll must start after the write, not rejoin panel two's old read.
+    [...h.timers][0]();
+    assert.equal(h.requests.length, 2);
+    respond(h.requests[0], { version: 1 }); await settle();
+    assert.equal(h.pair()[0].data.version, 2);
+    respond(h.requests[1], { version: 3 }); await settle();
+    assert.equal(h.pair()[0].data.version, 3);
+    assert.equal(h.pair()[1].data.version, 1);
+  } finally { h.unmount(); }
+});
 
 test("a timed-out read releases loading, preserves data, fences late bodies and can retry", async () => {
   const h = resourceHarness();
@@ -49,6 +100,7 @@ test("a timed-out read releases loading, preserves data, fences late bodies and 
     h.requests[1].resolve({ ok: true, text: () => body.promise }); await settle();
     assert.equal(h.deadlines.size, 1);
     [...h.deadlines][0]();
+    await settle(); // Last-reader transport cancellation waits one microtask.
     assert.equal(h.requests[1].signal.aborted, true);
     assert.equal(h.render().loading, false);
     assert.equal(h.render().error, "robin.common.readTimeout");
@@ -100,6 +152,39 @@ test("older responses and failures cannot overwrite the newest refresh", async (
   } finally { h.unmount(); }
 });
 
+test("interval ticks let slow headers and bodies finish instead of restarting their deadline", async () => {
+  const h = resourceHarness();
+  try {
+    const render = () => h.render("/a", true, 2500);
+    render();
+    const tick = [...h.timers][0];
+    const deadline = [...h.deadlines][0];
+    tick(); tick();
+    assert.equal(h.requests.length, 1, "slow headers are not replaced by a poll");
+    const body = deferred();
+    h.requests[0].resolve({ ok: true, text: () => body.promise }); await settle();
+    tick(); tick();
+    assert.equal(h.requests.length, 1, "receiving a body is still in flight");
+    assert.equal(h.requests[0].signal.aborted, false);
+    assert.deepEqual([...h.deadlines], [deadline], "polls cannot postpone the timeout forever");
+    body.resolve(JSON.stringify({ version: 1 })); await settle();
+    assert.equal(render().data.version, 1);
+    tick();
+    assert.equal(h.requests.length, 2, "polling resumes after completion");
+    [...h.deadlines][0]();
+    assert.equal(render().error, "robin.common.readTimeout");
+    await settle();
+    tick();
+    assert.equal(h.requests.length, 3, "timeout permits retry even if the transport ignores abort");
+    respond(h.requests[1], { version: "late" }); await settle();
+    tick();
+    assert.equal(h.requests.length, 3, "old cleanup cannot release the newer in-flight request");
+    respond(h.requests[2], { version: 2 }); await settle();
+    assert.equal(render().data.version, 2);
+    assert.equal(render().error, null);
+  } finally { h.unmount(); }
+});
+
 test("an unchanged poll keeps the same data object", async () => {
   const h = resourceHarness();
   try {
@@ -128,14 +213,33 @@ test("URL changes and unmount cancel requests without leaking data or subscripti
   assert.equal(h.render("/b").loading, true);
   const stale = h.requests[1];
   h.render("/c");
+  await settle();
   assert.equal(stale.signal.aborted, true);
   respond(stale, { version: "b" });
   await settle();
   assert.equal(h.render("/c").data, null);
   h.unmount();
+  await settle();
   assert.equal(h.requests[2].signal.aborted, true);
   assert.equal(h.timers.size, 0);
   assert.equal(h.refreshes.size, 0);
+});
+
+test("an async action finishing after navigation refreshes the current URL, not the old scope", async () => {
+  const h = resourceHarness();
+  try {
+    const old = h.render("/a");
+    respond(h.requests[0], { scope: "a" }); await settle();
+    h.render("/b");
+    old.updateData(() => ({ scope: "old receipt" }));
+    assert.equal(h.render("/b").data, null, "an old receipt must not become the new resource");
+    assert.equal(h.requests[1].signal.aborted, false);
+    const refresh = old.refresh();
+    assert.equal(h.requests[2].url, "/b");
+    respond(h.requests[2], { scope: "b" }); await refresh;
+    respond(h.requests[1], { scope: "stale b" }); await settle();
+    assert.equal(h.render("/b").data.scope, "b");
+  } finally { h.unmount(); }
 });
 
 test("a confirmed write updates the view even if refresh fails and fences older polls", async () => {
@@ -146,6 +250,7 @@ test("a confirmed write updates the view even if refresh fails and fences older 
     await settle();
     const old = resource.refresh();
     resource.updateData((current) => ({ ...current, version: 2 }));
+    await settle();
     assert.equal(h.requests[1].signal.aborted, true);
     respond(h.requests[1], { version: 1 });
     await old;
@@ -174,6 +279,7 @@ test("inactive panels retain data without automatic requests and fence cancelled
     const data = h.render().data;
     const pending = h.render().refresh();
     h.render("/a", false);
+    await settle();
     assert.equal(h.requests[1].signal.aborted, true);
     assert.equal(h.timers.size, 0);
     assert.equal(h.refreshes.size, 0);

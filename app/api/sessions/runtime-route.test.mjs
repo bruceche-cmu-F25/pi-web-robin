@@ -207,9 +207,39 @@ test("session listing supports cheap summaries, honors force refresh, and sweeps
   assert.match(listSource, /attachSessionProjectInfo\(getRpcSessionInfos\(\)\)/);
   assert.match(listSource, /maybePruneExpiredSessionPayloads\(/);
   assert.match(listSource, /getRpcSession\(id\)\?\.isAlive\(\)/);
-  assert.match(listSource, /if \(!summary\)[\s\S]*?retention\.filesChanged > 0[\s\S]*?invalidateSessionListCache\(\)[\s\S]*?listAllSessions\(\)/);
+  assert.match(listSource, /if \(!summary\)[\s\S]*?void maybePruneExpiredSessionPayloads\([\s\S]*?invalidateSessionListCache/);
+  assert.doesNotMatch(listSource, /await maybePruneExpiredSessionPayloads/);
   assert.match(listSource, /mergeSessionLists\(persistedSessions, runtimeSessions\)/);
   assert.match(listSource, /"Cache-Control": "no-store"/);
+});
+
+test("the list response does not wait for an in-progress retention sweep", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "pi-web-list-maintenance-"));
+  const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+  const previousSweep = globalThis.__piSessionHistoryRetentionPromise;
+  let finish;
+  const sweep = new Promise(resolve => { finish = resolve; });
+  globalThis.__piSessionHistoryRetentionPromise = sweep;
+  process.env.PI_CODING_AGENT_DIR = dir;
+  invalidateSessionListCache();
+  let timeout;
+  t.after(async () => {
+    clearTimeout(timeout);
+    finish({ filesChanged: 0 });
+    await sweep;
+    globalThis.__piSessionHistoryRetentionPromise = previousSweep;
+    if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+    invalidateSessionListCache();
+    await rm(dir, { recursive: true, force: true });
+  });
+  const response = await Promise.race([
+    getSessionList(new Request("http://localhost/api/sessions")),
+    new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error("listing waited for maintenance")), 1000); }),
+  ]);
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).sessions, []);
+  assert.equal(globalThis.__piSessionHistoryRetentionPromise, sweep, "maintenance is still pending");
 });
 
 test("session reads use the live SessionManager before requiring a JSONL path", () => {

@@ -47,11 +47,28 @@ never revive old JSON merely to make an error disappear.
   core field constraints. Each document is one row with a unique ID and stable
   position. Unknown fields, timestamps, scores/evidence, flags and user notes are
   preserved verbatim. `tech_events` maps to the legacy `tech-events.json` filename.
-- Only changed rows are written. Domain callbacks still read a collection; this
-  adds transactions and removes whole-file rewrites, not indexed versions of
-  every search/filter query. Position indexes serve ordered reads. Operational
-  documents are read/upserted individually by primary key; nested writes to another
-  document cannot be overwritten by a stale whole-state snapshot.
+- Only changed rows are written. `readTaskRecords`/`updateTaskRecords` accept an
+  optional ID iterable: SQLite retrieves only those rows using the existing
+  primary key and a bound `json_each` array (no large-IN parameter limit). Targeted
+  edits/deletes preserve positions and cannot introduce new IDs; full operations
+  still own insertion, collection ordering and cross-record policy. Selected row
+  references are sorted by position in JS to avoid sorting large payloads in a
+  SQLite temp B-tree. JSON selections still use the normal whole-file lock.
+  Neither selection nor deletion can overwrite unrelated rows. Operational
+  documents are likewise read/upserted individually by primary key.
+- `countTaskRecordsByField` counts string values in a validated field. SQLite
+  materializes only that field before grouping, rather than transferring/parsing
+  payloads in JS or sorting whole payloads in a temp B-tree. Counts are fresh, not
+  cached; this still scans JSON, without a schema/index change. Empty selections,
+  counts, and mixed-v1 JSON collections retain fail-closed selector validation.
+  Full collection callers still incur their original read/parse costs.
+- `readTaskRecordsForView` omits named optional fields in SQLite before crossing
+  into JS, then hydrates the IDs selected by a synchronous metadata predicate.
+  Both reads share one short read-only snapshot (or the caller's transaction),
+  so concurrent changes cannot mix old metadata with newer evidence. The JSON
+  backend parses once and retains originals for rows needing detail. The view
+  keeps stored order and unmentioned/unknown fields; it never writes. Partial
+  records are for evaluation/display only, never merge or mutation callbacks.
 - WAL, `synchronous=FULL`, a 5-second busy timeout and `BEGIN IMMEDIATE` before
   write-side reads. Nested calls share a connection/savepoints across HMR and jiti
   copies. Connections close after each outer operation. SQLite still has one
@@ -59,8 +76,15 @@ never revive old JSON merely to make an error disappear.
   No awaits/network inside transactions. Use local disk, not NFS/cloud-sync storage.
 - Closing/reopening a round and its todo is one SQLite transaction. Missing todos
   are historical links, not cascading foreign keys; I/O/SQL errors roll back both.
-  Todo-to-round reconciliation keeps its list-time behavior, now within a snapshot.
-  Existing optimistic task revisions and batch-plan stale checks remain intact.
+  `listRounds()` first checks round/todo reconciliation in `withTaskSnapshot()`:
+  a short read-only `BEGIN` on one connection, not a `BEGIN IMMEDIATE` writer
+  reservation. Unchanged polling must keep working while another process owns
+  the WAL writer. When reconciliation is needed, finish the read snapshot and
+  re-read/reconcile under the ordinary write transaction; never publish the old
+  snapshot or upgrade its connection to a writer. Nested snapshots share the
+  caller's transaction; callbacks remain synchronous and JSON retains legacy
+  guarantees. Existing optimistic task revisions and batch-plan stale checks
+  remain intact.
 - Tech event flags, expiry and scan merging read/mutate under the same transaction
   (or legacy file lock). The scan's ownership fence wraps the final merge rather
   than writing a stale precomputed list. Host data can refresh without overwriting
@@ -201,7 +225,17 @@ Domain, tool and HTTP storage contracts use SQLite fixtures by default; set
 legacy calendar file-lock test stays JSON. `task-storage.test.mjs` and
 `task-upgrade.test.mjs` cover lossless import/export, v1 preservation, verified backups,
 transaction/DDL rollback, interrupted-selector recovery, multiprocess contention,
-abrupt process exit and fail-closed behavior. `runtime-state-storage.test.mjs` adds
+abrupt process exit and fail-closed behavior. Snapshot tests additionally cover
+unchanged round reads during a held writer, visibility across a concurrent commit,
+read-only enforcement, cleanup after errors, and nested reads in a writer.
+`task-record-selection.test.mjs` covers selected ordering, deletion, unknown IDs,
+large bound selections, no unrelated deserialization, field counts, rejection of
+new/duplicate IDs, async callbacks, nested writes and rollback on both backends;
+upgrade tests also cover selected reads/writes/counts before v1 cutover.
+`task-record-view.test.mjs` checks projection/hydration equivalence, no historical
+payload deserialization, read-only behavior, synchronous predicates, concurrent
+commit isolation and nesting inside a writer; mixed-v1 views are also covered.
+`runtime-state-storage.test.mjs` adds
 v2 → v3 and intermediate recovery, legacy-ledger preservation, sparse exports,
 cross-domain/fence rollback, checkpoint failures, concurrent marks/mail/leases and
 semantic state corruption. All fixtures use temporary directories.

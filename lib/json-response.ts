@@ -48,7 +48,9 @@ export function jsonResponse(
     && acceptedEncodingQuality(request.headers.get("Accept-Encoding") ?? "", "gzip") > 0
   ) {
     headers.set("Content-Encoding", "gzip");
-    const compressed = new Blob([body]).stream().pipeThrough(new CompressionStream("gzip"));
+    // Node 26's Blob stream retains backing buffers after consumption/GC.
+    // A string Response supplies the same UTF-8 stream without that Blob lifetime.
+    const compressed = new Response(body).body!.pipeThrough(new CompressionStream("gzip"));
     return new Response(compressed, { ...init, headers });
   }
 

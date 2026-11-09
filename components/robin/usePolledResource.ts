@@ -7,6 +7,46 @@ import { useI18n } from "@/hooks/useI18n";
 export const ResourceActivity = createContext(true);
 import { onRefreshRequest } from "./refreshBus";
 
+interface PendingRead {
+  controller: AbortController;
+  readers: Set<AbortSignal>;
+  result: Promise<{ ok: boolean; status: number; text: string }>;
+}
+
+// Only overlapping automatic reads are shared, never settled data. Each hook
+// still owns its state, deadline and write fence; explicit refresh starts fresh.
+const pendingReads = new Map<string, PendingRead>();
+function readResource(url: string, signal: AbortSignal, fresh: boolean) {
+  let pending = fresh ? undefined : pendingReads.get(url);
+  if (!pending) {
+    const controller = new AbortController();
+    const result = fetch(url, { signal: controller.signal }).then(async response => ({
+      ok: response.ok, status: response.status, text: await response.text(),
+    })).finally(() => {
+      if (pendingReads.get(url)?.controller === controller) pendingReads.delete(url);
+    });
+    pending = { controller, readers: new Set(), result };
+    pendingReads.set(url, pending);
+  }
+  const read = pending;
+  read.readers.add(signal);
+  const release = () => {
+    read.readers.delete(signal);
+    // React's development effect replay may immediately reacquire this read.
+    // Do not abort a request another mounted panel still needs.
+    void Promise.resolve().then(() => {
+      if (read.readers.size > 0) return;
+      if (pendingReads.get(url) === read) pendingReads.delete(url);
+      read.controller.abort();
+    });
+  };
+  signal.addEventListener("abort", release, { once: true });
+  return read.result.finally(() => {
+    signal.removeEventListener("abort", release);
+    read.readers.delete(signal);
+  });
+}
+
 export interface PolledResource<T> {
   data: T | null;
   error: string | null;
@@ -30,8 +70,9 @@ export interface PolledResource<T> {
  * intervalMs may select a cadence from the latest data (fast while running,
  * slow while idle). Changing the cadence refreshes once and replaces the timer.
  *
- * One request is in flight per mount: starting a new refresh aborts the old one
- * and a monotonically increasing sequence drops anything that still settles
+ * Interval ticks wait for the in-flight read (headers and body); otherwise a
+ * response slower than the interval is cancelled forever, resetting its deadline.
+ * Explicit refreshes still abort the old read, and a sequence drops anything that settles
  * later. Without both, a slow response can land after a faster newer one and
  * silently roll the panel back to stale data.
  */
@@ -44,10 +85,12 @@ export function usePolledResource<T>(url: string, intervalMs: number | ((data: T
   const sequenceRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const lastTextRef = useRef<string | null>(null);
+  const urlRef = useRef(url);
+  urlRef.current = url;
   // Derive a number, not an effect dependency on a caller's inline function.
   const pollMs = typeof intervalMs === "function" ? intervalMs(data) : intervalMs;
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (fresh = true) => {
     const sequence = ++sequenceRef.current;
     abortRef.current?.abort();
     const controller = new AbortController();
@@ -65,8 +108,9 @@ export function usePolledResource<T>(url: string, intervalMs: number | ((data: T
     const clearDeadline = () => clearTimeout(timeout);
     controller.signal.addEventListener("abort", clearDeadline, { once: true });
     try {
-      const response = await fetch(url, { signal: controller.signal });
-      const text = await response.text();
+      // An async write may finish after navigation; refresh the current scope.
+      const response = await readResource(urlRef.current, controller.signal, fresh);
+      const text = response.text;
       if (sequence !== sequenceRef.current || controller.signal.aborted) return;
       if (response.ok && text === lastTextRef.current) {
         // An unchanged poll keeps the same object: no parse and no re-render of
@@ -87,17 +131,21 @@ export function usePolledResource<T>(url: string, intervalMs: number | ((data: T
     } finally {
       clearDeadline();
       controller.signal.removeEventListener("abort", clearDeadline);
+      if (abortRef.current === controller) abortRef.current = null;
       if (sequence === sequenceRef.current && !controller.signal.aborted) setLoading(false);
     }
-  }, [url, t]);
+  }, [t]);
 
   const updateData = useCallback((update: (current: T | null) => T | null) => {
+    // A later automatic read must not join another panel's pre-write request.
+    pendingReads.delete(url);
+    if (urlRef.current !== url) return;
     sequenceRef.current += 1;
     abortRef.current?.abort();
     lastTextRef.current = null;
     setData(update);
     setLoading(false);
-  }, []);
+  }, [url]);
 
   // A different URL is a different resource: drop the previous payload and
   // any in-flight response so the old one cannot flash or overwrite the new.
@@ -114,7 +162,9 @@ export function usePolledResource<T>(url: string, intervalMs: number | ((data: T
     if (!enabled) return;
     let timer: ReturnType<typeof setInterval> | undefined;
     const start = () => {
-      if (timer === undefined) timer = setInterval(() => void refresh(), pollMs);
+      if (timer === undefined) timer = setInterval(() => {
+        if (!abortRef.current || abortRef.current.signal.aborted) void refresh(false);
+      }, pollMs);
     };
     const stop = () => {
       if (timer !== undefined) {
@@ -131,7 +181,7 @@ export function usePolledResource<T>(url: string, intervalMs: number | ((data: T
       }
     };
 
-    void refresh();
+    void refresh(false);
     if (document.visibilityState === "visible") start();
     document.addEventListener("visibilitychange", onVisibilityChange);
     const unsubscribe = onRefreshRequest(() => void refresh());
@@ -142,7 +192,7 @@ export function usePolledResource<T>(url: string, intervalMs: number | ((data: T
       sequenceRef.current += 1;
       abortRef.current?.abort();
     };
-  }, [refresh, pollMs, enabled]);
+  }, [refresh, pollMs, enabled, url]);
 
   return { data, error, loading, refresh, updateData };
 }

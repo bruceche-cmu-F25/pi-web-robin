@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, test } from "node:test";
 import { checkTaskStorage, exportTaskSnapshot, migrateTasksToSqlite } from "./task-migration.ts";
-import { openTaskDatabase, readTaskRecords, taskStoragePath, updateTaskRecords, withTaskTransaction } from "./task-store.ts";
+import { openTaskDatabase, readTaskRecords, taskStoragePath, updateTaskRecords, withTaskSnapshot, withTaskTransaction } from "./task-store.ts";
 import { addTodo, completeTodo, deleteTodo, listTodos, updateTodo } from "./todo-domain.ts";
 import { listRounds, recordRound, updateRound } from "./round-domain.ts";
 import { RUNTIME_STATE_FILES } from "./runtime-state-schema.ts";
@@ -149,6 +149,48 @@ test("selected but missing, damaged or newer databases fail closed instead of re
   execSql("PRAGMA user_version = 99");
   assert.throws(() => listTodos(), /schema/);
   assert.deepEqual(read("todos.json"), [todo("old")]);
+});
+
+test("read snapshots stay consistent across a concurrent commit and release their connection", () => {
+  seed([todo("one")]);
+  migrateTasksToSqlite();
+  const writer = openTaskDatabase();
+  try {
+    withTaskSnapshot(() => {
+      assert.deepEqual(listTodos().todos, [todo("one")]);
+      writer.prepare("UPDATE todos SET payload = ? WHERE id = ?")
+        .run(JSON.stringify(todo("one", { title: "Committed elsewhere" })), "one");
+      assert.deepEqual(listTodos().todos, [todo("one")], "nested domain reads share the original snapshot");
+    });
+  } finally { writer.close(); }
+  assert.equal(listTodos().todos[0].title, "Committed elsewhere");
+  assert.throws(() => withTaskSnapshot(() => addTodo({ title: "Must not write in a read snapshot" })), /readonly/);
+  assert.throws(() => withTaskSnapshot(async () => listTodos()), /synchronous/);
+  assert.equal(listTodos().todos.length, 1);
+  withTaskTransaction(() => {
+    const task = addTodo({ title: "Uncommitted writer row" }).todo;
+    assert.ok(withTaskSnapshot(() => listTodos().todos).some(row => row.id === task.id), "reads inside a writer share its uncommitted view");
+  });
+  assert.equal(listTodos().todos.length, 2, "failed snapshots leave no active connection behind");
+});
+
+test("unchanged round listings do not wait for an unrelated SQLite writer", () => {
+  seed([todo("other")], [round("one")]);
+  migrateTasksToSqlite();
+  // A second connection stands in for the Telegram/scoring process. WAL readers
+  // must still see a consistent committed snapshot while it owns the writer.
+  const writer = openTaskDatabase();
+  try {
+    writer.exec("BEGIN IMMEDIATE");
+    writer.prepare("UPDATE todos SET payload = ? WHERE id = ?")
+      .run(JSON.stringify(todo("other", { title: "Finish Company one OA" })), "other");
+    const start = performance.now();
+    assert.deepEqual(listRounds(), [round("one")]);
+    assert.ok(performance.now() - start < 1000, "a no-change GET must not spend 5 seconds in the busy wait");
+    writer.exec("COMMIT");
+  } finally { writer.close(); }
+  assert.equal(listRounds()[0].todoId, "other", "a committed matching todo is still reconciled and persisted");
+  assert.equal(readTaskRecords("rounds")[0].todoId, "other");
 });
 
 test("round settlement and reopening roll back BOTH records on storage failure", () => {

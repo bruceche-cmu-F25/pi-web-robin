@@ -1,3 +1,5 @@
+import { multipartBody } from "./multipart.ts";
+
 /** Shared OpenAI-compatible speech-to-text transport; credentials never leave the server. */
 export interface TranscriptionConfig {
   enabled: boolean;
@@ -18,16 +20,16 @@ export async function transcribe(
   if (!config.enabled) throw new TranscriptionUnavailable("Voice transcription is off.");
   if (!config.apiKey) throw new TranscriptionUnavailable("Voice transcription has no API key.");
   const extension = audio.filePath.split(".").at(-1)?.toLowerCase() ?? "ogg";
-  const form = new FormData();
-  form.append("model", config.model);
-  form.append("file", new Blob([audio.bytes as unknown as BlobPart]),
-    `voice.${/^[a-z0-9]{1,5}$/.test(extension) ? extension : "ogg"}`);
-  form.append("response_format", "text");
+  const form = multipartBody([
+    ["model", config.model],
+    ["file", { name: `voice.${/^[a-z0-9]{1,5}$/.test(extension) ? extension : "ogg"}`, bytes: audio.bytes }],
+    ["response_format", "text"],
+  ]);
   const timeout = AbortSignal.timeout(deps.timeoutMs ?? 60_000);
   const signal = deps.signal ? AbortSignal.any([timeout, deps.signal]) : timeout;
   const response = await deps.fetch(`${config.baseUrl.replace(/\/$/, "")}/audio/transcriptions`, {
     method: "POST", signal, redirect: "error",
-    headers: { Authorization: `Bearer ${config.apiKey}` }, body: form,
+    headers: { Authorization: `Bearer ${config.apiKey}`, "Content-Type": form.contentType }, body: form.body,
   });
   // Provider bodies can echo credentials, uploaded data, or HTML. Never persist/display them.
   if (!response.ok) {

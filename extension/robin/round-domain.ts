@@ -1,6 +1,6 @@
 /** Hiring-round behavior shared by the HTTP and Pi tool adapters. */
 import { newId } from "./paths.ts";
-import { updateTaskRecords, readRuntimeState, writeRuntimeState } from "./task-store.ts";
+import { readTaskRecords, updateTaskRecords, readRuntimeState, writeRuntimeState, withTaskSnapshot } from "./task-store.ts";
 import {
   companyKey,
   hasTime,
@@ -70,31 +70,39 @@ function findTodo(round: Round, todos: Todo[], taken: Set<string>): Todo | undef
  * Only writes when one of those actually changed something.
  */
 export function listRounds(): Round[] {
-  return updateTaskRecords<Round, Round[]>("rounds", (rounds) => {
-    const todos = listTodos({ includeDone: true }).todos;
-    const byId = new Map(todos.map((todo) => [todo.id, todo]));
-    let changed = false;
-    const taken = new Set(rounds.map((round) => round.todoId).filter((id): id is string => Boolean(id)));
-    for (const round of rounds) {
-      if (round.status !== "open") continue;
-      if (!round.todoId) {
-        const todo = findTodo(round, todos, taken);
-        if (todo) {
-          round.todoId = todo.id;
-          taken.add(todo.id);
-          changed = true;
-        }
-      }
-      const todo = round.todoId ? byId.get(round.todoId) : undefined;
-      if (todo?.done) {
-        round.status = "done";
-        round.closedAt = todo.completedAt ?? new Date().toISOString();
-        round.updatedAt = new Date().toISOString();
+  // Most polls change nothing. A writer reservation here made every page's
+  // navigation wait behind unrelated job writes, blocking Node's event loop.
+  const snapshot = withTaskSnapshot(() => reconcileRoundTodos(readTaskRecords<Round>("rounds")));
+  if (!snapshot.changed) return snapshot.value;
+  // Never persist the optimistic snapshot: another process may have closed,
+  // reopened or deleted a round/todo meanwhile. Reconcile fresh rows under lock.
+  return updateTaskRecords<Round, Round[]>("rounds", reconcileRoundTodos);
+}
+
+function reconcileRoundTodos(rounds: Round[]): { value: Round[]; changed: boolean } {
+  const todos = listTodos({ includeDone: true }).todos;
+  const byId = new Map(todos.map((todo) => [todo.id, todo]));
+  let changed = false;
+  const taken = new Set(rounds.map((round) => round.todoId).filter((id): id is string => Boolean(id)));
+  for (const round of rounds) {
+    if (round.status !== "open") continue;
+    if (!round.todoId) {
+      const todo = findTodo(round, todos, taken);
+      if (todo) {
+        round.todoId = todo.id;
+        taken.add(todo.id);
         changed = true;
       }
     }
-    return { value: [...rounds], changed };
-  });
+    const todo = round.todoId ? byId.get(round.todoId) : undefined;
+    if (todo?.done) {
+      round.status = "done";
+      round.closedAt = todo.completedAt ?? new Date().toISOString();
+      round.updatedAt = new Date().toISOString();
+      changed = true;
+    }
+  }
+  return { value: [...rounds], changed };
 }
 
 /**
