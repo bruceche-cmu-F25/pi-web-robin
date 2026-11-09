@@ -200,7 +200,7 @@ export async function applicationPage(page, input) {
       if (!field) { repairErrors.push(`Field changed: ${decision.key}`); continue; }
       if (field.kind === "file") continue;
       const desired = decision.value;
-      if (field.value === desired && !field.pendingSelection && (field.kind !== "choice" || !desired)) continue;
+      if (field.value === desired && !field.pendingSelection && (field.kind !== "choice" || !desired || decision.source === "jobright")) continue;
       const locator = locate(field);
       try {
           const path = String(input.url).startsWith("https://jobs.ashbyhq.com/") ? await locator.evaluate((node) =>

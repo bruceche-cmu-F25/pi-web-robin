@@ -1,0 +1,50 @@
+.desk {
+  /* Jobs navigation icon and this desk share the same palette in light/dark. */
+  --accent: var(--todo-teal);
+  font-family: var(--font-ui);
+  color: var(--text);
+}
+.desk :global(.ui-action:not(.ui-action--primary)) { color: var(--todo-teal); }
+/* The desk is one frosted surface; questions and records stay on its reading
+   plane rather than stacking blurred cards over blurred cards. */
+:global(html[data-theme^="glass"]) .desk {
+  --glass-material: frost;
+  background: var(--glass-frost-fill);
+  border-color: var(--glass-edge);
+  border-radius: 24px;
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-edge);
+  -webkit-backdrop-filter: var(--glass-frost-filter);
+  backdrop-filter: var(--glass-frost-filter);
+}
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more), (forced-colors: active) {
+  :global(html[data-theme^="glass"]) .desk {
+    background: var(--bg-panel);
+    border-color: var(--border);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+.header { display: flex; flex-wrap: wrap; align-items: start; justify-content: space-between; gap: 12px 20px; }
+.title { font: 400 22px/1.3 var(--font-serif); letter-spacing: -.02em; }
+.subtitle { margin-top: 4px; color: var(--text-muted); font-size: 13px; line-height: 1.5; }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.primary { min-height: 44px; padding: 9px 16px; font: 500 13px/1.3 var(--font-ui); }
+.secondary { min-height: 44px; font: 13px/1.3 var(--font-ui); }
+.summary { display: flex; flex-wrap: wrap; align-items: end; gap: 8px 24px; padding: 15px 0 12px; }
+.confirmed { display: flex; align-items: baseline; gap: 8px; }
+.confirmed strong { color: var(--success); font: 400 38px/1 var(--font-serif); font-variant-numeric: tabular-nums; }
+.confirmed span { font-size: 14px; }
+.metrics { display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--text-muted); font: 12px/1.5 var(--font-mono); }
+.metrics strong { color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; }
+.task { border-top: 1px solid var(--border); padding-top: 14px; }
+.taskHeading { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 8px; font: 500 14px/1.5 var(--font-ui); }
+.taskHeading strong { color: var(--warning); font: 400 21px/1 var(--font-serif); }
+.question { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 10px 0; border-top: 1px solid var(--border); }
+.question:first-child { border-top: 0; }
+.question span { min-width: 0; flex: 1 1 180px; overflow-wrap: anywhere; }
+.quiet { color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+.disclosure { border-top: 1px solid var(--border); padding-top: 6px; }
+.disclosure > summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; color: var(--text-muted); font: 13px/1.4 var(--font-ui); }
+.disclosure > summary:hover { color: var(--text); }
+.disclosure > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 520px) { .title { font-size: 20px; } .confirmed strong { font-size: 32px; } .actions { width: 100%; } .primary { flex: 1; } }

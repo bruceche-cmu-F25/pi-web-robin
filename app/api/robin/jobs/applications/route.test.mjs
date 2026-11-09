@@ -29,6 +29,9 @@ test("read-only board exposes no resume path, common answers or extension creden
 });
 test("API accepts schedule changes only; no submit action or forged receipt", async () => {
   assert.equal((await route.PATCH(request("PATCH", { at: "08:45", dailyLimit: 3 }))).status, 200);
+  const uncapped = await route.PATCH(request("PATCH", { dailyLimit: 0 }));
+  assert.equal(uncapped.status, 200);
+  assert.equal((await uncapped.json()).settings.dailyLimit, 0);
   for (const patch of [{ answers: { Email: "forged" } }, { resumePath: "/etc/passwd" }, { dailyLimit: 100 }, { enabled: "yes" }]) {
     assert.equal((await route.PATCH(request("PATCH", patch))).status, 400);
   }
@@ -53,6 +56,19 @@ test("dismiss removes only the board row, requires a valid id and same origin", 
   assert.ok(saved.application.dismissedAt);
   assert.deepEqual(saved, { ...row, application: { ...row.application, dismissedAt: saved.application.dismissedAt } });
   assert.equal((await route.POST(request("POST", { action: "dismiss", id: row.id }))).status, 200);
+});
+
+test("drop changes only an unresolved job and requires same-origin explicit action", async () => {
+  const row = { id: "drop-fixture", company: "Example", title: "Engineer", status: "new", url: "https://example.com/job", location: "US", source: "greenhouse", discoveredAt: new Date().toISOString(), application: {
+    attemptId: "attempt", workflowVersion: 2, stage: "attention", updatedAt: new Date().toISOString(), days: [], fields: [], blockers: ["Question unanswered"],
+  } };
+  writeJobs([row]);
+  assert.equal((await route.POST(request("POST", { action: "drop", id: row.id }, "https://evil.test"))).status, 403);
+  assert.equal(readJobs()[0].status, "new");
+  assert.equal((await route.POST(request("POST", { action: "drop", id: row.id }))).status, 200);
+  assert.equal(readJobs()[0].status, "dropped");
+  assert.ok(readJobs()[0].application.dismissedAt);
+  assert.equal((await route.POST(request("POST", { action: "drop", id: row.id }))).status, 400);
 });
 
 test("an active remote browser lane refuses overlapping actions", async () => {

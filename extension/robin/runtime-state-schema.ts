@@ -31,6 +31,48 @@ export function validateRuntimeState(file: RuntimeStateFile, value: unknown): as
     if (value.runs !== undefined && (!object(value.runs) || !Object.values(value.runs).every(chatIds))) fail("delivery runs");
     for (const field of ["date", "runKey"]) if (value[field] !== undefined && typeof value[field] !== "string") fail(field);
     if (value.chatIds !== undefined && !chatIds(value.chatIds)) fail("chatIds");
+    if (file === "job-digest-state.json" && value.applicationPreflight !== undefined
+      && (!object(value.applicationPreflight) || typeof value.applicationPreflight.message !== "string"
+        || value.applicationPreflight.message.length > 250 || typeof value.applicationPreflight.at !== "string"
+        || !Number.isFinite(Date.parse(value.applicationPreflight.at)))) fail("applicationPreflight");
+    if (file === "job-digest-state.json" && value.applicationChecks !== undefined) {
+      if (!object(value.applicationChecks) || Object.keys(value.applicationChecks).length > 14) fail("applicationChecks");
+      for (const [key, check] of Object.entries(value.applicationChecks as Record<string, unknown>)) {
+        if (!object(check) || key !== `${check.day}:${check.timeZone}`
+          || typeof check.at !== "string" || !Number.isFinite(Date.parse(check.at))
+          || ["discovered", "unscored", "pendingScoring", "eligible", "attempted", "confirmed", "unresolved"].some(field => !Number.isSafeInteger(check[field]) || (check[field] as number) < 0)
+          || !Array.isArray(check.issues) || check.issues.length > 9
+          || check.issues.some(issue => !["scan-stale", "scan-errors", "scoring-error", "scoring-pending", "supply-empty", "no-receipts", "submission-uncertain", "application-error", "paused"].includes(issue))
+          || !Array.isArray(check.failures) || check.failures.length > 20
+          || check.failures.some(failure => !object(failure) || typeof failure.reason !== "string" || !/^[A-Z_]{1,50}$/.test(failure.reason)
+            || !Number.isSafeInteger(failure.count) || (failure.count as number) < 0
+            || !Array.isArray(failure.ids) || failure.ids.length > 20 || failure.ids.some(id => typeof id !== "string" || !/^[a-zA-Z0-9_-]{1,32}$/.test(id)))) fail("applicationChecks");
+      }
+    }
+    for (const [field, max] of [["applicationReports", 20], ["applicationRunReports", 80]] as const) {
+      if (file !== "job-digest-state.json" || value[field] === undefined) continue;
+      if (!object(value[field]) || Object.keys(value[field]).length > max) fail(field);
+      for (const [key, entry] of Object.entries(value[field] as Record<string, unknown>)) {
+        if (!object(entry)) fail("application report entry");
+        const storedEntry = entry as Record<string, unknown>;
+        if (!object(storedEntry.report)) fail("application report entry");
+        const report = storedEntry.report as Record<string, unknown>;
+        if (!/^\d{4}-\d{2}-\d{2}:.{1,80}$/.test(key)
+          || !["sending", "accepted", "uncertain", "failed"].includes(String(storedEntry.state))
+          || typeof storedEntry.owner !== "string" || !Number.isSafeInteger(storedEntry.accepted) || (storedEntry.accepted as number) < 0
+          || typeof report.day !== "string" || typeof report.timeZone !== "string"
+          || (field === "applicationReports" ? key !== `${report.day}:${report.timeZone}`
+            : !key.startsWith(`${report.day}:${report.timeZone}:run:`) || !/^[a-zA-Z0-9_-]{1,80}$/.test(key.slice(`${report.day}:${report.timeZone}:run:`.length)))
+          || typeof report.asOf !== "string" || !Number.isFinite(Date.parse(report.asOf))
+          || typeof report.enabled !== "boolean" || typeof report.running !== "boolean"
+          || ["attempted", "confirmed", "errors", "attention", "uncertain", "total", "shown"].some(field => !Number.isSafeInteger(report[field]) || (report[field] as number) < 0)
+          || !Array.isArray(report.rows) || report.rows.length > 40 || report.shown !== report.rows.length
+          || (report.rows as unknown[]).some(row => !object(row) || typeof row.id !== "string" || typeof row.company !== "string" || typeof row.title !== "string"
+            || typeof row.updatedAt !== "string" || typeof row.attemptedToday !== "boolean"
+            || !["preparing", "review", "blocked", "attention", "error", "unavailable", "submitting", "uncertain", "submitted"].includes(String(row.stage))
+            || (row.receiptAt !== null && (typeof row.receiptAt !== "string" || !Number.isFinite(Date.parse(row.receiptAt)))))) fail("application report entry");
+      }
+    }
   } else if (file === "background-runs.json") {
     for (const [name, lease] of Object.entries(value)) {
       if (!object(lease) || typeof lease.ownerId !== "string" || typeof lease.heartbeatAt !== "string") fail(`lease ${name}`);

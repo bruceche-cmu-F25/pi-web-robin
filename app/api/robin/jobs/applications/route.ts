@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { applicationBoard, checkApplicationPreparation, configureApplications, dismissApplication } from "@/extension/robin/job-application-domain";
+import { applicationBoard, applicationSettings, checkApplicationPreparation, configureApplications, dismissApplication, dropApplication, recordApplicationPreflight } from "@/extension/robin/job-application-domain";
 import { runApplications, startApplicationScheduler } from "@/lib/job-application-runner";
+import { assertBskApplicationBrowserReady } from "@/lib/job-application-bsk-transport";
 import { apiError, apiRoute } from "@/lib/api-route";
 
 export const dynamic = "force-dynamic";
@@ -26,19 +27,29 @@ export const PATCH = apiRoute(async (request) => {
 
 export const POST = apiRoute(async (request) => {
   const body = await request.json() as { action?: unknown; id?: unknown };
-  if (!body || !["prepare", "inspect", "focus", "receipt", "dismiss"].includes(String(body.action))) return apiError(new Error("Unknown application action"));
+  if (!body || !["prepare", "inspect", "focus", "receipt", "dismiss", "drop"].includes(String(body.action))) return apiError(new Error("Unknown application action"));
   if (body.id !== undefined && (typeof body.id !== "string" || !body.id || body.id.length > 100)) return apiError(new Error("Invalid job id"));
-  const action = body.action as "prepare" | "inspect" | "focus" | "receipt" | "dismiss";
+  const action = body.action as "prepare" | "inspect" | "focus" | "receipt" | "dismiss" | "drop";
   if (action !== "prepare" && !body.id) return apiError(new Error("Choose an application first"));
   if (applicationBoard().running) return apiError(new Error("Another application browser operation is running"), 409);
-  if (action === "dismiss") {
-    dismissApplication(body.id as string);
+  if (action === "dismiss" || action === "drop") {
+    if (action === "drop") dropApplication(body.id as string);
+    else dismissApplication(body.id as string);
     return NextResponse.json(applicationBoard());
   }
   const options = { mode: action, ...(typeof body.id === "string" ? { id: body.id } : {}) };
   if (action === "prepare") {
     checkApplicationPreparation(options.id);
-    // The domain reserves synchronously before the first browser await. Progress and errors live on Jobs.
+    if (process.env.ROBIN_BSK_APPLICATIONS_READY !== "1") return apiError(new Error("BSK applications are not enabled"));
+    try { await assertBskApplicationBrowserReady(applicationSettings().bskBrowserInstanceId ?? ""); }
+    catch (error) {
+      const message = error instanceof Error && /^(?:BSK_|BSK )/.test(error.message)
+        ? error.message : "Browser preflight failed before any application attempt";
+      recordApplicationPreflight(message);
+      return apiError(new Error(message));
+    }
+    recordApplicationPreflight();
+    // A second owned preflight inside the worker guards the race after this read-only request check.
     void runApplications(options).catch(() => console.error("[job-applications] preparation stopped; inspect Jobs"));
     return NextResponse.json(applicationBoard(), { status: 202 });
   }

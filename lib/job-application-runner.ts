@@ -1,74 +1,18 @@
-import { execFile } from "node:child_process";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { randomUUID } from "node:crypto";
-import { promisify } from "node:util";
-import { applicationPage } from "../scripts/job-application-page.mjs";
-import { playwrightExtensionToken } from "../extension/robin/settings.ts";
+import { createHash, randomUUID } from "node:crypto";
+import { notificationSettings } from "../extension/robin/settings.ts";
 import { executeBackgroundRun } from "../extension/robin/background-run-domain.ts";
 import {
-  APPLICATION_RUN, applicationBoard, applicationBrowserDirectory, applicationCandidates, applicationJob,
+  APPLICATION_RUN, applicationBoard, applicationCandidates, applicationJob,
+  claimApplicationReport, settleApplicationReport, recordApplicationPreflight, recordDailyApplicationCheck,
   applicationPreferencesHash, applicationSettings, applicationSources, approvedResume, confirmApplicationReceipt,
   grantApplicationSubmission, reserveApplication, saveApplicationResult, uncertainApplicationSubmission, confirmApplicationRejection,
 } from "../extension/robin/job-application-domain.ts";
-import { APPLICATION_SUBMISSION_POLICY, applicationClock, applicationUrl, applicationAnswers, type ApplicationSnapshot, type ApplicationReview, type JobApplication } from "../extension/robin/job-applications.ts";
+import { JOBRIGHT_TRUSTED_SUBMISSION_POLICY, applicationClock, applicationAnswers, type ApplicationSnapshot, type ApplicationReview, type JobApplication } from "../extension/robin/job-applications.ts";
 import { applicationReadBackProblems, loadApplicationCV, reviewApplication } from "./job-application-review.ts";
-import type { Job } from "../extension/robin/jobs.ts";
-
-const exec = promisify(execFile);
+import { withBskApplicationBrowser } from "./job-application-bsk-browser.ts";
+import { assertBskApplicationBrowserReady } from "./job-application-bsk-transport.ts";
+import { reconcileApplicationEmailReceipts } from "./job-application-email.ts";
 type Mode = "prepare" | "inspect" | "focus" | "receipt";
-type BrowserMode = "autofill" | "repair" | "submit" | "inspect" | "focus" | "receipt";
-const messages: Record<string, string> = {
-  DRAFT_MISSING: "Draft tab is unavailable. Retry only if no submission has been attempted.",
-  POSTING_CHANGED: "The page left the expected posting; no further form changes were made.",
-  POSTING_UNAVAILABLE: "The employer displays a missing/unavailable posting. No autofill or submission was attempted; do not retry it as a form error.",
-  POSTING_TITLE_MISMATCH: "Posting title differs from the saved role; identity needs investigation.",
-  POSTING_COMPANY_MISMATCH: "Employer identity could not be verified from the ATS tenant, page or logo.",
-  JOBRIGHT_MISSING: "Jobright extension did not appear; check the extension on this site.",
-  JOBRIGHT_SIGNIN: "Jobright needs you to sign in or finish account setup.",
-  JOBRIGHT_NOT_READY: "Jobright's Autofill control did not become ready; this is not evidence that you need to sign in.",
-  JOBRIGHT_INCOMPLETE: "Jobright Autofill did not reach its completion report.",
-  FORM_CHANGED: "The form changed after review; it must be read and validated again.",
-  FORM_CONTROL_UNAVAILABLE: "A form control is hidden, disabled or unavailable; no click was made.",
-  NO_RECEIPT: "No unambiguous receipt found. Do not submit again to retry this check.",
-  WORKFLOW_TIMEOUT: "Browser operation timed out.",
-  SUBMISSION_GRANT_EXPIRED: "Submission authorization expired before the browser click.",
-  SUBMISSION_ALREADY_ATTEMPTED: "This attempt already reached the submission boundary; automatic retry is prohibited.",
-  SUBMIT_CONTROL_UNAVAILABLE: "The final submit control is missing, ambiguous or disabled.",
-};
-
-/** Fixed program, bounded JSON input, token-redacted errors. The model never receives a browser execution tool. */
-async function browser(job: Job, mode: BrowserMode, signal: AbortSignal, extra: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
-  const token = playwrightExtensionToken();
-  if (!token) throw new Error("Save the Playwright Extension token in Robin Settings first.");
-  const url = applicationUrl(job.application!.url);
-  if (!url) throw new Error("Board adapter unavailable (currently Ashby/Greenhouse); no autofill or submission attempted.");
-  const cwd = applicationBrowserDirectory(); mkdirSync(cwd, { recursive: true, mode: 0o700 });
-  const env: NodeJS.ProcessEnv = { NODE_ENV: process.env.NODE_ENV, PLAYWRIGHT_MCP_EXTENSION_TOKEN: token };
-  for (const key of ["PATH", "HOME", "USER", "LOGNAME", "TMPDIR", "TMP", "TEMP", "SystemRoot", "WINDIR", "DISPLAY", "XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "LOCALAPPDATA", "APPDATA", "PLAYWRIGHT_BROWSERS_PATH"]) if (process.env[key]) env[key] = process.env[key];
-  const cli = async (args: string[], timeout = 185000) => {
-    signal.throwIfAborted();
-    try {
-      const { stdout } = await exec("playwright-cli", ["-s=robin-job-applications", "--raw", ...args], { cwd, env, signal, timeout, maxBuffer: 2000000 });
-      if (/^### Error/m.test(stdout)) throw new Error("CLI error");
-      return stdout.trim();
-    } catch { throw new Error("Browser transport failed. This is an automation error, not a request to refill the form manually."); }
-  };
-  try {
-    const probe = JSON.parse(await cli(["run-code", "async page => ({ connected: true })"], 8000));
-    if (!probe.connected) throw new Error("Not connected");
-  } catch { await cli(["attach", "--extension=chrome"]); }
-  const payload = { id: job.id, attemptId: job.application!.attemptId, url, title: job.title, company: job.company, mode, ...extra };
-  const file = join(cwd, `run-${randomUUID()}.js`);
-  writeFileSync(file, `async page => { try { return await (${applicationPage.toString()})(page, ${JSON.stringify(payload)}); } catch (error) { return { failure: Object.keys(${JSON.stringify(messages)}).find(key => String(error).includes(key)) || "BROWSER_FAILED", diagnostic: String(error).match(/(?:locator|page)\\.\\w+: Timeout \\d+ms exceeded/)?.[0] || (["Error", "TimeoutError", "TypeError", "ReferenceError"].includes(error.name) ? error.name : "Unknown error") }; } }`, { mode: 0o600 });
-  try {
-    let result: Record<string, unknown>;
-    try { result = JSON.parse(await cli(["run-code", `--filename=${file}`])); } catch { throw new Error("Browser operation did not return a usable result"); }
-    if (!result || typeof result !== "object" || Array.isArray(result)) throw new Error("Invalid browser result");
-    if (typeof result.failure === "string") throw Object.assign(new Error(messages[result.failure] ?? `Browser ${mode} failed (${result.diagnostic}); technical investigation needed`), { code: result.failure });
-    return result;
-  } finally { rmSync(file, { force: true }); }
-}
 
 function readSnapshot(result: Record<string, unknown>): ApplicationSnapshot {
   const state = result.snapshot as ApplicationSnapshot;
@@ -91,21 +35,26 @@ function receipt(result: Record<string, unknown>, key: "receipt" | "rejection" =
 
 /** Jobright fills; the isolated reviewer audits; fixed browser actions repair; a durable one-shot gate permits Submit. */
 export async function runApplications(options: { id?: string; mode?: Mode; scheduled?: boolean; now?: Date; validateOnly?: boolean } = {},
-  reviewer = { loadCV: loadApplicationCV, review: reviewApplication }) {
-  return executeBackgroundRun(APPLICATION_RUN, async ({ signal, commit }) => {
+  reviewer = { loadCV: loadApplicationCV, review: reviewApplication }, withBrowser = withBskApplicationBrowser,
+  checkBrowser = assertBskApplicationBrowserReady) {
+  if ((options.mode ?? "prepare") === "prepare" && !options.validateOnly && process.env.ROBIN_BSK_APPLICATIONS_READY !== "1") {
+    throw new Error("BSK applications are not enabled: a real form read-back and receipt pilot must pass first.");
+  }
+  const runId = randomUUID();
+  const execution = await executeBackgroundRun(APPLICATION_RUN, async ({ signal, commit }) => {
     const owned = <T>(action: () => T): T => {
       signal.throwIfAborted(); const result = commit(action);
       if (!result.owned) throw new Error("Browser ownership expired"); return result.value;
     };
     const now = options.now ?? new Date(), settings = applicationSettings();
-    if (options.scheduled && (!settings.enabled || applicationClock(now, settings.timeZone).time < settings.at)) return { processed: 0 };
+    if (options.scheduled && (!settings.enabled || settings.dailyLimit < 1 || applicationClock(now, settings.timeZone).time < settings.at)) return { processed: 0 };
     const mode = options.mode ?? "prepare";
     if (mode !== "prepare") {
       if (!options.id) throw new Error("Choose an application first");
       const job = applicationJob(options.id);
       if (!job.application) throw new Error("Run Jobright for this application first");
       if (mode === "inspect" && job.application.submission) throw new Error("Submission has already been attempted; use receipt inspection, not refilling");
-      const result = await browser(job, mode, signal);
+      const result = await withBrowser(job, signal, (browser) => browser(mode));
       if (mode === "receipt") owned(() => result.rejection
         ? confirmApplicationRejection(job.id, job.application!.attemptId, receipt(result, "rejection"))
         : confirmApplicationReceipt(job.id, job.application!.attemptId, receipt(result)));
@@ -116,13 +65,27 @@ export async function runApplications(options: { id?: string; mode?: Mode; sched
       }
       return { processed: 1 };
     }
-    const ids = options.id ? [options.id] : applicationCandidates(now).map((job) => job.id);
+    // Bound each automatic run, not the entire day. Distinct-job and receipt locks still apply.
+    const batchSize = settings.dailyLimit || 5; // A paused schedule still allows an explicit five-role batch.
+    const ids = options.id ? [options.id] : applicationCandidates(now).slice(0, batchSize).map((job) => job.id);
+    // A broken CLI/Chrome must not reserve every role in a scheduled batch.
+    // Mock browser lanes in tests never inspect or start the real browser.
+    if (ids.length && withBrowser === withBskApplicationBrowser) {
+      try {
+        await checkBrowser(settings.bskBrowserInstanceId ?? "", signal);
+        owned(() => recordApplicationPreflight());
+      } catch (error) {
+        const message = error instanceof Error && /^(?:BSK_|BSK )/.test(error.message)
+          ? error.message : "Browser preflight failed before any application attempt";
+        owned(() => recordApplicationPreflight(message));
+        throw error;
+      }
+    }
     let processed = 0, cvPromise: Promise<string> | undefined;
     const queue = ids.map((id) => ({ id, retry: false }));
     while (queue.length) {
       const { id, retry } = queue.shift()!;
       signal.throwIfAborted();
-      if (!options.id && !retry && applicationBoard(now).today >= settings.dailyLimit) break;
       if (options.scheduled && !applicationSettings().enabled) break;
       const job = owned(() => reserveApplication(id, settings, now));
       let state: ApplicationSnapshot = { fields: [], resumeVerified: false, errors: [], autofill: null };
@@ -135,15 +98,12 @@ export async function runApplications(options: { id?: string; mode?: Mode; sched
       }));
       try {
         if (settings.preferencesHash !== applicationPreferencesHash()) throw new Error("Jobs preferences changed; reconfirm approved facts first");
-        // One bounded retry for a transient extension/page failure, never a retry of submission.
-        let continueAutofill = false;
-        for (let attempt = 0; attempt < 2; attempt++) {
-          try { state = readSnapshot(await browser(job, "autofill", signal, { continueAutofill })); break; }
-          catch (error) {
-            const code = (error as { code?: string }).code;
-            if (attempt || ["JOBRIGHT_SIGNIN", "POSTING_UNAVAILABLE", "POSTING_TITLE_MISMATCH", "POSTING_COMPANY_MISMATCH"].includes(code ?? "")) throw error;
-            continueAutofill = code === "JOBRIGHT_INCOMPLETE"; // Wait for the same run, never reset a slow autofill.
-          }
+        await withBrowser(job, signal, async (browser) => {
+        // BSK actions can take effect even when their transport fails. Never re-click Autofill blindly.
+        state = readSnapshot(await browser("autofill"));
+        if (!state.fields.length) {
+          publish("error", "Employer form not visible after Autofill", state.errors.length ? state.errors : ["No employer form fields were observed; no submission attempted."]);
+          return;
         }
         publish("preparing", "Jobright completed; checking answers and attached resume");
         cvPromise ??= reviewer.loadCV(approvedResume(settings).base64);
@@ -155,11 +115,11 @@ export async function runApplications(options: { id?: string; mode?: Mode; sched
           publish("preparing", `Auditing autofill and repairing gaps (${pass + 1}/3)`);
           review = await reviewer.review(state, evidence, reviewSettings, signal, problems);
           try {
-            const repaired = await browser(job, "repair", signal, { expected: state, decisions: review.decisions });
+            const repaired = await browser("repair", { expected: state, decisions: review.decisions });
             state = readSnapshot(repaired);
           } catch (error) {
             if (pass === 2 || (error as { code?: string }).code !== "FORM_CHANGED") throw error;
-            state = readSnapshot(await browser(job, "inspect", signal));
+            state = readSnapshot(await browser("inspect"));
             problems = ["The form changed during review; audit the fresh snapshot, including any newly visible options."];
             continue;
           }
@@ -172,21 +132,26 @@ export async function runApplications(options: { id?: string; mode?: Mode; sched
           // Do not disguise a broken browser/adapter as a personal decision.
           const technical = problems.filter((problem) => !questions.includes(problem));
           publish(technical.length ? "error" : "attention", technical.length ? "Repair could not be verified" : "Only unresolved personal questions remain", problems);
-        } else if (options.validateOnly || settings.submissionPolicy !== APPLICATION_SUBMISSION_POLICY) {
+        } else if (options.validateOnly || settings.submissionPolicy !== JOBRIGHT_TRUSTED_SUBMISSION_POLICY) {
           publish("review", "Validation passed; submission not enabled for this run");
         } else {
+          // A missing/ambiguous Submit control is a preparation error, not an attempted submission.
+          await browser("preflight", { expected: state });
           // Recheck live sources and ownership, persist uncertainty BEFORE allowing any browser click.
           const grant = owned(() => grantApplicationSubmission(job.id, job.application!.attemptId, state, review!));
           crossingSubmission = true;
-          const result = await browser(job, "submit", signal, { expected: state, grant });
+          const result = await browser("submit", { expected: state, grant });
           if (result.receipt) owned(() => confirmApplicationReceipt(job.id, job.application!.attemptId, receipt(result)));
           else if (result.rejection) {
             owned(() => confirmApplicationRejection(job.id, job.application!.attemptId, receipt(result, "rejection")));
             crossingSubmission = false;
             if (!retry) { rebuild = true; queue.unshift({ id, retry: true }); }
           }
-          else owned(() => uncertainApplicationSubmission(job.id, job.application!.attemptId, "Submit was attempted but no definitive receipt was observed. Inspect the application/email; automatic resubmission is locked."));
+          else owned(() => uncertainApplicationSubmission(job.id, job.application!.attemptId,
+            typeof result.reason === "string" && /^No definitive receipt after Submit \((?:posting mismatch|posting matched; success heading=(?:true|false); confirmation text=(?:true|false); form visible=(?:true|false); correction heading=(?:true|false))\); do not resubmit automatically\.$/.test(result.reason) ? result.reason
+              : "Submit was attempted but no definitive receipt was observed. Inspect the application/email; automatic resubmission is locked."));
         }
+        });
       } catch (error) {
         const message = error instanceof Error ? error.message : "Application workflow failed";
         if (crossingSubmission) owned(() => uncertainApplicationSubmission(job.id, job.application!.attemptId, message));
@@ -197,22 +162,82 @@ export async function runApplications(options: { id?: string; mode?: Mode; sched
         }
       }
       if (!rebuild) processed++;
-      if (processed >= settings.dailyLimit) break;
+      if (options.scheduled && processed >= batchSize) break;
     }
     return { processed };
   });
+  if ((options.mode ?? "prepare") === "prepare" && execution.started && execution.value?.processed) {
+    try { await tickApplicationReport(new Date(), { run: { id: runId, processed: execution.value.processed } }); }
+    catch { console.error("[job-applications] run summary unavailable; inspect Jobs"); }
+  }
+  return execution;
+}
+
+type ReportSend = (notification: { id: string; title: string; body: string; url: string; ttl: number }) => Promise<{ accepted: number; failed: number; expired: number }>;
+/** A separate, opt-in push. Freeze the day's counts before network I/O; ambiguous sends are never retried. */
+export async function tickApplicationReport(now = new Date(), deps: {
+  env?: NodeJS.ProcessEnv; allowed?: () => boolean; subscriptionCount?: () => Promise<number>; send?: ReportSend;
+  run?: { id: string; processed: number };
+} = {}): Promise<string> {
+  const allowed = deps.allowed ?? (() => notificationSettings().channel === "push");
+  if ((!deps.run && (deps.env ?? process.env).ROBIN_JOB_APPLICATION_REPORT_ENABLED !== "1") || !allowed()) return "disabled";
+  const board = applicationBoard(now), report = board.report;
+  if (!board.settings.enabled || (deps.run ? deps.run.processed < 1
+    : applicationClock(now, report.timeZone).time < "18:30" || report.delivery !== "not-sent")) return "not-due";
+  const subscriptionCount = deps.subscriptionCount ?? (async () => (await import("./web-push")).pushSubscriptionCount());
+  if (!await subscriptionCount() || !allowed()) return "no-subscribers-or-disabled";
+  // After a late wake, let the ordinary scheduled run reserve work first, but never hide a stalled day forever.
+  let pending = -1;
+  try { pending = applicationCandidates(now).length; } catch { /* Show incomplete candidate coverage, not a false all-clear. */ }
+  if (!deps.run && !board.running && report.attempted === 0 && pending > 0 && applicationClock(now, report.timeZone).time < "19:30") return "work-pending";
+  const owner = randomUUID();
+  if (!claimApplicationReport(report, owner, deps.run?.id)) return "already-claimed";
+  if (!allowed() || (!deps.run && (deps.env ?? process.env).ROBIN_JOB_APPLICATION_REPORT_ENABLED !== "1")) {
+    settleApplicationReport(report, owner, "failed", 0, deps.run?.id); return "disabled";
+  }
+  const id = deps.run ? `job-applications:run:${deps.run.id}`
+    : `job-applications:${report.day}:${createHash("sha256").update(report.timeZone).digest("hex").slice(0, 16)}`;
+  const [hour, minute] = applicationClock(now, report.timeZone).time.split(":").map(Number);
+  const notification = { id, title: `${deps.run ? "投递简报" : "投递日报"} · ${report.day}`,
+    body: `${deps.run ? `本轮处理 ${deps.run.processed}；` : ""}${report.running ? "仍在运行 · " : pending > 0 ? `仍有${pending}个候选未处理 · ` : pending < 0 ? "候选检查不可用 · " : ""}今日尝试 ${report.attempted}，回执确认 ${report.confirmed}；需回答 ${report.attention}，结果不明 ${report.uncertain}，技术失败 ${report.errors}。`,
+    url: "/dashboard/jobs#application-report", ttl: Math.min(3600, (1440 - hour * 60 - minute) * 60) };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const send = deps.send ?? (async (note) => (await import("./web-push")).sendPushNotification(note));
+    const result = await Promise.race([send(notification), new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("Push timed out")), 60_000); timer.unref?.();
+    })]);
+    if (![result.accepted, result.failed, result.expired].every(value => Number.isSafeInteger(value) && value >= 0)) throw new Error("Invalid push response");
+    const accepted = result.accepted;
+    settleApplicationReport(report, owner, accepted ? "accepted" : result.failed > 0 ? "uncertain" : "failed", accepted, deps.run?.id);
+    return accepted ? "accepted" : "not-accepted";
+  } catch {
+    settleApplicationReport(report, owner, "uncertain", 0, deps.run?.id); return "uncertain";
+  } finally { if (timer) clearTimeout(timer); }
 }
 
 const registry = globalThis as typeof globalThis & { __jobApplicationsDaily?: { timer: ReturnType<typeof setInterval>; tick: typeof tickApplicationsDaily } };
 export async function tickApplicationsDaily(now = new Date()): Promise<void> {
   const board = applicationBoard(now);
-  if (!board.settings.enabled || board.running || board.today >= board.settings.dailyLimit || applicationClock(now, board.settings.timeZone).time < board.settings.at) return;
+  // Zero pauses scheduling; each enabled run is bounded separately.
+  if (!board.settings.enabled || board.settings.dailyLimit < 1 || board.running
+    || applicationClock(now, board.settings.timeZone).time < board.settings.at) return;
   await runApplications({ scheduled: true, now });
 }
 export function startApplicationScheduler(): void {
   const old = registry.__jobApplicationsDaily;
   if (old?.tick === tickApplicationsDaily) return;
   if (old) clearInterval(old.timer);
-  const timer = setInterval(() => { void tickApplicationsDaily().catch(() => console.error("[job-applications] workflow stopped; inspect Jobs")); }, 60000);
+  let lastMailCheck = 0;
+  const timer = setInterval(() => {
+    void tickApplicationsDaily().catch(() => console.error("[job-applications] workflow stopped; inspect Jobs"));
+    if (Date.now() - lastMailCheck >= 300_000) {
+      lastMailCheck = Date.now();
+      void reconcileApplicationEmailReceipts().catch(() => console.error("[job-applications] email receipt check unavailable; inspect Jobs"));
+    }
+    try { recordDailyApplicationCheck(); }
+    catch { console.error("[job-applications] daily pipeline check unavailable; inspect Jobs"); }
+    void tickApplicationReport().catch(() => console.error("[job-applications] report unavailable; inspect Jobs"));
+  }, 60000);
   timer.unref?.(); registry.__jobApplicationsDaily = { timer, tick: tickApplicationsDaily };
 }
