@@ -15,14 +15,16 @@ after(() => {
   if (previous === undefined) delete process.env.ROBIN_DATA_DIR;
   else process.env.ROBIN_DATA_DIR = previous;
   delete globalThis.__backgroundRouteCalls;
+  delete globalThis.__backgroundRoutePrompt;
 });
 
 const googleStub = join(dir, "google.mjs");
 const assistantStub = join(dir, "assistant.mjs");
 writeFileSync(googleStub, "export function isConnected() { return true; }");
 writeFileSync(assistantStub, `
-export async function runAssistantTurn() {
+export async function runAssistantTurn(_mode, message) {
   globalThis.__backgroundRouteCalls += 1;
+  globalThis.__backgroundRoutePrompt = message;
   return { reply: "done", usedTools: [], sessionId: "session" };
 }
 `);
@@ -58,3 +60,15 @@ for (const [label, route, runName] of [
     }
   });
 }
+
+test("manual mail review covers two days in both languages", async () => {
+  for (const locale of ["en", "zh"]) {
+    const req = request();
+    const response = await mailRoute.POST(new Request(req.url, {
+      method: "POST", headers: req.headers, body: JSON.stringify({ locale }),
+    }));
+    assert.equal(response.status, 200);
+    assert.match(globalThis.__backgroundRoutePrompt, /newer_than:2d/);
+    assert.doesNotMatch(globalThis.__backgroundRoutePrompt, /newer_than:1d|is:unread/);
+  }
+});

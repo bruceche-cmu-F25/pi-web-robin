@@ -6,7 +6,7 @@ import { executeBackgroundRun } from "@/extension/robin/background-run-domain";
 import { apiRoute } from "@/lib/api-route";
 
 export const dynamic = "force-dynamic";
-// Reading a full inbox day and writing todos/events can outlive the default.
+// Reading two days of mail and writing todos/events can outlive the default.
 export const maxDuration = 360;
 const MAIL_REVIEW_RUN = "mail-review";
 
@@ -14,9 +14,9 @@ function mailPrompt(locale: "zh" | "en"): string {
   return locale === "zh"
     ? [
         "#Role: 你是我的邮件助理。",
-        "#Task: 读我今天的新邮件（调用 gmail_list，query 用 newer_than:1d -category:promotions，maxResults 用 50），逐封分类、摘要，并把需要行动的邮件变成日程或待办。",
-        "#Topic: 我今天收到的邮件。",
-        "#Format: 先调用 gmail_review 保存全部分类结果（headline、skipped，以及每个条目的 id、category、triage、summary、next、due、action），然后返回一段简洁报告：今天几封、哪些重要、自动建了什么。",
+        "#Task: 读我最近两天的邮件（调用 gmail_list，query 用 newer_than:2d -category:promotions，maxResults 用 50），逐封分类、摘要，并把需要行动的邮件变成日程或待办。",
+        "#Topic: 最近两天收到的邮件，不限于今天零点之后，也包括已读邮件。",
+        "#Format: 先调用 gmail_review 保存全部分类结果（headline、skipped，以及每个条目的 id、category、triage、summary、next、due、action），然后返回一段简洁报告：检查范围内几封、哪些重要、自动建了什么。",
         "#Tone / Style: 简洁、客观。",
         "#Context: 类别：important（重要）、interview（面试）、oa（在线测评）、appointment（预约/会议）、delivery（快递）、deadline（截止）、document（文件）、other（其他）。",
         "#Goal: 我不用打开收件箱，也不会漏掉任何需要处理的事。",
@@ -29,9 +29,9 @@ function mailPrompt(locale: "zh" | "en"): string {
       ].join("\n")
     : [
         "#Role: You are my email assistant.",
-        "#Task: Read my new email today (call gmail_list with query newer_than:1d -category:promotions and maxResults 50), categorise and summarise each message, and turn anything actionable into a calendar event or todo.",
-        "#Topic: The email I received today.",
-        "#Format: Finish by calling gmail_review with a headline, the skipped count, and every categorised item (id, category, triage, summary, next, due, action). Then return a short report: how many arrived today, what is important, and what you created.",
+        "#Task: Read my email from the last two days (call gmail_list with query newer_than:2d -category:promotions and maxResults 50), categorise and summarise each message, and turn anything actionable into a calendar event or todo.",
+        "#Topic: Mail received in the last two days, not just since today's midnight; include already-read messages.",
+        "#Format: Finish by calling gmail_review with a headline, the skipped count, and every categorised item (id, category, triage, summary, next, due, action). Then return a short report: how many arrived in the search window, what is important, and what you created.",
         "#Tone / Style: Concise and factual.",
         "#Context: Categories: important, interview, oa, appointment, delivery, deadline, document, other.",
         "#Goal: I never need to open my inbox to know what needs doing, and nothing actionable slips through.",
@@ -45,7 +45,7 @@ function mailPrompt(locale: "zh" | "en"): string {
 }
 
 /**
- * One mail-review turn: read today's mail, categorise it, create the todos and
+ * One mail-review turn: read the last two days, categorise mail, create the todos and
  * calendar events that confirmations/appointments/deadlines call for, and save
  * the categorised review for the page to show.
  *

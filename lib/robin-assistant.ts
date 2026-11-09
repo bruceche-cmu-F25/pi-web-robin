@@ -499,6 +499,7 @@ async function runScopedAssistantTurnUnlocked(
   options: ScopedAssistantTurnOptions,
   deferRelease?: (until: Promise<unknown>) => void,
 ): Promise<{ reply: string; usedTools: string[]; sessionId: string }> {
+  if (options.silenceCompletionNotifications && !options.oneShot) throw new Error("Silent scoped turns must be one-shot");
   const { session, sessionId, fresh } = await acquireSession(
     options.toolNames,
     options.oneShot ? null : options.remembered,
@@ -507,6 +508,7 @@ async function runScopedAssistantTurnUnlocked(
   );
   const prompt = fresh ? `${options.preamble}\n\n---\n\n${options.message}` : options.message;
   try {
+    if (options.silenceCompletionNotifications) session.silenceCompletionNotifications();
     if (options.thinkingLevel) await session.send({ type: "set_thinking_level", level: options.thinkingLevel });
     const { reply, usedTools } = await runTurn(session, prompt, options.images ?? [], options.timeoutMs ?? TURN_TIMEOUT_MS, false, options.signal);
     return { reply, usedTools, sessionId };

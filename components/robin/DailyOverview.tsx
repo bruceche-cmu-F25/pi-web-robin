@@ -11,6 +11,7 @@ import type { EditableTodo } from "@/extension/robin/todo-domain";
 import type { Link as SavedLink } from "@/extension/robin/links";
 import { dailyEventPreview, eventRecordHref, nearbyTodos, todoRecordHref } from "./dashboard-view";
 import { AttentionPanel } from "./AttentionPanel";
+import { BriefBoard } from "./BriefBoard";
 import { useLinkIconBackfill } from "./SavedLinkIcon";
 import { SavedLinkLaunch } from "./SavedLinkLaunch";
 import { requestRefresh } from "./refreshBus";
@@ -144,6 +145,7 @@ export function DailyOverview() {
       {!tasks.loading && !tasks.error && !due.length && <p className={styles.emptyTasks}>{t("daily.noDeadlines")}</p>}
     </section>
     <AttentionPanel />
+    <BriefBoard compact today={selectedDate === today ? today : ""} />
     <section className={styles.section} data-tone="links" aria-labelledby="daily-links">
       <header className={styles.sectionHeader}><h2 id="daily-links" className="pi-section-title">{t("daily.shortcuts")}</h2><Link prefetch={false} scroll={false} href={href("/dashboard?view=more#dashboard-links")}>{t("daily.linksAll")}<Chevron /></Link></header>
       {retry(links.error, links.refresh)}

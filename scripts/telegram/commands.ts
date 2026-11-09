@@ -318,18 +318,19 @@ export async function runCommand(
  * on demand has to be exactly what arrives every morning, or the command is
  * a different feature wearing the same name.
  */
-export function mailPrompt(locale: BridgeLocale, query = "newer_than:1d"): string {
+export function mailPrompt(locale: BridgeLocale, query = "newer_than:2d"): string {
   return locale === "zh"
     ? [
         "#Role: 你是我的邮件助理。",
         `#Task: 读我最近的邮件（调用 gmail_list，query 用 ${query}，maxResults 用 50），逐封分类、摘要，并把需要行动的邮件变成日程或待办。`,
         "#Topic: 我最近收到的邮件。",
-        "#Format: 先调用 gmail_review 保存全部分类结果，然后返回一段简洁报告：今天几封、哪些重要、自动建了什么。",
+        "#Format: 先调用 gmail_review 保存全部分类结果，然后返回一段简洁报告：检查范围内几封、哪些重要、自动建了什么。",
         "#Tone / Style: 简洁、客观。",
         "#Context: 类别：important（重要）、interview（面试）、oa（在线测评）、appointment（预约/会议）、delivery（快递）、deadline（截止）、document（文件）、other（其他）。",
         "#Goal: 我不用打开收件箱，也不会漏掉任何需要处理的事。",
         "#Requirements / Constraints:",
         "- 先看标题和摘要；标题明显是广告、促销或营销简报的邮件直接跳过，不调用 gmail_get，也不放进 gmail_review。",
+        "- 不要再按今天零点或未读状态过滤；检查范围包括之前日期和已读邮件。",
         "- 对其余每一封判断类别并写一句中文摘要。",
         "- 预约/会议/确认的日程用 calendar_create_event 建日程；截止/待办用 todo_add 建待办。",
         "- 先调 todo_list 和 calendar_list_events 避免重复。",
@@ -345,6 +346,7 @@ export function mailPrompt(locale: BridgeLocale, query = "newer_than:1d"): strin
         "#Goal: I never need to open my inbox to know what needs doing, and nothing actionable slips through.",
         "#Requirements / Constraints:",
         "- Check the subject and snippet first; skip obvious ads, promotions, and marketing newsletters without calling gmail_get or including them in gmail_review.",
+        "- Do not narrow the query to today's midnight or unread mail; include earlier dates and already-read messages in the search window.",
         "- Categorise every remaining message and write a one-line summary.",
         "- Appointments/meetings/confirmed schedules get a calendar event via calendar_create_event; deadlines and to-dos get a todo via todo_add.",
         "- Call todo_list and calendar_list_events first and skip duplicates.",

@@ -1,24 +1,29 @@
-/** Operator-only shadow entry point. No daemon, model execution or notification delivery. */
+/** Operator-only storage, deterministic preview and receipt commands. No daemon, model turn or send. */
 import { pathToFileURL } from "node:url";
 import { localDate } from "../extension/robin/dates.ts";
 import { briefPipelineStatus, briefRunDetails, initializeBriefPipeline, upgradeBriefPipeline, runShadowBrief } from "../extension/robin/brief-domain.ts";
 import { collectStoredBriefSource } from "../extension/robin/brief-sources.ts";
 import { collectGmailBrief } from "../extension/robin/brief-mail.ts";
+import { briefDeliveryReceipts, resolveBriefDelivery } from "../extension/robin/brief-delivery-domain.ts";
 
 export async function main(args: string[]): Promise<void> {
   const [command, requestId, ...extra] = args;
+  if (command === "delivery-status" && !requestId && !extra.length) { console.log(JSON.stringify(briefDeliveryReceipts(), null, 2)); return; }
+  if (command === "resolve" && requestId && extra.length === 1 && (extra[0] === "accepted" || extra[0] === "cancelled")) {
+    resolveBriefDelivery(requestId, extra[0]); console.log("Brief receipt resolved; nothing sent."); return;
+  }
   if (extra.length || !["init", "upgrade", "status", "shadow", "acquire", "inspect"].includes(command ?? "")
     || (["init", "status"].includes(command) && requestId)
     || (command === "upgrade" && requestId !== "--writers-stopped")
     || (["shadow", "acquire", "inspect"].includes(command) && !requestId)) {
-    throw new Error("Usage: robin:brief -- init | upgrade --writers-stopped | status | shadow <stable-request-id> | acquire <new-request-id> | inspect <request-id>");
+    throw new Error("Usage: robin:brief -- init | upgrade --writers-stopped | status | shadow <stable-request-id> | acquire <new-request-id> | inspect <request-id> | delivery-status | resolve <slot> accepted|cancelled");
   }
   if (command === "init") {
     initializeBriefPipeline();
-    console.log("Brief shadow storage initialized; no sources read and no automation enabled.");
+    console.log("Brief storage initialized; no sources read; automation settings unchanged.");
   } else if (command === "upgrade") {
     const backup = upgradeBriefPipeline(true);
-    console.log(JSON.stringify({ upgraded: Boolean(backup), backup, automationEnabled: false }));
+    console.log(JSON.stringify({ upgraded: Boolean(backup), backup, automationChanged: false }));
   } else if (command === "status") {
     const { edition, ...status } = briefPipelineStatus();
     console.log(JSON.stringify({ ...status, edition: edition ? { id: edition.id, day: edition.day, revision: edition.revision, mode: edition.mode, itemCount: edition.items.length, createdAt: edition.createdAt } : null }, null, 2));

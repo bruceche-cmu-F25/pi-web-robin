@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { formatToday, parseCommand, runCommand } from "./commands.ts";
+import { formatToday, mailPrompt, parseCommand, runCommand } from "./commands.ts";
 import { toTelegramHtml } from "./format.ts";
 
 const ctx = (fetch, over = {}) => ({
@@ -25,6 +25,16 @@ function fakeFetch(routes) {
   };
   return { fetch, calls };
 }
+
+test("mail prompts use a two-day window without a midnight or unread-only filter", () => {
+  for (const locale of ["en", "zh"]) {
+    assert.match(mailPrompt(locale), /newer_than:2d/);
+    assert.doesNotMatch(mailPrompt(locale), /newer_than:1d|is:unread/);
+    assert.match(mailPrompt(locale), /todo_list/);
+    assert.match(mailPrompt(locale), /calendar_list_events/);
+    assert.match(mailPrompt(locale, "newer_than:7d"), /newer_than:7d/);
+  }
+});
 
 test("a command is only a leading slash-word", () => {
   assert.deepEqual(parseCommand("/today"), { name: "today", argument: "" });

@@ -119,7 +119,7 @@ export const DEFAULT_GMAIL_DIGEST: GmailDigestSettings = {
   time: "08:00",
   locale: "en",
   chatIds: [],
-  query: "newer_than:1d",
+  query: "newer_than:2d",
 };
 
 /**
@@ -429,7 +429,8 @@ function normalizeGmailDigest(stored: GmailDigestSettings | undefined): GmailDig
     chatIds: Array.isArray(stored.chatIds)
       ? stored.chatIds.filter((id): id is number => Number.isInteger(id))
       : [],
-    query: typeof stored.query === "string" && stored.query.trim()
+    // Upgrade the old default on read; preserve deliberately customized searches.
+    query: typeof stored.query === "string" && stored.query.trim() && stored.query.trim() !== "newer_than:1d"
       ? stored.query.trim()
       : DEFAULT_GMAIL_DIGEST.query,
   };

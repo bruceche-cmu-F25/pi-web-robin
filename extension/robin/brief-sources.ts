@@ -23,6 +23,15 @@ const readers: StoredBriefReaders = {
   world: weeklyView,
   now: () => new Date(),
 };
+export function calendarBriefInput(board: CalendarBoard, scope: BriefScope, observedAt: string, refreshed = false): BriefInput {
+  const events = eventsInRange(deduplicateCalendarEvents(board.events), scope.day, scope.day);
+  return { source: "calendar", observedAt, coverage: (board.google.connected && (!refreshed || board.google.error)) || events.length > 200 ? "partial" : "ready",
+    detail: (refreshed ? (board.google.error ? "Bounded Google snapshot is incomplete; some calendars or pages are missing" : board.google.connected ? "Local calendar plus bounded fresh Google snapshot" : "Local calendar only; Google is not connected") : board.google.connected ? "Local calendar only; connected Google events are not refreshed or included" : "Local calendar only; Google is not connected") + (events.length > 200 ? "; truncated to 200 items" : ""),
+    items: events.slice(0, 200).map(e => ({ id: `calendar:${e.id}`, source: "calendar", section: "schedule", title: e.title.slice(0, 1000),
+      summary: `${e.date}${e.endDate && e.endDate !== e.date ? ` through ${e.endDate}` : ""} · ${e.start ? `${e.start}${e.end ? ` – ${e.end}` : " (end unknown)"}` : "All-day"}`, eventDate: e.date,
+      href: `/dashboard?view=calendar&calendar=day&date=${encodeURIComponent(scope.day)}&event=${encodeURIComponent(e.id)}`,
+      evidence: { kind: "record", reference: e.id } })) };
+}
 export async function collectStoredBriefSource(source: BriefSource, scope: BriefScope, signal: AbortSignal, deps = readers): Promise<BriefInput> {
   signal.throwIfAborted();
   const observed = deps.now();
@@ -40,13 +49,7 @@ export async function collectStoredBriefSource(source: BriefSource, scope: Brief
   }
   if (source === "calendar") {
     const board = await deps.calendar(); signal.throwIfAborted();
-    const events = eventsInRange(deduplicateCalendarEvents(board.events), scope.day, scope.day);
-    return { ...base, coverage: board.google.connected || events.length > 200 ? "partial" : "ready",
-      detail: (board.google.connected ? "Local calendar only; connected Google events are not refreshed or included" : "Local calendar only; Google is not connected") + (events.length > 200 ? "; truncated to 200 items" : ""),
-      items: events.slice(0, 200).map(e => ({ id: `calendar:${e.id}`, source, section: "schedule", title: e.title,
-        summary: e.start ? `${e.start}${e.end ? ` – ${e.end}` : ""}` : "All-day", eventDate: e.date,
-        href: `/dashboard?view=calendar&calendar=day&date=${encodeURIComponent(scope.day)}&event=${encodeURIComponent(e.id)}`,
-        evidence: { kind: "record", reference: e.id } })) };
+    return calendarBriefInput(board, scope, base.observedAt);
   }
   if (source === "todos") {
     const { todos } = deps.todos();

@@ -21,9 +21,9 @@ interface MailDeps {
   email?: () => string | null;
   now?: () => number;
 }
-class GmailBodyTooLarge extends Error {}
+export class GmailBodyTooLarge extends Error {}
 class GmailConsentChanged extends Error {}
-class GmailHttpError extends Error {
+export class GmailHttpError extends Error {
   status: number;
   constructor(status: number) { super(`Gmail HTTP ${status}`); this.status = status; }
 }
@@ -54,7 +54,7 @@ function cursorFrom(value: unknown): MailCursor | null {
     return c;
   } catch (error) { throw new BriefAcquisitionStorageError(error); }
 }
-async function boundedJson(response: Response): Promise<Record<string, unknown>> {
+export async function boundedJson(response: Response): Promise<Record<string, unknown>> {
   if (!response.ok) { await response.body?.cancel(); throw new GmailHttpError(response.status); }
   const reader = response.body?.getReader();
   if (!reader) throw new Error("Empty Gmail response");

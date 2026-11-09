@@ -25,6 +25,9 @@
  * Run with:  npm run telegram
  */
 import { pathToFileURL } from "node:url";
+import { localDate } from "../../extension/robin/dates.ts";
+import { briefSchedule, briefScheduleActive, briefScheduleDue, type BriefSchedule } from "../../extension/robin/brief-schedule.ts";
+import { briefOwnsDay, briefOwnsMailDay } from "../../extension/robin/brief-delivery-domain.ts";
 import { MAX_ATTACHED_IMAGE_BYTES } from "../../lib/image-attachments.ts";
 import {
   DEFAULT_DAILY_AGENDA,
@@ -98,6 +101,7 @@ const BACKOFF_START_MS = 1_000;
 const BACKOFF_MAX_MS = 60_000;
 
 export interface BridgeConfig {
+  dailyBrief?: BriefSchedule;
   notificationChannel?: NotificationChannel;
   token: string;
   allowlist: number[];
@@ -133,6 +137,9 @@ export interface BridgeDeps {
   keyboards?: KeyboardMemory;
   /** When the process started, for /status. */
   startedAt?: number;
+  /** Real composition root consults the durable handoff; synthetic tests inject it. */
+  briefOwnsDay?: (day: string) => boolean;
+  briefOwnsMailDay?: (day: string) => boolean;
 }
 
 /**
@@ -156,6 +163,8 @@ export function readConfig(
     transcription?: TranscriptionSettings & { apiKey?: string };
   } = telegramSettings(),
 ): BridgeConfig {
+  const dailyBrief = briefSchedule(env);
+  if (dailyBrief && stored.notificationChannel !== "push") throw new Error("Daily Brief automation requires the phone push channel");
   const token = stored.botToken?.trim() || env.TELEGRAM_BOT_TOKEN?.trim();
   if (!token && stored.notificationChannel !== "push") {
     throw new Error(
@@ -169,6 +178,7 @@ export function readConfig(
 
   return {
     token: token ?? "",
+    ...(dailyBrief ? { dailyBrief } : {}),
     notificationChannel: stored.notificationChannel ?? "telegram",
     allowlist,
     piWebUrl: (env.PI_WEB_URL?.trim() || "http://127.0.0.1:30141").replace(/\/$/, ""),
@@ -254,6 +264,13 @@ function scheduledLedger(config: BridgeConfig, ledger: DeliveryLedger, telegramI
   };
 }
 
+function briefReplaces(kind: "agenda" | "mail", config: BridgeConfig, deps: BridgeDeps): boolean {
+  const day = localDate(new Date(deps.now()));
+  const active = briefScheduleActive(config.dailyBrief, deps.now());
+  return Boolean(deps.briefOwnsDay?.(day) || (active && (!config.dailyBrief?.mailOnly || config.dailyBrief.morningDaily || kind === "mail"))
+    || (kind === "mail" && deps.briefOwnsMailDay?.(day)));
+}
+
 async function sendScheduledMessage(
   config: BridgeConfig,
   deps: BridgeDeps,
@@ -265,6 +282,10 @@ async function sendScheduledMessage(
   buttons?: InlineButton[][],
   ttl?: number,
 ): Promise<void> {
+  // A completed/uncertain Brief owns the day even after disabling the new producer.
+  if ((kind === "agenda" || kind === "mail") && briefReplaces(kind, deps.reloadConfig?.() ?? config, deps)) {
+    throw new Error("Daily Brief owns this agenda/mail slot; legacy delivery suppressed");
+  }
   // A long model run must not deliver through a channel the user has since disabled.
   if (deps.reloadConfig) {
     const latest = deps.reloadConfig();
@@ -871,7 +892,7 @@ export async function pollOnce(
  * ticks the two lanes separately so a slow digest does not hold reminders up.
  */
 export async function runSchedules(config: BridgeConfig, deps: BridgeDeps): Promise<void> {
-  await Promise.all([runDigests(config, deps), runScheduledReminders(config, deps)]);
+  await Promise.all([runDigests(config, deps), runScheduledReminders(config, deps), runDailyBrief(config, deps)]);
 }
 
 async function pushReady(config: BridgeConfig, deps: BridgeDeps): Promise<boolean> {
@@ -884,14 +905,14 @@ export async function runDigests(config: BridgeConfig, deps: BridgeDeps): Promis
   if (!await pushReady(config, deps)) return;
   const now = deps.now();
 
-  const agendaSlots: Slot[] = config.dailyAgenda.enabled
+  const agendaSlots: Slot[] = config.dailyAgenda.enabled && !briefReplaces("agenda", config, deps)
     ? [{ key: "", at: config.dailyAgenda.time }]
     : [];
   await runIfDue(scheduledLedger(config, deps.dailyAgendaLedger, config.allowlist), scheduledAudience(config, config.allowlist), agendaSlots, now,
     (key, chats) => sendDailyAgenda(config, deps, key, chats));
 
   const mailChats = gmailAudience(config);
-  const mailSlots: Slot[] = config.gmailDigest.enabled
+  const mailSlots: Slot[] = config.gmailDigest.enabled && !briefReplaces("mail", config, deps)
     ? [{ key: "", at: config.gmailDigest.time }]
     : [];
   await runIfDue(scheduledLedger(config, deps.gmailLedger, config.gmailDigest.chatIds.length ? config.gmailDigest.chatIds : config.allowlist), mailChats, mailSlots, now,
@@ -914,6 +935,22 @@ export async function runDigests(config: BridgeConfig, deps: BridgeDeps): Promis
   await runIfDue(jobsLedger, jobChats, digestSlots, now,
     (key, chats) => sendJobDigest(config, deps, key, chats));
 
+}
+
+export async function runDailyBrief(config: BridgeConfig, deps: BridgeDeps): Promise<void> {
+  if (!briefScheduleDue(config.dailyBrief, deps.now())) return;
+  if (config.notificationChannel !== "push") throw new Error("Daily Brief currently requires phone push; no Telegram fallback");
+  const day = localDate(new Date(deps.now()));
+  // A mid-day handoff may not duplicate an old digest already sent to either channel.
+  const audience = [...new Set([PUSH_RECIPIENT, ...config.allowlist, ...config.gmailDigest.chatIds])];
+  if (!deps.briefOwnsDay?.(day) && audience.some(id => (!config.dailyBrief?.mailOnly && deps.dailyAgendaLedger.pending(day, [id]).length === 0) || deps.gmailLedger.pending(day, [id]).length === 0)) return;
+  // Drain several checkpointed passes promptly, without adding another timer or blocking reminders.
+  for (let pass = 0; pass < (config.dailyBrief?.mailOnly ? 5 : 1); pass++) {
+    const result = await callPiWeb<{ status: string }>(pi(config, deps), "/api/robin/brief/tick", { day }, 200_000);
+    if (result.status === "disabled-or-not-due") throw new Error("Brief server is not enabled/due; check matching bridge/server deployment settings");
+    if (!["waiting-or-settled", "no-subscribers"].includes(result.status)) deps.log(`[daily brief] ${result.status}`);
+    if (result.status !== "working") break;
+  }
 }
 
 export async function runScheduledReminders(config: BridgeConfig, deps: BridgeDeps): Promise<void> {
@@ -939,7 +976,7 @@ export async function runScheduledReminders(config: BridgeConfig, deps: BridgeDe
 /** One existing supervised process, with independent digest/reminder clocks, not a second scheduler. */
 export function startScheduleLoop(getConfig: () => BridgeConfig, deps: BridgeDeps): () => void {
   let stopped = false;
-  const lanes = [runDigests, runScheduledReminders].map((run) => ({ run, busy: false }));
+  const lanes = [runDigests, runScheduledReminders, runDailyBrief].map((run) => ({ run, busy: false }));
   const tick = () => {
     if (stopped) return;
     let config: BridgeConfig;
@@ -1041,6 +1078,8 @@ if (invokedDirectly) {
     gmailLedger,
     reminderLedger,
     googleConnected,
+    briefOwnsDay: day => briefOwnsDay({ day, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
+    briefOwnsMailDay: day => briefOwnsMailDay({ day, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
     reloadConfig: () => readConfig(process.env),
     rateLimit: createRateLimit(DEFAULT_RATE_LIMIT),
     keyboards: createKeyboardMemory(),

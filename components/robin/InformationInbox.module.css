@@ -1,6 +1,10 @@
-.inbox { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; }
+.inbox { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; background: var(--dashboard-ground); }
+/* One continuous ground behind the navigation and its scrollable views. */
+.inbox :global(.robin-dashboard) { background: transparent; }
+:global(html[data-theme^="glass"]) .inbox { background: transparent; }
 /* A content-sized navigation surface, not a full-width second header. */
 .sources { position: relative; display: flex; flex: 0 0 auto; align-self: flex-start; align-items: center; gap: 4px; max-width: calc(100% - 40px); margin: 12px 20px; padding: 4px; border: 1px solid var(--border); border-radius: var(--pill-radius); background: var(--bg-panel); box-shadow: var(--card-shadow); }
+.sources.inlineSources { max-width: 100%; margin: 0; }
 .sources > span { margin: 0 12px; color: var(--text-muted); font: 13px/1.4 var(--font-ui); letter-spacing: 0; text-transform: none; }
 .sources :is(button, a) { display: inline-flex; align-items: center; justify-content: center; min-height: 36px; padding: 6px 16px; border: 1px solid transparent; border-radius: var(--pill-radius); color: var(--text-muted); font: 14px/1.4 var(--font-ui); text-decoration: none; white-space: nowrap; cursor: pointer; }
 .sources :is(button[aria-pressed="true"], a[aria-current="page"]) { border-color: var(--border); background: var(--bg-selected); color: var(--text); font-weight: 500; }
@@ -16,9 +20,9 @@
 }
 @media (max-width: 760px) {
   .sources { max-width: calc(100% - 24px); margin: 8px 12px 12px; gap: 2px; }
+  .sources.inlineSources { max-width: 100%; margin: 0; }
   .sources > span { display: none; }
-  .sources :is(button, a) { padding-inline: 12px; }
-  .sources.jobSources a { padding-inline: 10px; }
+  .sources :is(button, a) { min-width: 0; padding-inline: 6px; font-size: 14px; }
 }
 @media (max-width: 760px), (pointer: coarse) { .sources :is(button, a) { min-height: 44px; } }
 :global(html[data-theme^="glass"]) .sources :is(button[aria-pressed="true"], a[aria-current="page"]) { background: var(--glass-active-fill); border-color: var(--glass-edge); box-shadow: 0 1px 4px color-mix(in srgb, var(--text) 8%, transparent); }

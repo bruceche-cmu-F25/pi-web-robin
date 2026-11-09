@@ -11,7 +11,8 @@ test('CLI is explicit, shadow-only, idempotent across processes, and status omit
     cwd: process.cwd(), env: { ...process.env, ROBIN_DATA_DIR: root, NODE_NO_WARNINGS: '1' }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 20_000,
   });
   try {
-    assert.equal(JSON.parse(run('status')).initialized, false); assert.deepEqual(readdirSync(root), []);
+    assert.equal(JSON.parse(run('status')).initialized, false); assert.deepEqual(JSON.parse(run('delivery-status')), []); assert.deepEqual(readdirSync(root), []);
+    assert.throws(() => run('resolve', 'fixture', 'pending'), /Usage/);
     assert.throws(() => run('shadow', 'fixture-cli'), /not initialized/);
     assert.throws(() => run('generate'), /Usage/);
     run('init');
@@ -50,13 +51,15 @@ test('acquire CLI uses only mocked Gmail GETs, preserves legacy records, and nev
   try {
     run(['init']);
     assert.throws(() => run(['upgrade']), /Usage/);
-    assert.equal(JSON.parse(run(['upgrade', '--writers-stopped'])).automationEnabled, false);
+    assert.equal(JSON.parse(run(['upgrade', '--writers-stopped'])).automationChanged, false);
     const output = run(['acquire', 'fixture-live-input']);
     assert.ok(!output.includes('private fixture')); const receipt = JSON.parse(output);
-    assert.equal(receipt.itemCount, 1); assert.equal(receipt.mode, 'shadow');
+    assert.ok(receipt.itemCount >= 1); assert.equal(receipt.mode, 'shadow');
     assert.equal(JSON.parse(run(['acquire', 'fixture-live-input'])).id, receipt.id);
     const details = JSON.parse(run(['inspect', 'fixture-live-input']));
     assert.equal(details.inputProfile, 'gmail-v1'); assert.ok(details.requestsReserved > 0);
+    assert.equal(details.edition.items.filter(item => item.source === 'mail').length, 1);
+    assert.equal(details.edition.items.length, receipt.itemCount);
     assert.ok(JSON.stringify(details).includes('private fixture body'));
     assert.equal(readFileSync(join(root, 'google.json'), 'utf8'), google);
     assert.equal(readFileSync(join(root, 'mail-review.json'), 'utf8'), legacy);

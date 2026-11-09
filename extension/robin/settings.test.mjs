@@ -176,7 +176,11 @@ test("gmail digest settings round-trip and keep an empty query from crashing", (
   );
   // An edited file with no query must fall back, not reach a `.trim()` on undefined.
   setGmailDigest({ ...digest, query: "" });
-  assert.equal(telegramSettings().gmailDigest.query, "newer_than:1d");
+  assert.equal(telegramSettings().gmailDigest.query, "newer_than:2d");
+  setGmailDigest({ ...digest, query: "newer_than:1d" });
+  assert.equal(telegramSettings().gmailDigest.query, "newer_than:2d", "upgrade the saved old default too");
+  setGmailDigest({ ...digest, query: "newer_than:7d -category:promotions" });
+  assert.equal(telegramSettings().gmailDigest.query, "newer_than:7d -category:promotions");
 });
 
 test("interactive and read-only assistants keep separate sessions", () => {

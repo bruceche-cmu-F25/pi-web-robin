@@ -28,7 +28,9 @@ export interface GmailMessage {
 
 interface GmailPayloadPart {
   mimeType?: string;
-  body?: { data?: string; size?: number };
+  filename?: string;
+  headers?: { name?: string; value?: string }[];
+  body?: { data?: string; size?: number; attachmentId?: string };
   parts?: GmailPayloadPart[];
 }
 
@@ -165,6 +167,7 @@ function stripHtml(html: string): string {
   return html
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<a\b[^>]*href\s*=\s*["']([^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi, (_match, href: string, label: string) => `${label} (${href})`)
     .replace(/<[^>]+>/g, " ")
     .replace(/&nbsp;/g, " ")
     .replace(/&amp;/g, "&")
@@ -176,20 +179,47 @@ function stripHtml(html: string): string {
     .trim();
 }
 
-function collectText(part: GmailPayloadPart | undefined, out: { plain?: string; html?: string }): void {
-  if (!part) return;
-  const mime = part.mimeType ?? "";
-  if (mime === "text/plain" && part.body?.data && !out.plain) {
-    out.plain = decodeBase64Url(part.body.data);
-  } else if (mime === "text/html" && part.body?.data && !out.html) {
-    out.html = decodeBase64Url(part.body.data);
-  }
-  for (const child of part.parts ?? []) collectText(child, out);
+function extractBody(root: GmailPayloadPart | undefined) {
+  const attachments: string[] = []; let incomplete = !root, visited = 0;
+  const walk = (part: GmailPayloadPart | undefined, depth = 0): { text: string; plain: boolean } => {
+    if (!part) return { text: "", plain: false };
+    if (++visited > 4096 || depth > 30) { incomplete = true; return { text: "", plain: false }; }
+    const mime = (part.mimeType ?? "").toLowerCase();
+    const disposition = part.headers?.find(h => h.name?.toLowerCase() === "content-disposition")?.value ?? "";
+    if (part.filename || /^attachment\b/i.test(disposition) || (!mime.startsWith("text/") && !mime.startsWith("multipart/") && (part.body?.attachmentId || part.body?.data))) {
+      attachments.push(part.filename?.trim().slice(0, 512) || "（未命名附件）");
+      return { text: "", plain: false }; // Never decode named/attached text, images, PDFs or nested .eml files.
+    }
+    if (mime === "multipart/encrypted") incomplete = true;
+    if (part.parts?.length) {
+      if (mime === "multipart/alternative") {
+        const previous = incomplete;
+        const parts = part.parts.map(child => { incomplete = false; const result = walk(child, depth + 1); return { ...result, incomplete }; });
+        const selected = parts.find(p => p.plain && p.text && !p.incomplete) ?? parts.find(p => p.text && !p.incomplete) ?? parts.find(p => p.text) ?? parts[0];
+        incomplete = previous || selected.incomplete;
+        return selected;
+      }
+      const parts = part.parts.map(child => walk(child, depth + 1));
+      return { text: parts.map(p => p.text).filter(Boolean).join("\n\n"), plain: parts.some(p => p.plain) };
+    }
+    if (mime === "text/plain" || mime === "text/html") {
+      if (!part.body?.data && (part.body?.attachmentId || (part.body?.size ?? 0) > 0)) incomplete = true;
+      const text = part.body?.data ? decodeBase64Url(part.body.data) : "";
+      return { text: mime === "text/html" ? stripHtml(text) : text, plain: mime === "text/plain" };
+    }
+    if (!mime || !mime.startsWith("multipart/")) incomplete = true;
+    return { text: "", plain: false };
+  };
+  const bodyText = walk(root).text.trim();
+  return { bodyText, attachments, bodyIncomplete: incomplete };
 }
 
 export interface GmailMessageDetail extends GmailMessage {
   /** Best-effort plain-text body: text/plain when present, else stripped HTML. */
   bodyText: string;
+  /** Names only: attachment content is never extracted. */
+  attachments?: string[];
+  bodyIncomplete?: boolean;
 }
 
 /**
@@ -209,9 +239,5 @@ export function parseGmailMessageDetail(value: unknown): GmailMessageDetail | nu
   const message = mapMessage(raw);
   if (!message) return null;
 
-  const text: { plain?: string; html?: string } = {};
-  collectText(raw.payload as GmailPayloadPart | undefined, text);
-  const bodyText = (text.plain ?? (text.html ? stripHtml(text.html) : "")).trim();
-
-  return { ...message, bodyText };
+  return { ...message, ...extractBody(raw.payload as GmailPayloadPart | undefined) };
 }

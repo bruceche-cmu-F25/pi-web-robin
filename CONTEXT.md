@@ -36,7 +36,7 @@ The shared Email and AI weekly entrance at `/dashboard/gmail`. Email triage and 
 _Avoid_: A second inbox, news feed
 
 **Shadow Brief**:
-A versioned, deterministic preview owned by the Brief domain. The default consumes existing records; explicit acquisition can add read-only Gmail observations. Neither is editorially ranked public research or the production daily notification. It cannot create tasks or deliver messages. See `docs/brief-pipeline.md`.
+A versioned artifact owned by the Brief domain. CLI `shadow`/`acquire` remain deterministic; consented editing adds one reserved zero-tool model turn. `live` input refreshes Gmail/Google and fixed publisher feeds, not comprehensive world news. Home, the full reader and notification content reference one immutable edition. Manual previews never create tasks or send. Separately gated deployment can atomically queue a daily phone notification through the existing bridge, with original-ledger handoff and conservative uncertainty; it is not enabled by reading or preview consent. The historical `mode: shadow` field is not delivery status. See `docs/brief-pipeline.md`.
 _Avoid_: Published daily news, replacement inbox, completed pipeline
 
 **Brief Source Result**:

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { collectStoredBriefSource } from './brief-sources.ts';
+import { calendarBriefInput, collectStoredBriefSource } from './brief-sources.ts';
 import { composeShadow, validateBriefInput } from './brief.ts';
 const now = new Date('2026-10-30T15:00:00Z');
 const scope = { day: '2026-10-30', timezone: 'America/Los_Angeles' };
@@ -48,6 +48,14 @@ test('stale mail, missing weekly stories and source gaps never become an all-cle
   assert.deepEqual(mail.items, []);
   const old = await collectStoredBriefSource('todos', { ...scope, day: '2026-10-29' }, signal, deps);
   assert.equal(old.coverage, 'unavailable');
+});
+test('calendar evidence preserves spanning dates and unknown ends rather than implying a duration', () => {
+  const input = calendarBriefInput({ today: scope.day, google: { connected: false }, events: [
+    { id: 'trip', title: 'Synthetic trip', date: '2026-10-29', endDate: '2026-10-31' },
+    { id: 'meeting', title: 'Synthetic meeting', date: scope.day, start: '10:00' },
+  ] }, scope, now.toISOString());
+  assert.match(input.items.find(i => i.id === 'calendar:trip').summary, /2026-10-29 through 2026-10-31/);
+  assert.match(input.items.find(i => i.id === 'calendar:meeting').summary, /end unknown/);
 });
 test('validation rejects unsafe links, duplicate IDs, invented source identities and unbounded output', async () => {
   const input = await collectStoredBriefSource('mail', scope, signal, readers());

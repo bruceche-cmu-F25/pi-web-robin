@@ -4,7 +4,24 @@ import { chmodSync, closeSync, existsSync, fsyncSync, mkdirSync, mkdtempSync, op
 import { join } from "node:path";
 import { dataDir, dataPath, withFileLock } from "./paths.ts";
 
-const VERSION = 2;
+const VERSION = 4;
+const DELIVERY_SCHEMA = `
+CREATE TABLE brief_outbox (
+ slot TEXT PRIMARY KEY, edition_id TEXT NOT NULL UNIQUE REFERENCES brief_editions(id),
+ day TEXT NOT NULL, timezone TEXT NOT NULL, expires_at INTEGER NOT NULL,
+ state TEXT NOT NULL CHECK(state IN ('pending','sending','accepted','uncertain','expired','failed','cancelled')),
+ owner TEXT, lease_until INTEGER NOT NULL DEFAULT 0, attempts INTEGER NOT NULL DEFAULT 0,
+ next_attempt_at INTEGER NOT NULL DEFAULT 0, accepted INTEGER NOT NULL DEFAULT 0
+) STRICT;
+PRAGMA user_version = 4;
+`;
+const EDITOR_SCHEMA = `
+CREATE TABLE brief_edits (
+ run_id TEXT PRIMARY KEY REFERENCES brief_runs(id), input_hash TEXT NOT NULL,
+ reserved_at TEXT NOT NULL, output TEXT
+) STRICT;
+PRAGMA user_version = 3;
+`;
 const ACQUISITION_SCHEMA = `
 ALTER TABLE brief_runs ADD COLUMN input_profile TEXT NOT NULL DEFAULT 'stored-v1';
 CREATE TABLE brief_source_state (source_key TEXT PRIMARY KEY, payload TEXT NOT NULL) STRICT;
@@ -43,11 +60,13 @@ CREATE TABLE brief_editions (
  UNIQUE(day, timezone, revision)
 ) STRICT;
 ${ACQUISITION_SCHEMA}
+${EDITOR_SCHEMA}
+${DELIVERY_SCHEMA}
 `;
 function verify(db: DatabaseSync) {
   const version = db.prepare("PRAGMA user_version").get()?.user_version;
   if (version !== VERSION) throw new Error("Unsupported Brief database version; an older Brief store requires explicit offline upgrade");
-  for (const table of ["brief_runs", "brief_inputs", "brief_steps", "brief_editions", "brief_source_state", "brief_evidence", "brief_source_items", "brief_budgets"]) db.prepare(`SELECT 1 FROM ${table} LIMIT 1`).get();
+  for (const table of ["brief_runs", "brief_inputs", "brief_steps", "brief_editions", "brief_source_state", "brief_evidence", "brief_source_items", "brief_budgets", "brief_edits", "brief_outbox"]) db.prepare(`SELECT 1 FROM ${table} LIMIT 1`).get();
 }
 function fsync(path: string) { const fd = openSync(path, "r"); try { fsyncSync(fd); } finally { closeSync(fd); } }
 
@@ -83,30 +102,46 @@ export function upgradeBriefStore(writersStopped: boolean): string | null {
       db.exec("PRAGMA busy_timeout = 5000; PRAGMA synchronous = FULL;");
       const version = db.prepare("PRAGMA user_version").get()?.user_version;
       if (version === VERSION) { verify(db); return null; }
-      if (version !== 1) throw new Error("Unsupported Brief database version");
+      if (version !== 1 && version !== 2 && version !== 3) throw new Error("Unsupported Brief database version");
       const dataVersion = db.prepare("PRAGMA data_version").get()?.data_version;
       if (db.prepare("SELECT 1 FROM brief_runs WHERE stage NOT IN ('done','failed') AND lease_until > ?").get(Date.now())) throw new Error("A Brief writer still owns a live lease");
-      const backup = mkdtempSync(join(dataDir(), ".brief-v1-backup-"));
+      const backup = mkdtempSync(join(dataDir(), `.brief-v${version}-backup-`));
       const file = join(backup, "brief.sqlite");
       db.prepare("VACUUM INTO ?").run(file);
       chmodSync(file, 0o600);
       const check = new DatabaseSync(file, { readOnly: true });
       try {
-        if (check.prepare("PRAGMA integrity_check").get()?.integrity_check !== "ok" || check.prepare("PRAGMA user_version").get()?.user_version !== 1) throw new Error("Brief backup verification failed");
+        if (check.prepare("PRAGMA integrity_check").get()?.integrity_check !== "ok" || check.prepare("PRAGMA user_version").get()?.user_version !== version) throw new Error("Brief backup verification failed");
       } finally { check.close(); }
       fsync(file);
       if (process.platform !== "win32") { fsync(backup); fsync(dataDir()); }
       db.exec("BEGIN IMMEDIATE");
       try {
         if (db.prepare("PRAGMA data_version").get()?.data_version !== dataVersion
-          || db.prepare("PRAGMA user_version").get()?.user_version !== 1
+          || db.prepare("PRAGMA user_version").get()?.user_version !== version
           || db.prepare("SELECT 1 FROM brief_runs WHERE stage NOT IN ('done','failed') AND lease_until > ?").get(Date.now())) throw new Error("Brief changed during backup; stop every writer and retry");
-        db.exec(ACQUISITION_SCHEMA); verify(db); db.exec("COMMIT");
+        if (version === 1) db.exec(ACQUISITION_SCHEMA);
+        if (version < 3) db.exec(EDITOR_SCHEMA);
+        db.exec(DELIVERY_SCHEMA); verify(db); db.exec("COMMIT");
       }
       catch (error) { db.exec("ROLLBACK"); throw error; }
       return backup;
     } finally { db.close(); }
   });
+}
+
+/** Compatibility gate for the old bridge: older schemas cannot have a Brief outbox. No upgrade. */
+export function hasBriefDeliveryStore(): boolean {
+  if (!existsSync(briefStorePath())) return false;
+  const db = new DatabaseSync(briefStorePath(), { readOnly: true });
+  try {
+    const version = Number(db.prepare("PRAGMA user_version").get()?.user_version);
+    if ([1, 2, 3].includes(version)) {
+      if (db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'brief_outbox'").get()) throw new Error("Brief schema and delivery history disagree; refusing legacy fallback");
+      return false;
+    }
+    verify(db); return true;
+  } finally { db.close(); }
 }
 
 /** Synchronous short transactions only; do not return a Promise or hold a connection across awaits. */
