@@ -37,9 +37,10 @@ try {
   const speech = catalog.getByRole("link", { name: "Speech to text", exact: true });
   assert.equal(await speech.getAttribute("href"), "/recordings");
   assert.equal(await catalog.getByRole("link", { name: "Mac monitor & cleanup", exact: true }).getAttribute("href"), "/tools/mac");
-  assert.equal(await catalog.locator("button, a").count(), 13);
-  assert.equal(await catalog.locator('svg[aria-hidden="true"][focusable="false"]').count(), 13, "each tool has a decorative icon alongside its label");
-  assert.equal(new Set(await catalog.locator("svg path").evaluateAll((paths) => paths.map((path) => path.getAttribute("d")))).size, 13, "each icon is distinct");
+  assert.equal(await catalog.getByRole("link", { name: "Video summary", exact: true }).getAttribute("href"), "/tools/video-summary");
+  assert.equal(await catalog.locator("button, a").count(), 14);
+  assert.equal(await catalog.locator('svg[aria-hidden="true"][focusable="false"]').count(), 14, "each tool has a decorative icon alongside its label");
+  assert.equal(new Set(await catalog.locator("svg path").evaluateAll((paths) => paths.map((path) => path.getAttribute("d")))).size, 14, "each icon is distinct");
   assert.ok(await catalog.locator('button, a').evaluateAll((entries) => entries.every((entry) => {
     const style = getComputedStyle(entry);
     return style.borderTopLeftRadius === "16px" && style.borderTopWidth === "3px" && style.backgroundImage === "none";
@@ -81,7 +82,7 @@ try {
       return { contrast: (Math.max(fg, bg) + .05) / (Math.min(fg, bg) + .05), saturation: (max - min) / (1 - Math.abs(2 * lightness - 1)), radius: parseFloat(style.borderTopLeftRadius), disabled: button.disabled };
     });
     assert.equal(primary.radius, 8);
-    assert.ok(primary.saturation >= .65, "primary actions have vivid color, not a washed-out tint");
+    assert.ok(primary.saturation >= .18 && primary.saturation <= .5, "primary actions use a muted, recognizable category color");
     if (!primary.disabled) assert.ok(primary.contrast >= 4.5, `primary text contrast: ${JSON.stringify(primary)}`);
     assert.ok(await page.locator('main').evaluate((el) => el.scrollWidth <= el.clientWidth + 1), "rounded panels never widen the page");
   };
@@ -230,7 +231,7 @@ try {
         return box.height >= 44 && box.width >= 44 && entry.scrollWidth <= entry.clientWidth + 1 && icon.width === 24 && icon.height === 24;
       })), `${theme} ${width} labels fit, icons stay visible and targets remain 44px`);
       const colors = await catalog.locator('section').evaluateAll((groups) => groups.map((group) => getComputedStyle(group.querySelector('[class*="iconTile"]')).backgroundColor));
-      assert.equal(new Set(colors).size, 4, "all four categories have distinct vivid colors, including Mac");
+      assert.equal(new Set(colors).size, 4, "all four categories have distinct muted colors, including Mac");
       const surfaces = await catalog.locator('button, a').evaluateAll((cards) => cards.map((card) => {
         const style = getComputedStyle(card), icon = getComputedStyle(card.querySelector('[class*="iconTile"]'));
         const rgb = icon.backgroundColor.match(/[\d.]+/g).map(Number).slice(0, 3).map((n) => n / 255);
@@ -239,8 +240,8 @@ try {
         const fg = luminance(icon.color), bg = luminance(icon.backgroundColor);
         return { radius: style.borderTopLeftRadius, border: style.borderTopWidth, accent: style.borderTopColor === icon.backgroundColor, saturation: (max - min) / (1 - Math.abs(max + min - 1)), contrast: (Math.max(fg, bg) + .05) / (Math.min(fg, bg) + .05) };
       }));
-      assert.equal(surfaces.length, 13);
-      assert.ok(surfaces.every((s) => s.radius === "16px" && s.border === "3px" && s.accent && s.saturation >= .65 && s.contrast >= 4.5), `${theme} ${width} rounded catalog cards and vivid, legible icons: ${JSON.stringify(surfaces)}`);
+      assert.equal(surfaces.length, 14);
+      assert.ok(surfaces.every((s) => s.radius === "16px" && s.border === "3px" && s.accent && s.saturation >= .18 && s.saturation <= .5 && s.contrast >= 4.5), `${theme} ${width} rounded catalog cards and muted, legible icons: ${JSON.stringify(surfaces)}`);
       assert.equal(await page.locator('main > header').evaluate((el) => getComputedStyle(el).borderTopLeftRadius), "24px");
       const firstCard = catalog.locator('button, a').first();
       await page.keyboard.press("Tab");
@@ -310,5 +311,5 @@ try {
   await page.keyboard.press("Enter");
   await page.getByRole("heading", { name: "图片工具", exact: true }).waitFor();
   assert.deepEqual(errors, []);
-  console.log("Toolbox: search/empty states, 13 entries, responsive source/options layout, native keyboard picker, retained work/focus, top result actions, clipboard fallback, engine recovery, all 11 conversions, no-upload boundaries, cancellation and bilingual light/dark layouts passed.");
+  console.log("Toolbox: search/empty states, 14 entries, responsive source/options layout, native keyboard picker, retained work/focus, top result actions, clipboard fallback, engine recovery, all 11 conversions, no-upload boundaries, cancellation and bilingual light/dark layouts passed.");
 } finally { await browser.close(); }

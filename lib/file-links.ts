@@ -5,7 +5,7 @@ const APP_PAGES = new Set([
   "/", "/login", "/dashboard", "/dashboard/settings",
   "/dashboard/jobs", "/dashboard/jobs/resume", "/dashboard/events", "/dashboard/gmail", "/dashboard/ai-weekly",
   "/learn", "/learn/roadmap", "/learn/fullstack", "/learn/watch", "/learn/gpt2", "/learn/fso",
-  "/tools", "/tools/mac", "/recordings", "/product", "/product/jarvis", "/product/validation",
+  "/tools", "/tools/mac", "/tools/video-summary", "/recordings", "/product", "/product/jarvis", "/product/validation",
   "/podcasts", "/notes", "/coding", "/obsidian", "/research", "/outreach", "/outreach/research", "/outreach/batch",
 ]);
 

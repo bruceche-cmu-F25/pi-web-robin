@@ -1,0 +1,90 @@
+// Synthetic fixtures only: no YouTube requests, model turns or personal writes.
+import assert from "node:assert/strict";
+import { mkdir, readFile } from "node:fs/promises";
+import { chromium } from "playwright";
+const baseURL = process.env.E2E_BASE_URL || "http://127.0.0.1:30141";
+const out = "/tmp/robin-video-summary";
+await mkdir(out, { recursive: true });
+const browser = await chromium.launch({ headless: true, channel: process.env.PLAYWRIGHT_CHANNEL || "chrome" });
+try {
+  const context = await browser.newContext({ baseURL, viewport: { width: 1440, height: 1100 }, serviceWorkers: "block" });
+  if (process.env.PI_WEB_PASSWORD) assert.ok((await context.request.post("/api/web-auth", { headers: { Origin: baseURL }, data: { password: process.env.PI_WEB_PASSWORD } })).ok());
+  await context.addInitScript(() => localStorage.setItem("pi-locale", "zh-CN"));
+  const item = { details: { videoId: "67BmkptgTms", title: "Synthetic fixture / 测试视频 — How to build useful tools", author: "Test creator", lengthSeconds: 2972, description: "" }, summary: { videoId: "67BmkptgTms", tldr: { en: "A synthetic summary for browser tests.", zh: "仅用于浏览器测试的模拟摘要。" }, points: [{ at: 0, en: "Start with a real problem.", zh: "从真实问题开始。" }, { at: 125, en: "Reuse existing capabilities.", zh: "复用已有能力。" }], generatedAt: "2026-11-02T10:00:00Z", truncated: false } };
+  let posts = 0, results = [], failure = false, failRead = false, release;
+  await context.route("**/api/**", async route => {
+    const req = route.request(), path = new URL(req.url()).pathname;
+    if (path !== "/api/robin/video-summary") return route.fulfill({ json: {} });
+    if (req.method() === "GET") return failRead ? route.fulfill({ status: 503, json: { error: "Synthetic read failure" } }) : route.fulfill({ json: { results } });
+    posts++;
+    assert.equal(req.postDataJSON().url, "https://www.youtube.com/watch?v=67BmkptgTms");
+    await new Promise(resolve => { release = resolve; });
+    if (!failure) results = [item];
+    return route.fulfill({ contentType: "application/x-ndjson", body: [ { stage: "captions" }, ...(failure ? [{ error: "Synthetic unavailable captions" }] : [{ stage: "summarizing" }, { stage: "saving" }, { result: item }]) ].map(JSON.stringify).join("\n") + "\n" });
+  });
+  const page = await context.newPage(), errors = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await page.goto("/tools");
+  await page.getByRole("heading", { name: "本地工具箱", exact: true }).waitFor();
+  await page.getByRole("searchbox", { name: "查找工具", exact: true }).fill("视频总结");
+  const entry = page.getByRole("link", { name: "视频总结", exact: true });
+  assert.equal(await entry.getAttribute("href"), "/tools/video-summary");
+  await entry.click();
+  await page.getByRole("heading", { name: "视频总结", exact: true }).waitFor();
+  await page.getByText("还没有已保存摘要，粘贴链接开始。", { exact: true }).waitFor();
+  assert.equal(posts, 0, "opening and example prefill never spend tokens");
+  const input = page.getByRole("textbox", { name: "YouTube 视频链接", exact: true });
+  await input.fill("https://evil.example/watch?v=67BmkptgTms");
+  await page.getByRole("button", { name: "总结视频", exact: true }).click();
+  await page.getByRole("alert").filter({ hasText: "Only YouTube" }).waitFor();
+  assert.equal(posts, 0, "unsupported URL rejected before HTTP/model");
+  await page.getByRole("button", { name: "使用示例视频", exact: true }).click();
+  await page.getByRole("button", { name: "总结视频", exact: true }).click();
+  await page.getByRole("button", { name: "正在处理…", exact: true }).waitFor();
+  assert.equal(await input.isDisabled(), true);
+  await page.locator('form').evaluate(form => { form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+  assert.equal(posts, 1, "same-frame/repeated submit cannot duplicate paid work");
+  release();
+  await page.getByRole("heading", { name: item.details.title, exact: true }).waitFor();
+  assert.equal(await page.locator('article a[href*="t=125s"]').count(), 1);
+  assert.equal(await page.locator('article a[href="https://www.youtube.com/watch?v=67BmkptgTms"]').count(), 2, "zero timestamp and original both target video start");
+  const event = page.waitForEvent("download");
+  await page.getByRole("button", { name: "下载 Markdown", exact: true }).click();
+  const download = await event, markdown = await readFile(await download.path(), "utf8");
+  assert.equal(download.suggestedFilename(), "video-67BmkptgTms.md");
+  assert.match(markdown, /仅用于浏览器测试/);
+  assert.match(markdown, /未分析画面/);
+  assert.match(markdown, /t=125s/);
+  failRead = true;
+  await page.getByRole("button", { name: "刷新已保存摘要", exact: true }).click();
+  await page.getByText("Synthetic read failure", { exact: true }).waitFor();
+  assert.ok(await page.getByRole("heading", { name: item.details.title }).isVisible(), "confirmed result survives failed history read");
+  failRead = false;
+  for (const theme of ["light", "dark", "glass", "glass-dark"]) {
+    await page.evaluate(theme => { document.documentElement.dataset.theme = theme; localStorage.setItem("pi-theme", theme); }, theme);
+    for (const width of [320, 390, 812, 1440]) {
+      await page.setViewportSize({ width, height: width === 812 ? 430 : 1000 });
+      assert.ok(await page.locator("main").evaluate(el => el.scrollWidth <= el.clientWidth + 1), `${theme}/${width} has no horizontal overflow`);
+      const button = await page.getByRole("button", { name: "总结视频", exact: true }).boundingBox();
+      assert.ok(button.height >= 44);
+      await page.screenshot({ path: `${out}/${theme}-${width}.png`, fullPage: true });
+    }
+  }
+  await page.reload();
+  await page.getByRole("button", { name: new RegExp("Synthetic fixture") }).waitFor();
+  assert.equal(posts, 1, "refresh reads history without regenerating");
+  await page.getByRole("button", { name: new RegExp("Synthetic fixture") }).click();
+  await page.getByRole("heading", { name: item.details.title }).waitFor();
+  failure = true;
+  await page.getByRole("button", { name: "总结视频", exact: true }).click();
+  while (posts < 2) await page.waitForTimeout(20);
+  release();
+  await page.getByRole("alert").filter({ hasText: "Synthetic unavailable captions" }).waitFor();
+  assert.equal(await input.inputValue(), "https://www.youtube.com/watch?v=67BmkptgTms");
+  assert.equal(posts, 2, "failures never auto-retry");
+  await context.addInitScript(() => localStorage.setItem("pi-locale", "en"));
+  await page.reload();
+  await page.getByRole("heading", { name: "Video summary", exact: true }).waitFor();
+  assert.deepEqual(errors, []);
+  console.log("Video summaries: catalog entry, URL validation, explicit paid submit, duplicate guard, history/failed reads, timestamps, Markdown, bilingual UI and four-theme 320–1440px layouts passed.");
+} finally { await browser.close(); }

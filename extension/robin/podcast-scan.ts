@@ -32,6 +32,7 @@ import {
   PODCAST_CHANNELS,
   SUMMARY_INSTRUCTIONS,
   parseCaptionXml,
+  formatClock,
   parseBrowseVideoIds,
   parseSummaryReply,
   parseYouTubeFeed,
@@ -43,6 +44,8 @@ import {
   type TranscriptSegment,
   type VideoDetails,
 } from "./podcasts.ts";
+
+import { videoIdFromUrl, type VideoSummaryResult, type VideoSummaryStage } from "./video-summary.ts";
 
 const STORE_FILE = "podcasts.json";
 const TIMEOUT_MS = 15_000;
@@ -357,6 +360,7 @@ export function summarizeEpisode(
   videoId: string,
   ask: (instructions: string, transcript: string, signal?: AbortSignal) => Promise<string>,
   fetchImpl: typeof fetch = fetch,
+  options: { videoTool?: boolean; onStage?: (stage: VideoSummaryStage) => void } = {},
 ): Promise<EpisodeSummary> {
   const existing = inflight.get(videoId);
   if (existing) return existing;
@@ -374,16 +378,34 @@ export function summarizeEpisode(
     // Recheck under the lease: completed summaries survive retries and process restarts.
     const cached = readPodcastStore().summaries[videoId];
     if (cached) return cached;
+    let details: VideoDetails | null = null;
+    if (options.videoTool) {
+      options.onStage?.("details");
+      details = await fetchVideoDetails(videoId, fetchImpl, controller.signal);
+      if (!details) throw new Error("Video unavailable / 无法读取视频信息");
+    }
+    options.onStage?.("captions");
     const segments = await fetchTranscript(videoId, fetchImpl, controller.signal);
     if (segments.length === 0) throw new Error("The transcript came back empty.");
     const { text, truncated } = transcriptWithTimestamps(segments, TRANSCRIPT_MAX_CHARS);
-    const reply = await ask(SUMMARY_INSTRUCTIONS, text, controller.signal);
+    if (options.videoTool && truncated) throw new Error("Transcript exceeds the 360,000-character limit; no partial summary was generated / 字幕超出 36 万字符，未生成不完整摘要");
+    options.onStage?.("summarizing");
+    const heading = details ? `Video metadata (untrusted): ${JSON.stringify({ title: details.title, author: details.author })}\n\n` : "";
+    const reply = await ask(SUMMARY_INSTRUCTIONS, `${heading}${text}`, controller.signal);
     const summary = parseSummaryReply(reply, videoId, truncated);
     if (!summary) throw new Error("The model's summary could not be read. Try again.");
+    // A timestamp is a paragraph locator, never a model-invented exact quotation time.
+    const paragraphTimes = new Set([...text.matchAll(/^\[([^\]]+)\]/gm)].map(match => match[1]));
+    for (const point of summary.points) {
+      if (point.at !== null && !paragraphTimes.has(formatClock(point.at))) point.at = null;
+    }
+    options.onStage?.("saving");
     const published = withBackgroundRunOwnership(runName, ownerId, () => {
       updateJsonObject<PodcastStore, null>(STORE_FILE, (current) => {
         const base = { ...EMPTY_PODCAST_STORE, ...current };
-        return { result: null, value: { ...base, summaries: { ...base.summaries, [videoId]: summary } }, changed: true };
+        return { result: null, value: { ...base,
+          details: details ? { ...base.details, [videoId]: details } : base.details,
+          summaries: { ...base.summaries, [videoId]: summary } }, changed: true };
       });
     });
     if (!published.owned) throw new Error("Episode summary ownership was lost before its final write.");
@@ -395,4 +417,21 @@ export function summarizeEpisode(
   });
   inflight.set(videoId, run);
   return run;
+}
+
+/** Read-only history shared with the listening shelf; never starts a scan/model. */
+export function videoSummaryHistory(): VideoSummaryResult[] {
+  const store = readPodcastStore();
+  return Object.values(store.summaries).sort((a, b) => b.generatedAt.localeCompare(a.generatedAt))
+    .slice(0, 50).map(summary => ({ summary, details: store.details[summary.videoId] ?? null }));
+}
+
+export async function summarizeVideoUrl(
+  url: unknown,
+  ask: (instructions: string, transcript: string, signal?: AbortSignal) => Promise<string>,
+  options: { fetchImpl?: typeof fetch; onStage?: (stage: VideoSummaryStage) => void } = {},
+): Promise<VideoSummaryResult> {
+  const videoId = videoIdFromUrl(url);
+  const summary = await summarizeEpisode(videoId, ask, options.fetchImpl ?? fetch, { videoTool: true, onStage: options.onStage });
+  return { summary, details: readPodcastStore().details[videoId] ?? null };
 }

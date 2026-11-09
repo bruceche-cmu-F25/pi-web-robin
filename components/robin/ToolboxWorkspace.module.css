@@ -40,15 +40,15 @@
 .hostGroup .toolCard { grid-template-columns: 44px minmax(180px, 260px) minmax(0, 1fr); grid-template-rows: auto; align-items: center; }
 .hostGroup .cardDescription { grid-column: auto; }
 .workspace { display: flex; flex-direction: column; gap: 12px; max-width: 920px; width: 100%; align-self: center; container: toolbox-editor / inline-size; }
-/* Catalog and workspaces share vivid category colors without changing global tokens. */
-.group, .workspace { --tool-accent: #c2410c; --tool-accent-hover: #9a3412; --tool-contrast: #fff; --tool-faint: color-mix(in srgb, var(--tool-accent) 8%, var(--bg-panel)); }
-.group[data-tool-group="documents"], .workspace[data-tool-group="documents"] { --tool-accent: #7c3aed; --tool-accent-hover: #6d28d9; }
-.group[data-tool-group="data"], .workspace[data-tool-group="data"] { --tool-accent: #2563eb; --tool-accent-hover: #1d4ed8; }
-.hostGroup { --tool-accent: #0f766e; }
-:global(.dark) .group, :global(.dark) .workspace { --tool-accent: #fb923c; --tool-accent-hover: #fdba74; --tool-contrast: #0f172a; }
-:global(.dark) .group[data-tool-group="documents"], :global(.dark) .workspace[data-tool-group="documents"] { --tool-accent: #c084fc; --tool-accent-hover: #d8b4fe; }
-:global(.dark) .group[data-tool-group="data"], :global(.dark) .workspace[data-tool-group="data"] { --tool-accent: #60a5fa; --tool-accent-hover: #93c5fd; }
-:global(.dark) .hostGroup { --tool-accent: #2dd4bf; }
+/* Muted category colors keep labels and primary actions legible in both themes. */
+.group, .workspace { --tool-accent: #995b40; --tool-accent-hover: #764631; --tool-contrast: #fff; --tool-faint: color-mix(in srgb, var(--tool-accent) 8%, var(--bg-panel)); }
+.group[data-tool-group="documents"], .workspace[data-tool-group="documents"] { --tool-accent: #715a91; --tool-accent-hover: #534568; }
+.group[data-tool-group="data"], .workspace[data-tool-group="data"] { --tool-accent: #43688f; --tool-accent-hover: #345270; }
+.hostGroup { --tool-accent: #3b7268; }
+:global(.dark) .group, :global(.dark) .workspace { --tool-accent: #d0a28a; --tool-accent-hover: #e2b9a4; --tool-contrast: #0f172a; }
+:global(.dark) .group[data-tool-group="documents"], :global(.dark) .workspace[data-tool-group="documents"] { --tool-accent: #ac9cbd; --tool-accent-hover: #c3b3d4; }
+:global(.dark) .group[data-tool-group="data"], :global(.dark) .workspace[data-tool-group="data"] { --tool-accent: #91a9c4; --tool-accent-hover: #b2c5d9; }
+:global(.dark) .hostGroup { --tool-accent: #82b5aa; }
 .workspaceNav { display: flex; align-items: center; }
 .workspaceNav button { border: 0; padding-inline: 0; }
 .panel { padding: 12px 0; display: flex; flex-direction: column; gap: 24px; min-width: 0; }

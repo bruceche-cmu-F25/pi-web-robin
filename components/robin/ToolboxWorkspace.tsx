@@ -8,8 +8,9 @@ import { canvasBlob, cleanText, convertImage, developerTool, editPdf, generateQr
 import styles from "./ToolboxWorkspace.module.css";
 
 // Same 24px stroke vocabulary as the dashboard: visible labels carry the meaning.
-const toolIcons: Record<ToolboxTool | "recordings", string> = {
+const toolIcons: Record<ToolboxTool | "recordings" | "video-summary", string> = {
   recordings: "M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3ZM5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8",
+  "video-summary": "M3 4h18v16H3zM10 8l5 4-5 4V8ZM6 23h12",
   audio: "M3 10v4M7 6v12M12 3v18M17 6v12M21 10v4",
   video: "M3 5h12v14H3zM15 10l6-3v10l-6-3",
   image: "M3 3h18v18H3zM3 16l5-5 4 4 3-3 6 6M15 6a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z",
@@ -27,7 +28,7 @@ function ToolIcon({ name }: { name: keyof typeof toolIcons }) {
 }
 
 const toolGroups: { id: string; tools: (keyof typeof toolIcons)[] }[] = [
-  { id: "media", tools: ["recordings", "audio", "video", "subtitles"] },
+  { id: "media", tools: ["recordings", "video-summary", "audio", "video", "subtitles"] },
   { id: "documents", tools: ["image", "pdf", "ocr", "rename"] },
   { id: "data", tools: ["text", "qr", "csv", "dev"] },
 ];
@@ -228,8 +229,8 @@ export function ToolboxWorkspace() {
           const resume = id === tool && hasData;
           const content = <><span className={styles.iconTile}><ToolIcon name={id} /></span><span className={styles.cardTitle} id={`toolbox-label-${id}`}>{t(`toolbox.${name}`)}</span><span className={styles.cardDescription} id={`toolbox-description-${id}`}>{t(`toolbox.card.${name}`)}</span>{resume && <span className={styles.cardFooter}>{t("toolbox.resume")}</span>}</>;
           const labels = { "aria-labelledby": `toolbox-label-${id}`, "aria-describedby": `toolbox-description-${id}` };
-          return id === "recordings"
-            ? <a key={id} className={styles.toolCard} {...labels} href={busy ? undefined : "/recordings"} role="link" aria-disabled={busy || undefined} tabIndex={busy ? -1 : undefined}>{content}</a>
+          return id === "recordings" || id === "video-summary"
+            ? <a key={id} className={styles.toolCard} {...labels} href={busy ? undefined : id === "recordings" ? "/recordings" : "/tools/video-summary"} role="link" aria-disabled={busy || undefined} tabIndex={busy ? -1 : undefined}>{content}</a>
             : <button key={id} id={`toolbox-card-${id}`} className={styles.toolCard} {...labels} type="button" data-resume={resume || undefined} disabled={busy} onClick={() => openTool(id)}>{content}</button>;
         })}</div>
       </section>)}
