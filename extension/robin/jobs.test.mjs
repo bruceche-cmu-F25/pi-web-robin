@@ -222,6 +222,26 @@ test("fresh roles are scored before stale ones, and expired or excluded rows do 
   assert.deepEqual(waiting.map((entry) => entry.id), ["fresh", "earlier"]);
 });
 
+test("pending selection rejects cheap exclusions before reading evidence, but still verifies shortlists", () => {
+  const now = Date.parse("2026-10-06T18:00:00Z");
+  const profile = { ...pushProfile, titles: ["Engineer"], sinceDays: 7, blacklist: ["Blocked"], locationAlways: [], locationAllow: ["US"], locationBlock: ["London"] };
+  const base = { score: 4, scoreContext: "old-context", location: "US", postedAt: "2026-10-06" };
+  const excluded = [
+    job({ ...base, id: "expired", postedAt: "2020-01-01" }),
+    job({ ...base, id: "title", title: "Nurse" }),
+    job({ ...base, id: "company", company: "Blocked" }),
+    job({ ...base, id: "location", location: "London" }),
+    job({ ...base, id: "dropped", status: "dropped" }),
+  ];
+  for (const row of excluded) Object.defineProperty(row, "description", { get() { throw new Error("Excluded JD must not be inspected"); } });
+  let checked = 0;
+  const saved = job({ ...base, id: "shortlisted", status: "shortlist", title: "Nurse", location: "London", company: "Blocked", postedAt: "2020-01-01" });
+  Object.defineProperty(saved, "description", { get() { checked++; return "Unchanged full job description ".repeat(40); } });
+  const waiting = pendingJobs([...excluded, saved, job({ id: "kept", location: "US", postedAt: "2026-10-06" })], profile, now);
+  assert.deepEqual(waiting.map(row => row.id), ["kept", "shortlisted"]);
+  assert.ok(checked > 0, "shortlists bypass discovery filters, not evidence validation");
+});
+
 /* ── digest ── */
 
 test("only new, unsent jobs at or above the floor are pushed", () => {
@@ -331,6 +351,26 @@ test("switching one off leaves the terms another active preset also claims", () 
   const { titles } = togglePreset(fullstack, profile, TITLE_PRESETS);
   assert.equal(titles.includes("React Developer"), false, "fullstack-only terms go");
   assert.equal(titles.includes("Product Manager"), true, "product is still on, so its terms stay");
+});
+
+test("US remote is not a synonym for any US onsite city or worldwide remote", () => {
+  const target = buildLocationFilter({ always: [], allow: ["Bay Area", "US Remote"], block: [] });
+  assert.equal(target('San Jose, CA'), true);
+  assert.equal(target('Emeryville, CA'), true);
+  assert.equal(target('Milpitas, California'), true);
+  assert.equal(target('Walnut Creek, CA'), true);
+  assert.equal(target('Richmond, CA'), true);
+  assert.equal(target('Petaluma, California'), true);
+  assert.equal(target('Concord, NC'), false, 'an ambiguous city without California is not Bay Area evidence');
+  assert.equal(target('Richmond, VA'), false);
+  assert.equal(target('San Francisco, California, United States'), true);
+  assert.equal(target('Remote - US'), true);
+  assert.equal(target('United States (Remote)'), true);
+  assert.equal(target('New York, United States'), false);
+  assert.equal(target('Austin, USA'), false);
+  assert.equal(target('Remote - UK'), false);
+  assert.equal(target('Remote'), false); // eligibility unknown
+  assert.equal(target(''), false); // location unknown
 });
 
 test("location presets write into the location lists, not the titles", () => {

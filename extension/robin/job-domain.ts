@@ -3,9 +3,11 @@ import {
   JOB_STATUSES,
   digestCandidates,
   formatJobDigest,
+  groupJobCopies,
   pendingJobs,
   sortJobs,
   type Job,
+  type JobProfile,
   type JobStatus,
 } from "./jobs.ts";
 import {
@@ -26,9 +28,10 @@ import {
 import { experienceProblem, jobSummary, reviewProblem, scoringContext, type JobReview } from "./job-evidence.ts";
 import { hasFreshRunLease, type RunOwnershipResult } from "./run-lease.ts";
 import { enrichJob } from "./job-intake.ts";
-import { withTaskTransaction } from "./task-store.ts";
+import { countTaskRecordsByField, readTaskRecordsForView, withTaskTransaction } from "./task-store.ts";
 import {
   findDeadPostings,
+  findLivePostings,
   hydrateDescriptions,
   makeFetchContext,
   type FetchContext,
@@ -36,7 +39,7 @@ import {
 
 /** Fetch better evidence on demand, without running scan retention or changing statuses. */
 export async function getJobDetails(id: string, ctx: FetchContext = makeFetchContext(), refresh = false): Promise<Job | null> {
-  const original = readJobs().find((job) => job.id === id);
+  const original = readJobs([id])[0];
   if (!original) return null;
   const fetched = { ...original };
   // Explicit refresh is for suspect/mismatched evidence, not routine reads.
@@ -49,7 +52,7 @@ export async function getJobDetails(id: string, ctx: FetchContext = makeFetchCon
     // Do not replace a description another request updated while fetching.
     const changed = job.description === original.description && enrichJob(job, fetched);
     return { value: job, changed };
-  });
+  }, [id]);
 }
 
 export function updateJob(
@@ -75,7 +78,7 @@ export function updateJob(
       else delete job.note;
     }
     return { value: job, changed: true };
-  });
+  }, [id]);
 }
 
 export function deleteJob(id: string): Job | null {
@@ -84,7 +87,7 @@ export function deleteJob(id: string): Job | null {
     if (index < 0) return { value: null, changed: false };
     const [job] = jobs.splice(index, 1);
     return { value: job ?? null, changed: true };
-  });
+  }, [id]);
 }
 
 export function dropJobs(ids: Iterable<string>): number {
@@ -111,7 +114,7 @@ export function setJobsStatus(ids: Iterable<string>, status: JobStatus): number 
       changed += 1;
     }
     return { value: changed, changed: changed > 0 };
-  });
+  }, selected);
 }
 
 export function claimJobs(ids: Iterable<string>): number {
@@ -126,7 +129,7 @@ export function claimJobs(ids: Iterable<string>): number {
       }
     }
     return { value: claimed, changed: claimed > 0 };
-  });
+  }, selected);
 }
 
 export function scoreJob(input: {
@@ -199,24 +202,65 @@ export interface JobBoard {
   digestSize: number;
   /** False until at least one company or board is tracked. */
   configured: boolean;
+  /** Global card membership keeps counts accurate through pending delete/undo. */
+  scope?: JobStatus | "all";
+  cards?: { status: JobStatus; ids: string[] }[];
+  overview?: {
+    matches: Pick<Job, "id" | "company" | "title" | "discoveredAt">[];
+    notifications: Pick<Job, "id" | "notifiedAt">[];
+  };
 }
 
-/**
- * The list plus the two things the page needs to explain it.
- *
- * Sending them together keeps the page from firing three requests to render
- * one screen. The CV is deliberately absent — it can be long and only the
- * profile editor needs it, so it stays behind the profile read.
+/** Navigation needs two status signals, not the board's sorting/evidence checks or rows. */
+export function jobNavigationStatus(): { shortlist: number; hasNew: boolean } {
+  const counts = countTaskRecordsByField("jobs", "status");
+  return { shortlist: counts.get("shortlist") ?? 0, hasNew: (counts.get("new") ?? 0) > 0 };
+}
+
+/** Historical jobs still supply metadata/applied-URL dedupe, not JD evidence.
+ * All active rows retain full evidence. These view rows are never written back.
  */
-export function jobBoard(): JobBoard {
+function evaluationJobs(status?: JobStatus | "all"): Job[] {
+  return readTaskRecordsForView<Job>("jobs", ["description", "review", "application"],
+    (job) => (job.status === "new" || job.status === "shortlist") && (!status || status === "all" || job.status === status));
+}
+
+export function jobSummaries(profile: JobProfile = readJobProfile()): Job[] {
+  return sortJobs(evaluationJobs()).map((job) => jobSummary(job, profile));
+}
+
+export function pendingJobQueue(profile: JobProfile = readJobProfile()): Job[] {
+  return pendingJobs(evaluationJobs(), profile);
+}
+
+/** The list and its display thresholds; the long CV stays behind the profile read. */
+export function jobBoard(status?: JobStatus | "all", view: "full" | "cards" = "full"): JobBoard {
   const profile = readJobProfile();
-  return {
-    jobs: sortJobs(readJobs()).map((job) => jobSummary(job, profile)),
+  const jobs = sortJobs(evaluationJobs(status));
+  const board: JobBoard = {
+    ...(status ? { scope: status } : {}),
+    jobs: jobs.filter(job => !status || status === "all" || job.status === status).map(job => jobSummary(job, profile)),
     scan: readJobScanState(),
     minScore: profile.minScore,
     digestSize: profile.digestSize,
     configured: profile.companies.length > 0 || profile.boards.length > 0,
   };
+  if (view === "cards") {
+    // Retrieval/scorer provenance belongs in detail/tool reads, not every card.
+    // Do this AFTER jobSummary: evidence validation still needs these fields.
+    for (const job of board.jobs) {
+      for (const field of ["ref", "alternateUrls", "yearsRequired", "scoredAt", "scoredBy", "scoreContext"] as const) delete job[field];
+    }
+  }
+  if (status && status !== "all") {
+    board.cards = groupJobCopies(jobs).map(group => ({ status: group[0].status, ids: group.map(job => job.id) }));
+    board.overview = {
+      matches: jobs.filter(job => job.status === "new" && typeof job.score === "number" && job.score >= profile.minScore)
+        .map(({ id, company, title, discoveredAt }) => ({ id, company, title, discoveredAt })),
+      notifications: jobs.filter(job => job.notifiedAt).map(({ id, notifiedAt }) => ({ id, notifiedAt })),
+    };
+  }
+  return board;
 }
 
 /**
@@ -227,12 +271,12 @@ export function jobBoard(): JobBoard {
  * `pendingJobs(readJobs(), readJobProfile()).length` now asks here.
  */
 export function pendingJobCount(): number {
-  return pendingJobs(readJobs(), readJobProfile()).length;
+  return pendingJobQueue().length;
 }
 
 /** Ids of the jobs waiting on a score, for a caller that must compare two rounds. */
 export function pendingJobIds(): string[] {
-  return pendingJobs(readJobs(), readJobProfile()).map((job) => job.id);
+  return pendingJobQueue().map((job) => job.id);
 }
 
 export interface JobScoringStatus {
@@ -247,7 +291,7 @@ export function scoringStatus(): JobScoringStatus {
   const profile = readJobProfile();
   return {
     scoring: scoringState(),
-    pending: pendingJobs(readJobs(), profile).length,
+    pending: pendingJobQueue(profile).length,
     model: scorerName(profile.scoreModel),
   };
 }
@@ -464,6 +508,8 @@ export interface JobDigestOptions {
   /** Read the next batch without stamping it as delivered. */
   preview?: boolean;
   checkDead?: DeadPostingCheck;
+  /** Injected to test the positive confirmation gate on community feeds. */
+  checkLive?: DeadPostingCheck;
 }
 
 export async function buildJobDigest(options: JobDigestOptions = {}): Promise<JobDigest> {
@@ -473,8 +519,17 @@ export async function buildJobDigest(options: JobDigestOptions = {}): Promise<Jo
     : profile.digestSize;
   const locale = options.locale === "zh" ? "zh" as const : "en" as const;
 
+  const candidates = digestCandidates(readJobs(), profile);
+  const isNewFeed = (job: Job) => job.source === "won-newgrad" || job.source === "ml-newgrad";
+  // Gate before slicing into digest slots: unsupported/unknown community URLs
+  // must not starve older, confirmed candidates on every run. Cap probe work;
+  // anything past this budget remains unconfirmed, not silently accepted.
+  const newFeeds = candidates.filter(isNewFeed).slice(0, 50);
+  const confirmed = newFeeds.length ? await (options.checkLive ?? findLivePostings)(
+    newFeeds.map((job) => job.url), makeFetchContext(),
+  ).catch(() => new Set<string>()) : new Set<string>();
   const checked = await liveBatch(
-    digestCandidates(readJobs(), profile),
+    candidates.filter((job) => !isNewFeed(job) || confirmed.has(job.url)),
     limit,
     options.checkDead ?? findDeadPostings,
   );
@@ -485,7 +540,7 @@ export async function buildJobDigest(options: JobDigestOptions = {}): Promise<Jo
 
   if (!options.preview && batch.length > 0) claimJobs(batch.map((job) => job.id));
 
-  const pending = pendingJobs(readJobs(), readJobProfile()).length;
+  const pending = pendingJobCount();
   return {
     text: batch.length === 0 && pending > 0
       ? locale === "zh"

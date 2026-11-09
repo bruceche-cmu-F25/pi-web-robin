@@ -16,13 +16,16 @@
 import { type JobProfile, type TrackedCompany } from "./jobs.ts";
 import {
   absorb,
-  admitPostings,
+  compileAdmission,
   expireClosedPostings,
+  type AdmissionRejection,
   type JobStoreWrite,
+  type IntakeFunnel,
   type ScannedPosting,
 } from "./job-intake.ts";
 import {
   makeFetchContext,
+  findLivePostings,
   resolveProvider,
   providerById,
   type FetchContext,
@@ -49,6 +52,13 @@ export interface ScanSourceResult {
   id: string;
   name: string;
   count: number;
+  matched?: number;
+  admitted?: number;
+  duplicates?: number;
+  added?: number;
+  missingJd?: number;
+  verifiedNew?: number;
+  rejected?: Record<AdmissionRejection, number>;
   error?: string;
 }
 
@@ -103,7 +113,7 @@ function enabledSources(profile: JobProfile, weekly: boolean): ScanSource[] {
     sources.push({
       key: company.id,
       name: company.name,
-      run: async (ctx) => (await provider.fetch(company, ctx)).map((posting) => ({ ...posting, source: provider.id })),
+      run: async (ctx) => (await provider.fetch(company, ctx)).map((posting) => ({ ...posting, source: provider.id, sourceId: company.id })),
     });
   }
 
@@ -116,7 +126,7 @@ function enabledSources(profile: JobProfile, weekly: boolean): ScanSource[] {
     sources.push({
       key: id,
       name: provider.label,
-      run: async (ctx) => (await provider.fetch(placeholder, ctx)).map((posting) => ({ ...posting, source: provider.id })),
+      run: async (ctx) => (await provider.fetch(placeholder, ctx)).map((posting) => ({ ...posting, source: provider.id, sourceId: id })),
     });
   }
 
@@ -151,7 +161,8 @@ export async function runJobScan(options: JobScanOptions = {}): Promise<ScanResu
         return result.value;
       }
     : (action) => action();
-  const lastWeekly = readJobScanState()?.weeklyAt;
+  const previous = readJobScanState();
+  const lastWeekly = previous?.weeklyAt;
   const weeklyDue = !lastWeekly || now - Date.parse(lastWeekly) >= WEEKLY_INTERVAL_MS;
   const sources = enabledSources(profile, weeklyDue);
 
@@ -179,21 +190,51 @@ export async function runJobScan(options: JobScanOptions = {}): Promise<ScanResu
   // "keep": a board that omits publish dates omits them for every row, so
   // dropping undated postings here would switch that employer off entirely.
   const rules = { profile, undated: "keep" as const };
-  const matched = admitPostings(postings, rules);
-  const { added } = await absorb(matched, rules, ctx, write);
+  const rejects = new Map<string, Record<AdmissionRejection, number>>();
+  const matched = results.flatMap((entry) => {
+    const counts: Record<AdmissionRejection, number> = { date: 0, title: 0, location: 0, blacklist: 0 };
+    rejects.set(entry.result.id, counts);
+    const accepts = compileAdmission(rules, (reason) => { counts[reason]++; }, true);
+    return entry.postings.filter(accepts);
+  });
+  const funnel: IntakeFunnel = { admitted: 0, duplicates: 0, admittedBySource: {},
+    addedBySource: {}, duplicatesBySource: {} };
+  const { added } = await absorb(matched, rules, ctx, write, funnel);
   // A scan is also the moment to notice what closed. Discovery only ever sees
   // what a board still lists, so nothing else in this pipeline would.
   const { closed } = await expireClosedPostings(profile, ctx, write);
+  // Only positive employer-side ATS verdicts count as verified. Feed liveness
+  // flags and HTTP successes on unsupported pages cannot establish this.
+  const freshUrls = ["won-newgrad", "ml-newgrad"].flatMap((id) => funnel.addedUrlsBySource?.[id] ?? []);
+  const verified = freshUrls.length ? await findLivePostings(freshUrls, ctx) : new Set<string>();
 
+  const sourceResults = results.map((entry) => {
+    const id = entry.result.id;
+    return { ...entry.result,
+      matched: matched.filter((posting) => posting.sourceId === id).length,
+      admitted: funnel.admittedBySource[id] ?? 0, duplicates: funnel.duplicatesBySource[id] ?? 0,
+      added: funnel.addedBySource[id] ?? 0, missingJd: funnel.missingJdBySource?.[id] ?? 0,
+      verifiedNew: (funnel.addedUrlsBySource?.[id] ?? []).filter((url) => verified.has(url)).length,
+      rejected: rejects.get(id) };
+  });
+  const history = [...(previous?.history ?? []), { startedAt, scanned: postings.length, matched: matched.length,
+    admitted: funnel.admitted, duplicates: funnel.duplicates, added, closed,
+    errors: sourceResults.filter((source) => source.error).length,
+    missingJd: sourceResults.reduce((sum, source) => sum + source.missingJd, 0),
+    verifiedNew: sourceResults.reduce((sum, source) => sum + source.verifiedNew, 0) }]
+    .filter((entry) => entry.startedAt >= new Date(now - 7 * 86_400_000).toISOString()).slice(-28);
   const state: ScanResult = {
     startedAt,
     finishedAt: new Date().toISOString(),
     scanned: postings.length,
     matched: matched.length,
+    admitted: funnel.admitted,
+    duplicates: funnel.duplicates,
     added,
     closed,
+    history,
     ...(weeklyDue ? { weeklyAt: startedAt } : lastWeekly ? { weeklyAt: lastWeekly } : {}),
-    sources: results.map((entry) => entry.result),
+    sources: sourceResults,
   };
   write(() => writeJobScanState(state));
   return state;

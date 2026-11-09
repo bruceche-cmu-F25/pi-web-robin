@@ -8,6 +8,7 @@ import {
   cellLink,
   cellText,
   findDeadPostings,
+  findLivePostings,
   hydrateDescriptions,
   makeFetchContext,
   markdownRows,
@@ -20,7 +21,9 @@ import {
   parseHnHiringComment,
   parseIcimsSearchPage,
   parseListings,
+  parseMlNewGrad,
   parseNewGradTracker,
+  parseWonNewGrad,
   proseRatio,
   providerById,
   readUnknownBoard,
@@ -133,6 +136,23 @@ test("Eightfold timestamps are seconds and the posting link stays on the tenant 
   assert.equal(normalizeEightfoldPosition(netflix, { id: "../1", name: "x" }), null);
 });
 
+test("2027 niche feeds keep direct employer links and real posting dates", () => {
+  const won = parseWonNewGrad('| Company | Role | Location | Salary | Grad Window | Posted | Apply |\n'
+    + '|---|---|---|---|---|---|---|\n'
+    + '| 🔥 Acme | New Grad AI Engineer | San Jose, CA | - | 2027 | Posted Oct 30, 2026<br>First seen Oct 29, 2026 | [Apply](<https://jobs.ashbyhq.com/acme/role-1>) |');
+  assert.deepEqual(won, [{ company: 'Acme', title: 'New Grad AI Engineer', location: 'San Jose, CA',
+    url: 'https://jobs.ashbyhq.com/acme/role-1', postedAt: '2026-10-30', firstSeenAt: '2026-10-29' }]);
+  assert.deepEqual(parseWonNewGrad('| Acme | AI Engineer | Remote | - | 2027 | First seen Oct 29, 2026 | [Apply](<https://jobs.ashbyhq.com/acme/role-2>) |')[0].firstSeenAt, '2026-10-29');
+  const ml = parseMlNewGrad([{ company: 'Acme', title: 'ML Engineer', active: true, is_usa: true,
+    url: 'https://job-boards.greenhouse.io/acme/jobs/1', date_posted: 1793577600, locations: ['San Jose, CA'] },
+  { company: 'Closed', title: 'ML Engineer', active: false, is_usa: true, url: 'https://x/2' }]);
+  assert.deepEqual(ml, [{ company: 'Acme', title: 'ML Engineer', url: 'https://job-boards.greenhouse.io/acme/jobs/1',
+    location: 'San Jose, CA', postedAt: '2026-11-02' }]);
+  assert.throws(() => parseMlNewGrad({}), /expected a JSON array/);
+  assert.ok(BOARD_PROVIDERS.some(p => p.id === 'won-newgrad'));
+  assert.ok(BOARD_PROVIDERS.some(p => p.id === 'ml-newgrad'));
+});
+
 test("aggregator feeds are offered separately from company boards", () => {
   assert.ok(BOARD_PROVIDERS.every((provider) => provider.board === true));
   assert.ok(COMPANY_PROVIDERS.every((provider) => provider.board !== true));
@@ -144,6 +164,13 @@ test("aggregator feeds are offered separately from company boards", () => {
 });
 
 /* ── request shape ── */
+
+test("capped public JSON refuses oversized bodies rather than parsing a partial feed", async () => {
+  const ctx = makeFetchContext(async () => Response.json({ jobs: 'x'.repeat(100) }));
+  await assert.rejects(ctx.fetchJson('https://raw.githubusercontent.com/test.json', { maxBytes: 40 }), /exceeds 40 bytes/);
+  assert.deepEqual(await ctx.fetchJson('https://raw.githubusercontent.com/test.json', { maxBytes: 1000 }),
+    { jobs: 'x'.repeat(100) });
+});
 
 test("every request refuses redirects, so the host check cannot be walked around", async () => {
   const { fetch, urls } = fakeFetch({ jobs: [] });
@@ -195,6 +222,51 @@ test("greenhouse postings keep their absolute apply URL and publish date", async
     location: "Remote",
     postedAt: "2026-08-10",
   });
+});
+
+test("a Greenhouse board's own id yields an apply alias even when its public link is branded", async () => {
+  const { fetch } = fakeFetch({ jobs: [{ id: 8280222, title: 'Software Engineer, DevAI',
+    absolute_url: 'https://careers.acme.test/positions/8280222?gh_jid=8280222', location: { name: 'Remote' } }] });
+  const [posting] = await providerById('greenhouse').fetch(company({ url: 'https://job-boards.greenhouse.io/acme' }), makeFetchContext(fetch));
+  assert.equal(posting.url, 'https://careers.acme.test/positions/8280222?gh_jid=8280222');
+  assert.deepEqual(posting.alternateUrls, ['https://job-boards.greenhouse.io/acme/jobs/8280222']);
+  const { fetch: inconsistent } = fakeFetch({ jobs: [{ id: 8280222, title: 'Software Engineer, DevAI',
+    absolute_url: 'https://careers.acme.test/positions/8280222?gh_jid=9999999' }] });
+  const [suspect] = await providerById('greenhouse').fetch(company({ url: 'https://job-boards.greenhouse.io/acme' }), makeFetchContext(inconsistent));
+  assert.equal(suspect.alternateUrls, undefined, 'conflicting requisition evidence stays manual');
+});
+
+test("branded aggregator links need a matching configured employer, title and live Greenhouse requisition", async () => {
+  const branded = 'https://careers.acme.test/positions/8280222?gh_jid=8280222';
+  const direct = 'https://job-boards.greenhouse.io/acme/jobs/8280222';
+  const boards = [company({ url: 'https://job-boards.greenhouse.io/acme' })];
+  const api = 'https://boards-api.greenhouse.io/v1/boards/acme/jobs/8280222';
+  const base = { company: 'Acme', title: 'Software Engineer, DevAI', location: 'Remote US', url: branded, source: 'builtinsf' };
+  const run = async (over = {}, detail = { id: 8280222, title: base.title, content: '<p>Build developer tools.</p>' }, trustedCompanies = boards) => {
+    const requests = [];
+    const row = { ...base, ...over };
+    await hydrateDescriptions([row], {
+      async fetchJson(url, options) { requests.push([url, options]); if (detail instanceof Error) throw detail; return detail; },
+      async fetchText() { throw new Error('no redirects or branded site fetches allowed'); },
+    }, { trustedCompanies });
+    return { row, requests };
+  };
+  const positive = await run();
+  assert.deepEqual(positive.row.alternateUrls, [direct]);
+  assert.deepEqual(positive.requests.map(([url]) => url), [api]);
+  assert.equal(positive.requests[0][1].maxBytes, 400_000);
+  for (const [over, detail, trusted] of [
+    [{ title: 'Different role' }],
+    [{ company: 'Other employer' }],
+    [{ url: 'http://careers.acme.test/positions/8280222?gh_jid=8280222' }],
+    [{ url: 'https://careers.acme.test/positions/8280222?gh_jid=8280222&gh_jid=9999' }],
+    [{}, { id: 8280223, title: base.title }],
+    [{}, new Error('HTTP 404')],
+    [{}, { id: 8280222, title: base.title }, []],
+  ]) {
+    const result = await run(over, detail, trusted);
+    assert.equal(result.row.alternateUrls, undefined, JSON.stringify(over));
+  }
 });
 
 test("lever carries the description it already shipped, flattened and capped", async () => {
@@ -679,6 +751,13 @@ test("a 404 from a single-posting endpoint is the board saying it is gone", asyn
   const gone = "https://job-boards.greenhouse.io/acme/jobs/404404";
   const open = "https://job-boards.greenhouse.io/acme/jobs/111111";
   assert.deepEqual([...await findDeadPostings([gone, open], ctx)], [gone]);
+});
+
+test("only a supported employer endpoint with a successful response is positively verified", async () => {
+  const live = 'https://job-boards.greenhouse.io/acme/jobs/42';
+  const gone = 'https://job-boards.greenhouse.io/acme/jobs/43';
+  const ctx = makeFetchContext(async (url) => new Response('{}', { status: String(url).includes('/42') ? 200 : 404 }));
+  assert.deepEqual([...await findLivePostings([live, gone, 'https://unlisted.example/job/3'], ctx)], [live]);
 });
 
 test("a bad minute never costs a good posting", async () => {

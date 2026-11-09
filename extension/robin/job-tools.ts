@@ -7,17 +7,14 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { getJobDetails, scoreJob, updateJob } from "./job-domain.ts";
-import { JOB_SCORING_CONTRACT, hasSubstantiveDescription, jobSummary, scoringContext } from "./job-evidence.ts";
+import { getJobDetails, jobSummaries, pendingJobQueue, scoreJob, updateJob } from "./job-domain.ts";
+import { JOB_SCORING_CONTRACT, hasSubstantiveDescription, scoringContext } from "./job-evidence.ts";
 import { runJobScan } from "./job-scan.ts";
-import { JOB_STATUSES, cleanDescription, describeFilters, type JobStatus } from "./jobs.ts";
+import { JOB_STATUSES, cleanDescription, describeFilters, groupJobCopies, type JobStatus } from "./jobs.ts";
 import { ARCHETYPES, scoringRubric } from "./job-rubric.ts";
 import {
   formatJob,
-  pendingJobs,
   readJobProfile,
-  readJobs,
-  sortJobs,
   type Job,
 } from "./store.ts";
 import { text } from "./toolkit.ts";
@@ -88,7 +85,7 @@ export function registerJobTools(pi: ExtensionAPI): void {
       }
       const profile = readJobProfile();
       const limit = Math.max(1, Math.min(params.limit ?? 15, 40));
-      const waiting = pendingJobs(readJobs(), profile).slice(0, limit);
+      const waiting = pendingJobQueue(profile).slice(0, limit);
       if (waiting.length === 0) return text("No jobs are waiting to be scored.");
       const entries = waiting.map((job) => {
         const head = `${job.id}  ${job.company} — ${job.title}`
@@ -175,10 +172,10 @@ export function registerJobTools(pi: ExtensionAPI): void {
         return text(`Unknown status "${status}". Use one of: ${JOB_STATUSES.join(", ")}.`);
       }
       const profile = readJobProfile();
-      const all = sortJobs(readJobs()).map((job) => jobSummary(job, profile));
-      const visible = (status ? all.filter((job: Job) => job.status === status) : all).slice(0, limit);
+      const all = jobSummaries(profile);
+      const visible = groupJobCopies(status ? all.filter((job: Job) => job.status === status) : all).slice(0, limit);
       if (visible.length === 0) return text(status ? `No ${status} jobs.` : "No jobs discovered yet.");
-      return text(visible.map(formatJob).join("\n"));
+      return text(visible.map(([job, ...copies]) => `${formatJob(job)}${copies.length ? `  (+${copies.length} same-stage listings; all records remain in Jobs)` : ""}`).join("\n"));
     },
   });
 

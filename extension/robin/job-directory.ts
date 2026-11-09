@@ -389,14 +389,14 @@ export async function runDirectorySweep(options: SweepOptions): Promise<JobSweep
   // boards' worth of undated backlog would bury the answer. The forward scan
   // passes "keep" for the opposite and equally good reason.
   const rules = { profile, undated: "drop" as const };
-  const admits = compileAdmission(rules);
+  const admits = compileAdmission(rules, undefined, true);
   // iCIMS list pages omit dates. Let an undated posting through the cheap
   // title/location gates, hydrate only that small candidate set, then apply
   // the real freshness rule below.
   const admitsBeforeDate = compileAdmission({
     profile: { ...profile, sinceDays: 0 },
     undated: "keep",
-  });
+  }, undefined, true);
   const cutoff = freshnessCutoff(profile.sinceDays);
 
   const state: JobSweepState = {

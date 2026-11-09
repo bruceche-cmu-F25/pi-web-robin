@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
-import { claimJobs, deleteJob, dropJobs, scoreJob, setJobsStatus, updateJob } from "./job-domain.ts";
+import { claimJobs, deleteJob, dropJobs, jobNavigationStatus, scoreJob, setJobsStatus, updateJob } from "./job-domain.ts";
 import { deleteLink, updateLink } from "./link-domain.ts";
 import { mailBoard, markMailDone, saveMailReview } from "./mail-domain.ts";
 import { addTodo, completeTodo, listTodos, updateTodo } from "./todo-domain.ts";
@@ -83,6 +83,27 @@ test("a bulk status change touches only the named rows and can be undone", () =>
   assert.equal(setJobsStatus(["low-1", "low-2"], "new"), 2);
   assert.deepEqual(readJobs().map((job) => job.status), ["new", "new", "new", "dropped"]);
   assert.throws(() => setJobsStatus(["low-1"], "archived"), /status must be one of/);
+});
+
+test("known job IDs and navigation counts do not deserialize unrelated SQLite jobs", { skip: process.env.ROBIN_TEST_TASK_BACKEND === "json" }, () => {
+  const row = (id) => ({ id, url: `https://example.com/${id}`, company: "Acme", title: id, location: "", source: "test", discoveredAt: "2030-01-01", status: "new" });
+  const untouched = { ...row("untouched"), description: "UNRELATED_DOMAIN_PAYLOAD" };
+  writeJobs([row("selected"), untouched]);
+  const parse = JSON.parse;
+  try {
+    JSON.parse = function (text, ...args) {
+      assert.ok(!String(text).includes("UNRELATED_DOMAIN_PAYLOAD"), "must use selected records, not the collection");
+      return parse(text, ...args);
+    };
+    assert.equal(updateJob("selected", { note: "edited" }).note, "edited");
+    assert.equal(updateJob("missing", { status: "applied" }), null);
+    assert.equal(setJobsStatus(["selected", "selected", "missing"], "shortlist"), 1);
+    assert.equal(claimJobs(["selected"]), 1);
+    assert.deepEqual(jobNavigationStatus(), { shortlist: 1, hasNew: true });
+    assert.equal(deleteJob("selected").id, "selected");
+    assert.equal(deleteJob("missing"), null);
+  } finally { JSON.parse = parse; }
+  assert.deepEqual(readJobs(), [untouched]);
 });
 
 const mailItem = (id) => ({ id, threadId: id, from: "", subject: id, snippet: "", date: "", category: "oa", summary: "", action: "none", triage: "act" });

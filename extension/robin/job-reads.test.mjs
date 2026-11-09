@@ -10,11 +10,13 @@ const dir = mkdtempSync(join(tmpdir(), "robin-job-reads-"));
 process.env.ROBIN_DATA_DIR = dir;
 resetTaskStore(dir);
 
-const { claimJobScoringRun, claimJobSweepRun, heartbeatJobScoringRun, heartbeatJobSweepRun, jobBoard, pendingJobCount, pendingJobIds, saveJobSweepState, saveScoringState, scorerName, scoringState, scoringStatus, sweepState } =
+const { claimJobScoringRun, claimJobSweepRun, heartbeatJobScoringRun, heartbeatJobSweepRun, jobBoard, jobNavigationStatus, jobSummaries, pendingJobCount, pendingJobIds, pendingJobQueue, saveJobSweepState, saveScoringState, scorerName, scoringState, scoringStatus, sweepState } =
   await import("./job-domain.ts");
 const { jobProfile, saveJobProfile } = await import("./job-profile.ts");
-const { DEFAULT_JOB_PROFILE } = await import("./jobs.ts");
-const { readJobScoringState, readJobSweepState, writeJobProfile, writeJobScoringState, writeJobSweepState, writeJobs } = await import("./store.ts");
+const { DEFAULT_JOB_PROFILE, JOB_STATUSES, pendingJobs, sortJobs } = await import("./jobs.ts");
+const { groupJobRoles } = await import("../../components/robin/jobs-view.ts");
+const { ELIGIBILITY_CHECKS, jobSummary, scoringContext } = await import("./job-evidence.ts");
+const { readJobs, readJobScoringState, readJobSweepState, writeJobProfile, writeJobScoringState, writeJobSweepState, writeJobs } = await import("./store.ts");
 
 after(() => {
   rmSync(dir, { recursive: true, force: true });
@@ -52,10 +54,89 @@ test("the board reports unconfigured until a company or board is tracked", () =>
   assert.equal(jobBoard().configured, true);
 });
 
+test("navigation reads only status counts, without changing or validating the pipeline", () => {
+  const jobs = [
+    job("fresh"),
+    job("unverified", { score: 5, description: "long evidence ".repeat(2_000) }),
+    job("saved", { status: "shortlist", scoreStale: true }),
+    job("applied", { status: "applied" }),
+    job("dropped", { status: "dropped" }),
+  ];
+  writeJobs(jobs);
+  assert.deepEqual(jobNavigationStatus(), { shortlist: 1, hasNew: true });
+  assert.ok(JSON.stringify(jobNavigationStatus()).length < 100);
+  writeJobs(jobs.filter((entry) => entry.status !== "new"));
+  assert.deepEqual(jobNavigationStatus(), { shortlist: 1, hasNew: false }, "no stale count after a write");
+  writeJobs([]);
+  assert.deepEqual(jobNavigationStatus(), { shortlist: 0, hasNew: false });
+});
+
 test("the board does not carry the stored posting text", () => {
   writeJobs([job("one", { description: "x".repeat(5_000) })]);
   const serialised = JSON.stringify(jobBoard());
   assert.ok(serialised.length < 2_000, `board was ${serialised.length} bytes`);
+});
+
+test("projected boards and queues equal full-record evaluation, including evidence changes and Applied dedupe", () => {
+  const cvEvidence = "Built FastAPI backend services and reliable agent workflows.";
+  const roleEvidence = "Requirements: Build Python backend services and agent workflows.";
+  const profile = { ...DEFAULT_JOB_PROFILE, titles: [], excludeTitles: [], locationAllow: [], locationBlock: [], sinceDays: 0, cv: cvEvidence };
+  const verified = job("verified", { score: 4.5, description: roleEvidence + " Our engineering team builds reliable systems for customers every day.".repeat(12) });
+  verified.scoreContext = scoringContext(verified, profile);
+  verified.review = { context: verified.scoreContext, roleEvidence, cvEvidence,
+    checks: Object.fromEntries(ELIGIBILITY_CHECKS.map(field => [field, field === "location" ? { status: "met", quote: verified.location } : { status: "not-stated" }])) };
+  const history = "HISTORICAL_JOB_EVIDENCE_SENTINEL";
+  const rows = [
+    job("fresh", { description: "Full pending JD stays available", application: { retained: true }, ref: { board: "fixture", id: "123" }, alternateUrls: ["https://example.com/old"], yearsRequired: 2, scoredAt: "2026-01-01", scoredBy: "fixture-model", note: "My note stays visible" }),
+    job("dropped", { status: "dropped", score: 4, scoreStale: true, description: history, review: { historical: true }, futureField: { keep: true } }),
+    verified,
+    job("applied", { status: "applied", notifiedAt: "2026-10-01T00:00:00Z", url: "https://example.com/same-role", description: history, application: { historical: true } }),
+    job("repost", { url: "https://example.com/same-role/" }),
+    job("shortlisted", { status: "shortlist", title: "Excluded title", postedAt: "2000-01-01", description: "Full shortlist JD" }),
+    job("stale", { score: 4.2, scoreContext: "old-context", description: "Changed full JD".repeat(60) }),
+  ];
+  writeJobs(rows);
+  const parse = JSON.parse;
+  try {
+    if (process.env.ROBIN_TEST_TASK_BACKEND !== "json") JSON.parse = function (text, ...args) {
+      assert.ok(!String(text).includes(history), "historical heavy fields must not be deserialized for these views");
+      return parse(text, ...args);
+    };
+    for (const candidate of [profile, { ...profile, cv: "Different confirmed CV" }, { ...profile, sinceDays: 1, titles: ["Engineer"], minScore: 3 }]) {
+      writeJobProfile(candidate);
+      const summaries = sortJobs(rows).map(row => jobSummary(row, candidate));
+      const pending = pendingJobs(rows, candidate);
+      assert.equal(pending.some(row => row.id === "verified"), candidate.cv !== profile.cv, "a valid review remains settled until the CV changes");
+      assert.deepEqual(jobBoard().jobs, summaries);
+      for (const status of JOB_STATUSES) {
+        const scoped = jobBoard(status);
+        assert.equal(scoped.scope, status);
+        assert.deepEqual(scoped.jobs, summaries.filter(job => job.status === status), "scope retains the full row and fresh evidence flags");
+        const compact = jobBoard(status, "cards");
+        const expectedCards = structuredClone(scoped);
+        for (const row of expectedCards.jobs) for (const key of ["ref", "alternateUrls", "yearsRequired", "scoredAt", "scoredBy", "scoreContext"]) delete row[key];
+        assert.deepEqual(compact, expectedCards, "card projection retains visible fields, fresh flags and all global metadata");
+        for (const hidden of [new Set(), new Set(["fresh", "verified"]), new Set(rows.map(job => job.id))]) {
+          const cards = scoped.cards.filter(card => card.ids.some(id => !hidden.has(id)));
+          const groups = groupJobRoles(summaries.filter(job => !hidden.has(job.id)));
+          assert.equal(cards.length, groups.length);
+          for (const stage of JOB_STATUSES) assert.equal(cards.filter(card => card.status === stage).length, groups.filter(group => group.job.status === stage).length);
+        }
+        assert.deepEqual(scoped.overview.matches, summaries.filter(job => job.status === "new" && typeof job.score === "number" && job.score >= candidate.minScore)
+          .map(({ id, company, title, discoveredAt }) => ({ id, company, title, discoveredAt })));
+        assert.deepEqual(scoped.overview.notifications, summaries.filter(job => job.notifiedAt).map(({ id, notifiedAt }) => ({ id, notifiedAt })));
+      }
+      assert.deepEqual(jobBoard("all").jobs, summaries);
+      assert.deepEqual(jobSummaries(), summaries);
+      assert.deepEqual(pendingJobQueue(), pending);
+      assert.deepEqual(pendingJobIds(), pending.map(row => row.id));
+      assert.equal(pendingJobCount(), pending.length);
+      assert.equal(scoringStatus().pending, pending.length);
+      assert.ok(!pendingJobIds().includes("repost"), "Applied URLs still suppress duplicate pending jobs");
+      assert.ok(pendingJobIds().includes("shortlisted"));
+    }
+  } finally { JSON.parse = parse; }
+  assert.deepEqual(readJobs(), rows, "read projections never erase stored JD, review or application evidence");
 });
 
 test("the pending count and ids agree, and both come from the store each time", () => {

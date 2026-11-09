@@ -203,16 +203,16 @@ export function jobsPath(): string {
   return taskStoragePath("jobs");
 }
 
-export function readJobs(): Job[] {
-  return readTaskRecords<Job>("jobs");
+export function readJobs(ids?: Iterable<string>): Job[] {
+  return readTaskRecords<Job>("jobs", ids);
 }
 
 export function writeJobs(jobs: Job[]): void {
   writeTaskRecords("jobs", jobs);
 }
 
-export function updateJobs<R>(updater: (jobs: Job[]) => { value: R; changed: boolean }): R {
-  return updateTaskRecords("jobs", updater);
+export function updateJobs<R>(updater: (jobs: Job[]) => { value: R; changed: boolean }, ids?: Iterable<string>): R {
+  return updateTaskRecords("jobs", updater, ids);
 }
 
 export function jobProfilePath(): string {
@@ -241,11 +241,20 @@ export interface JobScanState {
   scanned: number;
   matched: number;
   added: number;
+  /** Counts after detail hydration, then after identity deduplication. Old scans lack these. */
+  admitted?: number;
+  duplicates?: number;
+  /** Rolling seven-day record, starting with the first instrumented scan. */
+  history?: { startedAt: string; scanned: number; matched: number; admitted: number;
+    duplicates: number; added: number; closed: number; errors: number;
+    missingJd?: number; verifiedNew?: number }[];
   /** Rows retired because the board no longer lists them. Absent on old state files. */
   closed?: number;
   /** When the weekly sources (the big employers) were last read. */
   weeklyAt?: string;
-  sources: { id: string; name: string; count: number; error?: string }[];
+  sources: { id: string; name: string; count: number; matched?: number; admitted?: number;
+    duplicates?: number; added?: number; missingJd?: number; verifiedNew?: number;
+    rejected?: { date: number; title: number; location: number; blacklist: number }; error?: string }[];
 }
 
 export function readJobScanState(): JobScanState | null {

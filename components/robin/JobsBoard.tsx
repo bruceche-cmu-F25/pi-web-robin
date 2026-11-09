@@ -14,6 +14,7 @@ import {
   type JobStatus,
 } from "@/extension/robin/jobs";
 import { JobFilterDialog, type FilterCatalogue } from "./JobFilterDialog";
+import { JobScanFunnel } from "./JobScanFunnel";
 import { JobLinks } from "./JobLinks";
 import { JobRow } from "./JobRow";
 import rowStyles from "./JobRow.module.css";
@@ -21,6 +22,7 @@ import styles from "./JobsBoard.module.css";
 import { groupJobRoles, jobBand, orderJobGroups, searchJobGroups } from "./jobs-view";
 import type { JobsResponse } from "./JobsPanel";
 import { RoundsSection } from "./RoundsSection";
+import { JobOpportunityBrief } from "./JobOpportunityBrief";
 import { JobApplications } from "./JobApplications";
 import { mutate, mutateResponse, usePolledResource } from "./usePolledResource";
 import sheet from "./Worksheet.module.css";
@@ -58,9 +60,9 @@ interface ProfileResponse extends FilterCatalogue {
 
 type Filter = JobStatus | "all";
 
-function Section({ title, children, actions }: { title: string; children: React.ReactNode; actions?: React.ReactNode }) {
+function Section({ title, children, actions, id }: { title: string; children: React.ReactNode; actions?: React.ReactNode; id?: string }) {
   return (
-    <section className="pi-card flex flex-col gap-3 p-4">
+    <section id={id} className="pi-card flex scroll-mt-24 flex-col gap-3 p-4">
       <header className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="pi-label">{title}</h2>
         {actions}
@@ -141,7 +143,13 @@ export function JobsBoard() {
   const { t, locale } = useI18n();
   const when = (iso: string) => new Date(iso).toLocaleString(locale, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   const number = (value: number) => value.toLocaleString(locale);
-  const { data, error, loading, refresh } = usePolledResource<JobsResponse>("/api/robin/jobs", 30000);
+  const searchParams = useSearchParams();
+  const { filter, query, order, shown, showBelow } = jobsView(searchParams);
+  const { data: loadedData, error, loading: reading, refresh } = usePolledResource<JobsResponse>(`/api/robin/jobs?status=${filter}&view=cards`, 30000);
+  // Do not restore another tab's scroll against the previous scope's rows.
+  const currentScope = !loadedData?.scope || loadedData.scope === filter;
+  const data = currentScope ? loadedData : null;
+  const loading = reading || !currentScope;
 
   const [profile, setProfile] = useState<JobProfile | null>(null);
   const [catalogue, setCatalogue] = useState<FilterCatalogue | null>(null);
@@ -150,8 +158,6 @@ export function JobsBoard() {
   const [busyJob, setBusyJob] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const searchParams = useSearchParams();
-  const { filter, query, order, shown, showBelow } = jobsView(searchParams);
   const { scrollRef, updateView } = useBoardNavigation("/dashboard/jobs", searchParams.toString(), !!data);
   const [preview, setPreview] = useState<string | null>(null);
   const [sweeping, setSweeping] = useState(false);
@@ -341,12 +347,14 @@ export function JobsBoard() {
   const jobs = useMemo(() => (data?.jobs ?? []).filter((job) => !hidden.has(job.id)), [data, hidden]);
   const allGroups = useMemo(() => groupJobRoles(jobs), [jobs]);
   const counts = useMemo(() => {
-    const tally = new Map<Filter, number>([["all", allGroups.length]]);
+    const cards = data?.cards ?? allGroups.map(({ job, also }) => ({ status: job.status, ids: [job.id, ...also.map(copy => copy.id)] }));
+    const visibleCards = cards.filter(card => card.ids.some(id => !hidden.has(id)));
+    const tally = new Map<Filter, number>([["all", visibleCards.length]]);
     for (const status of JOB_STATUSES) {
-      tally.set(status, allGroups.filter(({ job }) => job.status === status).length);
+      tally.set(status, visibleCards.filter(card => card.status === status).length);
     }
     return tally;
-  }, [allGroups]);
+  }, [allGroups, data, hidden]);
   const visible = useMemo(() => {
     // Applied stays a dated log, never a recommendation ranking.
     const scoped = filter === "applied" ? groupJobRoles(jobs, true)
@@ -378,12 +386,14 @@ export function JobsBoard() {
   // The page's lede, independent of the tab: what today brought and what waits.
   const lede = useMemo(() => {
     const today = localDay(new Date().toISOString());
-    const roles = new Map<string, Job>();
+    const roles = new Map<string, { discoveredAt: string }>();
     let lastPush = "";
-    for (const job of jobs) {
-      if (job.notifiedAt && job.notifiedAt > lastPush) lastPush = job.notifiedAt;
-      if (job.status !== "new" || typeof job.score !== "number" || job.score < minScore) continue;
-      if (!roles.has(roleKey(job))) roles.set(roleKey(job), job);
+    for (const job of data?.overview?.notifications ?? jobs) {
+      if (!hidden.has(job.id) && job.notifiedAt && job.notifiedAt > lastPush) lastPush = job.notifiedAt;
+    }
+    const matches = data?.overview?.matches ?? jobs.filter(job => job.status === "new" && typeof job.score === "number" && job.score >= minScore);
+    for (const job of matches) {
+      if (!hidden.has(job.id) && !roles.has(roleKey(job))) roles.set(roleKey(job), job);
     }
     const waiting = [...roles.values()];
     return {
@@ -391,7 +401,7 @@ export function JobsBoard() {
       waiting: waiting.length,
       lastPush,
     };
-  }, [jobs, minScore]);
+  }, [jobs, minScore, data, hidden]);
 
   const fail = (caught: unknown) => setActionError(caught instanceof Error ? caught.message : String(caught));
 
@@ -603,15 +613,25 @@ export function JobsBoard() {
           </nav>
         </header>
 
+        <JobOpportunityBrief />
+
+        <nav aria-label={locale.startsWith("zh") ? "本页内容" : "On this page"} className="flex flex-wrap gap-x-5 gap-y-1">
+          {([
+            ["application-answers", locale.startsWith("zh") ? "自动投递" : "Auto-apply"],
+            ["job-discoveries", t("robin.jobs.listTitle")],
+            ["job-rounds", t("robin.rounds.title")],
+          ] as const).map(([id, label]) => <a key={id} href={`#${id}`} className="ui-action pi-chrome-label min-h-11 inline-flex items-center text-xs" data-state="muted">{label}</a>)}
+        </nav>
+
         {(actionError || error) && (
           <p className="text-sm" style={{ color: "var(--danger)" }}>{actionError ?? error}</p>
         )}
         {notice && <p className="text-sm" style={{ color: "var(--accent)" }}>{notice}</p>}
 
-        {/* The margin holds what you set up once and glance at; the list is
-            what you came for, so it starts at the top of the page. */}
+        {/* The margin holds setup; the action-oriented application desk leads the results. */}
         <div className={`${sheet.sheet} ${styles.workspace}`}>
           <div className={`${sheet.margin} ${sheet.sticky}`}>
+            <RoundsSection compact />
             <JobLinks group={profile?.linkGroup || DEFAULT_JOB_PROFILE.linkGroup} />
 
             {/* ── Filter summary ──────────────────────────────────────────── */}
@@ -678,6 +698,8 @@ export function JobsBoard() {
                 )}
               </Section>
             )}
+
+            {data?.scan && <JobScanFunnel scan={data.scan} />}
 
             {/* ── Scoring progress ────────────────────────────────────────── */}
             {scoringState && (scoringState.running || scoringState.startedWith > 0) && (
@@ -757,13 +779,11 @@ export function JobsBoard() {
             )}
           </div>
 
-          {/* ── What you owe, then what is on offer ─────────────────────── */}
+          {/* The application desk is the next action, then the discovery list. */}
           <div className={`${sheet.list} ${styles.results} flex flex-col gap-4`}>
-            {/* Above the discoveries: an OA has a deadline and a posting does not. */}
-            <JobApplications />
-            <RoundsSection />
-
+            <JobApplications listReady={Boolean(data)} />
             <Section
+              id="job-discoveries"
               title={t("robin.jobs.listTitle")}
               actions={(
                 <button

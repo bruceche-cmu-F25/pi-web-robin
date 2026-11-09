@@ -33,6 +33,22 @@ test("counts use cards, the strongest copy leads, and stages cannot overwrite ea
   assert.equal(groups[1].job.status, "applied");
 });
 
+test("canonical ATS ids group differently titled copies; aliases cannot cross employers or stages", () => {
+  const canonical = "https://jobs.ashbyhq.com/acme/role-1";
+  const groups = groupJobRoles([
+    job("direct", { company: "Acme", title: "New Grad Software Engineer", url: canonical, score: 4.5 }),
+    job("mirror", { company: "ACME", title: "Software Engineer", url: `${canonical}/application?embed=true`, score: 4 }),
+    job("alias", { company: "Acme", title: "Backend Engineer", alternateUrls: [canonical], score: 3.9 }),
+    job("other-employer", { company: "Other", title: "AI Engineer", alternateUrls: [canonical], score: 3 }),
+    job("short-alias", { company: "Acme", title: "Data Engineer", alternateUrls: ["https://go.vansh.nyc/Aw"], score: 2 }),
+    job("poisoned-alias", { company: "Acme", title: "ML Engineer", alternateUrls: ["https://go.vansh.nyc/Aw"], score: 2 }),
+    job("applied", { company: "Acme", title: "Software Engineer", url: canonical, status: "applied" }),
+  ]);
+  assert.deepEqual(groups.map(({ job, also }) => [job.id, ...also.map(copy => copy.id)]), [
+    ["direct", "mirror", "alias"], ["other-employer"], ["short-alias"], ["poisoned-alias"], ["applied"],
+  ]);
+});
+
 test("search finds a duplicate's location but retains every source for status changes", () => {
   const groups = groupJobRoles([
     job("lead", { company: "Acme", location: "Remote", score: 4.5 }),

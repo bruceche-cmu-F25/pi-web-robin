@@ -74,6 +74,31 @@ test("a preview reads the batch without claiming it", async () => {
   assert.ok(readJobs()[0].notifiedAt);
 });
 
+test("new community roles require a positive employer verdict before delivery", async () => {
+  const candidate = { ...readJobs()[0], source: 'ml-newgrad' };
+  writeJobs([candidate]);
+  let result = await buildJobDigest({ checkDead: allLive, checkLive: async () => new Set() });
+  assert.equal(result.count, 0);
+  assert.equal(readJobs()[0].status, 'new');
+  assert.equal(readJobs()[0].notifiedAt, undefined);
+  result = await buildJobDigest({ checkDead: allLive,
+    checkLive: async (urls) => new Set(urls) });
+  assert.deepEqual(result.jobIds, ['role']);
+  assert.ok(readJobs()[0].notifiedAt);
+});
+
+test("unverified community roles do not starve confirmed legacy candidates", async () => {
+  const profile = readJobProfile();
+  const first = { ...readJobs()[0], source: 'won-newgrad' };
+  const fallback = { ...first, id: 'fallback', url: 'https://example.com/fallback',
+    company: 'Other', title: 'Backend Engineer', source: 'test' };
+  fallback.review = { ...first.review, context: scoringContext(fallback, profile) };
+  writeJobs([first, fallback]);
+  const result = await buildJobDigest({ checkDead: allLive, checkLive: async () => new Set() });
+  assert.deepEqual(result.jobIds, ['fallback']);
+  assert.equal(readJobs()[0].notifiedAt, undefined);
+});
+
 test("a posting the boards confirm is gone is dropped, not sent", async () => {
   const gone = async () => new Set(["https://example.com/role"]);
   const result = await buildJobDigest({ checkDead: gone });

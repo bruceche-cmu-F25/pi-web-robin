@@ -78,6 +78,38 @@ test("one board being down does not cost you the others", async () => {
   assert.equal(result.scanned, 1);
 });
 
+test("scan loss counters distinguish location misses, duplicates, and newly stored roles", async () => {
+  const feed = [
+    { company: 'Acme', title: 'AI Engineer', active: true, is_usa: true,
+      url: 'https://job-boards.greenhouse.io/acme/jobs/7', locations: ['San Jose, CA'] },
+    { company: 'Acme', title: 'AI Engineer', active: true, is_usa: true,
+      url: 'https://job-boards.greenhouse.io/acme/jobs/7', locations: ['San Jose, CA'] },
+    { company: 'Acme', title: 'AI Engineer', active: true, is_usa: true,
+      url: 'https://job-boards.greenhouse.io/acme/jobs/8', locations: ['New York, United States'] },
+  ];
+  const scan = () => runJobScan({ profile: profile({ boards: ['ml-newgrad'], companies: [],
+    titles: ['AI Engineer'], locationAllow: ['Bay Area', 'US Remote'], sinceDays: 0 }),
+    fetchImpl: async (url) => new Response(String(url).includes('raw.githubusercontent.com')
+      ? JSON.stringify(feed) : '{}', { status: String(url).includes('raw.githubusercontent.com') ? 200 : 404 }),
+  });
+  const first = await scan();
+  assert.equal(first.scanned, 3);
+  assert.equal(first.matched, 2);
+  assert.equal(first.admitted, 2);
+  assert.equal(first.added, 1);
+  assert.equal(first.duplicates, 1);
+  assert.equal(first.sources[0].missingJd, 2);
+  assert.equal(first.sources[0].verifiedNew, 0);
+  assert.deepEqual(first.sources[0].rejected, { date: 0, title: 0, location: 1, blacklist: 0 });
+  assert.deepEqual([first.sources[0].matched, first.sources[0].admitted,
+    first.sources[0].duplicates, first.sources[0].added], [2, 2, 1, 1]);
+  const second = await scan();
+  assert.equal(second.added, 0);
+  assert.equal(second.duplicates, 2);
+  assert.equal(second.history.at(-2).added, 1);
+  assert.equal(second.history.at(-1).added, 0);
+});
+
 test("the shipped defaults come with sources, so the first scan is not a no-op", () => {
   assert.ok(DEFAULT_JOB_PROFILE.boards.length > 0);
 });

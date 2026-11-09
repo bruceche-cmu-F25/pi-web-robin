@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { deleteJob, jobBoard, setJobsStatus, updateJob } from "@/extension/robin/job-domain";
+import { deleteJob, jobBoard, jobNavigationStatus, setJobsStatus, updateJob } from "@/extension/robin/job-domain";
 import { JOB_STATUSES, type JobStatus } from "@/extension/robin/jobs";
 import { apiError, apiRoute } from "@/lib/api-route";
+import { jsonResponse } from "@/lib/json-response";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +14,17 @@ export const dynamic = "force-dynamic";
  * The CV is deliberately not included — it can be long and only the profile
  * editor needs it, so it lives behind /api/robin/jobs/profile.
  */
-export const GET = apiRoute(async () => NextResponse.json(jobBoard()));
+export const GET = apiRoute(async (req) => {
+  const params = new URL(req.url).searchParams;
+  const status = params.get("status");
+  if (status !== null && status !== "all" && !JOB_STATUSES.includes(status as JobStatus)) {
+    return apiError(new Error("Invalid job status"));
+  }
+  return jsonResponse(req,
+    params.get("view") === "navigation" ? jobNavigationStatus() : jobBoard((status ?? undefined) as JobStatus | "all" | undefined, params.get("view") === "cards" ? "cards" : "full"),
+    { headers: { "Cache-Control": "no-store" } },
+  );
+});
 
 /**
  * Change one job's status, or edit your note on it.

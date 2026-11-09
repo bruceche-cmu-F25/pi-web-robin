@@ -4,9 +4,10 @@ import Link from "next/link";
 import { useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import type { Job } from "@/extension/robin/jobs";
+import type { JobBoard } from "@/extension/robin/job-domain";
 import { JobRow } from "./JobRow";
 import { groupJobRoles } from "./jobs-view";
-import { usePolledResource } from "./usePolledResource";
+import { mutateResponse, usePolledResource } from "./usePolledResource";
 
 /** Enough to be worth a glance on the dashboard; the rest is one click away. */
 const PREVIEW_COUNT = 5;
@@ -17,12 +18,22 @@ export interface JobsResponse {
     finishedAt: string;
     scanned: number;
     matched: number;
+    admitted?: number;
+    duplicates?: number;
     added: number;
-    sources: { id: string; name: string; count: number; error?: string }[];
+    history?: { startedAt: string; scanned: number; matched: number; admitted: number;
+      duplicates: number; added: number; closed: number; errors: number;
+      missingJd?: number; verifiedNew?: number }[];
+    sources: { id: string; name: string; count: number; matched?: number; admitted?: number;
+      duplicates?: number; added?: number; missingJd?: number; verifiedNew?: number;
+      rejected?: { date: number; title: number; location: number; blacklist: number }; error?: string }[];
   } | null;
   minScore: number;
   digestSize: number;
   configured: boolean;
+  scope?: JobBoard["scope"];
+  cards?: JobBoard["cards"];
+  overview?: JobBoard["overview"];
 }
 
 /**
@@ -34,7 +45,7 @@ export interface JobsResponse {
  */
 export function JobsPanel() {
   const { t } = useI18n();
-  const { data, error, loading, refresh } = usePolledResource<JobsResponse>("/api/robin/jobs", 60000);
+  const { data, error, loading, refresh } = usePolledResource<JobsResponse>("/api/robin/jobs?status=new&view=cards", 60000);
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
 
@@ -42,15 +53,13 @@ export function JobsPanel() {
   const fresh = groupJobRoles(jobs.filter((job) => job.status === "new" && typeof job.score === "number" && job.score >= (data?.minScore ?? 4)))
     .map(({ job }) => job);
   const preview = fresh.slice(0, PREVIEW_COUNT);
-  const empty = preview.length === 0 && !error && !scanError;
+  const empty = jobs.length === 0 && !error && !scanError;
 
   const scan = async () => {
     setScanning(true);
     setScanError(null);
     try {
-      const response = await fetch("/api/robin/jobs/scan", { method: "POST" });
-      const body = await response.json().catch(() => null) as { error?: string } | null;
-      if (!response.ok) throw new Error(body?.error ?? `Scan failed (${response.status})`);
+      await mutateResponse("/api/robin/jobs/scan", "POST", {});
       await refresh();
     } catch (caught) {
       setScanError(caught instanceof Error ? caught.message : String(caught));
@@ -101,7 +110,9 @@ export function JobsPanel() {
       )}
 
       {!loading && data?.configured && preview.length === 0 && (
-        <p className="py-2 text-sm" style={{ color: "var(--text-dim)" }}>{t("robin.jobs.emptyToday")}</p>
+        <p className="py-2 text-sm" style={{ color: "var(--text-dim)" }}>
+          {t(jobs.length > 0 ? "robin.jobs.belowPreview" : "robin.jobs.emptyToday", { count: String(groupJobRoles(jobs).length) })}
+        </p>
       )}
 
       {preview.length > 0 && (

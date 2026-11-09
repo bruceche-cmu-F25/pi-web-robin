@@ -22,7 +22,8 @@
  * No node builtins: this module is loaded by jiti inside the pi extension and
  * by webpack on the Next.js server, so it uses global fetch and nothing else.
  */
-import { cleanPostingDescription as cleanDescription, type TrackedCompany } from "./jobs.ts";
+import { cleanPostingDescription as cleanDescription, roleKey, type TrackedCompany } from "./jobs.ts";
+import { applicationUrl } from "./job-applications.ts";
 import { hasSubstantiveDescription } from "./job-evidence.ts";
 import { isPublicWebHost } from "./public-web.ts";
 
@@ -36,6 +37,8 @@ export interface RawPosting {
   location: string;
   /** YYYY-MM-DD (UTC), when the board reports one. */
   postedAt?: string;
+  /** Community feed's first observation, for freshness only; never stored as employer publish date. */
+  firstSeenAt?: string;
   /** Only when the listing endpoint already carried it — never a second request. */
   description?: string;
   /**
@@ -198,26 +201,33 @@ export function makeFetchContext(fetchImpl: typeof fetch = fetch, parentSignal?:
   };
 
   /** Read a body, refusing to keep going past `maxBytes`. */
-  const readCapped = async (response: Response, maxBytes: number | undefined): Promise<string> => {
+  const readCapped = async (response: Response, maxBytes: number | undefined, requireComplete = false): Promise<string> => {
     if (!maxBytes || !response.body) return response.text();
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let out = "";
+    let bytes = 0;
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
-      out += decoder.decode(value, { stream: true });
-      if (out.length >= maxBytes) {
+      bytes += value.byteLength;
+      if (bytes > maxBytes) {
         await reader.cancel();
+        if (requireComplete) throw new Error(`JSON response exceeds ${maxBytes} bytes`);
+      }
+      out += decoder.decode(value, { stream: true });
+      if (!requireComplete && bytes >= maxBytes) {
+        if (bytes === maxBytes) await reader.cancel();
         break;
       }
     }
-    return out;
+    return out + decoder.decode();
   };
 
   return {
     async fetchJson(url, options = {}) {
-      return (await send(url, "application/json", options)).json();
+      const response = await send(url, "application/json", options);
+      return options.maxBytes ? JSON.parse(await readCapped(response, options.maxBytes, true)) : response.json();
     },
     async fetchText(url, options = {}) {
       const response = await send(url, "text/html, text/markdown, text/plain, */*", options);
@@ -342,17 +352,22 @@ const greenhouse: Provider = {
       "greenhouse",
     );
     const json = await ctx.fetchJson(api);
-    return usable(rows(json, "jobs").map((job) => ({
-      title: str(job.title),
-      url: str(job.absolute_url),
-      company: company.name,
-      location: str((job.location as Record<string, unknown> | undefined)?.name),
-      postedAt: toDateString(job.first_published ?? job.updated_at),
-      // The board slug and the numeric id, kept for hydrate(). `absolute_url`
-      // is frequently a branded careers page — nuro.ai/careersitem?gh_jid=…,
-      // stripe.com/jobs/search?gh_jid=… — so it is not a reliable key.
-      ...(str(job.id) || typeof job.id === "number" ? { ref: { board: slug, id: String(job.id) } } : {}),
-    })));
+    return usable(rows(json, "jobs").map((job) => {
+      const url = str(job.absolute_url);
+      const id = str(job.id) || (typeof job.id === "number" ? String(job.id) : "");
+      const brandedIds = parseUrl(url)?.searchParams.getAll("gh_jid") ?? [];
+      return {
+        title: str(job.title), url, company: company.name,
+        location: str((job.location as Record<string, unknown> | undefined)?.name),
+        postedAt: toDateString(job.first_published ?? job.updated_at),
+        // The official board supplies the requisition; a branded URL alone
+        // does not identify a browser-supported application target.
+        ...(id ? { ref: { board: slug, id } } : {}),
+        ...(!applicationUrl(url) && /^\d+$/.test(id)
+          && (brandedIds.length === 0 || (brandedIds.length === 1 && brandedIds[0] === id))
+          ? { alternateUrls: [`https://job-boards.greenhouse.io/${slug}/jobs/${id}`] } : {}),
+      };
+    }));
   },
 
   probe: (urls, ctx) => probeBySingleFetch(urls, ctx, (url) => {
@@ -939,7 +954,8 @@ export function markdownRows(text: string): string[][] {
 
 /** The href of the first markdown or HTML link in a cell. */
 export function cellLink(cell: string): string {
-  return cell.match(/\]\((https?:\/\/[^\s)]+)\)/)?.[1]
+  return cell.match(/\]\(<(https?:\/\/[^>]+)>\)/)?.[1]
+    ?? cell.match(/\]\((https?:\/\/[^\s)]+)\)/)?.[1]
     ?? cell.match(/href=["'](https?:\/\/[^"']+)["']/)?.[1]
     ?? "";
 }
@@ -1183,6 +1199,58 @@ export function parseNewGradTracker(data: unknown): RawPosting[] {
     }];
   }));
 }
+
+// Only the three new-grad boards, not this project's 17 MB all-disciplines JSON.
+// These tables link directly to the employer. Their first-seen date is used
+// only when the employer gave no posting date, not as proof of current liveness.
+const WON_NEW_GRAD = ["software", "ai-ml", "product-management"] as const;
+export function parseWonNewGrad(markdown: string): RawPosting[] {
+  return usable(markdownRows(markdown).flatMap((cells) => {
+    if (cells.length !== 7) return [];
+    const url = cellLink(cells[6] ?? "");
+    const dates = cellText(cells[5] ?? "");
+    const posted = dates.match(/Posted\s+([A-Za-z]+\s+\d{1,2},\s+\d{4})/i)?.[1];
+    const firstSeen = dates.match(/First seen\s+([A-Za-z]+\s+\d{1,2},\s+\d{4})/i)?.[1];
+    return [{ company: cellText(cells[0] ?? "").replace(/^🔥\s*/, ""),
+      title: cellText(cells[1] ?? ""), location: cellText(cells[2] ?? ""), url,
+      ...(posted && toDateString(posted) ? { postedAt: toDateString(posted) } : {}),
+      ...(firstSeen && toDateString(firstSeen) ? { firstSeenAt: toDateString(firstSeen) } : {}) }];
+  }));
+}
+
+const wonNewGrad: Provider = {
+  id: "won-newgrad", label: "2027 New Grad — Software, AI & PM (WonOfAKind)", board: true,
+  async fetch(_company, ctx) {
+    const files = await Promise.all(WON_NEW_GRAD.map(async (category) => {
+      const url = assertHost(`https://raw.githubusercontent.com/WonOfAKind/New-Grad-And-Internships-2027/main/new-grad/${category}.md`,
+        (host) => host === GITHUB_RAW_HOST, "won-newgrad");
+      return ctx.fetchText(url, { timeoutMs: 60_000, maxBytes: 300_000 });
+    }));
+    return files.flatMap(parseWonNewGrad);
+  },
+};
+
+export function parseMlNewGrad(data: unknown): RawPosting[] {
+  if (!Array.isArray(data)) throw new Error("ml-newgrad: expected a JSON array");
+  return usable(data.flatMap((raw) => {
+    const job = (raw ?? {}) as Record<string, unknown>;
+    if (job.active !== true || job.is_usa !== true) return [];
+    const posted = typeof job.date_posted === "number" && job.date_posted > 0
+      ? toDateString(job.date_posted * 1000) : undefined;
+    return [{ company: str(job.company), title: str(job.title), url: str(job.url) || str(job.apply_url),
+      location: Array.isArray(job.locations) ? job.locations.map(str).filter(Boolean).join(" · ") : "",
+      ...(posted ? { postedAt: posted } : {}) }];
+  }));
+}
+
+const mlNewGrad: Provider = {
+  id: "ml-newgrad", label: "ML New Grad 2027 (Tar-ive)", board: true,
+  async fetch(_company, ctx) {
+    const url = assertHost("https://raw.githubusercontent.com/Tar-ive/ML_Newgrad_2027/main/data/listings.json",
+      (host) => host === GITHUB_RAW_HOST, "ml-newgrad");
+    return parseMlNewGrad(await ctx.fetchJson(url, { timeoutMs: 60_000, maxBytes: 6_000_000 }));
+  },
+};
 
 const newGradTracker: Provider = {
   id: "newgrad-tracker",
@@ -2243,10 +2311,7 @@ export async function readUnknownBoard(url: string, ctx: FetchContext): Promise<
  * request or answered with a shrug leaves its posting alone, because the
  * failure mode to avoid is dropping a good job over a bad minute.
  */
-export async function findDeadPostings(
-  urls: readonly string[],
-  ctx: FetchContext,
-): Promise<Set<string>> {
+async function postingVerdicts(urls: readonly string[], ctx: FetchContext): Promise<Map<string, "live" | "dead">> {
   const byProvider = new Map<Provider, string[]>();
   for (const url of urls) {
     const owner = PROVIDERS.find((provider) => provider.probe && provider.refFromUrl?.(url));
@@ -2255,13 +2320,21 @@ export async function findDeadPostings(
     if (group) group.push(url);
     else byProvider.set(owner, [url]);
   }
-
-  const dead = new Set<string>();
+  const verdicts = new Map<string, "live" | "dead">();
   await Promise.all([...byProvider].map(async ([provider, group]) => {
-    const verdicts = await provider.probe!(group, ctx).catch(() => new Map());
-    for (const [url, verdict] of verdicts) if (verdict === "dead") dead.add(url);
+    const batch = await provider.probe!(group, ctx).catch(() => new Map());
+    for (const [url, verdict] of batch) verdicts.set(url, verdict);
   }));
-  return dead;
+  return verdicts;
+}
+
+export async function findDeadPostings(urls: readonly string[], ctx: FetchContext): Promise<Set<string>> {
+  return new Set([...await postingVerdicts(urls, ctx)].filter(([, verdict]) => verdict === "dead").map(([url]) => url));
+}
+
+/** Positive ATS confirmation only: unsupported URLs and network misses remain unknown. */
+export async function findLivePostings(urls: readonly string[], ctx: FetchContext): Promise<Set<string>> {
+  return new Set([...await postingVerdicts(urls, ctx)].filter(([, verdict]) => verdict === "live").map(([url]) => url));
 }
 
 /* ───────────────────────────── registry ───────────────────────────── */
@@ -2278,6 +2351,7 @@ const PROVIDERS: readonly Provider[] = [
   hackernews,
   icims,
   lever,
+  mlNewGrad,
   newGradTracker,
   recruitee,
   remoteok,
@@ -2288,6 +2362,7 @@ const PROVIDERS: readonly Provider[] = [
   speedyapply,
   speedyapplyAi,
   workable,
+  wonNewGrad,
   workday,
   workingnomads,
   ...listingFeedProviders,
@@ -2329,6 +2404,8 @@ export interface HydrateOptions {
    * `readUnknownBoard` for what that trades away.
    */
   readUnknownBoards?: boolean;
+  /** User-configured ATS boards anchor employer identity for branded aggregator links. */
+  trustedCompanies?: readonly TrackedCompany[];
 }
 
 export async function hydrateDescriptions(
@@ -2336,6 +2413,35 @@ export async function hydrateDescriptions(
   ctx: FetchContext,
   options: HydrateOptions = {},
 ): Promise<void> {
+  // A branded Greenhouse URL alone proves neither board ownership nor liveness.
+  // Only one user-configured board and its own positive job-detail response can
+  // yield a direct application alias. A failed/mismatched check leaves the card
+  // in Jobs for manual inspection and never changes the browser allow-list.
+  await eachLimited(postings.filter((posting) => posting.source !== "greenhouse" && !applicationUrl(posting.url) && /[?&]gh_jid=/.test(posting.url)), HYDRATE_CONCURRENCY, async (posting) => {
+    try {
+      const branded = new URL(posting.url);
+      const ids = branded.searchParams.getAll("gh_jid");
+      if (branded.protocol !== "https:" || branded.username || branded.password || branded.port
+        || ids.length !== 1 || !/^\d{4,12}$/.test(ids[0] ?? "")) return;
+      const owners = (options.trustedCompanies ?? []).filter((company) => {
+        if (company.enabled === false || roleKey({ company: company.name, title: "" }) !== roleKey({ company: posting.company, title: "" })) return false;
+        const board = parseUrl(company.url);
+        return board && ["boards.greenhouse.io", "job-boards.greenhouse.io"].includes(board.hostname)
+          && /^\/[a-z0-9_-]+\/?$/i.test(board.pathname);
+      });
+      if (owners.length !== 1) return;
+      const slug = new URL(owners[0]!.url).pathname.split("/")[1]!;
+      const id = ids[0]!;
+      const api = `https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(slug)}/jobs/${id}`;
+      const detail = await ctx.fetchJson(api, { maxBytes: 400_000, timeoutMs: 12_000 }) as Record<string, unknown>;
+      if (String(detail.id) !== id || roleKey({ company: posting.company, title: posting.title })
+        !== roleKey({ company: owners[0]!.name, title: str(detail.title) })) return;
+      const direct = `https://job-boards.greenhouse.io/${slug}/jobs/${id}`;
+      if (!applicationUrl(direct) || posting.url === direct) return;
+      posting.alternateUrls = [...new Set((posting.alternateUrls ?? []).filter((url) => url !== direct))].slice(0, 19).concat(direct);
+    } catch { /* Unknown is manual review, never proof of an open requisition. */ }
+  });
+
   // The community feed switched direct ATS links to go.vansh.nyc redirects.
   // Resolve only this known wrapper, after admission, even when a JD exists.
   // Only recognisable posting URLs establish identity; a careers-home redirect

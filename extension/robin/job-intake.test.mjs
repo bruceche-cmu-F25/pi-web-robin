@@ -96,6 +96,13 @@ test("an undated posting is kept or dropped according to who is asking", () => {
   assert.equal(admitPostings(undated, rules({ sinceDays: 0 }, "drop")).length, 1);
 });
 
+test("a community first-seen date gates freshness without posing as employer publish date", () => {
+  assert.equal(admitPostings([posting({ postedAt: undefined, firstSeenAt: '2019-01-01' })],
+    rules({ sinceDays: 7 }, 'keep')).length, 0);
+  assert.equal(admitPostings([posting({ postedAt: undefined, firstSeenAt: new Date().toISOString().slice(0, 10) })],
+    rules({ sinceDays: 7 }, 'keep')).length, 1);
+});
+
 test("sinceDays 0 turns the freshness window off", () => {
   assert.equal(freshnessCutoff(0), null);
   assert.equal(admitPostings([posting({ postedAt: "2019-01-01" })], rules({ sinceDays: 0 })).length, 1);
@@ -132,6 +139,39 @@ test("a job you already acted on is never resurrected or overwritten", async () 
     { status: "dropped", score: 2.1, notifiedAt: "2026-08-01T08:00:00.000Z" },
   );
   assert.equal(jobs[1].status, "new");
+});
+
+test("verified branded Greenhouse alias enriches an existing row without changing its status or note", async () => {
+  const branded = 'https://careers.acme.test/positions/8280222?gh_jid=8280222';
+  const old = stored({ url: branded, company: 'Acme', title: 'Software Engineer, DevAI', status: 'shortlist', note: 'keep this' });
+  const ctx = {
+    async fetchJson(url) {
+      assert.equal(url, 'https://boards-api.greenhouse.io/v1/boards/acme/jobs/8280222');
+      return { id: 8280222, title: 'Software Engineer, DevAI', content: '<p>Build developer tools.</p>' };
+    },
+    async fetchText() { throw new Error('no branded fetch'); },
+  };
+  const { added, jobs } = await intake([old], [posting({ url: branded, company: 'Acme', title: old.title, source: 'builtinsf' })], ctx,
+    rules({ companies: [{ id: 'acme', name: 'Acme', url: 'https://job-boards.greenhouse.io/acme', enabled: true }] }));
+  assert.equal(added, 0);
+  assert.equal(jobs[0].status, 'shortlist');
+  assert.equal(jobs[0].note, 'keep this');
+  assert.equal(jobs[0].url, branded);
+  assert.deepEqual(jobs[0].alternateUrls, ['https://job-boards.greenhouse.io/acme/jobs/8280222']);
+});
+
+test("a short-link alias attached to another employer never swallows a real requisition", async () => {
+  const old = stored({ company: "Scopely", url: "https://jobs.ashbyhq.com/scopely/role-1",
+    alternateUrls: ["https://go.vansh.nyc/Aw", "https://jobs.ashbyhq.com/nvidia/role-2"],
+    status: "applied", note: "keep" });
+  const fresh = posting({ company: "NVIDIA", title: "Software Engineer",
+    url: "https://jobs.ashbyhq.com/nvidia/role-2", alternateUrls: ["https://go.vansh.nyc/Aw"] });
+  const result = await intake([old], [fresh, fresh]);
+  assert.equal(result.added, 1);
+  assert.equal(result.jobs[0].status, "applied");
+  assert.equal(result.jobs[0].note, "keep");
+  assert.equal(result.jobs[1].company, "NVIDIA");
+  assert.equal(result.jobs[1].alternateUrls, undefined, "a conflicting alias is not copied to the new row");
 });
 
 test("identical titles are not proof that different posting ids are the same opening", async () => {

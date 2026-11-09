@@ -9,7 +9,7 @@ import { useIsSplitLayout } from "@/hooks/useIsMobile";
 import { setNavigationPlacement, useNavigationPlacement } from "@/hooks/useNavigationPlacement";
 import { getInitialNavigation } from "@/lib/initial-navigation";
 import { triageOf, type MailReview } from "@/extension/robin/mail";
-import type { Job } from "@/extension/robin/jobs";
+import type { jobNavigationStatus } from "@/extension/robin/job-domain";
 import type { PracticeRecord } from "@/extension/robin/practice";
 import { pressingAssessments, type Round } from "@/extension/robin/rounds";
 import type { TechEvent } from "@/extension/robin/tech-events";
@@ -24,10 +24,6 @@ interface TodosResponse {
 
 interface GmailResponse {
   review: MailReview | null;
-}
-
-interface JobsResponse {
-  jobs: Job[];
 }
 
 interface PracticeResponse {
@@ -201,10 +197,9 @@ export function RobinMargin({ drawer, onClose, onNavigate, chatContext }: {
       ? `${path}?cwd=${encodeURIComponent(cwd)}`
       : path;
   const chatHref = withChatContext("/");
-
   const todos = usePolledResource<TodosResponse>("/api/robin/todos", 60_000).data;
   const gmail = usePolledResource<GmailResponse>("/api/robin/gmail", 60_000).data;
-  const jobs = usePolledResource<JobsResponse>("/api/robin/jobs", 60_000).data;
+  const jobs = usePolledResource<ReturnType<typeof jobNavigationStatus>>("/api/robin/jobs?view=navigation", 60_000).data;
   const practice = usePolledResource<PracticeResponse>("/api/robin/practice", 60_000).data;
   const techEvents = usePolledResource<TechEventsResponse>("/api/robin/tech-events", 60_000).data;
   const rounds = usePolledResource<RoundsResponse>("/api/robin/rounds", 60_000).data;
@@ -217,9 +212,8 @@ export function RobinMargin({ drawer, onClose, onNavigate, chatContext }: {
   const mailItems = gmail?.review?.items ?? [];
   // The Email page's own "needs you" count, so the badge and the page never disagree.
   const gmailActions = mailItems.filter((item) => triageOf(item) === "act").length;
-  const jobItems = jobs?.jobs ?? [];
-  const jobsActions = jobItems.filter((job) => job.status === "shortlist").length;
-  const jobsNew = jobItems.some((job) => job.status === "new");
+  const jobsActions = jobs?.shortlist ?? 0;
+  const jobsNew = jobs?.hasNew ?? false;
   // OAs due within two days or already overdue — the ones to do something about now.
   const roundActions = pressingAssessments(rounds?.rounds ?? []);
   const upcomingEvents = (techEvents?.events ?? []).some((event) => !event.hidden);

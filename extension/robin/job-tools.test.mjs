@@ -21,6 +21,21 @@ const tools = new Map();
 registerJobTools({ registerTool(tool) { tools.set(tool.name, tool); } });
 const invoke = async (name, params = {}) => (await tools.get(name).execute("test", params)).content.map(part => part.text ?? "").join("\n");
 
+test("job_list shows canonical duplicate requisitions once without changing stored records", async () => {
+  const now = new Date().toISOString();
+  writeJobs([
+    { id: "direct", title: "New Grad Engineer", company: "Acme", location: "Remote", source: "ashby", url: "https://jobs.ashbyhq.com/acme/role-1", status: "new", discoveredAt: now, score: 4.5 },
+    { id: "mirror", title: "Software Engineer", company: "ACME", location: "Remote", source: "simplify", url: "https://jobs.ashbyhq.com/acme/role-1/application?embed=true", status: "new", discoveredAt: now, score: 4 },
+    { id: "applied", title: "Software Engineer", company: "Acme", location: "Remote", source: "ashby", url: "https://jobs.ashbyhq.com/acme/role-1", status: "applied", discoveredAt: now, score: 4 },
+  ]);
+  const listed = await invoke("job_list", { limit: 10 });
+  assert.match(listed, /\(\+1 same-stage listings/);
+  assert.match(listed, /direct/);
+  assert.match(listed, /applied/);
+  assert.doesNotMatch(listed, /mirror/);
+  assert.equal(readJobs().length, 3);
+});
+
 test("the scoring tools expose summaries first, full evidence on demand, and a verified recommendation", async () => {
   const cv = "Built production FastAPI backends and LangGraph agent workflows.";
   const quote = "Requirements: Build Python backends and agent workflows.";

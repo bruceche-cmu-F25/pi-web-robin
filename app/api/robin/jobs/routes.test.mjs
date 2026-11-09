@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { gunzipSync } from "node:zlib";
 import { after, test } from "node:test";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -27,6 +28,7 @@ const scoreRoute = await jiti.import("./score/route.ts");
 const sweepRoute = await jiti.import("./sweep/route.ts");
 const scanRoute = await jiti.import("./scan/route.ts");
 const backgroundRuns = await jiti.import("../../../../extension/robin/background-run-domain.ts");
+const jobsRoute = await jiti.import("./route.ts");
 const profileRoute = await createJiti(import.meta.url, { alias: { "@": process.cwd() } }).import("./profile/route.ts");
 const request = (body = {}) => new Request("http://localhost/api/robin/jobs", {
   method: "POST", headers: { "Content-Type": "application/json", Host: "localhost", Origin: "http://localhost" }, body: JSON.stringify(body),
@@ -42,6 +44,60 @@ async function waitForRun() {
   }
   assert.fail("scoring did not settle");
 }
+
+test("navigation GET is bounded, read-only and leaves the full board available", async () => {
+  writeJobs([posting, { ...posting, id: "saved", status: "shortlist", description: "x".repeat(50_000) }]);
+  const before = readJobs();
+  const get = (query = "") => new Request(`http://localhost/api/robin/jobs${query}`, { headers: { Host: "localhost" } });
+  const response = await jobsRoute.GET(get("?view=navigation"));
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("Cache-Control"), "no-store");
+  assert.deepEqual(await response.json(), { shortlist: 1, hasNew: true });
+  assert.deepEqual(readJobs(), before);
+  const board = await (await jobsRoute.GET(get())).json();
+  assert.equal(board.jobs.length, 2);
+  assert.ok("minScore" in board && "scan" in board);
+  assert.deepEqual(await (await jobsRoute.GET(get("?view=unknown"))).json(), board);
+});
+
+test("status-scoped GET retains global cards, supports history/all, and rejects invalid scope", async () => {
+  writeJobs([{ ...posting, ref: { board: "fixture", id: "opaque" }, scoredBy: "private-model", scoreContext: "binding" }, { ...posting, id: "copy" }, { ...posting, id: "history", status: "applied" }]);
+  const get = query => jobsRoute.GET(new Request(`http://localhost/api/robin/jobs${query}`, { headers: { Host: "localhost" } }));
+  const before = readJobs();
+  const full = await (await get("")).json();
+  const scoped = await (await get("?status=new")).json();
+  assert.deepEqual(scoped.jobs, full.jobs.filter(job => job.status === "new"));
+  assert.deepEqual(scoped.cards.map(card => card.ids.length).sort(), [1, 2]);
+  assert.equal(scoped.scope, "new");
+  assert.deepEqual((await (await get("?status=applied")).json()).jobs, full.jobs.filter(job => job.status === "applied"));
+  assert.deepEqual((await (await get("?status=all")).json()).jobs, full.jobs);
+  const cardView = await (await get("?status=new&view=cards")).json();
+  const expectedCards = structuredClone(scoped);
+  for (const job of expectedCards.jobs) for (const field of ["ref", "alternateUrls", "yearsRequired", "scoredAt", "scoredBy", "scoreContext"]) delete job[field];
+  assert.deepEqual(cardView, expectedCards);
+  assert.equal((await get("?status=invalid")).status, 400);
+  assert.deepEqual(readJobs(), before);
+});
+
+test("the full job board negotiates gzip without changing its JSON or navigation payload", async () => {
+  writeJobs(Array.from({ length: 30 }, (_, i) => ({ ...posting, id: `role-${i}`, reason: "Repeated board evidence ".repeat(20) })));
+  const get = (encoding, query = "") => jobsRoute.GET(new Request(`http://localhost/api/robin/jobs${query}`, {
+    headers: { Host: "localhost", "Accept-Encoding": encoding },
+  }));
+  const plain = await get("identity");
+  const plainText = await plain.text();
+  const compressed = await get("gzip");
+  assert.equal(compressed.headers.get("Content-Encoding"), "gzip");
+  assert.match(compressed.headers.get("Vary"), /Accept-Encoding/);
+  assert.equal(compressed.headers.get("Cache-Control"), "no-store");
+  const bytes = Buffer.from(await compressed.arrayBuffer());
+  assert.equal(gunzipSync(bytes).toString(), plainText);
+  assert.ok(bytes.length < Buffer.byteLength(plainText) / 2);
+  assert.equal((await get("gzip;q=0")).headers.get("Content-Encoding"), null);
+  const navigation = await get("gzip", "?view=navigation");
+  assert.equal(navigation.headers.get("Content-Encoding"), null);
+  assert.deepEqual(await navigation.json(), { shortlist: 0, hasNew: true });
+});
 
 test("a no-progress scoring round stops once, reports an error and leaves the pipeline alone", async () => {
   writeJobProfile({ ...DEFAULT_JOB_PROFILE, scoreBatch: 1 });

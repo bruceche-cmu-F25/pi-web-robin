@@ -15,7 +15,7 @@
  * that survived the block list.
  */
 
-import { experienceProblem, hasSubstantiveDescription, needsJobScoring, pushReviewProblem, type JobReview } from "./job-evidence.ts";
+import { experienceProblem, hasSubstantiveDescription, needsJobScoring, pushReviewProblem, scoringContext, type JobReview } from "./job-evidence.ts";
 export {
   cleanPostingDescription,
   extractYearsRequired,
@@ -222,7 +222,7 @@ export const DEFAULT_JOB_PROFILE: JobProfile = {
   ],
   excludeTitles: [],
   locationAlways: [],
-  locationAllow: ["Remote", "United States", "San Francisco", "Bay Area"],
+  locationAllow: ["Bay Area", "US Remote"],
   locationBlock: [],
   companies: [],
   // Four public, no-auth feeds are on from the start so the very first [SCAN]
@@ -421,10 +421,30 @@ export const EXCLUDE_PRESETS: readonly JobPreset[] = [
   },
 ];
 
+// Common employment hubs can stand alone in ATS location labels.
 const BAY_AREA_CITIES = [
   "San Francisco", "South San Francisco", "Palo Alto", "Mountain View", "Sunnyvale",
   "Santa Clara", "San Jose", "Redwood City", "Menlo Park", "Cupertino", "Oakland",
   "San Mateo", "San Bruno", "Foster City", "Burlingame", "Fremont", "Berkeley", "San Carlos",
+  "Emeryville", "Milpitas", "Los Gatos", "Los Altos", "East Palo Alto", "San Leandro",
+  "Hayward", "Daly City", "Union City", "Pleasanton", "Millbrae", "Walnut Creek",
+];
+// The remaining incorporated cities in the nine Bay Area counties need a CA suffix:
+// Richmond, Dublin, Fairfield etc. also name cities outside the Bay Area.
+const BAY_AREA_CA_CITIES = [
+  "Alameda", "Albany", "Dublin", "Livermore", "Newark", "Piedmont",
+  "Antioch", "Brentwood", "Clayton", "Concord", "Danville", "El Cerrito", "Hercules",
+  "Lafayette", "Martinez", "Moraga", "Oakley", "Orinda", "Pinole", "Pittsburg",
+  "Pleasant Hill", "Richmond", "San Pablo", "San Ramon",
+  "Belvedere", "Corte Madera", "Fairfax", "Larkspur", "Mill Valley", "Novato",
+  "Ross", "San Anselmo", "San Rafael", "Sausalito", "Tiburon",
+  "American Canyon", "Calistoga", "Napa", "St Helena", "Yountville",
+  "Atherton", "Belmont", "Brisbane", "Colma", "Half Moon Bay", "Hillsborough",
+  "Pacifica", "Portola Valley", "Woodside",
+  "Campbell", "Gilroy", "Los Altos Hills", "Monte Sereno", "Morgan Hill", "Saratoga",
+  "Benicia", "Dixon", "Fairfield", "Rio Vista", "Suisun City", "Vacaville", "Vallejo",
+  "Cloverdale", "Cotati", "Healdsburg", "Petaluma", "Rohnert Park", "Santa Rosa",
+  "Sebastopol", "Sonoma", "Windsor",
 ];
 
 export const LOCATION_PRESETS: readonly JobPreset[] = [
@@ -432,7 +452,7 @@ export const LOCATION_PRESETS: readonly JobPreset[] = [
     id: "sfbay",
     locationAllow: ["Bay Area", ...BAY_AREA_CITIES],
   },
-  { id: "remoteus", locationAllow: ["Remote", "United States", "USA", "US"] },
+  { id: "remoteus", locationAllow: ["US Remote"] },
   { id: "nyc", locationAllow: ["New York", "NYC", "Brooklyn"] },
   { id: "seattle", locationAllow: ["Seattle", "Bellevue", "Redmond"] },
   {
@@ -633,8 +653,13 @@ export interface LocationRules {
  * and it is a different place either way.
  */
 function compileLocationTerm(term: string): (lowerLocation: string) => boolean {
+  // A country alone must not turn every onsite US city into a remote match.
+  // Bare "Remote" has unknown eligibility; require the location to say US.
+  if (term === "us remote") return (lower) =>
+    /(?:^|[^a-z])remote(?![a-z])/.test(lower)
+    && /(?:^|[^a-z])(?:us|usa|united states|u\.s\.?)(?![a-z])/.test(lower);
   if (term === "bay area" || term === "san francisco bay area") {
-    const metro = new RegExp(`(?<![a-z])(?:bay area|${BAY_AREA_CITIES.join("|")})(?![a-z])`, "i");
+    const metro = new RegExp(`(?:^|[^a-z])(?:bay area|${BAY_AREA_CITIES.join("|")})(?![a-z])|(?:^|[^a-z])(?:${BAY_AREA_CA_CITIES.join("|")})\\s*,?\\s*(?:ca|california)(?![a-z])`, "i");
     return (lower) => metro.test(lower);
   }
   if (!/^[a-z]+(?: [a-z]+)*$/.test(term)) return (lower) => lower.includes(term);
@@ -663,7 +688,7 @@ export function buildLocationFilter(rules: LocationRules): (location: string) =>
 
   return (location: string) => {
     const lower = location.trim().toLowerCase();
-    if (!lower) return true;
+    if (!lower) return !rules.allow.some((term) => term.trim().toLowerCase() === "us remote");
     if (always.some((matches) => matches(lower))) return true;
     const allowed = (place: string) => allow.length === 0 || allow.some((matches) => matches(place));
     if (!block.some((matches) => matches(lower))) return allowed(lower);
@@ -776,8 +801,22 @@ export function sortJobs(jobs: Job[]): Job[] {
  * scored the job before a description was available. A posting whose stated
  * requirement the candidate cannot meet is not a 3.9 — it is not a push.
  */
-export function digestCandidates(jobs: Job[], profile: JobProfile, now: number = Date.now()): Job[] {
+export function digestCandidates(jobs: Job[], profile: JobProfile, now: number = Date.now(),
+  policy: { exploratoryApplications?: boolean } = {}): Job[] {
   const maxYears = profile.maxYears > 0 ? profile.maxYears : null;
+  // Exploratory applications still require a scored, current posting and the ordinary
+  // eligibility gates. Missing/short JD is uncertainty, not a claim of verified fit.
+  const evidenceReady = (job: Job) => {
+    const flags = job.flags ?? [];
+    if (policy.exploratoryApplications && (flags.some(flag => /^(?:blocked-|unsupported-)|clearance|itar|export[- ]control|us[- ]person|citizenship|mismatched-title|duplicate-posting|timezone-mismatch|required-transcript|senior-level/i.test(flag))
+      || Object.values(job.review?.checks ?? {}).some(check => check.status === "blocked"))) return false;
+    if (hasSubstantiveDescription(job.description) && !needsJobScoring(job, profile)
+      && pushReviewProblem(job, profile) === null) return true;
+    if (!policy.exploratoryApplications || job.scoreStale || !job.scoreContext
+      || job.scoreContext !== scoringContext(job, profile)) return false;
+    return !flags.includes("verification-failed")
+      || (!hasSubstantiveDescription(job.description) && flags.includes("incomplete-jd"));
+  };
   const cutoff = profile.sinceDays > 0
     ? new Date(now - profile.sinceDays * 86_400_000).toISOString().slice(0, 10) : null;
   const matchesTitle = buildTitleFilter(profile.titles, profile.excludeTitles);
@@ -804,12 +843,10 @@ export function digestCandidates(jobs: Job[], profile: JobProfile, now: number =
       && matchesTitle(job.title) !== null
       && matchesLocation(job.location)
       && (!cutoff || (job.postedAt ?? job.discoveredAt.slice(0, 10)) >= cutoff)
-      && hasSubstantiveDescription(job.description)
       && experienceProblem(job, profile) !== "blocked-experience"
       && typeof job.score === "number"
-      && job.score >= profile.minScore
-      && !needsJobScoring(job, profile)
-      && pushReviewProblem(job, profile) === null
+      && job.score >= (policy.exploratoryApplications ? 3.5 : profile.minScore)
+      && evidenceReady(job)
       // Absent means the posting never said, which is not a reason to drop it.
       && (maxYears === null || job.yearsRequired === undefined || job.yearsRequired <= maxYears)),
   ).filter((job) => {
@@ -831,6 +868,44 @@ export function roleKey(job: Pick<Job, "company" | "title">): string {
   return `${fold(job.company).replace(/ /g, "")}|${fold(job.title)}`;
 }
 
+/** Group display copies without collapsing stored requisitions or their application history.
+ * A provider can call the same ATS id by different titles; title-only grouping
+ * misses those copies. Never trust a shared alias across different employers.
+ */
+export function groupJobCopies<T extends Pick<Job, "status" | "company" | "title" | "url" | "alternateUrls">>(jobs: T[]): T[][] {
+  const parent = jobs.map((_, index) => index);
+  const find = (index: number): number => {
+    while (parent[index] !== index) index = parent[index]!;
+    return index;
+  };
+  const keys = new Map<string, number>();
+  jobs.forEach((job, index) => {
+    const role = roleKey(job);
+    const employer = role.split("|")[0];
+    const copies = [
+      `role:${job.status}:${role}`,
+      ...[job.url, ...(job.alternateUrls ?? [])]
+        // Legacy short-link aliases can point at unrelated requisitions; only
+        // the resolved posting is evidence that two rows have the same identity.
+        .filter(url => !url.startsWith("https://go.vansh.nyc/"))
+        .map(url => `url:${job.status}:${employer}:${jobKey(url)}`),
+    ];
+    for (const key of copies) {
+      const previous = keys.get(key);
+      if (previous !== undefined) parent[find(index)] = find(previous);
+      else keys.set(key, index);
+    }
+  });
+  const groups = new Map<number, T[]>();
+  jobs.forEach((job, index) => {
+    const root = find(index);
+    const group = groups.get(root);
+    if (group) group.push(job);
+    else groups.set(root, [job]);
+  });
+  return [...groups.values()];
+}
+
 /**
  * Applied jobs, most recently sent first — the order you actually browse them
  * in. Rows applied before the timestamp existed sort last rather than being
@@ -849,12 +924,16 @@ export function pendingJobs(jobs: Job[], profile?: JobProfile, now: number = Dat
   const matchesTitle = profile && buildTitleFilter(profile.titles, profile.excludeTitles);
   const matchesLocation = profile && buildLocationFilter({ always: profile.locationAlways, allow: profile.locationAllow, block: profile.locationBlock });
   return jobs
-    .filter((job) => needsJobScoring(job, profile)
+    // Cheap exclusions first: hashing JD/profile and validating evidence is
+    // unnecessary for a role that cannot enter this queue. Shortlists still
+    // bypass discovery filters, never the evidence check.
+    .filter((job) => (job.status === "new" || job.status === "shortlist")
       && (job.status === "shortlist" || (!profile || (
         (!cutoff || (job.postedAt ?? job.discoveredAt.slice(0, 10)) >= cutoff)
         && matchesTitle!(job.title) !== null
         && matchesLocation!(job.location)
-        && !isBlacklisted(job.company, profile.blacklist)))))
+        && !isBlacklisted(job.company, profile.blacklist))))
+      && needsJobScoring(job, profile))
     .sort((a, b) => profile
       ? (b.postedAt ?? b.discoveredAt.slice(0, 10)).localeCompare(a.postedAt ?? a.discoveredAt.slice(0, 10))
         || b.discoveredAt.localeCompare(a.discoveredAt)

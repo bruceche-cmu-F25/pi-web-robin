@@ -26,6 +26,7 @@ import {
   extractYearsRequired,
   isBlacklisted,
   jobKey,
+  roleKey,
   type Job,
   type JobProfile,
 } from "./jobs.ts";
@@ -41,7 +42,18 @@ import { newId } from "./paths.ts";
 import { readJobs, updateJobs } from "./store.ts";
 
 /** A posting plus the provider that produced it — providers do not label themselves. */
-export type ScannedPosting = RawPosting & { source: string };
+export type ScannedPosting = RawPosting & { source: string; sourceId?: string };
+
+/** Run-local loss counters; the persisted rows never carry scan bookkeeping. */
+export interface IntakeFunnel {
+  admitted: number;
+  duplicates: number;
+  admittedBySource: Record<string, number>;
+  addedBySource: Record<string, number>;
+  duplicatesBySource: Record<string, number>;
+  missingJdBySource?: Record<string, number>;
+  addedUrlsBySource?: Record<string, string[]>;
+}
 
 /** Optional ownership fence for a store mutation after network work. */
 export interface JobStoreWrite {
@@ -95,7 +107,11 @@ export function freshnessCutoff(sinceDays: number, now: number = Date.now()): st
  * per-source match counters — handing it an array to filter would mean
  * counting the survivors a second time somewhere else.
  */
-export function compileAdmission(rules: IntakeRules): (posting: RawPosting) => boolean {
+export type AdmissionRejection = "date" | "title" | "location" | "blacklist";
+export function compileAdmission(
+  rules: IntakeRules, rejected?: (reason: AdmissionRejection) => void,
+  allowUnknownBeforeHydration = false,
+): (posting: RawPosting) => boolean {
   const { profile } = rules;
   const matchesTitle = buildTitleFilter(profile.titles, profile.excludeTitles);
   const matchesLocation = buildLocationFilter({
@@ -109,13 +125,16 @@ export function compileAdmission(rules: IntakeRules): (posting: RawPosting) => b
     // Cheapest and most selective first, so a directory walk spends as little
     // as possible per posting.
     if (cutoff) {
-      if (!posting.postedAt) {
-        if (rules.undated === "drop") return false;
-      } else if (posting.postedAt < cutoff) return false;
+      const freshness = posting.postedAt ?? posting.firstSeenAt;
+      if (!freshness) {
+        if (rules.undated === "drop") { rejected?.("date"); return false; }
+      } else if (freshness < cutoff) { rejected?.("date"); return false; }
     }
-    if (matchesTitle(posting.title) === null) return false;
-    if (!matchesLocation(posting.location)) return false;
-    if (isBlacklisted(posting.company, profile.blacklist)) return false;
+    if (matchesTitle(posting.title) === null) { rejected?.("title"); return false; }
+    if (!matchesLocation(posting.location) && !(allowUnknownBeforeHydration && !posting.location.trim())) {
+      rejected?.("location"); return false;
+    }
+    if (isBlacklisted(posting.company, profile.blacklist)) { rejected?.("blacklist"); return false; }
     return true;
   };
 }
@@ -190,14 +209,26 @@ function mergePostings(
   postings: ScannedPosting[],
   profile: JobProfile,
   now: string = new Date().toISOString(),
-): { jobs: Job[]; added: number; updated: boolean } {
+): { jobs: Job[]; added: number; updated: boolean; duplicates: number;
+  addedBySource: Record<string, number>; duplicatesBySource: Record<string, number>;
+  addedUrlsBySource: Record<string, string[]> } {
   const maxYears = profile.maxYears > 0 ? profile.maxYears : null;
   const seen = new Map<string, Job>();
+  // Primary ATS URLs outrank legacy aliases, some of which were attached to
+  // the wrong employer by old short-link feeds.
+  for (const job of existing) seen.set(jobKey(job.url), job);
   for (const job of existing) {
-    for (const url of [job.url, ...(job.alternateUrls ?? [])]) seen.set(jobKey(url), job);
+    for (const url of job.alternateUrls ?? []) {
+      const key = jobKey(url);
+      if (!seen.has(key)) seen.set(key, job);
+    }
   }
   const added: Job[] = [];
   let updated = false;
+  let duplicates = 0;
+  const addedBySource: Record<string, number> = {};
+  const duplicatesBySource: Record<string, number> = {};
+  const addedUrlsBySource: Record<string, string[]> = {};
 
   for (const posting of postings) {
     let url: string;
@@ -207,10 +238,24 @@ function mergePostings(
       continue;
     }
     const keys = [url, ...(posting.alternateUrls ?? [])].map(jobKey);
-    const known = keys.map((key) => seen.get(key)).find(Boolean);
+    const employer = roleKey(posting).split("|")[0];
+    const canonical = jobKey(url);
+    const known = keys.map((key) => ({ key, job: seen.get(key) })).find(({ key, job }) => job
+      && ((key === canonical && jobKey(job.url) === canonical)
+        || roleKey(job).split("|")[0] === employer))?.job;
+    // A legacy alias already owned by another row is not evidence for this
+    // requisition. Do not perpetuate that collision on either stored row.
+    const aliases = (posting.alternateUrls ?? []).filter(alias => {
+      const owner = seen.get(jobKey(alias));
+      return !owner || owner === known;
+    });
     if (known) {
-      updated = enrichJob(known, { ...posting, url }) || updated;
-      for (const key of keys) seen.set(key, known);
+      duplicates++;
+      const origin = posting.sourceId ?? posting.source;
+      duplicatesBySource[origin] = (duplicatesBySource[origin] ?? 0) + 1;
+      updated = enrichJob(known, { ...posting, url, alternateUrls: aliases }) || updated;
+      if (!seen.has(canonical) || jobKey(seen.get(canonical)!.url) !== canonical) seen.set(canonical, known);
+      for (const key of aliases.map(jobKey)) if (!seen.has(key)) seen.set(key, known);
       continue;
     }
     const years = posting.description ? extractYearsRequired(posting.description) : null;
@@ -233,7 +278,7 @@ function mergePostings(
       source: posting.source,
       ...(posting.description ? { description: posting.description } : {}),
       ...(posting.ref ? { ref: posting.ref } : {}),
-      ...(posting.alternateUrls?.length ? { alternateUrls: posting.alternateUrls } : {}),
+      ...(aliases.length ? { alternateUrls: aliases } : {}),
       // The description is the bounded full posting, not the scorer's summary.
       ...(years === null ? {} : { yearsRequired: years }),
       ...(overExperienced ? { flags: [`asks ${years}+ yrs`] } : {}),
@@ -241,10 +286,15 @@ function mergePostings(
       status: overExperienced ? "dropped" : "new",
     };
     added.push(job);
-    for (const key of keys) seen.set(key, job);
+    const origin = posting.sourceId ?? posting.source;
+    addedBySource[origin] = (addedBySource[origin] ?? 0) + 1;
+    if (job.status === "new") (addedUrlsBySource[origin] ??= []).push(url);
+    if (!seen.has(canonical) || jobKey(seen.get(canonical)!.url) !== canonical) seen.set(canonical, job);
+    for (const key of aliases.map(jobKey)) if (!seen.has(key)) seen.set(key, job);
   }
 
-  return { jobs: [...existing, ...added], added: added.length, updated };
+  return { jobs: [...existing, ...added], added: added.length, updated, duplicates,
+    addedBySource, duplicatesBySource, addedUrlsBySource };
 }
 
 /** Move untouched rows out of the active list after two weeks. */
@@ -281,10 +331,12 @@ export async function absorb(
   rules: IntakeRules,
   ctx: FetchContext,
   write: JobStoreWrite = directWrite,
+  funnel?: IntakeFunnel,
 ): Promise<{ added: number }> {
   if (postings.length > 0) {
     await hydrateDescriptions(postings, ctx, {
       readUnknownBoards: rules.profile.readUnknownBoards,
+      trustedCompanies: rules.profile.companies,
     });
   }
   const added = write(() => updateJobs((jobs) => {
@@ -292,7 +344,24 @@ export async function absorb(
     const pruned = pruneJobs(jobs);
     // Detail endpoints can replace an unknown location or estimated date.
     // Those authoritative fields must clear the same gates as list metadata.
-    const merged = mergePostings(pruned, admitPostings(postings, rules), rules.profile);
+    const admitted = admitPostings(postings, rules);
+    const merged = mergePostings(pruned, admitted, rules.profile);
+    if (funnel) {
+      funnel.admitted = admitted.length;
+      funnel.duplicates = merged.duplicates;
+      funnel.addedBySource = merged.addedBySource;
+      funnel.duplicatesBySource = merged.duplicatesBySource;
+      funnel.addedUrlsBySource = merged.addedUrlsBySource;
+      funnel.admittedBySource = {};
+      funnel.missingJdBySource = {};
+      for (const posting of admitted) {
+        const origin = posting.sourceId ?? posting.source;
+        funnel.admittedBySource[origin] = (funnel.admittedBySource[origin] ?? 0) + 1;
+        if (!hasSubstantiveDescription(posting.description)) {
+          funnel.missingJdBySource[origin] = (funnel.missingJdBySource[origin] ?? 0) + 1;
+        }
+      }
+    }
     const changed = autoDropped > 0 || pruned.length !== jobs.length || merged.added > 0 || merged.updated;
     if (changed) jobs.splice(0, jobs.length, ...merged.jobs);
     return { value: merged.added, changed };

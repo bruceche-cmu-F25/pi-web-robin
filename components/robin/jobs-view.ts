@@ -1,4 +1,4 @@
-import { appliedJobs, roleKey, sortJobs, type Job } from "../../extension/robin/jobs.ts";
+import { appliedJobs, groupJobCopies, sortJobs, type Job } from "../../extension/robin/jobs.ts";
 
 export type JobOrder = "priority" | "recent";
 export type JobBand = "high" | "consider" | "unscored" | "below";
@@ -13,14 +13,8 @@ export function jobBand(job: Job, minScore: number): JobBand {
 
 /** Count and act on the same cards. Copies in another pipeline stage stay separate. */
 export function groupJobRoles(jobs: Job[], applied = false): JobGroup[] {
-  const roles = new Map<string, JobGroup>();
-  for (const job of applied ? appliedJobs(jobs) : sortJobs(jobs)) {
-    const key = `${job.status}:${roleKey(job)}`;
-    const group = roles.get(key);
-    if (group) group.also.push(job);
-    else roles.set(key, { job, also: [] });
-  }
-  return [...roles.values()];
+  return groupJobCopies(applied ? appliedJobs(jobs) : sortJobs(jobs))
+    .map(([job, ...also]) => ({ job, also }));
 }
 
 /** Search after grouping so a location match never drops a card's other sources. */

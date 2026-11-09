@@ -234,7 +234,7 @@ function OpenRow({ round, now, onStatus, onEdit, onDelete, busy }: {
  * read first. Rounds arrive from the daily mail review on their own; the scan
  * is for mail that predates it.
  */
-export function RoundsSection() {
+export function RoundsSection({ compact = false }: { compact?: boolean }) {
   const { t, locale } = useI18n();
   const { data, error, loading, refresh } = usePolledResource<RoundsResponse>("/api/robin/rounds", 60_000);
   const [now, setNow] = useState(() => Date.now());
@@ -371,7 +371,7 @@ export function RoundsSection() {
     : null;
 
   return (
-    <section className={`pi-card ${styles.card}`} aria-labelledby="jobs-rounds">
+    <section id="job-rounds" className={`pi-card scroll-mt-24 ${styles.card} ${compact ? styles.compact : ""}`} aria-labelledby="jobs-rounds">
       <header className={styles.head}>
         <div>
           <h2 id="jobs-rounds" className="pi-label">{t("robin.rounds.title")}</h2>
