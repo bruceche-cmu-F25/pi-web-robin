@@ -50,13 +50,14 @@ try {
       });
       else assert.equal(await page.locator('[data-glass-refraction]').count(), 0);
     };
-    const expectMaterial = async (selector, kind) => {
-      await expectOptics(selector);
+    const expectMaterial = async (selector, kind, svg = optics) => {
+      if (svg) await expectOptics(selector);
+      else assert.equal(await page.locator(selector).getAttribute('data-glass-refraction'), null);
       await page.waitForFunction(({ selector, kind, optics }) => {
         const el = document.querySelector(selector), style = getComputedStyle(el);
         const filter = document.getElementById(el.dataset.glassRefraction);
         return style.getPropertyValue('--glass-material').trim() === kind && (!optics || Number(filter?.querySelector('feGaussianBlur')?.getAttribute('stdDeviation')) === (kind === 'frost' ? 10 : .7));
-      }, { selector, kind, optics });
+      }, { selector, kind, optics: svg });
     };
     const surface = selector => page.locator(selector).first().evaluate(el => {
       const s = getComputedStyle(el);
@@ -119,8 +120,8 @@ try {
       await page.screenshot({ path: `${output}/settings-models.png` });
       await page.locator('.settings-section-tabs').getByRole('button', { name: 'General', exact: true }).click();
     }
-    await theme("Glass").focus(); await page.keyboard.press("ArrowLeft"); await expectTheme("matrix");
-    await page.keyboard.press("ArrowRight"); await expectTheme("glass");
+    await theme("Glass").focus(); await page.keyboard.press("ArrowRight"); await expectTheme("glass-dark");
+    await page.keyboard.press("ArrowLeft"); await expectTheme("glass");
     await theme("Light").locator("..").click(); await expectTheme("light");
     assert.deepEqual(await surface(".settings-dialog-surface"), oldMaterial, "Other themes retain their original material");
     await page.waitForFunction(() => !document.querySelector('[data-liquid-glass-defs], [data-glass-refraction]'));
@@ -143,15 +144,15 @@ try {
     assert.match((await surface(".sidebar-container")).filter, /blur|url/);
     assert.match((await surface(".pi-topbar")).background, /0\.3\)/);
     assert.equal((await surface('.pi-topbar')).radius, '38px');
-    await expectMaterial('.pi-topbar', 'clear');
+    await expectMaterial('.pi-topbar', 'clear', false);
     if (width >= 641) {
       await expectMaterial('.sidebar-container', 'frost');
       assert.match((await surface('.sidebar-container')).background, /0\.48\)/);
     }
     assert.ok(parseFloat(await page.locator('.pi-topbar').evaluate(el => getComputedStyle(el).marginTop)) >= 8, 'Toolbar floats off the edge');
     const composer = '.chat-input-surface:not(.is-compact)';
-    await expectMaterial(composer, 'clear');
-    assert.match((await surface(composer)).filter, optics ? /url\(/ : /blur/);
+    await expectMaterial(composer, 'clear', false);
+    assert.match((await surface(composer)).filter, /^blur\(/);
     assert.equal((await surface(composer)).radius, '38px');
     assert.equal((await surface(".session-sidebar")).filter, "none", "The sidebar has only one material layer");
     assert.equal(await page.locator('.chat-shell').evaluate(el => {
@@ -176,7 +177,7 @@ try {
     if (width >= 960) await checkPaletteFrost(page, output);
     const paletteFilter = await palette.getAttribute('data-glass-refraction');
     await page.keyboard.press('Escape');
-    await palette.waitFor({ state: 'detached' });
+    await palette.waitFor({ state: 'hidden' });
     if (paletteFilter) await page.waitForFunction(id => !document.getElementById(id), paletteFilter);
     await page.waitForFunction(() => document.activeElement === document.querySelector('.chat-input-textarea'));
     assert.equal(await page.locator('.chat-input-textarea').inputValue(), 'The theme changes; this draft stays.');
@@ -195,12 +196,11 @@ try {
       const left = pixel(w * .25), right = pixel(w * .75);
       assert.ok(right[0] - left[0] >= 25 && left[2] - right[2] >= 15, `Backdrop colours must show through the centre: ${left}, ${right}`);
       const nearLeft = pixel(w / 2 - 2), nearRight = pixel(w / 2 + 2);
-      if (!optics) assert.ok(Math.abs(nearRight[0] - nearLeft[0]) >= 20, 'Clear fallback retains detail instead of reverting to the old 18px frost');
+      assert.ok(Math.abs(nearRight[0] - nearLeft[0]) >= 20, 'CSS glass retains detail instead of reverting to the old 18px frost');
       const luminance = rgb => rgb.map(v => { v /= 255; return v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4; }).reduce((sum, v, i) => sum + v * [.2126, .7152, .0722][i], 0);
       const ink = await page.locator('.chat-input-textarea').evaluate(el => getComputedStyle(el).color.match(/[\d.]+/g).slice(0, 3).map(Number));
       for (const background of [left, right, nearLeft, nearRight]) assert.ok((luminance(background) + .05) / (luminance(ink) + .05) >= 4.5, 'Rendered frosted centre keeps readable text');
       await page.locator(composer).evaluate((el, background) => { el.parentElement.style.background = background; }, oldBackground);
-      if (optics) await checkRefraction(page, composer, output);
       // Floating geometry must also work with both horizontal navigation modes.
       await openChatSettings();
       const placement = page.getByRole('radiogroup', { name: 'Global navigation', exact: true });
@@ -230,6 +230,7 @@ try {
     }
     assert.equal(await page.locator('.robin-shell').evaluate(el => getComputedStyle(el).backgroundImage === getComputedStyle(document.documentElement).backgroundImage), true);
     await page.screenshot({ path: `${output}/dashboard-${width}.png` });
+    if (optics && width >= 960) await checkRefraction(page, '.robin-dashboard-header .robin-assistant-bar', output);
     await page.keyboard.press('Control+k');
     await expectMaterial('.robin-command-dialog', 'frost');
     await page.emulateMedia({ contrast: 'more' });

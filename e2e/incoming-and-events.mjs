@@ -55,6 +55,10 @@ try {
     await page.locator(`#incoming-${id}`).waitFor({ state: "visible" });
   };
   await page.getByRole("heading", { name: "每周七件事，每天读懂一件。" }).waitFor();
+  assert.ok(await sources.evaluate((nav) => {
+    const child = nav.parentElement.querySelector("#incoming-ai .robin-dashboard");
+    return getComputedStyle(nav).overflowX === "visible" && child && getComputedStyle(child).backgroundColor === "rgba(0, 0, 0, 0)";
+  }), "the incoming tabs are not clipped and the content shares their ground");
   assert.equal(podcastReads, 0, "unvisited podcast panel does not fetch");
   assert.equal(await page.locator('.robin-nav-entry[href^="/podcasts"]').count(), 0);
   await page.getByRole("button", { name: /关注方向与交付/ }).click();
@@ -94,10 +98,14 @@ try {
     await page.setViewportSize({ width, height: 900 });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `Incoming overflow at ${width}`);
     if (width <= 375) {
-      const tops = await sources.getByRole("button").evaluateAll((buttons) => buttons.map((button) => button.getBoundingClientRect().top));
-      assert.ok(Math.max(...tops) - Math.min(...tops) < 1, "three mobile selectors stay on one row");
-      assert.ok((await sources.boundingBox()).height <= 56, "one row plus the capsule's inset");
-      assert.ok(await sources.getByRole("button").evaluateAll((buttons) => buttons.every((button) => button.getBoundingClientRect().height >= 44)));
+      assert.ok(await sources.getByRole("button").evaluateAll((buttons) => {
+        const nav = buttons[0].parentElement.getBoundingClientRect();
+        const top = buttons[0].getBoundingClientRect().top;
+        return buttons.length === 4 && buttons.every((button) => {
+          const box = button.getBoundingClientRect();
+          return box.height >= 44 && Math.abs(box.top - top) < 1 && box.left >= nav.left && box.right <= nav.right && box.bottom <= nav.bottom && button.scrollWidth <= button.clientWidth;
+        });
+      }), "four mobile selectors fit legibly on one unclipped row");
     }
   }
   await page.screenshot({ path: `${screenshots}/podcasts-desktop.png` });
@@ -106,6 +114,10 @@ try {
   assert.equal(new URL(page.url()).searchParams.get("session"), "old-bookmark");
   await page.goto("/dashboard/events");
   await page.getByRole("searchbox").waitFor();
+  assert.ok(await page.getByRole("navigation", { name: "求职视图" }).evaluate((nav) => {
+    const child = nav.nextElementSibling;
+    return getComputedStyle(nav).overflowX === "visible" && child && getComputedStyle(child).backgroundColor === "rgba(0, 0, 0, 0)";
+  }), "job tabs and content share an unclipped surface");
   const save = page.getByRole("button", { name: `收藏: ${event.title}`, exact: true }).first();
   await save.evaluate((button) => { button.click(); button.click(); });
   await page.locator('article[aria-busy="true"]').first().waitFor();

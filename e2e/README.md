@@ -187,6 +187,34 @@ viewport bounds, pointer entry/exit, Escape without reopening, and no layout shi
 Planning dates, estimates and
 links remain unchanged. Todo PATCH regression tests also run against SQLite and JSON.
 
+Session catalogue loading (existing server, all application APIs mocked):
+
+```sh
+PLAYWRIGHT_CHANNEL=chrome node --env-file-if-exists=.env.local e2e/session-list-loading.mjs
+```
+
+Checks that running-state/background polling does not start extra catalogue reads
+while the initial list is delayed; a version change during loading is still
+adopted, unchanged versions do not reload, and failed or timed-out reads release
+the guard for retry. It also holds a selected session's detail pending and checks
+that mount replay shares one forced history read and one live-state read while
+still rendering the reply. No real session, model or storage writes.
+
+`e2e/jobs-board.mjs` and `e2e/board-navigation.mjs` return status-scoped board
+fixtures with global card/overview metadata. They cover duplicates, search,
+status actions/undo, Applied ordering, pagination, delayed scope changes and
+history scroll restoration on desktop/mobile, without changing real jobs.
+
+CRM compact readback (all business APIs mocked; no sends or approvals):
+
+```sh
+PLAYWRIGHT_CHANNEL=chrome node --env-file-if-exists=.env.local e2e/crm-read-payload.mjs
+```
+
+Compares full and deferred-template fixtures at 1440/390px: identical header
+counts, current/legacy list access and personalized custom social previews. All
+writes are blocked, and no real contacts are read by the fixture.
+
 Model prompts, live model streaming, and agent execution are outside this suite.
 Failures save a screenshot, Playwright trace, and server log under
 `test-results/e2e/`; CI uploads that directory. Open a trace with

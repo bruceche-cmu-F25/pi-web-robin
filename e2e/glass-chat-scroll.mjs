@@ -46,6 +46,18 @@ try {
     const scroll = page.locator(".chat-transcript-scroll"), input = page.locator(".chat-input-textarea");
     await page.locator("[data-scroll-chrome]").waitFor();
     await input.fill("Unsent draft");
+    // Wait for the actual SVG engine, so an early assertion cannot pass merely
+    // because image decode has not installed the expensive backdrop yet.
+    await page.waitForFunction(() => document.querySelector('.sidebar-container[data-glass-refraction]'));
+    const expectCssChat = async () => {
+      assert.equal(await page.locator('.chat-main [data-glass-refraction]').count(), 0, 'Scrolling chat uses CSS glass, never SVG backdrop passes');
+      for (const selector of ['.pi-topbar', '.chat-input-surface', '[data-session-search-bar]']) {
+        for (const surface of await page.locator(`.chat-main ${selector}`).all()) {
+          assert.match(await surface.evaluate(el => getComputedStyle(el).backdropFilter), /^blur\(/, 'Keep the translucent CSS material');
+        }
+      }
+    };
+    await expectCssChat();
     for (const width of [1440, 812, 390, 320]) {
       await page.setViewportSize({ width, height: 900 });
       await page.waitForTimeout(150);
@@ -80,7 +92,8 @@ try {
       await searchButton.click();
       const search = page.locator("[data-session-search-bar]");
       await search.waitFor();
-      await page.waitForTimeout(100);
+      await page.waitForTimeout(250);
+      await expectCssChat();
       await scroll.evaluate(el => el.scrollTop = 0);
       assert.ok(await page.getByText("First prompt", { exact: true }).last().evaluate(el => el.getBoundingClientRect().top >= document.querySelector("[data-session-search-bar]").getBoundingClientRect().bottom), "Search chrome is included in the top inset");
       await search.locator("input").press("Escape");
@@ -115,6 +128,8 @@ try {
     await page.emulateMedia({ contrast: "more" });
     assert.equal(await page.locator(".chat-composer").evaluate(el => getComputedStyle(el, "::before").backdropFilter), "none");
     await page.emulateMedia({ contrast: "no-preference" });
+    await page.waitForFunction(() => document.querySelector('.sidebar-container[data-glass-refraction]'));
+    await expectCssChat();
     // Switching out of Glass restores the original layout without remounting the draft.
     await input.evaluate(el => { el.draftMarker = true; });
     await page.evaluate(() => document.documentElement.dataset.theme = "light");

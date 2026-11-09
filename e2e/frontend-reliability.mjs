@@ -164,7 +164,7 @@ async function jobs() {
     assert.equal(req.method(), "GET");
     const data = path === "/api/robin/jobs/score" ? { scoring: null, pending: 1, model: null }
       : path === "/api/robin/jobs/applications" ? { running: false, rows: [], counts: {}, today: 0, day: "2026-10-29", settings: { configured: false, enabled: false, at: "09:00", timeZone: "UTC", dailyLimit: 0 } }
-        : path === "/api/robin/jobs" ? { jobs: [], configured: true } : fallback;
+        : path === "/api/robin/jobs" ? { jobs: [{ id: "fixture-job", company: "Acme", title: "AI Engineer", location: "Remote", status: "new", source: "ashby", url: "https://example.com/job", score: 4.5, discoveredAt: "2026-10-29T10:00:00Z" }], minScore: 3.75, configured: true } : fallback;
     return route.fulfill({ json: data });
   });
   const page = await ctx.newPage(); page.on("pageerror", error => errors.push(error.message));
@@ -172,6 +172,9 @@ async function jobs() {
   const header = page.locator("main > header");
   await header.getByRole("button", { name: /scan/i }).click(); await wait(page, () => scans === 1);
   await header.getByRole("button", { name: /score.*1 waiting/i }).click(); await wait(page, () => scores === 1);
+  await page.goto("/dashboard#dashboard-jobs");
+  const panel = page.locator("section#dashboard-jobs"); await panel.waitFor({ state: "visible" });
+  await panel.getByRole("button", { name: /scan/i }).click(); await wait(page, () => scans === 2);
   assert.equal(await page.getByText("Content-Type must be application/json").count(), 0);
   await ctx.close();
 }

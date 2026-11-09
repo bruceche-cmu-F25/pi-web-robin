@@ -22,7 +22,6 @@ const fixtures = {
  '/api/robin/jobs':{jobs:[{id:'job',company:'Example',title:'Software Engineer',location:'Remote',source:'greenhouse',status:'new',url:'https://example.com/jobs/1',discoveredAt:now,score:4.5,reason:'后端经验与岗位相关，需要核实入职时间和工作许可要求。'}],scan:null,minScore:3.75,configured:true},
  '/api/robin/jobs/profile':{profile:DEFAULT_JOB_PROFILE,providers:[],presets:[],starterCompanies:[]}, '/api/robin/jobs/score':{scoring:null,pending:0,model:null}, '/api/robin/jobs/sweep':{sweep:null},
  '/api/robin/jobs/applications':{settings:{enabled:false,timeZone:'America/Los_Angeles',at:'09:00',dailyLimit:10,configured:false},running:false,day:today,today:0,todaySubmitted:0,legacy:0,counts:{},total:0,rows:[]},
- '/api/robin/kanban':{today,capacity:[],google:{connected:true},timezone:'UTC'},
  '/api/robin/planner':{today,to:'2026-11-06',todos:[],events:[],google:{connected:true},conflicts:[],minuteOfDay:600,timezone:'UTC',now,revision:'fixture'},
  '/api/robin/fso':{fullstack:fullstackPlan([]),notes:{},current:null},
  '/api/robin/settings':{notifications:{channel:'telegram'},google:{clientId:{set:false},clientSecret:{set:false},calendars:[]},notion:{apiToken:{set:false}},playwright:{extensionToken:{set:false}},storedAt:'/fixture/secrets.json',googleRedirectUri:`${baseURL}/api/robin/google/callback`,telegram:{botToken:{set:false},allowedChatIds:[],dailyAgenda:{enabled:false,time:'08:00',locale:'en'},jobDigest:{enabled:false,morning:'08:00',evening:'20:00',count:10,locale:'en',chatIds:[],sweepAt:'03:00'},gmailDigest:{enabled:false,time:'08:00',locale:'en',chatIds:[],query:'newer_than:1d'},reminders:{enabled:false,lead:30,locale:'en',chatIds:[]},transcription:{enabled:false,baseUrl:'https://api.openai.com/v1',model:'whisper-1',apiKey:{set:false}}}},
@@ -37,7 +36,7 @@ const fixtures = {
 };
 const pages = [
  ['home','/dashboard?view=daily'],['calendar','/dashboard?view=calendar'],['todos','/dashboard?view=todos'],['more','/dashboard?view=more'],
- ['mail','/dashboard/gmail'],['weekly','/dashboard/gmail?feed=ai'],['jobs','/dashboard/jobs'],['events','/dashboard/events'],['kanban','/dashboard/kanban'],['settings','/dashboard/settings'],
+ ['mail','/dashboard/gmail'],['weekly','/dashboard/gmail?feed=ai'],['jobs','/dashboard/jobs'],['events','/dashboard/events'],['settings','/dashboard/settings'],
  ['learn','/learn'],['course','/learn/roadmap?view=course'],['fso','/learn/fso'],['gpt2','/learn/gpt2'],['watch','/learn/watch'],['coding','/coding'],
  ['notes','/notes?draft=fixture'],['obsidian','/obsidian?vault=fixture&note=Sample.md&view=read'],['research','/research'],['research-project','/research?project=fixture'],['product','/product?idea=fixture'],['validation','/product/validation'],['tools','/tools'],['recordings','/recordings'],['outreach','/outreach/research'],['chat','/?cwd=%2Ftmp%2Ftype-fixture']
 ];

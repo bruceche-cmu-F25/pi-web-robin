@@ -20,7 +20,6 @@ const fixtures = {
   "/api/robin/jarvis": { leads: [lead], template: { subject: "Hello", body: "Sample template" }, run: null, outbox: { enabled: false }, daily: { enabled: false, count: 15, hour: 6 } },
   "/api/robin/google": { configured: true, connected: true, email: "sender@example.org", canSendGmail: true },
   "/api/robin/todos": { todos: [], today: "2026-10-27" },
-  "/api/robin/kanban": { capacity: [], google: { connected: false }, options: {} },
   "/api/robin/events": { events: [], today: "2026-10-27", google: { connected: false } },
   "/api/robin/tech-events": { events: [], today: "2026-10-27" },
   "/api/robin/jobs": { jobs: [] },
@@ -92,7 +91,7 @@ try {
   await page.setViewportSize({ width: 1440, height: 1000 });
   assert.equal(await navigation.isVisible(), true, "desktop navigation remains present after resizing");
 
-  for (const path of ["/research/heat", "/research/brief", "/research/report", "/research/code", "/research/run", "/research/urrag", "/learn/map", "/design/rounded-surfaces.html", "/prototypes/global-sidebar.html", "/prototypes/learning-atlas.html"]) {
+  for (const path of ["/dashboard/kanban", "/api/robin/kanban", "/research/heat", "/research/brief", "/research/report", "/research/code", "/research/run", "/research/urrag", "/learn/map", "/design/rounded-surfaces.html", "/prototypes/global-sidebar.html", "/prototypes/learning-atlas.html"]) {
     assert.equal((await context.request.get(path)).status(), 404, `${path} is retired`);
   }
   for (const path of ["/learn/gpt2", "/learn/watch"]) assert.equal((await context.request.get(path)).status(), 200, `${path} remains available`);
@@ -142,9 +141,6 @@ try {
   assert.equal(await page.getByRole("combobox", { name: "工作区", exact: true }).inputValue(), "review");
   await noOverflow(); await page.screenshot({ path: `${shots}/crm-narrow-zh-dark.png` });
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto("/dashboard/kanban");
-  await page.locator('.robin-nav-entry[aria-current="page"]').waitFor();
-  assert.ok((await page.locator('.robin-nav-entry[aria-current="page"]').getAttribute("href")).startsWith("/dashboard"));
   await page.goto("/tools");
   assert.equal(await page.locator('main header a').first().getAttribute("href"), "/dashboard");
   assert.deepEqual(writes, []); assert.deepEqual(errors, []);

@@ -30,6 +30,18 @@ try {
         "/api/robin/events": { events: [], google: { connected: false } },
         "/api/robin/tech-events": { events, today: "2026-10-27", scanning: false, scan: null },
       };
+      const scope = new URL(request.url()).searchParams.get("status");
+      if (path === "/api/robin/jobs" && scope) {
+        return route.fulfill({ json: { ...fixtures[path], scope,
+          jobs: scope === "all" ? visibleJobs : visibleJobs.filter(job => job.status === scope),
+          cards: visibleJobs.map(job => ({ status: job.status, ids: [job.id] })),
+          overview: {
+            matches: visibleJobs.filter(job => job.status === "new" && job.score >= 3.75)
+              .map(({ id, company, title, discoveredAt }) => ({ id, company, title, discoveredAt })),
+            notifications: [],
+          },
+        } });
+      }
       if (path.startsWith("/api/robin/tech-events/")) return route.fulfill({ json: { event: events.find(item => item.id === path.split("/").at(-1)), detail: null, today: "2026-10-27" } });
       return route.fulfill({ json: fixtures[path] ?? { todos: [], jobs: [], events: [], links: [], rounds: [], records: [], finals: {} } });
     });

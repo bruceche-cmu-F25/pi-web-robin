@@ -30,11 +30,16 @@ try {
     "/api/robin/links": { links: [] },
     "/api/robin/learning": { practice: practicePlan([], "neetcode150", today), fullstack: fullstackPlan([]) },
   };
-  const writes = [];
+  const writes = [], reads = [];
   await context.route("**/api/**", (route) => {
     const request = route.request();
-    if (request.method() !== "GET") writes.push(`${request.method()} ${new URL(request.url()).pathname}`);
-    return route.fulfill({ json: fixtures[new URL(request.url()).pathname] ?? {} });
+    const url = new URL(request.url());
+    if (request.method() !== "GET") writes.push(`${request.method()} ${url.pathname}`);
+    else reads.push(`${url.pathname}${url.search}`);
+    if (url.pathname === "/api/robin/jobs" && url.searchParams.get("view") === "navigation") {
+      return route.fulfill({ json: { shortlist: 2, hasNew: true } });
+    }
+    return route.fulfill({ json: fixtures[url.pathname] ?? {} });
   });
   const page = await context.newPage();
   const errors = [];
@@ -66,6 +71,8 @@ try {
 
   await page.goto("/dashboard?session=navigation-test");
   await ready("/dashboard");
+  await nav("/dashboard/jobs").locator(".robin-nav-badge").waitFor();
+  assert.equal(await nav("/dashboard/jobs").locator(".robin-nav-badge").textContent(), "2");
   assert.equal(await nav("/dashboard/kanban").count(), 0, "Kanban is no longer a navigation tab");
   // Warm both routes before measuring the actual navigation, not first-time compilation.
   await context.request.get("/dashboard/gmail?session=navigation-test");
@@ -106,8 +113,12 @@ try {
   // Cwd encoding is also retained when there is no active session.
   await page.setViewportSize({ width: 1440, height: 900 });
   const cwd = "/tmp/navigation space/中文";
+  const beforeLearningReads = reads.length;
   await page.goto(`/learn?cwd=${encodeURIComponent(cwd)}`);
   await ready("/learn");
+  await nav("/dashboard/jobs").locator(".robin-nav-badge").waitFor();
+  assert.ok(reads.slice(beforeLearningReads).includes("/api/robin/jobs?view=navigation"));
+  assert.ok(!reads.slice(beforeLearningReads).includes("/api/robin/jobs"), "navigation outside Jobs/Home never downloads the full job board");
   const beforeCwd = await documentId();
   await nav("/dashboard/gmail").click();
   await ready("/dashboard/gmail");

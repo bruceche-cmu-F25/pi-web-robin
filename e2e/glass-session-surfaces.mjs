@@ -55,10 +55,11 @@ try {
       return route.fulfill({ json: fixtures[path] ?? {} });
     });
     const page = await context.newPage(); page.on('pageerror', e => errors.push(e.message));
-    const material = async (selector, kind) => page.waitForFunction(({ selector, kind }) => {
+    const material = async (selector, kind, svg = true) => page.waitForFunction(({ selector, kind, svg }) => {
       const el = document.querySelector(selector);
-      return el && getComputedStyle(el).getPropertyValue('--glass-material').trim() === kind && !!el.dataset.glassRefraction;
-    }, { selector, kind });
+      return el && getComputedStyle(el).getPropertyValue('--glass-material').trim() === kind
+        && (svg ? !!el.dataset.glassRefraction : !el.dataset.glassRefraction && getComputedStyle(el).backdropFilter.startsWith('blur('));
+    }, { selector, kind, svg });
     const topAction = async name => {
       const action = page.locator('.pi-topbar').getByRole('button', { name, exact: true });
       if (!(await action.isVisible())) await page.locator('[data-mobile-toolbar-more]').click();
@@ -66,7 +67,7 @@ try {
     };
     await page.goto('/?session=glass-fixture');
     await page.locator('.chat-input-textarea').fill('Unsent draft');
-    await material('.pi-topbar', 'clear');
+    await material('.pi-topbar', 'clear', false);
     for (const name of ['System prompt', 'Tool definitions', 'Branches']) {
       await topAction(name);
       const panel = page.locator('.pi-topbar-panel'); await panel.waitFor();
@@ -101,7 +102,7 @@ try {
     }
     await topAction('Search current session (Ctrl/⌘ F)');
     const search = page.locator('[data-session-search-bar]');
-    await material('[data-session-search-bar]', 'clear');
+    await material('[data-session-search-bar]', 'clear', false);
     await search.locator('input').click();
     assert.equal(await page.locator('.pi-topbar-panel').count(), 0, 'Search is not covered by a top panel');
     await search.locator('input').fill('fixture');
