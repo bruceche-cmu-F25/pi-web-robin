@@ -6,7 +6,7 @@ Its saved-slot list is folded in compact mode but remains available for logging,
 undoing and releasing work; `compact=false` still shows it directly.
 See [Daily workspace](dashboard-workspace.md). It combines existing todos and the local +
 connected Google calendar without creating another task collection. The ordinary
-Todo/Kanban views and the daily work queue remain usable.
+Todo views and the daily work queue remain usable.
 
 ## Low-friction flow
 
@@ -51,7 +51,7 @@ Todo/Kanban views and the daily work queue remain usable.
 - Deadlines sort first and work is placed as early as possible. Work on its due
   date is explicitly flagged as lacking a full-day buffer. Overdue tasks require
   review; the existing Todo Continue decision permits work without rewriting the
-  old deadline. Date-only Kanban work commitments are respected and charged even
+  old deadline. Previously saved date-only work commitments are respected and charged even
   if not selected here. Including one converts it into concrete slots no earlier
   than its chosen work date.
 - Confirmed slots stay put by default. **Replan selected tasks' future slots**
@@ -112,9 +112,7 @@ Todo/Kanban views and the daily work queue remain usable.
   are distinct effort slots, not six copies of the whole task. Labels never
   change the task title, block identity or total reserved effort.
   Calendar editors treat the projection as read-only and link back to the planner;
-  source filtering includes it under Local, not Google. Kanban includes these work
-  dates, excludes already slotted tasks from its older day-only generator, and
-  charges their duration/task count once.
+  source filtering includes it under Local, not Google.
 - Generation fails closed when a connected calendar is incomplete. Disconnected
   Google is explicitly local-only. Only entries with both start and end times reserve time.
   All-day/date-only entries (including multi-day ones) stay visible in the all-day

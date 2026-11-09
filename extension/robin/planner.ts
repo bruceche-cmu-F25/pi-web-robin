@@ -115,7 +115,7 @@ export function scheduleWeek(todos: Todo[], events: DashboardEvent[], selected: 
     }
     const booked = retained.filter((b) => b.date === date && (b.done || !blockHasEnded(b, today, nowMinute)));
     for (const block of booked) busy.push([minute(block.start) - 15, minute(block.end) + 15]);
-    // A dated Kanban commitment without a slot still consumes time. Reserve
+    // A saved date-only commitment without a slot still consumes time. Reserve
     // its estimate in a real gap rather than scheduling over invisible work.
     const dayPlans = todos.filter((t) => !t.done && !t.archivedAt && t.plannedOn === date && !t.workPlan?.blocks.length && !chosen.has(t.id));
     for (const task of dayPlans) {

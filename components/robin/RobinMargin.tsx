@@ -8,7 +8,6 @@ import { useI18n } from "@/hooks/useI18n";
 import { useIsSplitLayout } from "@/hooks/useIsMobile";
 import { setNavigationPlacement, useNavigationPlacement } from "@/hooks/useNavigationPlacement";
 import { getInitialNavigation } from "@/lib/initial-navigation";
-import { hermesHrefForHost } from "@/lib/hermes-navigation";
 import { triageOf, type MailReview } from "@/extension/robin/mail";
 import type { Job } from "@/extension/robin/jobs";
 import type { PracticeRecord } from "@/extension/robin/practice";
@@ -202,10 +201,6 @@ export function RobinMargin({ drawer, onClose, onNavigate, chatContext }: {
       ? `${path}?cwd=${encodeURIComponent(cwd)}`
       : path;
   const chatHref = withChatContext("/");
-  const [hermesHref, setHermesHref] = useState<string | null>(null);
-  useEffect(() => {
-    setHermesHref(hermesHrefForHost(window.location.hostname));
-  }, []);
 
   const todos = usePolledResource<TodosResponse>("/api/robin/todos", 60_000).data;
   const gmail = usePolledResource<GmailResponse>("/api/robin/gmail", 60_000).data;
@@ -245,7 +240,7 @@ export function RobinMargin({ drawer, onClose, onNavigate, chatContext }: {
       tone: "clay",
       status: { count: dashboardActions },
       exact: true,
-      covers: ["/recordings", "/tools", "/dashboard/kanban"],
+      covers: ["/recordings", "/tools"],
     },
     {
       href: withChatContext("/dashboard/gmail"),
@@ -387,16 +382,6 @@ export function RobinMargin({ drawer, onClose, onNavigate, chatContext }: {
         {utilityItems.map((item) => (
           <NavEntry key={item.path} item={item} pathname={pathname} onNavigate={onNavigate} />
         ))}
-        {hermesHref && (
-          <a href={hermesHref} rel="noreferrer" className="robin-nav-entry" onClick={onNavigate} data-nav-label="Hermes">
-            <span className="robin-nav-icon" style={{ color: "var(--todo-slate)" }}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-                <path d="M14 3h7v7M21 3l-9 9M10 5H3v16h16v-7" />
-              </svg>
-            </span>
-            <span className="robin-nav-label">Hermes</span>
-          </a>
-        )}
       </nav>
       </>}
     </div>

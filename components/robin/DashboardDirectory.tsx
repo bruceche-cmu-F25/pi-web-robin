@@ -10,7 +10,6 @@ const GROUPS = [
   { key: "work", tone: "slate", items: [
     { href: "/dashboard/gmail", key: "inbox", label: "robin.nav.gmail", icon: "M3 6h18v13H3zM3 6l9 7 9-7" },
     { href: "/dashboard/jobs", key: "jobs", label: "robin.nav.jobs", icon: "M3 7h18v13H3zM8 7V4h8v3M3 12h18M10 12v3h4v-3" },
-    { href: "/dashboard/kanban", key: "kanban", label: "robin.nav.kanban", icon: "M3 3h18v18H3zM9 3v18M15 3v18M5 7h2M11 7h2M17 7h2M5 11h2M11 11h2M5 15h2" },
   ] },
   { key: "knowledge", tone: "teal", items: [
     { href: "/learn", key: "learn", label: "robin.nav.learn", icon: "M3 4h5a4 4 0 014 4v13a4 4 0 00-4-3H3zM21 4h-5a4 4 0 00-4 4v13a4 4 0 014-3h5z" },

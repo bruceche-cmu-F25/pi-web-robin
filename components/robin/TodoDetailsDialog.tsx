@@ -58,7 +58,7 @@ function TaskForm({ initial, onSaved, onClose, closeRef }: {
     onSaved(todo);
   };
   const reload = async () => {
-    if (lock.current || (dirty && !window.confirm(t("robin.kanban.reloadEdits")))) return;
+    if (lock.current || (dirty && !window.confirm(t("daily.reloadEdits")))) return;
     lock.current = true; setBusy(true); setReceipt(false);
     try {
       const response = await fetch("/api/robin/todos");

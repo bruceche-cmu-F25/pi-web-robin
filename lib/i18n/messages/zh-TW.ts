@@ -57,7 +57,6 @@ export const zhTWLocale: LocalePlugin = {
     "daily.directory.preferences": "偏好設定",
     "daily.directory.inboxHint": "查看郵件、AI 週報與播客",
     "daily.directory.jobsHint": "職位、履歷、面試與活動",
-    "daily.directory.kanbanHint": "按階段推進專案中的任務",
     "daily.directory.learnHint": "學課程、刷題與安排複習",
     "daily.directory.notesHint": "寫筆記、畫布與心智圖",
     "daily.directory.obsidianHint": "瀏覽本機筆記與雙向連結",

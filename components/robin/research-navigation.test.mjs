@@ -21,7 +21,8 @@ test("research URLs preserve explicit view and paper/conversation scope", () => 
 test("retired reference pages, capability map and standalone prototypes are no longer served", async () => {
   const paths = [
     ...["heat", "brief", "report", "code", "run", "urrag"].map(name => `app/research/${name}/page.tsx`),
-    "app/learn/map/page.tsx", "public/design/rounded-surfaces.html",
+    "app/learn/map/page.tsx", "app/dashboard/kanban/page.tsx", "app/api/robin/kanban/route.ts",
+    "public/design/rounded-surfaces.html",
     "public/prototypes/global-sidebar.html", "public/prototypes/learning-atlas.html",
   ];
   for (const path of paths) await assert.rejects(access(new URL(`../../${path}`, import.meta.url)), { code: "ENOENT" });
@@ -43,9 +44,11 @@ test("research resources use the live project links and share one rail across al
   }
 });
 
-test("global navigation owns Kanban and CRM; toolbox returns to an existing page", async () => {
+test("global navigation owns tools and CRM without retired Kanban entries", async () => {
   const margin = await read("./RobinMargin.tsx");
-  assert.match(margin, /covers: \["\/recordings", "\/tools", "\/dashboard\/kanban"\]/);
+  assert.match(margin, /covers: \["\/recordings", "\/tools"\]/);
+  assert.doesNotMatch(margin, /kanban/i);
+  assert.doesNotMatch(await read("./DashboardDirectory.tsx"), /kanban/i);
   assert.match(margin, /icon: ProductIcon,[\s\S]*?covers: \["\/outreach"\]/);
   const toolbox = await read("./ToolboxWorkspace.tsx");
   assert.doesNotMatch(toolbox, /dashboard-tools/);

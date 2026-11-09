@@ -218,20 +218,3 @@ export function reviewTodo(ref: TodoRef, decision: unknown): TodoResult<Todo> {
 export function todoRevision(todos: Todo[]): string {
   return createHash("sha256").update(JSON.stringify(todos)).digest("hex");
 }
-
-/** Batch acceptance is all-or-nothing, including the stale snapshot check. */
-export function applyTodoPlan(expectedRevision: string, items: { id: string; plannedOn: string; estimateMinutes: number }[]): void {
-  updateTaskRecords<Todo, void>("todos", (todos) => {
-    if (todoRevision(todos) !== expectedRevision) throw new Error("Tasks changed; regenerate the plan before accepting");
-    const seen = new Set<string>();
-    for (const item of items) {
-      const todo = todos.find((entry) => entry.id === item.id);
-      if (!todo || todo.done || todo.archivedAt || todo.plannedOn || seen.has(item.id)) throw new Error("Task is no longer available for planning");
-      const estimated = !todo.estimateMinutes || todo.estimateSource === "agent";
-      applyPatch(todo, { plannedOn: item.plannedOn, estimateMinutes: item.estimateMinutes });
-      if (estimated) todo.estimateSource = "agent";
-      seen.add(item.id);
-    }
-    return { value: undefined, changed: items.length > 0 };
-  });
-}

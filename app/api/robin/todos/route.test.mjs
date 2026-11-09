@@ -9,7 +9,7 @@ import { resetTaskStore } from "../../../../extension/robin/task-store.test-supp
 const jiti = createJiti(import.meta.url, { tsconfigPaths: true });
 const { GET, POST, PATCH, DELETE } = await jiti.import("./route.ts");
 const previous = process.env.ROBIN_DATA_DIR;
-const directory = mkdtempSync(join(tmpdir(), "robin-kanban-api-"));
+const directory = mkdtempSync(join(tmpdir(), "robin-todos-api-"));
 process.env.ROBIN_DATA_DIR = directory;
 after(() => {
   rmSync(directory, { recursive: true, force: true });
@@ -23,7 +23,7 @@ const request = (method, body, origin) => new Request("http://localhost:30141/ap
   ...(body ? { body: JSON.stringify(body) } : {}),
 });
 
-test("Kanban HTTP writes share the dashboard collection and preserve done compatibility", async () => {
+test("Todo HTTP writes share the dashboard collection and preserve done compatibility", async () => {
   const created = await POST(request("POST", { title: "Board task", status: "doing" }));
   assert.equal(created.status, 200);
   const { todo } = await created.json();

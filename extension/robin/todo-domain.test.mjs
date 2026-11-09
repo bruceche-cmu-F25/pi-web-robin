@@ -135,7 +135,7 @@ test("Todo listing preserves completed history, including legacy timestamps", ()
   assert.equal(readFileSync(todosFile, "utf8"), original, "reading must never erase history");
 });
 
-test("Kanban workflow keeps completion, tools and existing checkbox writes in sync", () => {
+test("Todo workflow keeps completion, tools and existing checkbox writes in sync", () => {
   const todo = addTodo({ title: "Build board", due: "2026-11-01", url: "example.com/task" }).todo;
   assert.equal(todoStatus(todo), "todo");
   const doing = updateTodo({ id: todo.id }, { status: "doing" });
@@ -162,7 +162,7 @@ test("Kanban workflow keeps completion, tools and existing checkbox writes in sy
   assert.equal(updateTodo({ id: todo.id }, { done: true }).status, "done");
 });
 
-test("Kanban accepts direct creation, derives legacy columns and rejects invalid writes atomically", () => {
+test("Todo status accepts direct creation, derives legacy states and rejects invalid writes atomically", () => {
   assert.equal(todoStatus({ done: false }), "todo");
   assert.equal(todoStatus({ done: true }), "done");
   assert.equal(todoStatus({ done: true, status: "doing" }), "done");

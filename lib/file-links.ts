@@ -2,7 +2,7 @@
 // list aligned with app/**/page.tsx (the route-coverage test checks it). Explicit
 // file: URLs still open an actual file even when its name matches a route.
 const APP_PAGES = new Set([
-  "/", "/login", "/dashboard", "/dashboard/settings", "/dashboard/kanban",
+  "/", "/login", "/dashboard", "/dashboard/settings",
   "/dashboard/jobs", "/dashboard/jobs/resume", "/dashboard/events", "/dashboard/gmail", "/dashboard/ai-weekly",
   "/learn", "/learn/roadmap", "/learn/fullstack", "/learn/watch", "/learn/gpt2", "/learn/fso",
   "/tools", "/tools/mac", "/recordings", "/product", "/product/jarvis", "/product/validation",
